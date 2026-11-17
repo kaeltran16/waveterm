@@ -1,13 +1,15 @@
 // Scenario `transcript-base`: the transcript's anatomy over plain entries (transcriptlayout.ts): each finished turn's
 // work folded into one "Worked for N" line that opens to its step boxes and cards, a running step's live elapsed, a
 // wsh change call as a standalone row inside its turn's fold while a failed one stays a step, a queued message
-// splitting a turn's fold in two, consecutive thoughts merged into one clamped thought that stays clamped under
-// renderAll and opens under unfold (as does a long bubble), a heredoc step's derived title, a cd-prefixed command's
-// preview, turns started by a background notification, a background notice's muted row, and a slash command's printed output under its row. The fold checks run at the Rendered column's width and at a card's (compact).
+// splitting a turn's fold in two, consecutive thoughts merged into one block drawn in full, a long bubble clamped under
+// renderAll and open under unfold, a heredoc step's derived title, a cd-prefixed command's preview, turns started by a
+// background notification, each notification's label by its source, a background notice's muted row, and a slash
+// command's printed output under its row. The fold checks run at the Rendered column's width and at a card's (compact).
 // Step rows: merged edits to one file, the duration floor, one title colour for done and running rows, a failed
 // call's error, a refused command's note, and the Raw output toggle under a wsh view.
+// Cards: a finished turn's diff and test cards draw as their header until clicked; the latest turn's draw open.
 
-import { bash, clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
+import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -145,7 +147,7 @@ const EVENTS = [
     { kind: "compaction", trigger: "auto", preTokens: 182_000, postTokens: 41_000, summary: "Kept: the retry fix and its test." },
     { kind: "command", name: "/review", args: "src/retry.js", ts: T0 },
     { kind: "command", name: "superpowers:brainstorming", isSkill: true, ts: T0 + S },
-    { kind: "notification", summary: "Explore: find every caller of retry() and how it sets the delay", status: "completed", result: "Both callers pass a fixed delay." },
+    { kind: "notification", summary: "Explore: find every caller of retry() and how it sets the delay", status: "completed", result: "Both callers pass a fixed delay.", source: "subagent" },
     prose("Both callers pass a fixed delay, so the fix covers them. I'll push the branch next.", T0 + 10 * S),
     bash({ description: "Run the release script", command: "npm run release", ts: T0 + 20 * S, pending: true }),
     { kind: "interrupted" },
@@ -434,7 +436,7 @@ const EVENTS_STATE = probe(`
         return el ? { text: el.textContent, justify: getComputedStyle(el).justifyContent } : null;
     };
     const compaction = root.querySelector('[data-compaction] button');
-    const sub = root.querySelector('[data-subagent-finished] button');
+    const sub = root.querySelector('[data-task-notification] button');
     return {
         compaction: compaction?.textContent ?? null,
         compactionOpen: compaction?.getAttribute('aria-expanded') ?? null,
@@ -443,7 +445,7 @@ const EVENTS_STATE = probe(`
         skill: chip('skill'),
         subagent: sub?.textContent ?? null,
         subagentOpen: sub?.getAttribute('aria-expanded') ?? null,
-        result: root.querySelector('[data-subagent-finished]')?.textContent.includes('Both callers pass a fixed delay.') ?? false,
+        result: root.querySelector('[data-task-notification]')?.textContent.includes('Both callers pass a fixed delay.') ?? false,
         mark: text('[data-permission-mark]'),
         stopped: text('[data-step-status="stopped"]'),
         blocked: text('[data-step-status="blocked"]'),
@@ -457,7 +459,7 @@ async function eventsStep(h) {
     // the stopped and the blocked step sit in their turns' folds
     await h.ev(`${R}.querySelectorAll('[data-fold][aria-expanded="false"]').forEach((f) => f.click())`);
     await h.ev(`${R}.querySelector('[data-compaction] button')?.click()`);
-    await h.ev(`${R}.querySelector('[data-subagent-finished] button')?.click()`);
+    await h.ev(`${R}.querySelector('[data-task-notification] button')?.click()`);
     await sleep(MOTION_MS);
     const s = await h.ev(EVENTS_STATE);
     await h.shot("cdp-shots/transcript-base-events.png");
@@ -473,7 +475,8 @@ async function eventsStep(h) {
             (s.skill?.text ?? "").startsWith("✦") &&
             (s.skill?.text ?? "").includes("superpowers:brainstorming") &&
             s.skill?.justify === "flex-end" &&
-            (s.subagent ?? "").startsWith("Subagent finished") &&
+            (s.subagent ?? "").startsWith("Subagent") &&
+            !(s.subagent ?? "").startsWith("Subagent finished") &&
             (s.subagent ?? "").includes("completed") &&
             s.subagentOpen === "true" &&
             s.result &&
@@ -548,86 +551,85 @@ async function queuedStep(h) {
     };
 }
 
-// two thoughts with nothing between them, long enough together to pass the thought's three-line clamp
-const THOUGHT_A =
-    "The retry helper multiplies the delay by the attempt index, and the index starts at zero, so the first retry " +
-    "fires immediately. That matches the 121 ms the test reported, which is one attempt's work and no wait at all.";
-const THOUGHT_B =
-    "Shifting the index by one keeps every later delay where it was and only fixes the first. The queue caller passes " +
-    "its own delay, so it inherits the fix without a change of its own; I will check it anyway before I reply.";
+// five thoughts with nothing between them, far past the three lines the old clamp showed: once standalone, once
+// inside a stretch between two steps
+const FIVE_THOUGHTS = [
+    "The retry helper multiplies the delay by the attempt index, and the index starts at zero, so the first retry fires immediately.",
+    "That matches the 121 ms the test reported, which is one attempt's work and no wait at all.",
+    "Shifting the index by one keeps every later delay where it was and only fixes the first.",
+    "The queue caller passes its own delay, so it inherits the fix without a change of its own.",
+    "I will check the queue caller anyway before I reply, since its delay comes from config.",
+];
+const thoughtsAt = (ts) => FIVE_THOUGHTS.map((text, k) => ({ kind: "thought", text, ts: ts + k * 100 }));
 const THOUGHTS = [
     user("Why does the first retry not wait?", T0),
-    { kind: "thought", text: THOUGHT_A, ts: T0 + S },
-    { kind: "thought", text: THOUGHT_B, ts: T0 + 2 * S },
+    ...thoughtsAt(T0 + S),
     prose("Because the delay is multiplied by an index that starts at zero.", T0 + 3 * S),
+    user("Check the queue caller too.", T0 + 60 * S),
+    bash({ description: "Read the config", command: "cat config.json", output: "{}", ts: T0 + 61 * S, durationMs: 100 }),
+    ...thoughtsAt(T0 + 62 * S),
+    bash({ description: "Run the test", command: "node test.js", output: "ok", ts: T0 + 64 * S, durationMs: 300 }),
+    prose("The queue caller is fine.", T0 + 66 * S),
 ];
 
 const THOUGHT_STATE = probe(`
-    const thoughts = [...root.querySelectorAll('[data-thought]')];
-    const t = thoughts[0];
-    const more = t?.querySelector('[data-clamp-more]') ?? null;
-    const text = t?.firstElementChild;
     return {
-        count: thoughts.length,
-        text: t?.textContent ?? null,
-        more: more?.textContent ?? null,
-        height: text ? text.clientHeight : 0,
-        hidden: text ? text.scrollHeight > text.clientHeight + 1 : null,
+        more: root.querySelectorAll('[data-clamp-more]').length,
+        thoughts: [...root.querySelectorAll('[data-thought]')].map((t) => {
+            const text = t.firstElementChild;
+            return { text: t.textContent, inStretch: !!t.closest('[data-steps]'), hidden: text ? text.scrollHeight > text.clientHeight + 1 : null };
+        }),
     };
 `);
 
 async function thoughtStep(h) {
     await showTranscript(h, { entries: THOUGHTS, width: 736, thoughts: true });
-    const closed = await h.ev(THOUGHT_STATE);
-    await h.ev(`${R}.querySelector('[data-thought] [data-clamp-more]')?.click()`);
-    await sleep(MOTION_MS);
-    const opened = await h.ev(THOUGHT_STATE);
+    await openFolds(h);
+    const s = await h.ev(THOUGHT_STATE);
     await h.shot("cdp-shots/transcript-base-thought.png");
     return {
-        step: "Thoughts: two consecutive thoughts draw as one clamped thought whose Show more opens it whole",
+        step: "Thoughts: five consecutive thoughts draw as one block in full with no Show more, standalone and inside a stretch",
         ok:
-            closed != null &&
-            closed.count === 1 &&
-            closed.text.includes("fires immediately") &&
-            closed.text.includes("inherits the fix") &&
-            closed.more === "Show more" &&
-            closed.hidden === true &&
-            opened?.more === "Show less" &&
-            opened.hidden === false &&
-            opened.height > closed.height,
-        detail: JSON.stringify({ closed, opened }),
+            s != null &&
+            s.more === 0 &&
+            s.thoughts.length === 2 &&
+            JSON.stringify(s.thoughts.map((t) => t.inStretch)) === JSON.stringify([false, true]) &&
+            s.thoughts.every((t) => t.hidden === false && FIVE_THOUGHTS.every((f) => t.text.includes(f))),
+        detail: JSON.stringify(s),
     };
 }
 
-// a prompt of ten lines, past the bubble's eight-line clamp, before the two thoughts
+// a prompt of ten lines, past the bubble's eight-line clamp, its eighth line ending on a full stop where the clamp falls
 const LONG_PROMPT = Array.from({ length: 10 }, (_, i) => `Line ${i + 1} of the pasted spec.`).join("\n");
-const LONG_TURN = [{ kind: "user", text: LONG_PROMPT, ts: T0 - S }, ...THOUGHTS.slice(1)];
+const LONG_TURN = [{ kind: "user", text: LONG_PROMPT, ts: T0 - S }, prose("Read it.", T0)];
 
 const CLAMP_STATE = probe(`
-    const more = (sel) => root.querySelector(sel + ' [data-clamp-more]')?.textContent ?? null;
-    return { thought: more('[data-thought]'), bubble: more('[data-user-bubble]') };
+    const bubble = root.querySelector('[data-user-bubble] [data-find-turn]');
+    return {
+        bubble: root.querySelector('[data-user-bubble] [data-clamp-more]')?.textContent ?? null,
+        // the CSS line clamp draws an ellipsis after the cut line's full stop, which reads "...."
+        lineClamp: bubble ? getComputedStyle(bubble).webkitLineClamp : null,
+    };
 `);
 
-// renderAll (a whole session loaded) only lifts the item cap: the thought and the bubble stay clamped. unfold (a find
-// is active) drops both clamps, so a match never sits in hidden text.
+// renderAll (a whole session loaded) only lifts the item cap: the bubble stays clamped. unfold (a find is active) drops
+// the clamp, so a match never sits in hidden text.
 async function clampModeStep(h) {
-    await showTranscript(h, { entries: LONG_TURN, width: 736, thoughts: true, renderAll: true });
+    await showTranscript(h, { entries: LONG_TURN, width: 736, renderAll: true });
     const all = await h.ev(CLAMP_STATE);
-    await h.ev(`${R}.querySelector('[data-thought] [data-clamp-more]')?.click()`);
+    await h.shot("cdp-shots/transcript-base-bubble-clamp.png");
     await h.ev(`${R}.querySelector('[data-user-bubble] [data-clamp-more]')?.click()`);
     await sleep(MOTION_MS);
     const allOpened = await h.ev(CLAMP_STATE);
-    await showTranscript(h, { entries: LONG_TURN, width: 736, thoughts: true, renderAll: true, unfold: true });
+    await showTranscript(h, { entries: LONG_TURN, width: 736, renderAll: true, unfold: true });
     const unfolded = await h.ev(CLAMP_STATE);
     return {
-        step: "Clamp: with renderAll the thought and bubble keep a working Show more; with unfold neither has one",
+        step: "Clamp: with renderAll the bubble keeps a working Show more and no ellipsis at its cut; with unfold it has none",
         ok:
-            all?.thought === "Show more" &&
-            all.bubble === "Show more" &&
-            allOpened?.thought === "Show less" &&
-            allOpened.bubble === "Show less" &&
-            unfolded?.thought === null &&
-            unfolded.bubble === null,
+            all?.bubble === "Show more" &&
+            all.lineClamp === "none" &&
+            allOpened?.bubble === "Show less" &&
+            unfolded?.bubble === null,
         detail: JSON.stringify({ all, allOpened, unfolded }),
     };
 }
@@ -752,7 +754,7 @@ const NOTICE_STATE = probe(`
         head: btn?.textContent ?? null,
         expanded: btn?.getAttribute('aria-expanded') ?? null,
         body: row?.querySelector('[data-notice-body]')?.textContent ?? null,
-        subagent: root.querySelectorAll('[data-subagent-finished]').length,
+        subagent: root.querySelectorAll('[data-task-notification]').length,
         bordered: btn ? getComputedStyle(btn).borderTopWidth : null,
     };
 `);
@@ -766,7 +768,7 @@ async function noticeStep(h) {
     await h.shot("cdp-shots/transcript-base-notice.png");
     const [first, second] = NOTICE_TEXT.split("\n");
     return {
-        step: "Notice: a multi-line background notice is one muted row, not the Subagent finished box, and a click opens its full text",
+        step: "Notice: a multi-line background notice is one muted row, not the notification box, and a click opens its full text",
         ok:
             closed != null &&
             closed.subagent === 0 &&
@@ -1109,6 +1111,184 @@ async function rawToggleStep(h) {
     };
 }
 
+// three finished turns: the first holds a one-file diff card, a failing test card and an image read, the last a
+// two-file diff card. Only the last is the latest turn, so only its cards draw open.
+const PNG_B64 =
+    "iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAKUlEQVR4nGOwjr5NFcQwatCAGvT/ijVBNGrQqEGjBlFuEHlo1CA6GgQAVAGWvgpgH7IAAAAASUVORK5CYII=";
+const diffOf = (path) => [
+    `diff --git a/${path} b/${path}`,
+    "index 1111111..2222222 100644",
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    "@@ -6,3 +6,4 @@",
+    "     } catch (e) {",
+    "-      await sleep(delayMs * i);",
+    "+      await sleep(delayMs * (i + 1));",
+    "+      attempts++;",
+    "     }",
+];
+const CARD_TURNS = [
+    user("Fix the retry, run the tests and look at the screenshot.", T0),
+    bash({ description: "Show the diff", command: "git diff", output: diffOf("src/retry.js").join("\n"), ts: T0 + S, durationMs: 100 }),
+    bash({ description: "Run the test suite", command: "npx vitest run", output: VITEST_OUT, exit: 1, ts: T0 + 2 * S, durationMs: 3_200 }),
+    tool("read", "shot.png", { ts: T0 + 6 * S, durationMs: 50, images: [{ mediaType: "image/png", data: PNG_B64 }] }),
+    prose("Fixed; one test still fails.", T0 + 8 * S),
+    user("Read the notes.", T0 + 60 * S),
+    tool("read", "notes.md", { ts: T0 + 61 * S, durationMs: 50 }),
+    prose("Read them.", T0 + 62 * S),
+    user("Show the final diff.", T0 + 120 * S),
+    bash({
+        description: "Show the final diff",
+        command: "git diff",
+        output: [...diffOf("src/retry.js"), ...diffOf("src/queue.js")].join("\n"),
+        ts: T0 + 121 * S,
+        durationMs: 100,
+    }),
+    prose("Two files changed.", T0 + 123 * S),
+];
+
+const CARDS_STATE = probe(`
+    const folds = [...root.querySelectorAll('[data-fold]')];
+    const read = (c) => c ? {
+        head: c.querySelector('[data-card-head]')?.textContent ?? null,
+        expanded: c.querySelector('[data-card-head]')?.getAttribute('aria-expanded') ?? null,
+        body: c.querySelector('[data-card-view]')?.getAttribute('data-card-view') ?? null,
+        // a nested scroll box inside the transcript's own
+        scrolls: [...c.querySelectorAll('*')].some((e) => /auto|scroll/.test(getComputedStyle(e).overflowY)),
+        files: c.querySelectorAll('[data-diff-file]').length,
+        failures: c.querySelectorAll('[data-test-failure]').length,
+        thumbs: c.querySelectorAll('img').length,
+    } : null;
+    const turn = (n) => {
+        const box = folds[n]?.parentElement;
+        const card = (kind) => read(box?.querySelector('[data-tool-card="' + kind + '"]'));
+        return { expanded: folds[n]?.getAttribute('aria-expanded') ?? null, diff: card('git-diff'), test: card('test'), image: card('image') };
+    };
+    return { folds: folds.length, cards: root.querySelectorAll('[data-tool-card]').length, first: turn(0), last: turn(2) };
+`);
+const clickCardHead = (kind) =>
+    probe(`const b = root.querySelector('[data-turn-fold] [data-tool-card="${kind}"] [data-card-head]'); b?.click(); return !!b;`);
+
+async function foldedCardSteps(h) {
+    const steps = [];
+    await showTranscript(h, { entries: CARD_TURNS, width: 736, renderers: true });
+    const closed = await h.ev(CARDS_STATE);
+    await h.shot("cdp-shots/transcript-base-cards-folded.png");
+    steps.push({
+        step: "Folded cards: three finished turns, the first holding a diff, a test and an image card, all draw folded with no card on screen",
+        ok:
+            closed != null &&
+            closed.folds === 3 &&
+            [closed.first.expanded, closed.last.expanded].every((e) => e === "false") &&
+            closed.cards === 0,
+        detail: JSON.stringify(closed),
+    });
+
+    await h.ev(openNthFold(0));
+    await sleep(MOTION_MS);
+    const heads = await h.ev(CARDS_STATE);
+    await h.shot("cdp-shots/transcript-base-cards-headers.png");
+    const { diff, test, image } = heads?.first ?? {};
+    steps.push({
+        step: "Card headers: the opened first turn draws its diff card (files, +/−) and test card (passed/failed) as headers only, no scroll box, and the image read's thumbnails",
+        ok:
+            diff != null &&
+            (diff.head ?? "").includes("1 file") &&
+            (diff.head ?? "").includes("+2") &&
+            (diff.head ?? "").includes("−1") &&
+            diff.expanded === "false" &&
+            diff.body === null &&
+            diff.files === 0 &&
+            diff.scrolls === false &&
+            test != null &&
+            (test.head ?? "").includes("11 passed") &&
+            (test.head ?? "").includes("1 failed") &&
+            test.expanded === "false" &&
+            test.body === null &&
+            test.failures === 0 &&
+            test.scrolls === false &&
+            (image?.thumbs ?? 0) > 0,
+        detail: JSON.stringify(heads),
+    });
+
+    const clicked = [await h.ev(clickCardHead("git-diff")), await h.ev(clickCardHead("test"))];
+    await sleep(MOTION_MS);
+    const opened = await h.ev(CARDS_STATE);
+    await h.ev(probe(`root.querySelector('[data-tool-card="git-diff"]')?.scrollIntoView({ block: "start" }); return true;`));
+    await h.shot("cdp-shots/transcript-base-cards-header-click.png");
+    steps.push({
+        step: "Card header click: a click on the diff card's header and the test card's opens each to its body",
+        ok:
+            clicked.every((c) => c === true) &&
+            opened?.first.diff?.expanded === "true" &&
+            opened.first.diff.body === "parsed" &&
+            opened.first.diff.files === 1 &&
+            opened.first.test?.expanded === "true" &&
+            opened.first.test.failures === 1,
+        detail: JSON.stringify({ clicked, opened }),
+    });
+
+    await h.ev(openNthFold(2));
+    await sleep(MOTION_MS);
+    const last = await h.ev(CARDS_STATE);
+    await h.ev(probe(`root.querySelectorAll('[data-tool-card="git-diff"]')[1]?.scrollIntoView({ block: "center" }); return true;`));
+    await h.shot("cdp-shots/transcript-base-cards-latest.png");
+    steps.push({
+        step: "Latest turn: the last turn's diff card draws open once its fold is opened, both files shown",
+        ok: last?.last.expanded === "true" && last.last.diff?.body === "parsed" && last.last.diff.files === 2,
+        detail: JSON.stringify(last?.last),
+    });
+    return steps;
+}
+
+// background notifications as the projection labels them: a command's and a subagent's own records start turns, a
+// monitor event arrives queued as a notice inside the running turn
+const NOTIFY_COMMAND = 'Background command "Run the suite" completed (exit code 0)';
+const NOTIFY_MONITOR = 'Monitor event: "bench cycle"';
+const NOTIFY_SUBAGENT = 'Agent "Map layout" finished';
+const LABELLED = [
+    user("Run the suite in the background and map the layout.", T0),
+    bash({ description: "Start the suite", command: "npm test &", output: "", ts: T0 + S, durationMs: 100 }),
+    { kind: "notification", summary: NOTIFY_MONITOR, status: "running", notice: true, source: "monitor" },
+    prose("Started both.", T0 + 3 * S),
+    { kind: "notification", summary: NOTIFY_COMMAND, status: "completed", ts: T0 + 60 * S, source: "command" },
+    prose("The suite passed.", T0 + 62 * S),
+    { kind: "notification", summary: NOTIFY_SUBAGENT, status: "completed", result: "The layout lives in transcriptlayout.ts.", ts: T0 + 90 * S, source: "subagent" },
+    prose("The layout is mapped.", T0 + 92 * S),
+];
+
+const LABELS_STATE = probe(`
+    const head = (source) => {
+        const row = root.querySelector('[data-notification-source="' + source + '"]');
+        return row ? { text: row.querySelector('button')?.textContent ?? null, notice: row.hasAttribute('data-notice') } : null;
+    };
+    return { command: head('command'), monitor: head('monitor'), subagent: head('subagent') };
+`);
+
+async function notificationLabelStep(h) {
+    await showTranscript(h, { entries: LABELLED, width: 736 });
+    await openFolds(h);
+    const s = await h.ev(LABELS_STATE);
+    await h.shot("cdp-shots/transcript-base-notification-labels.png");
+    const once = (text, words) => (text ?? "").split(words).length === 2;
+    return {
+        step: 'Notification labels: a background command, a monitor event and a subagent each read their own label, never repeating the summary\'s leading words',
+        ok:
+            s != null &&
+            (s.command?.text ?? "").startsWith("Background command") &&
+            once(s.command.text, "Background command") &&
+            s.command.text.includes('"Run the suite" completed') &&
+            s.monitor?.notice === true &&
+            (s.monitor.text ?? "").startsWith("Monitor") &&
+            !(s.monitor.text ?? "").includes("Monitor event") &&
+            s.monitor.text.includes('"bench cycle"') &&
+            (s.subagent?.text ?? "").startsWith("Subagent") &&
+            s.subagent.text.includes('"Map layout" finished') &&
+            !s.subagent.text.includes("Agent \"Map"),
+        detail: JSON.stringify(s),
+    };
+}
+
 export const transcriptBase = {
     name: "transcript-base",
     surface: "cockpit",
@@ -1138,11 +1318,13 @@ export const transcriptBase = {
         steps.push(await heredocStep(h));
         steps.push(await cdPreviewStep(h));
         steps.push(await notifiedStep(h));
+        steps.push(await notificationLabelStep(h));
         steps.push(await noticeStep(h));
         steps.push(await commandOutputStep(h));
         steps.push(...(await stepRowSteps(h)));
         steps.push(await colourStep(h));
         steps.push(await rawToggleStep(h));
+        steps.push(...(await foldedCardSteps(h)));
         return steps;
     },
     async teardown(h) {

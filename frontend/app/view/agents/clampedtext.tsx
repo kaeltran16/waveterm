@@ -5,8 +5,10 @@ import { cn } from "@/util/util";
 import useResizeObserver from "@react-hook/resize-observer";
 import { useLayoutEffect, useRef, useState } from "react";
 
-// the line clamp per kind of clamped text, spelled out so tailwind sees each class
-export const CLAMP_LINES = { bubble: "line-clamp-[8]", thought: "line-clamp-3", wakeItem: "line-clamp-3" } as const;
+// the clamp per kind of clamped text, in lines of the text's own height, spelled out so tailwind sees each class. A
+// height rather than CSS line-clamp, whose ellipsis lands after a cut line's full stop and reads "...."; Show more
+// already says the text goes on.
+export const CLAMP_LINES = { bubble: "max-h-[8lh] overflow-hidden", wakeItem: "max-h-[3lh] overflow-hidden" } as const;
 
 // Long text clamped behind Show more. The clamp is measured, not estimated, so the toggle only shows when text is
 // really hidden. A find over the transcript (unfold) passes clamp=false, since a match must never sit in hidden text.

@@ -4,12 +4,18 @@
 import { ImageZoom, type ZoomImage } from "@/app/element/imagezoom";
 import { cn } from "@/util/util";
 import { useState } from "react";
+import type { ToolImage } from "./agentsviewmodel";
 
 // a wrapping row of small thumbnails; each opens the shared ImageZoom on its image, so a step card and a bubble
 // show an image without taking its full height
 
 export const THUMB_MAX_HEIGHT_PX = 96;
 export const THUMB_MAX_HEIGHT_COMPACT_PX = 64;
+
+// a tool's base64 images as zoomable images; one place for the data: url and the alt, so a card and a closed row agree
+export function toolZoomImages(images: ToolImage[]): ZoomImage[] {
+    return images.map((img, i) => ({ src: `data:${img.mediaType};base64,${img.data}`, alt: `image output ${i + 1}` }));
+}
 
 export function ImageThumbs({
     images,

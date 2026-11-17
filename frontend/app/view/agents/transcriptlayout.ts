@@ -47,7 +47,15 @@ export type LayoutItem =
     | { kind: "user"; text: string; index: number; images?: ToolImage[]; imagePaths?: string[]; filePaths?: string[] }
     | { kind: "command"; name: string; args?: string; isSkill?: boolean; output?: string; index: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
-    | { kind: "notification"; summary: string; status?: string; result?: string; notice?: true; index: number }
+    | {
+          kind: "notification";
+          summary: string;
+          status?: string;
+          result?: string;
+          notice?: true;
+          source?: "command" | "monitor" | "subagent";
+          index: number;
+      }
     | { kind: "interrupted"; index: number }
     | { kind: "shell"; command: string; stdout?: string; stderr?: string; ts?: number; index: number }
     // latest: the feed's last wake, the only one that draws its sections open
@@ -465,6 +473,7 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                     status: e.status,
                     result: e.result,
                     notice: e.notice,
+                    source: e.source,
                     index: i,
                 });
                 return;

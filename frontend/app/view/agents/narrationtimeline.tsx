@@ -229,25 +229,44 @@ function InterruptedDivider({ compact }: { compact: boolean }) {
     );
 }
 
-// A finished background Task/subagent (<task-notification>): "Subagent finished · summary · status", opening to the
-// child's full result (which can be large) through MarkdownMessage.
+type NotificationSource = Extract<AgentEntry, { kind: "notification" }>["source"];
+
+// each source's label, and the leading words of its summary the label already says (Claude Code writes "Background
+// command "x" completed", "Monitor event: "x"", "Agent "x" finished")
+const NOTIFICATION_LABELS: Record<NonNullable<NotificationSource>, { label: string; lead: RegExp }> = {
+    command: { label: "Background command", lead: /^Background command\b:?\s*/ },
+    monitor: { label: "Monitor", lead: /^Monitor(?: event)?\b:?\s*/ },
+    subagent: { label: "Subagent", lead: /^(?:Sub)?agent\b:?\s*/i },
+};
+
+// a notification's label by its source (fallback when unknown) and its summary without the words the label repeats
+function notificationHead(source: NotificationSource, summary: string, fallback: string): { label: string; text: string } {
+    const known = source != null ? NOTIFICATION_LABELS[source] : undefined;
+    return known ? { label: known.label, text: summary.replace(known.lead, "") } : { label: fallback, text: summary };
+}
+
+// A finished background task (<task-notification> as its own record): "<label> · summary · status", opening to its
+// full result (which can be large) through MarkdownMessage.
 function TaskNotificationRow({
     summary,
     status,
     result,
+    source,
     compact,
 }: {
     summary: string;
     status?: string;
     result?: string;
+    source: NotificationSource;
     compact: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const canExpand = !!result;
     const ok = status == null || status === "completed";
     const tone = ok ? "text-success" : "text-warning";
+    const head = notificationHead(source, summary, "Background task");
     return (
-        <div data-subagent-finished className={compact ? "my-3" : "my-5"}>
+        <div data-task-notification data-notification-source={source} className={compact ? "my-3" : "my-5"}>
             <button
                 type="button"
                 disabled={!canExpand}
@@ -260,8 +279,8 @@ function TaskNotificationRow({
                 )}
             >
                 <GitBranch size={14} strokeWidth={2.2} className={cn("shrink-0", tone)} aria-hidden />
-                <span className="shrink-0 text-secondary">Subagent finished</span>
-                {summary ? <span className="min-w-0 truncate">{summary}</span> : null}
+                <span className="shrink-0 text-secondary">{head.label}</span>
+                {head.text ? <span className="min-w-0 truncate">{head.text}</span> : null}
                 <span className="min-w-[6px] flex-1" />
                 {status ? <span className={cn("shrink-0 text-[12px]", tone)}>{status}</span> : null}
                 {canExpand ? (
@@ -279,24 +298,28 @@ function TaskNotificationRow({
     );
 }
 
-// A background-task notice (a shell finished, a hook skipped): one muted line, not the subagent box. A structured one
-// (with a status) reads "Background task", a free-text one "Notice"; it opens to the whole text when the line hides some.
+// A background-task notice (a shell finished, a hook skipped): one muted line, not the notification box. It reads its
+// source's label; else a structured one (with a status) reads "Background task", a free-text one "Notice". It opens to
+// the whole text when the line hides some.
 function NoticeRow({
     summary,
     status,
     result,
+    source,
     compact,
 }: {
     summary: string;
     status?: string;
     result?: string;
+    source: NotificationSource;
     compact: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const canExpand = summary.includes("\n") || !!result;
     const size = compact ? "text-[12.5px]" : "text-[13.5px]";
+    const head = notificationHead(source, summary.split("\n")[0], status ? "Background task" : "Notice");
     return (
-        <div data-notice className={compact ? "my-2" : "my-3"}>
+        <div data-notice data-notification-source={source} className={compact ? "my-2" : "my-3"}>
             <button
                 type="button"
                 disabled={!canExpand}
@@ -309,8 +332,8 @@ function NoticeRow({
                 )}
             >
                 <Info size={13} strokeWidth={2.2} className="shrink-0" aria-hidden />
-                <span className="shrink-0 text-ink-mid">{status ? "Background task" : "Notice"}</span>
-                <span className="min-w-0 truncate">{summary.split("\n")[0]}</span>
+                <span className="shrink-0 text-ink-mid">{head.label}</span>
+                <span className="min-w-0 truncate">{head.text}</span>
                 {status ? <span className="shrink-0">· {status}</span> : null}
                 {canExpand ? (
                     <span className="flex shrink-0">
@@ -553,8 +576,8 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     compact?: boolean;
     // drawn after the last item, inside the column
     tail?: React.ReactNode;
-    // a find is active: every finished turn's fold draws open and no bubble or thought is clamped, so a match never
-    // sits in hidden text
+    // a find is active: every finished turn's fold draws open and no bubble is clamped, so a match never sits in hidden
+    // text
     unfold?: boolean;
     // consulted for each user prompt and Arc message: a row returned replaces the one the timeline would draw
     entryRow?: (entry: AgentEntry, index: number) => React.ReactNode | null;
@@ -594,7 +617,8 @@ export const NarrationTimeline = memo(function NarrationTimeline({
         ...rows.flatMap((row, idx) => [row, ...markRows(placed.after.get(idx))]),
     ];
 
-    const renderItem = (item: LayoutItem): React.ReactNode => {
+    // latest: the item sits in the live or latest turn, or outside any fold, so its cards draw open
+    const renderItem = (item: LayoutItem, latest = true): React.ReactNode => {
         if (item.kind === "turn") {
             return (
                 <TurnFold
@@ -604,7 +628,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     unfold={!!unfold}
                     compact={isCompact}
                 >
-                    {item.items.map(renderItem)}
+                    {item.items.map((child) => renderItem(child, item.latest))}
                 </TurnFold>
             );
         }
@@ -637,7 +661,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     initial={shouldFadeEntry("thought") ? "initial" : false}
                     animate="animate"
                 >
-                    <ThoughtText text={item.text} clamp={!unfold} compact={isCompact} />
+                    <ThoughtText text={item.text} compact={isCompact} />
                 </motion.div>
             );
         }
@@ -709,9 +733,21 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     animate="animate"
                 >
                     {item.notice ? (
-                        <NoticeRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
+                        <NoticeRow
+                            summary={item.summary}
+                            status={item.status}
+                            result={item.result}
+                            source={item.source}
+                            compact={isCompact}
+                        />
                     ) : (
-                        <TaskNotificationRow summary={item.summary} status={item.status} result={item.result} compact={isCompact} />
+                        <TaskNotificationRow
+                            summary={item.summary}
+                            status={item.status}
+                            result={item.result}
+                            source={item.source}
+                            compact={isCompact}
+                        />
                     )}
                 </motion.div>
             );
@@ -769,7 +805,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     steps={item.steps}
                     thoughts={item.thoughts}
                     renderers={renderers}
-                    clamp={!unfold}
+                    latest={latest}
                     ctx={cardCtx}
                     compact={isCompact}
                 />
@@ -779,7 +815,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
 
     return (
         <div className={cn("leading-relaxed", className)} onMouseDown={armSelectionCopy}>
-            <AnimatePresence initial={false}>{withMarks(visibleItems.map(renderItem))}</AnimatePresence>
+            <AnimatePresence initial={false}>{withMarks(visibleItems.map((item) => renderItem(item)))}</AnimatePresence>
             {tail}
         </div>
     );

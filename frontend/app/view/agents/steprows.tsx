@@ -11,7 +11,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useAtomValue } from "jotai";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
-import { ClampedText } from "./clampedtext";
+import { ImageThumbs, toolZoomImages } from "./imagethumbs";
 import { MarkdownMessage } from "./markdownmessage";
 import { RecordedOutput } from "./recordedoutput";
 import { toolRendererKey } from "./renderregistry";
@@ -230,18 +230,21 @@ function WshViewBody({
     );
 }
 
-// a step's opened body: a wsh read call's structured view, a test or diff card, else the tool detail. A failed call
-// leads with its error; a refused command shows the command, then why it was refused as a note under it
+// a step's opened body: a wsh read call's structured view, a test or diff card (cardCollapsed: its header only), else
+// the tool detail. A failed call leads with its error; a refused command shows the command, then why it was refused as
+// a note under it
 function StepBody({
     step,
     View,
     ctx,
     compact,
+    cardCollapsed,
 }: {
     step: Step;
     View?: ComponentType<WshRendererProps>;
     ctx: TranscriptContext;
     compact: boolean;
+    cardCollapsed: boolean;
 }) {
     const { action } = step;
     const openFull = (
@@ -259,7 +262,7 @@ function StepBody({
         // the card header's own raw toggle offers the output, so the footer holds only the full view
         return (
             <div data-step-card className="mt-2.5">
-                <ToolOutputRenderer action={action} />
+                <ToolOutputRenderer action={action} collapsed={cardCollapsed} />
                 <div className="mt-2 flex justify-end">{openFull}</div>
             </div>
         );
@@ -304,14 +307,17 @@ const HEAD_GAP_PX = { compact: 8, full: 10 };
 
 // One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, however long (the
 // panel scrolls, and "Open full view" holds the modal); a step with neither a body nor a wsh view is a plain row.
+// latest: the step is in the live or latest turn (or outside any fold)
 function StepRow({
     step,
     renderers,
+    latest,
     ctx,
     compact,
 }: {
     step: Step;
     renderers?: boolean;
+    latest: boolean;
     ctx: TranscriptContext;
     compact: boolean;
 }) {
@@ -407,7 +413,9 @@ function StepRow({
                 )}
             </div>
             <PaneReveal open={open}>
-                <StepBody step={step} View={View} ctx={ctx} compact={compact} />
+                {/* a card the rendered view opened on its own, in an older turn, shows its header until clicked; one
+                    the reader opened by its row shows whole */}
+                <StepBody step={step} View={View} ctx={ctx} compact={compact} cardCollapsed={!!renderers && !latest} />
             </PaneReveal>
             {imageCard ? (
                 <div className="mt-2">
@@ -422,15 +430,18 @@ function StepRow({
 function ImageReadsRow({
     steps,
     renderers,
+    latest,
     ctx,
     compact,
 }: {
     steps: Step[];
     renderers?: boolean;
+    latest: boolean;
     ctx: TranscriptContext;
     compact: boolean;
 }) {
     const [open, setOpen] = useState(false);
+    const strip = toolZoomImages(steps.flatMap((s) => s.action.images ?? []));
     return (
         <div data-step data-step-group="images" data-step-status="ok">
             <button
@@ -446,10 +457,19 @@ function ImageReadsRow({
                 <span className="min-w-[6px] flex-1" />
                 {compact ? null : <Affordance open={open} />}
             </button>
+            {/* a sibling of the button, not inside it: a thumbnail is a button too. Once the row opens, each read's own
+                card shows its images */}
+            {renderers && strip.length > 0 ? (
+                <PaneReveal open={!open}>
+                    <div data-image-strip className={compact ? "px-2.5 pb-[7px]" : "px-3.5 pb-2.5"}>
+                        <ImageThumbs images={strip} compact />
+                    </div>
+                </PaneReveal>
+            ) : null}
             <PaneReveal open={open}>
                 <div className={cn("border-t border-edge-faint", compact ? "pl-2.5" : "pl-3.5")}>
                     {steps.map((step) => (
-                        <StepRow key={step.index} step={step} renderers={renderers} ctx={ctx} compact={compact} />
+                        <StepRow key={step.index} step={step} renderers={renderers} latest={latest} ctx={ctx} compact={compact} />
                     ))}
                 </div>
             </PaneReveal>
@@ -457,29 +477,25 @@ function ImageReadsRow({
     );
 }
 
-// what the agent thought between steps (a thinking-only message, consecutive ones merged): muted prose clamped to a few
-// lines, never a step
-export function ThoughtText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
-    return (
-        <ClampedText lines="thought" clamp={clamp}>
-            <MarkdownMessage text={text} className={cn("text-ink-mid", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />
-        </ClampedText>
-    );
+// what the agent thought between steps (a thinking-only message, consecutive ones merged): muted prose drawn in full,
+// never a step; the turn's fold is what keeps it short
+export function ThoughtText({ text, compact }: { text: string; compact: boolean }) {
+    return <MarkdownMessage text={text} className={cn("text-ink-mid", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />;
 }
 
 export function StepBox({
     steps,
     thoughts,
     renderers,
-    clamp,
+    latest,
     ctx,
     compact,
 }: {
     steps: Step[];
     thoughts?: Thought[];
     renderers?: boolean;
-    // clamps a long thought behind Show more
-    clamp: boolean;
+    // the box sits in the live or latest turn, or outside any fold: its cards draw open
+    latest: boolean;
     ctx: TranscriptContext;
     compact: boolean;
 }) {
@@ -504,12 +520,12 @@ export function StepBox({
                     >
                         {row.kind === "thought" ? (
                             <div data-thought className={compact ? "px-2.5 py-[7px]" : "px-3.5 py-2.5"}>
-                                <ThoughtText text={row.text} clamp={clamp} compact={compact} />
+                                <ThoughtText text={row.text} compact={compact} />
                             </div>
                         ) : row.kind === "images" ? (
-                            <ImageReadsRow steps={row.steps} renderers={renderers} ctx={ctx} compact={compact} />
+                            <ImageReadsRow steps={row.steps} renderers={renderers} latest={latest} ctx={ctx} compact={compact} />
                         ) : (
-                            <StepRow step={row.step} renderers={renderers} ctx={ctx} compact={compact} />
+                            <StepRow step={row.step} renderers={renderers} latest={latest} ctx={ctx} compact={compact} />
                         )}
                     </motion.div>
                 ))}
