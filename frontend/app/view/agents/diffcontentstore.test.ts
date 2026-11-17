@@ -18,6 +18,7 @@ import {
     diffPairAtom,
     diffPairFailureAtom,
     loadDiffPair,
+    makeDiffPairSource,
     MAX_DIFF_BYTES,
     retryDiffPair,
 } from "./diffcontentstore";
@@ -247,5 +248,38 @@ describe("a read that fails", () => {
     it("does nothing on retry when nothing was loaded", async () => {
         await retryDiffPair();
         expect(fileAtRef).not.toHaveBeenCalled();
+    });
+});
+
+// the workspace pane's Changes tab reads through its own source, so the Diff surface never shows the tab's file
+describe("a second pair source", () => {
+    it("loads, fails and retries without touching the Diff surface's pair", async () => {
+        fileAtRef.mockImplementation(byMode({ content: "surface\n" }, { content: "surface edited\n" }));
+        await loadDiffPair("/repo", "surface.ts", { kind: "worktree", anchorRef: "HEAD" });
+        const tab = makeDiffPairSource();
+
+        fileAtRef.mockImplementation(byMode({ content: "tab\n" }, { content: "tab edited\n" }));
+        await tab.load("/repo", "tab.ts", { kind: "worktree", anchorRef: "abc123" });
+        expect(globalStore.get(tab.pairAtom)).toMatchObject({ path: "tab.ts", original: "tab\n" });
+        fileAtRef.mockRejectedValue(new Error("boom"));
+        await tab.load("/repo", "other.ts", { kind: "worktree", anchorRef: "abc123" });
+        expect(globalStore.get(tab.failureAtom)).toBe("boom");
+
+        expect(globalStore.get(diffPairAtom)).toMatchObject({ path: "surface.ts", modified: "surface edited\n" });
+        expect(globalStore.get(diffPairFailureAtom)).toBeNull();
+    });
+
+    it("retries its own last read, not the Diff surface's", async () => {
+        const tab = makeDiffPairSource();
+        fileAtRef.mockRejectedValue(new Error("boom"));
+        await tab.load("/repo", "tab.ts", { kind: "worktree", anchorRef: "abc123" });
+        fileAtRef.mockResolvedValue({ content: "surface\n" });
+        await loadDiffPair("/repo", "surface.ts", { kind: "commit", hash: "aaa" });
+
+        fileAtRef.mockReset();
+        fileAtRef.mockImplementation(byMode({ content: "a\n" }, { content: "b\n" }));
+        await tab.retry();
+        expect(globalStore.get(tab.pairAtom)).toMatchObject({ path: "tab.ts", original: "a\n", modified: "b\n" });
+        expect(fileAtRef).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ path: "surface.ts" }));
     });
 });
