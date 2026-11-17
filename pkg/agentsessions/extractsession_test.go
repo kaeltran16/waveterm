@@ -62,6 +62,36 @@ func TestExtractSessionDedupesUsageByMessageId(t *testing.T) {
 	}
 }
 
+// Usage bills a session's subagent transcripts to it, so Sessions must count them too
+func TestExtractSessionCountsSubagentTranscripts(t *testing.T) {
+	path := writeTranscript(t, []string{
+		`{"type":"user","cwd":"/repo","message":{"content":"delegate"}}`,
+		`{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":10,"output_tokens":5}}}`,
+	})
+	sub := filepath.Join(filepath.Dir(path), "session", "subagents")
+	nested := filepath.Join(sub, "agent-1")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	child := `{"type":"assistant","isSidechain":true,"message":{"id":"s1","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":100,"output_tokens":20}}}`
+	for _, p := range []string{filepath.Join(sub, "agent-1.jsonl"), filepath.Join(nested, "agent-2.jsonl")} {
+		// the repeated record is one message written per content block: counted once
+		if err := os.WriteFile(p, []byte(child+"\n"+child+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(sub, "notes.txt"), []byte(child+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := ExtractSession(path, "claude")
+	if err != nil || s == nil {
+		t.Fatalf("session = %v, err = %v", s, err)
+	}
+	if want := 15 + 120 + 120; s.TokensTotal != want {
+		t.Errorf("TokensTotal = %d, want %d", s.TokensTotal, want)
+	}
+}
+
 func TestExtractSessionUnknownRuntime(t *testing.T) {
 	path := writeTranscript(t, []string{`{"type":"user","message":{"content":"x"}}`})
 	if _, err := ExtractSession(path, "nope"); err == nil {

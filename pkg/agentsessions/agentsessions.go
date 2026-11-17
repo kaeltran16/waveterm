@@ -211,11 +211,9 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 	if len(recs) > 0 && recs[0].IsSidechain {
 		return nil // a subagent's transcript; its parent holds the Task prompt and result
 	}
-	s := &SessionInfo{ID: id}
+	s := &SessionInfo{ID: id, TokensTotal: claudeTokens(recs)}
 	hasTask := false
 	fallback := ""
-	// claude writes one record per content block of a message, each repeating the message's usage
-	byMessage := map[string]*struct{ total, output int }{}
 	for _, rec := range recs {
 		if agentobserve.IsHeadlessEntrypoint(rec.Entrypoint) {
 			return nil
@@ -229,15 +227,6 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 		}
 		if rec.Message.Model != "" {
 			s.Model = rec.Message.Model // last assistant model wins
-		}
-		if rec.Message.Usage != nil {
-			u := rec.Message.Usage
-			total := u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
-			if rec.Message.ID == "" {
-				s.TokensTotal += total
-			} else if cur := byMessage[rec.Message.ID]; cur == nil || u.OutputTokens > cur.output {
-				byMessage[rec.Message.ID] = &struct{ total, output int }{total, u.OutputTokens}
-			}
 		}
 		if !hasTask && rec.Type == "user" {
 			raw := stringContent(rec.Message.Content)
@@ -257,9 +246,6 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 			}
 		}
 	}
-	for _, m := range byMessage {
-		s.TokensTotal += m.total
-	}
 	if !hasTask && fallback != "" {
 		s.Task = trimTo(fallback, maxTaskLen)
 		hasTask = true
@@ -268,6 +254,44 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 		return nil
 	}
 	return s
+}
+
+// claudeTokens sums a transcript's usage the way usagestats does, so Sessions and the Agent rail agree.
+func claudeTokens(recs []claudeLine) int {
+	total := 0
+	// claude writes one record per content block of a message, each repeating the message's usage
+	byMessage := map[string]struct{ total, output int }{}
+	for _, rec := range recs {
+		u := rec.Message.Usage
+		if u == nil {
+			continue
+		}
+		t := u.InputTokens + u.OutputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens
+		if rec.Message.ID == "" {
+			total += t
+		} else if cur, ok := byMessage[rec.Message.ID]; !ok || u.OutputTokens > cur.output {
+			byMessage[rec.Message.ID] = struct{ total, output int }{t, u.OutputTokens}
+		}
+	}
+	for _, m := range byMessage {
+		total += m.total
+	}
+	return total
+}
+
+// claudeSubagentTokens sums the transcripts under <session>/subagents (nested ones too), which Usage bills
+// to the session. They are read when the parent's transcript is, so a running subagent's tokens show once
+// the parent next writes.
+func claudeSubagentTokens(path string) int {
+	total := 0
+	dir := filepath.Join(strings.TrimSuffix(path, ".jsonl"), claudeSubagentsDir)
+	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".jsonl") {
+			total += claudeTokens(parseClaudeLines(readLines(p)))
+		}
+		return nil
+	})
+	return total
 }
 
 // shellRunCommand is the command of a `!` input record, "" for any other text.
@@ -756,12 +780,13 @@ func claudeProvider(root string) provider {
 		// Task subagents write <session>/subagents/agent-*.jsonl: sidechains, never a session of their own
 		skipDir: func(_, path string) bool { return filepath.Base(path) == claudeSubagentsDir },
 		// one shared unmarshal pass for every derivation — claude transcripts dominate the scan cost
-		fused: func(_ string, id string, lines []string) (*SessionInfo, sessionEvents, []Turn, error) {
+		fused: func(path string, id string, lines []string) (*SessionInfo, sessionEvents, []Turn, error) {
 			recs := parseClaudeLines(lines)
 			s := claudeSessionFrom(id, recs)
 			if s == nil {
 				return nil, sessionEvents{}, nil, nil
 			}
+			s.TokensTotal += claudeSubagentTokens(path)
 			return s, claudeEventsFrom(recs), claudeTurns(recs), nil
 		},
 		resumeCmd: func(s *SessionInfo) string { return "claude --resume " + s.ID },
