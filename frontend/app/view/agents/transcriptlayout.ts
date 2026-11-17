@@ -42,7 +42,7 @@ export type LayoutItem =
     | { kind: "thought"; text: string; index: number }
     // images: pasted; imagePaths/filePaths: the trailing attachments block's paths, split by kind
     | { kind: "user"; text: string; index: number; images?: ToolImage[]; imagePaths?: string[]; filePaths?: string[] }
-    | { kind: "command"; name: string; args?: string; isSkill?: boolean; index: number }
+    | { kind: "command"; name: string; args?: string; isSkill?: boolean; output?: string; index: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
     | { kind: "notification"; summary: string; status?: string; result?: string; notice?: true; index: number }
     | { kind: "interrupted"; index: number }
@@ -331,7 +331,8 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
     entries.forEach((e, i) => {
         if (e.kind === "message") lastMessage = i;
         if (e.kind === "interrupted") lastInterrupted = i;
-        if (e.kind === "user" && firstUser < 0) firstUser = i;
+        // a text joined mid-turn is never a run's brief
+        if (e.kind === "user" && !e.queued && firstUser < 0) firstUser = i;
     });
 
     const items: LayoutItem[] = [];
@@ -400,7 +401,7 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                 return;
             }
             case "command":
-                items.push({ kind: "command", name: e.name, args: e.args, isSkill: e.isSkill, index: i });
+                items.push({ kind: "command", name: e.name, args: e.args, isSkill: e.isSkill, output: e.output, index: i });
                 return;
             case "compaction":
                 items.push({

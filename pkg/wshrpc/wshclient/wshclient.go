@@ -127,6 +127,12 @@ func AgentSyncSteeringWriteCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSy
 	return resp, err
 }
 
+// command "agenttakeback", wshserver.AgentTakeBackCommand
+func AgentTakeBackCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentTakeBackData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentTakeBackRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentTakeBackRtnData](w, "agenttakeback", data, opts)
+	return resp, err
+}
+
 // command "answeragent", wshserver.AnswerAgentCommand
 func AnswerAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandAnswerAgentData, opts *wshrpc.RpcOpts) error {
 	_, err := sendRpcRequestCallHelper[any](w, "answeragent", data, opts)
@@ -1215,6 +1221,12 @@ func SealRunEvidenceCommand(w *wshutil.WshRpc, data wshrpc.CommandSealRunEvidenc
 func SearchSessionsCommand(w *wshutil.WshRpc, data wshrpc.CommandSearchSessionsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandSearchSessionsRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandSearchSessionsRtnData](w, "searchsessions", data, opts)
 	return resp, err
+}
+
+// command "setagentqueue", wshserver.SetAgentQueueCommand
+func SetAgentQueueCommand(w *wshutil.WshRpc, data wshrpc.CommandSetAgentQueueData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "setagentqueue", data, opts)
+	return err
 }
 
 // command "setchannelprofile", wshserver.SetChannelProfileCommand

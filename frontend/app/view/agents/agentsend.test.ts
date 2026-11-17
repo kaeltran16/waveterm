@@ -17,7 +17,7 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
 import { toastsAtom } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
-import { sendAgentBash, sendAgentText, toastSendFailure } from "./agentsend";
+import { sendAgentBash, sendAgentText, sendTypedText, toastSendFailure } from "./agentsend";
 
 beforeEach(() => {
     agentPrompt.mockReset();
@@ -53,6 +53,24 @@ describe("sendAgentText", () => {
     it("rejects with the block id when the RPC fails", async () => {
         agentPrompt.mockRejectedValue(new Error("no route"));
         await expect(sendAgentText("blk-9", "hello")).rejects.toThrow(/blk-9.*no route/);
+    });
+});
+
+describe("sendTypedText", () => {
+    it("sends the trimmed text as a prompt typed into the box, so the mod queues it", async () => {
+        await sendTypedText("blk-1", "  wait, use the other file \n");
+        expect(agentPrompt).toHaveBeenCalledTimes(1);
+        expect(agentPrompt.mock.calls[0][1]).toEqual({
+            blockid: "blk-1",
+            text: "wait, use the other file",
+            queue: true,
+        });
+    });
+
+    it("rejects on empty text and names the block when the RPC fails", async () => {
+        await expect(sendTypedText("blk-1", " ")).rejects.toThrow(/blk-1/);
+        agentPrompt.mockRejectedValue(new Error("no route"));
+        await expect(sendTypedText("blk-9", "hello")).rejects.toThrow(/blk-9.*no route/);
     });
 });
 

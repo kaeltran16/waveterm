@@ -60,7 +60,7 @@ export type AgentEntry =
     // images: the pasted/attached images of that record (the text may be empty); queued: typed while the agent was
     // working and delivered mid-turn, so it does not start a turn
     | { kind: "user"; text: string; ts?: number; images?: ToolImage[]; queued?: true }
-    | { kind: "command"; name: string; args?: string; isSkill?: boolean; ts?: number }
+    | { kind: "command"; name: string; args?: string; isSkill?: boolean; output?: string; ts?: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string }
     // a background Task/subagent finished (Claude's <task-notification>): summary + optional full result;
     // notice: a background-task notice (e.g. a shell finished) rather than a finished subagent

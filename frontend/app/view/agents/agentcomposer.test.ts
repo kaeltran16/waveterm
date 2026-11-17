@@ -25,11 +25,11 @@ describe("submitComposer", () => {
         expect(agentPrompt).not.toHaveBeenCalled();
         expect(clear).toHaveBeenCalledWith("ls");
     });
-    it("with no send given, sends the text as a prompt", async () => {
+    it("with no send given, sends the text as a prompt typed into the box", async () => {
         const clear = vi.fn();
         await submitComposer("hello", "block:1", clear);
         expect(agentPrompt).toHaveBeenCalledTimes(1);
-        expect(agentPrompt.mock.calls[0][1]).toEqual({ blockid: "block:1", text: "hello" });
+        expect(agentPrompt.mock.calls[0][1]).toEqual({ blockid: "block:1", text: "hello", queue: true });
         expect(clear).toHaveBeenCalledWith("hello");
     });
     it("clears with the sent text only after the send resolves", async () => {

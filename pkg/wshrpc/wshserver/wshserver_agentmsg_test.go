@@ -319,6 +319,28 @@ func TestAgentPromptDeliversTheTextBare(t *testing.T) {
 	}
 }
 
+// a prompt typed into the box goes the queued way; any other keeps the plain delivery
+func TestAgentPromptWithQueueGoesTheQueuedWay(t *testing.T) {
+	sent := scriptAgents(t, threeAgents())
+	oldQueue := queueAgentMessage
+	queued := &[]agentsDelivery{}
+	queueAgentMessage = func(blockId, text string) { *queued = append(*queued, agentsDelivery{blockId, text}) }
+	t.Cleanup(func() { queueAgentMessage = oldQueue })
+	ws := &WshServer{}
+	if err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: agentsBlockA, Text: " and the tests\n", Queue: true}); err != nil {
+		t.Fatal(err)
+	}
+	if want := (agentsDelivery{agentsBlockA, "and the tests"}); len(*queued) != 1 || (*queued)[0] != want || len(*sent) != 0 {
+		t.Fatalf("queued %+v and delivered %+v, want only %+v queued", *queued, *sent, want)
+	}
+	if err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: agentsBlockA, Text: "go on"}); err != nil {
+		t.Fatal(err)
+	}
+	if want := (agentsDelivery{agentsBlockA, "go on"}); len(*queued) != 1 || len(*sent) != 1 || (*sent)[0] != want {
+		t.Fatalf("a prompt without queue: queued %+v, delivered %+v, want only %+v delivered", *queued, *sent, want)
+	}
+}
+
 func TestAgentPromptRefusesABlockNoTerminalCanTake(t *testing.T) {
 	const missing = "d0000000-0000-4000-8000-000000000004"
 	facts := threeAgents()

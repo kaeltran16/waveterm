@@ -10,6 +10,7 @@ import { buildGlobalBindings, buildListNavBindings } from "@/app/store/keybindin
 import { initKeybindingDispatcher } from "@/app/store/keybindings/dispatcher";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { getTabModelByTabId } from "@/app/store/tab-model";
+import { setQueueAgentNamer } from "@/app/view/agents/agentqueuestore";
 import { AgentsViewModel } from "@/app/view/agents/agents";
 import { coerceStartupSurface, startupSurfaceAtom } from "@/app/view/agents/cockpitprefsstore";
 import { useRailTracking } from "@/app/view/agents/cockpiteventsrail";
@@ -43,6 +44,7 @@ import { HintsFooter } from "./hints-footer";
 import { RemoteStatusPoller } from "./remotereadout";
 import { setupOpenFileSubscription } from "./openfilestore";
 import { setupUiClient } from "./uiclient";
+import { callerName } from "./uiapi";
 import { NotificationToasts } from "./notificationtoasts";
 import { ResMonPopover } from "./resmonpopover";
 import { startResMonPolling } from "./resmonstore";
@@ -96,6 +98,13 @@ function CockpitBody({ waveEnv }: { waveEnv: WaveEnv }) {
     useEffect(() => setupUiClient(model), [model]);
     useEffect(() => subscribeEffortUpdates(model), [model]);
     useEffect(() => setRecordSurfaceReader(() => globalStore.get(model.surfaceAtom)), [model]);
+    useEffect(
+        () =>
+            setQueueAgentNamer((blockId) =>
+                callerName([...globalStore.get(model.agentsAtom), ...globalStore.get(model.terminalsAtom)], blockId)
+            ),
+        [model]
+    );
     useEffect(() => startResMonPolling(), []);
     // Kill the native browser context menu app-wide so it never leaks on elements without a themed
     // handler (e.g. navrail items). Themed menus (ContextMenuModel) render via portal and are

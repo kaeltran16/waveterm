@@ -843,20 +843,45 @@ function WshCardItem({ step, ctx, compact }: { step: Step; ctx: TranscriptContex
     );
 }
 
-// a typed slash command, or a skill (✦), as a right-aligned chip
-function CommandChip({ name, args, isSkill, compact }: { name: string; args?: string; isSkill?: boolean; compact: boolean }) {
+// a typed slash command, or a skill (✦), as a right-aligned chip; the Rendered view's queued foot draws one too
+export function CommandChip({
+    name,
+    args,
+    isSkill,
+    output,
+    compact,
+}: {
+    name: string;
+    args?: string;
+    isSkill?: boolean;
+    output?: string;
+    compact: boolean;
+}) {
     return (
         <div data-command-chip={isSkill ? "skill" : "command"} className="my-2.5 flex justify-end">
-            <span
-                className={cn(
-                    "inline-flex max-w-[88%] flex-wrap items-baseline gap-x-2 rounded-[12px] bg-surface-hover px-3 py-1.5 font-mono",
-                    compact ? "text-[12px]" : "text-[12.5px]"
-                )}
-            >
-                {isSkill ? <span className="text-[11.5px] text-skill">✦</span> : null}
-                <span className={cn("font-semibold", isSkill ? "text-skill-soft" : "text-accent-soft")}>{name}</span>
-                {args ? <span className="min-w-0 text-ink-mid [overflow-wrap:anywhere]">{args}</span> : null}
-            </span>
+            <div className="flex min-w-0 max-w-[88%] flex-col items-end gap-1">
+                <span
+                    className={cn(
+                        "inline-flex max-w-full flex-wrap items-baseline gap-x-2 rounded-[12px] bg-surface-hover px-3 py-1.5 font-mono",
+                        compact ? "text-[12px]" : "text-[12.5px]"
+                    )}
+                >
+                    {isSkill ? <span className="text-[11.5px] text-skill">✦</span> : null}
+                    <span className={cn("font-semibold", isSkill ? "text-skill-soft" : "text-accent-soft")}>{name}</span>
+                    {args ? <span className="min-w-0 text-ink-mid [overflow-wrap:anywhere]">{args}</span> : null}
+                </span>
+                {output ? (
+                    <div
+                        data-command-output
+                        className={cn(
+                            "whitespace-pre-wrap px-3 text-right font-mono text-ink-mid [overflow-wrap:anywhere]",
+                            compact ? "text-[11.5px]" : "text-[12px]"
+                        )}
+                    >
+                        {output}
+                    </div>
+                ) : null}
+            </div>
         </div>
     );
 }
@@ -1095,6 +1120,31 @@ function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean
         >
             {text.trim()}
         </ClampedText>
+    );
+}
+
+// the person's bubble; the Rendered view's queued foot draws one too
+export function PersonBubble({
+    text,
+    clamp,
+    compact,
+    children,
+}: {
+    text: string;
+    clamp: boolean;
+    compact: boolean;
+    children?: React.ReactNode;
+}) {
+    return (
+        <div
+            className={cn(
+                "max-w-[82%] bg-surface-hover",
+                compact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
+            )}
+        >
+            {text ? <UserBubbleText text={text} clamp={clamp} compact={compact} /> : null}
+            {children}
+        </div>
     );
 }
 
@@ -1370,17 +1420,11 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     initial={shouldFadeEntry("user") ? "initial" : false}
                     animate="animate"
                 >
-                    <div
-                        className={cn(
-                            "max-w-[82%] bg-surface-hover",
-                            isCompact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
-                        )}
-                    >
-                        {item.text ? <UserBubbleText text={item.text} clamp={!unfold} compact={isCompact} /> : null}
+                    <PersonBubble text={item.text} clamp={!unfold} compact={isCompact}>
                         {item.images || item.imagePaths || item.filePaths ? (
                             <BubbleAttachments item={item} compact={isCompact} />
                         ) : null}
-                    </div>
+                    </PersonBubble>
                 </motion.div>
             );
         }
@@ -1392,7 +1436,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     initial="initial"
                     animate="animate"
                 >
-                    <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} compact={isCompact} />
+                    <CommandChip name={item.name} args={item.args} isSkill={item.isSkill} output={item.output} compact={isCompact} />
                 </motion.div>
             );
         }

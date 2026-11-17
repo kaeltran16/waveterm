@@ -978,6 +978,54 @@ func TestRetryEnterIsNotTypedIntoASessionWithAStream(t *testing.T) {
 	}
 }
 
+// captureSends records what the plain delivery path is handed, the one that types into a session with no stream.
+func captureSends(t *testing.T) *[]string {
+	t.Helper()
+	orig := sendWakeFn
+	sent := &[]string{}
+	sendWakeFn = func(_, text string) { *sent = append(*sent, text) }
+	t.Cleanup(func() { sendWakeFn = orig })
+	return sent
+}
+
+func publishBlockState(blockId, state string) {
+	oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
+	wps.Broker.Publish(wps.WaveEvent{Event: wps.Event_AgentStatus, Scopes: []string{oref}, Persist: 1,
+		Data: baseds.AgentStatusData{ORef: oref, State: state, Ts: 1}})
+}
+
+func TestQueuedTextGoesOverTheStreamMarkedQueued(t *testing.T) {
+	const working, idle = "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e01", "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e02"
+	typed := captureSends(t)
+	publishBlockState(working, baseds.AgentState_Working)
+	publishBlockState(idle, baseds.AgentState_Idle)
+	for _, tc := range []struct {
+		block   string
+		midTurn bool
+	}{{working, true}, {idle, false}} {
+		msgs, done := agentctl.Register(tc.block)
+		QueueToSession(tc.block, "and the tests")
+		done()
+		if len(msgs) != 1 {
+			t.Fatalf("block %s: stream got %d messages, want 1", tc.block, len(msgs))
+		}
+		if got := <-msgs; got.Text != "and the tests" || !got.Queue || got.MidTurn != tc.midTurn || got.TakeBack != "" {
+			t.Fatalf("block %s: stream got %+v, want queued text with MidTurn %v", tc.block, got, tc.midTurn)
+		}
+	}
+	if len(*typed) != 0 {
+		t.Fatalf("a session with a stream was typed into: %q", *typed)
+	}
+}
+
+func TestQueuedTextForASessionWithNoStreamIsDeliveredAsPlainText(t *testing.T) {
+	typed := captureSends(t)
+	QueueToSession("no-stream-queue", "and the tests")
+	if len(*typed) != 1 || (*typed)[0] != "and the tests" {
+		t.Fatalf("typed %q, want the text once", *typed)
+	}
+}
+
 func TestSessionWithNoStreamIsTyped(t *testing.T) {
 	if overStream("no-stream", "wake", baseds.AgentState_Idle) || overStream("no-stream", "", baseds.AgentState_Idle) {
 		t.Fatalf("a session with no stream was not left to be typed into")

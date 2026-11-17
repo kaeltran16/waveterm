@@ -140,6 +140,23 @@ function applyBashRecord(entries: AgentEntry[], content: string, rec: any): bool
     return true;
 }
 
+const COMMAND_OUTPUT_RE = /^<local-command-(?:stdout|stderr)>([^]*?)<\/local-command-(?:stdout|stderr)>$/;
+
+// a slash command's printed output fills the command right before it when that one has none yet; /compact keeps its own
+// divider. An output anywhere else adds nothing, and is never a user bubble.
+function applyCommandOutput(entries: AgentEntry[], content: string): boolean {
+    const m = COMMAND_OUTPUT_RE.exec(content.trim());
+    if (m == null) {
+        return false;
+    }
+    const last = entries[entries.length - 1];
+    const text = stripAnsi(m[1]).trim();
+    if (last?.kind === "command" && last.name !== "/compact" && last.output === undefined && text !== "") {
+        last.output = text;
+    }
+    return true;
+}
+
 // A background-task notice delivered mid-turn. A structured prompt reads like a finished subagent's notification; a
 // free-text one is just the text inside the tag.
 function parseNotice(prompt: string): Extract<AgentEntry, { kind: "notification" }> | null {
@@ -159,6 +176,9 @@ function unwrapPasted(text: string): string {
     return text.replace(PASTED_CONTENT_RE, "$1");
 }
 
+// the arc mod's plugin name, on its joined rows
+const ARC_PLUGIN = "arc";
+
 // the record's time as a spreadable `{ ts }`; empty when absent or unparseable so the key stays off the entry
 function recTs(rec: any): { ts?: number } {
     const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
@@ -177,6 +197,38 @@ function queuedEntry(rec: any): AgentEntry | null {
         return null;
     }
     return { kind: "user", text: unwrapPasted(prompt), queued: true, ...recTs({ timestamp: att.timestamp ?? rec.timestamp }) };
+}
+
+// A text the arc mod held while the agent worked and joined to the turn at a tool result: a meta record of the arc
+// plugin, read at the step where it was written. Who wrote it is not recorded, so it draws by its text.
+function joinedEntries(rec: any): AgentEntry[] {
+    if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN) {
+        return [];
+    }
+    const content = rec.message?.content;
+    const texts =
+        typeof content === "string"
+            ? [content]
+            : Array.isArray(content)
+              ? content.filter((b: any) => b?.type === "text" && typeof b.text === "string").map((b: any) => b.text)
+              : [];
+    return texts
+        .filter((t: string) => t.trim() !== "")
+        .map((t: string) => ({ kind: "user", text: unwrapPasted(t), queued: true, ...recTs(rec) }));
+}
+
+// The same join as Claude Code 2.1.326+ writes it: a plugin_note attachment, its content the note's lines. A note whose
+// content is empty is one the engine holds and has not sent (heldContent only), so the agent has not read it.
+function noteEntry(rec: any): AgentEntry | null {
+    const att = rec.attachment;
+    if (att.plugin !== ARC_PLUGIN || !Array.isArray(att.content)) {
+        return null;
+    }
+    const text = att.content.filter((l: unknown) => typeof l === "string").join("\n");
+    if (text.trim() === "") {
+        return null;
+    }
+    return { kind: "user", text: unwrapPasted(text), queued: true, ...recTs(rec) };
 }
 
 function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntry, { kind: "compaction" }>>): void {
@@ -306,6 +358,8 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
         }
         if (rec.type === "user") {
             if (rec.isMeta === true) {
+                // every other meta record (a skill body, a caveat) is plumbing
+                entries.push(...joinedEntries(rec));
                 continue;
             }
             if (rec.isCompactSummary === true) {
@@ -330,9 +384,10 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 const note = parseTaskNotification(content);
                 if (note != null) {
                     entries.push(note);
+                } else if (applyCommandOutput(entries, content)) {
+                    // handled: the output sits under its command, or draws nothing. Never a user bubble.
                 } else if (content.includes("<local-command-stdout>")) {
-                    // slash-command stdout (e.g. "Compacted …", with raw ANSI) — not shown, matching the
-                    // system/local_command record that is already skipped. Never a user bubble.
+                    // slash-command stdout mixed with other text: not shown
                 } else if (isInterrupted(content)) {
                     entries.push({ kind: "interrupted" });
                 } else {
@@ -420,6 +475,13 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 } else {
                     entries.push({ kind: "user", text: "", images, ...recTs(rec) });
                 }
+            }
+            continue;
+        }
+        if (rec.type === "attachment" && rec.attachment?.type === "plugin_note") {
+            const entry = noteEntry(rec);
+            if (entry != null) {
+                entries.push(entry);
             }
             continue;
         }

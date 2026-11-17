@@ -1266,6 +1266,8 @@ export default function (_kit) {
                 await step("rendered: box shape — A's box is the rounded pill: the Reply placeholder on its first line, the control row under it, a round Send disabled, no key-hint footer", async () => {
                     await focus(ctx.aId);
                     const ready = await ensureRendered();
+                    // the placeholder follows whether A has a transcript, so the box is read once it is drawn
+                    await wait(`(${RV}?.textContent ?? "").includes(${JSON.stringify(PROMPT)})`);
                     const seen = await h.ev(`(() => {
                         ${flatJs}
                         const rv = ${RV};

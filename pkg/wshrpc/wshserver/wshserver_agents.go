@@ -289,7 +289,7 @@ func (ws *WshServer) AgentControlCommand(ctx context.Context, data wshrpc.Comman
 				return
 			case msg := <-msgs:
 				select {
-				case ch <- wshrpc.RespOrErrorUnion[wshrpc.AgentControlMsg]{Response: wshrpc.AgentControlMsg{Text: msg.Text, Compact: msg.Compact, MidTurn: msg.MidTurn}}:
+				case ch <- wshrpc.RespOrErrorUnion[wshrpc.AgentControlMsg]{Response: wshrpc.AgentControlMsg{Text: msg.Text, Compact: msg.Compact, MidTurn: msg.MidTurn, Queue: msg.Queue, TakeBack: msg.TakeBack}}:
 				case <-ctx.Done():
 					return
 				}

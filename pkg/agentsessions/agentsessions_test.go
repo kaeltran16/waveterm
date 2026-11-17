@@ -621,6 +621,46 @@ func TestSessionTitleSkipsLocalCommandOutput(t *testing.T) {
 	}
 }
 
+// a session opened with `!` starts with two records (the command, then its output) that are a shell run, not a
+// prompt: the first typed prompt names the session, and until there is one it reads "! <command>"
+func TestShellRunTitlesASessionOnlyUntilAPromptExists(t *testing.T) {
+	shell := []string{
+		`{"type":"user","cwd":"/repo","entrypoint":"cli","timestamp":"2026-11-17T10:00:00.000Z","message":{"content":"<bash-input>ls</bash-input>"}}`,
+		`{"type":"user","cwd":"/repo","entrypoint":"cli","timestamp":"2026-11-17T10:00:01.000Z","message":{"content":"<bash-stdout>a.go\nb.go</bash-stdout><bash-stderr></bash-stderr>"}}`,
+	}
+	prompt := `{"type":"user","cwd":"/repo","entrypoint":"cli","timestamp":"2026-11-17T10:00:05.000Z","message":{"content":"fix the build"}}`
+
+	if s := extractClaudeSession("id", shell); s == nil || s.Task != "! ls" {
+		t.Errorf("no prompt yet: session = %+v, want task %q", s, "! ls")
+	}
+	if got := extractClaudeEvents(shell).Events[0].Text; got != "! ls" {
+		t.Errorf("no prompt yet: started text = %q, want %q", got, "! ls")
+	}
+
+	withPrompt := append(append([]string{}, shell...), prompt)
+	if s := extractClaudeSession("id", withPrompt); s == nil || s.Task != "fix the build" {
+		t.Errorf("session = %+v, want it titled by the typed prompt", s)
+	}
+	if got := extractClaudeEvents(withPrompt).Events[0].Text; got != "fix the build" {
+		t.Errorf("started text = %q, want the typed prompt", got)
+	}
+}
+
+func TestShellOutputIsNeverATitle(t *testing.T) {
+	for _, raw := range []string{
+		"<bash-stdout>a.go</bash-stdout><bash-stderr></bash-stderr>",
+		"<bash-stderr>boom</bash-stderr>",
+	} {
+		if got := sessionTitle(raw); got != "" {
+			t.Errorf("sessionTitle(%q) = %q, want empty", raw, got)
+		}
+	}
+	lines := []string{`{"type":"user","cwd":"/repo","entrypoint":"cli","message":{"content":"<bash-stdout>a.go</bash-stdout><bash-stderr></bash-stderr>"}}`}
+	if s := extractClaudeSession("id", lines); s != nil {
+		t.Errorf("output alone is no session, got %+v", s)
+	}
+}
+
 // the lead prompt of an orchestrator run: principles, a conflict line, then the body with no Goal: line
 func TestSessionTitlePreambleWithoutGoal(t *testing.T) {
 	raw := "Work by these principles:\n- Prefer simple, direct solutions over enterprise over-engineering.\n- Use worktree\n" +

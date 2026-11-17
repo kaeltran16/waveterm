@@ -51,7 +51,17 @@ const (
 // local command output (/status, /context) is echoed back as a user record but is nothing the user asked
 var localCommandOutputTags = []string{"<local-command-stdout>", "<local-command-stderr>"}
 
+// a `!` command in Claude Code's bash mode is two user records: the input, then its output. It is a shell run,
+// not a prompt, so the output is never a title and the input titles a session only until a typed prompt exists.
+// Mirrors BASH_INPUT_RE in frontend/app/view/agents/transcriptprojection.ts.
+const (
+	bashStdoutTag = "<bash-stdout>"
+	bashStderrTag = "<bash-stderr>"
+	shellRunMark  = "! "
+)
+
 var (
+	bashInputRe   = regexp.MustCompile(`(?s)^<bash-input>(.*)</bash-input>$`)
 	commandNameRe = regexp.MustCompile(`(?s)<command-name>(.*?)</command-name>`)
 	commandArgsRe = regexp.MustCompile(`(?s)<command-args>(.*?)</command-args>`)
 	// an initiative ref typed into a run goal; the Go index has no store to name it, so it is dropped
@@ -79,6 +89,12 @@ func unwrapTitle(raw string) string {
 		if strings.HasPrefix(t, tag) {
 			return ""
 		}
+	}
+	if strings.HasPrefix(t, bashStdoutTag) || strings.HasPrefix(t, bashStderrTag) {
+		return ""
+	}
+	if cmd := shellRunCommand(t); cmd != "" {
+		return shellRunMark + cmd
 	}
 	if strings.HasPrefix(t, caveatOpenTag) {
 		// the caveat is boilerplate the CLI adds; the real message, if any, follows the closing tag
@@ -254,11 +270,19 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 	return s
 }
 
-// isBareCommand reports a slash command with no arguments. /clear or /compact names what was done to the
-// session rather than the work in it, so the first real prompt after it titles the session instead; the
-// command is kept only when nothing follows it.
+// shellRunCommand is the command of a `!` input record, "" for any other text.
+func shellRunCommand(t string) string {
+	if m := bashInputRe.FindStringSubmatch(t); m != nil {
+		return strings.TrimSpace(m[1])
+	}
+	return ""
+}
+
+// isBareCommand reports a title that names no work: a slash command with no arguments, or a shell run. /clear
+// or /compact names what was done to the session rather than the work in it, and `! ls` is not a task, so the
+// first real prompt after it titles the session instead; the command is kept only when nothing follows it.
 func isBareCommand(raw, title string) bool {
-	return commandNameRe.MatchString(raw) && !strings.Contains(title, " ")
+	return shellRunCommand(strings.TrimSpace(raw)) != "" || (commandNameRe.MatchString(raw) && !strings.Contains(title, " "))
 }
 
 type claudeBlock struct {
@@ -294,7 +318,20 @@ func claudeEventsFrom(recs []claudeLine) sessionEvents {
 	var raw []SessionEvent
 	cmdByID := map[string]string{}
 	var firstTs, lastTs int64
-	var firstUser, lastAssistant string
+	var firstUser, shellRun, lastAssistant string
+	// same unwrapping as the session title; a shell run names the session only while no prompt exists
+	noteUser := func(raw string) {
+		title := sessionTitle(raw)
+		switch {
+		case title == "" || firstUser != "":
+		case shellRunCommand(strings.TrimSpace(raw)) != "":
+			if shellRun == "" {
+				shellRun = title
+			}
+		default:
+			firstUser = title
+		}
+	}
 	// the last AskUserQuestion still waits only until its tool_result or any later assistant record:
 	// either means the session moved on, whatever event came last
 	var askPending bool
@@ -340,9 +377,7 @@ func claudeEventsFrom(recs []claudeLine) sessionEvents {
 		case "user":
 			var str string
 			if json.Unmarshal(rec.Message.Content, &str) == nil {
-				if firstUser == "" {
-					firstUser = sessionTitle(str) // same unwrapping as the session title
-				}
+				noteUser(str)
 				continue
 			}
 			var blocks []claudeBlock
@@ -350,8 +385,8 @@ func claudeEventsFrom(recs []claudeLine) sessionEvents {
 				continue
 			}
 			for _, b := range blocks {
-				if b.Type == "text" && firstUser == "" {
-					firstUser = sessionTitle(b.Text)
+				if b.Type == "text" {
+					noteUser(b.Text)
 				}
 				if b.Type == "tool_result" && askID != "" && b.ToolUseID == askID {
 					askPending = false
@@ -365,6 +400,9 @@ func claudeEventsFrom(recs []claudeLine) sessionEvents {
 				}
 			}
 		}
+	}
+	if firstUser == "" {
+		firstUser = shellRun
 	}
 	startedText := "started session"
 	if firstUser != "" {

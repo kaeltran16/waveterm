@@ -365,6 +365,58 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
         expect(projectTranscript([L({ type: "user", message: { content } })])).toEqual([]);
     });
 
+    describe("slash command output", () => {
+        const cmd = (name: string, args = "") =>
+            L({
+                type: "user",
+                message: { content: `<command-name>${name}</command-name><command-args>${args}</command-args>` },
+            });
+        const stdout = (text: string) => L({ type: "user", message: { content: `<local-command-stdout>${text}</local-command-stdout>` } });
+        const stderr = (text: string) => L({ type: "user", message: { content: `<local-command-stderr>${text}</local-command-stderr>` } });
+
+        it("attaches a stdout, colour codes stripped, to the command right before it", () => {
+            const out = projectTranscript([
+                cmd("/mcp"),
+                stdout("\x1b[1mAuthentication successful.\x1b[22m Connected to siem-portal."),
+            ]);
+            expect(out).toEqual([
+                { kind: "command", name: "/mcp", output: "Authentication successful. Connected to siem-portal." },
+            ]);
+        });
+
+        it("attaches a stderr the same way", () => {
+            expect(projectTranscript([cmd("/config", "x"), stderr("Unknown setting")])).toEqual([
+                { kind: "command", name: "/config", args: "x", output: "Unknown setting" },
+            ]);
+        });
+
+        it("gives /compact no output", () => {
+            expect(projectTranscript([cmd("/compact"), stdout("Compacted (ctrl+o to see full summary)")])).toEqual([
+                { kind: "command", name: "/compact" },
+            ]);
+        });
+
+        it("draws nothing for an output with no command, or after another entry", () => {
+            expect(projectTranscript([stdout("orphan")])).toEqual([]);
+            const out = projectTranscript([
+                cmd("/mcp"),
+                L({ type: "user", message: { content: "a prompt" } }),
+                stdout("late"),
+            ]);
+            expect(out).toEqual([{ kind: "command", name: "/mcp" }, { kind: "user", text: "a prompt" }]);
+        });
+
+        it("keeps the first output when a command prints twice", () => {
+            const out = projectTranscript([cmd("/mcp"), stdout("first"), stdout("second")]);
+            expect(out).toEqual([{ kind: "command", name: "/mcp", output: "first" }]);
+        });
+
+        it("leaves a command that printed nothing with no output", () => {
+            expect(projectTranscript([cmd("/clear")])).toEqual([{ kind: "command", name: "/clear" }]);
+            expect(projectTranscript([cmd("/clear"), stdout("")])).toEqual([{ kind: "command", name: "/clear" }]);
+        });
+    });
+
     it("projects [Request interrupted by user] as an interrupted marker, both as a text block and a string", () => {
         expect(
             projectTranscript([
@@ -1593,5 +1645,110 @@ describe("projectTranscript queued attachments", () => {
     it("projects nothing for a queued prompt with no text", () => {
         expect(projectTranscript([queued({ commandMode: "prompt", prompt: "  " })])).toStrictEqual([]);
         expect(projectTranscript([queued({ commandMode: "prompt" })])).toStrictEqual([]);
+    });
+});
+
+describe("projectTranscript texts the arc mod joined mid-turn", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+    const ARC = { kind: "plugin", name: "arc" };
+    const toolUse = L({
+        type: "assistant",
+        timestamp: "2026-05-01T10:00:00.000Z",
+        message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "npm test" } }] },
+    });
+    const toolResult = L({
+        type: "user",
+        timestamp: "2026-05-01T10:00:05.000Z",
+        message: { content: [{ type: "tool_result", tool_use_id: "b1", content: "ok" }] },
+    });
+    const joined = (content: unknown, origin: unknown = ARC) =>
+        L({ type: "user", isMeta: true, origin, timestamp: "2026-05-01T10:00:06.000Z", message: { content } });
+
+    it("projects a joined text as a queued user entry where it was written", () => {
+        const out = projectTranscript([
+            toolUse,
+            toolResult,
+            joined([{ type: "text", text: "t-5 passed review" }]),
+            L({ type: "assistant", message: { content: [{ type: "text", text: "noted" }] } }),
+        ]);
+        expect(out.map((e) => e.kind)).toEqual(["action", "user", "message"]);
+        expect(out[1]).toEqual({
+            kind: "user",
+            text: "t-5 passed review",
+            queued: true,
+            ts: Date.parse("2026-05-01T10:00:06.000Z"),
+        });
+    });
+
+    it("projects a joined string content the same way", () => {
+        expect(projectTranscript([joined("wake: task 3 failed (exit 1)")])).toMatchObject([
+            { kind: "user", text: "wake: task 3 failed (exit 1)", queued: true },
+        ]);
+    });
+
+    it("still skips a meta record from anywhere else, such as a skill body", () => {
+        const out = projectTranscript([
+            L({ type: "user", isMeta: true, message: { content: [{ type: "text", text: "# Skill body" }] } }),
+            joined([{ type: "text", text: "from another plugin" }], { kind: "plugin", name: "other" }),
+        ]);
+        expect(out).toEqual([]);
+    });
+
+    it("draws nothing for the mod's read mid-turn notice", () => {
+        const out = projectTranscript([
+            L({ type: "system", subtype: "informational", content: "read mid-turn: also check b", level: "info" }),
+        ]);
+        expect(out).toEqual([]);
+    });
+
+    // the row Claude Code 2.1.326 writes for $.session.append at a tool result
+    const note = (attachment: Record<string, unknown>) =>
+        L({
+            type: "attachment",
+            timestamp: "2026-05-01T10:00:06.000Z",
+            attachment: { type: "plugin_note", plugin: "arc", rowUuid: "r1", sentAs: "system", ...attachment },
+        });
+
+    it("projects a plugin note as a queued user entry where it was written, its lines joined", () => {
+        const out = projectTranscript([
+            toolUse,
+            toolResult,
+            note({ content: ["wake: task 3 passed review", "wsh jarvis dag status t-3"] }),
+            L({ type: "assistant", message: { content: [{ type: "text", text: "noted" }] } }),
+        ]);
+        expect(out.map((e) => e.kind)).toEqual(["action", "user", "message"]);
+        expect(out[1]).toEqual({
+            kind: "user",
+            text: "wake: task 3 passed review\nwsh jarvis dag status t-3",
+            queued: true,
+            ts: Date.parse("2026-05-01T10:00:06.000Z"),
+        });
+    });
+
+    it("skips a plugin note the engine has not sent yet, and one from another plugin", () => {
+        const out = projectTranscript([
+            note({ content: [], heldContent: ["Reply with KIWI."], sentAs: undefined }),
+            note({ plugin: "other", content: ["from another plugin"] }),
+        ]);
+        expect(out).toEqual([]);
+    });
+
+    it("projects the person's held messages sent at the turn's end as their own prompt", () => {
+        const out = projectTranscript([
+            L({
+                type: "user",
+                timestamp: "2026-05-01T10:01:00.000Z",
+                origin: { kind: "plugin", name: "arc", asUser: true },
+                promptSource: "system",
+                message: { role: "user", content: "only touch renderedcomposer.tsx\nand keep the Esc order" },
+            }),
+        ]);
+        expect(out).toEqual([
+            {
+                kind: "user",
+                text: "only touch renderedcomposer.tsx\nand keep the Esc order",
+                ts: Date.parse("2026-05-01T10:01:00.000Z"),
+            },
+        ]);
     });
 });

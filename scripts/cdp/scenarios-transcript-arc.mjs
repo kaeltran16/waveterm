@@ -1,9 +1,10 @@
 // Scenario `transcript-arc`: Arc's own messages in a transcript (arcmessagerow.tsx): the run and task briefs, the
 // lead's wakes (plan review, a worker's question, recovery, Final failed, run finished, an unknown one), the Waited
 // fold before a wake, an earlier wake's sections closed under the latest one's open, the brainstorm judge's result, pane actions and the builder check, a pane pick left as the
-// human's bubble, and compact wakes at 380 px.
+// human's bubble, compact wakes at 380 px, and texts joined mid-turn drawn where the agent read them.
 
-import { clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
+import { APP_MOD } from "./scenarios-shared.mjs";
+import { bash, clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T0 = Date.UTC(2026, 10, 16, 9, 0, 0);
@@ -51,6 +52,22 @@ const CONFLICT_FILE = "frontend/app/view/boards/boards.tsx";
 const FAIL_LINE = "FAIL frontend/app/view/boards/boardsdraw.test.ts";
 const UNKNOWN_WAKE = "wake: the human reran the final stage of round 1; its failure was outside the code. Drop any fix plan for it.";
 const PANE_PICK = "One Final at a time";
+const AGENT_SENDER = "cache_fixer";
+const AGENT_BODY = "The cache fix landed on main; rebase before you touch store.ts.";
+// agentmsg.Envelope in pkg/agentmsg/agentmsg.go
+const ENVELOPE = `[Message from agent "${AGENT_SENDER}" (tab 3f2a-b1), sent with wsh agents send. Not typed by the user. Its sender reads your reply with wsh agents read, so answer here and do not send one back.]\n`;
+const JOINED_PLAIN = "also run the lint before you finish";
+// a text the arc mod joined at a tool result, as transcriptprojection.ts projects it
+const joined = (text, ts) => ({ kind: "user", text, queued: true, ts });
+// the same join as Claude Code 2.1.326 writes it, a raw plugin_note record, projected in the page by the app's own
+// transcriptprojection.ts before the feed draws it
+const joinedNote = (text, ts) => ({
+    record: {
+        type: "attachment",
+        timestamp: new Date(ts).toISOString(),
+        attachment: { type: "plugin_note", plugin: "arc", rowUuid: `fx-note-${ts}`, content: text.split("\n"), sentAs: "system" },
+    },
+});
 
 const brainstormFile = {
     v: 1,
@@ -228,6 +245,20 @@ export const fixtures = {
         ctx: LEAD,
         entries: [user(UNKNOWN_WAKE, T0), prose("Dropping the fix plan; waiting for the stage.", T0 + 5 * S)],
     },
+    joinedMidTurn: {
+        ctx: LEAD,
+        seed: RUN_SEED,
+        entries: [
+            user("Merge the lanes and run the suite.", T0),
+            bash({ command: "npm test", ts: T0 + 5 * S, durationMs: 4000 }),
+            joinedNote(`wake: task t-3 failed (tests): ${FAIL_LINE}, retry spent. ${status("t-3")}`, T0 + 10 * S),
+            bash({ command: "npm run lint", ts: T0 + 15 * S, durationMs: 2000 }),
+            joined(ENVELOPE + AGENT_BODY, T0 + 20 * S),
+            bash({ command: "git status", ts: T0 + 25 * S, durationMs: 300 }),
+            joined(JOINED_PLAIN, T0 + 30 * S),
+            prose("Suite and lint pass; t-3 is retried.", T0 + 35 * S),
+        ],
+    },
     compactWakes: {
         ctx: LEAD,
         compact: true,
@@ -274,15 +305,31 @@ const MESSAGES = probe(`
     }));
 `);
 
+// the feed's folds, Arc rows and bubbles in document order
+const ORDER = probe(`return [...root.querySelectorAll("[data-fold], [data-arc-message], [data-user-bubble]")].map((el) =>
+    el.hasAttribute("data-fold") ? "fold" : el.hasAttribute("data-arc-message") ? el.getAttribute("data-arc-message") : "bubble");`);
+
 const BUBBLES = probe(`return [...root.querySelectorAll('[data-user-bubble]')].map((el) => (el.innerText || '').trim());`);
 
 // clicks the first toggle of the nth Arc message matching sel
 const click = (n, sel) =>
     probe(`const el = root.querySelectorAll('[data-arc-message]')[${n}]?.querySelector(${JSON.stringify(sel)}); if (!el) return false; el.click(); return true;`);
 
+// a fixture row given as a raw record becomes what the app projects from it
+async function projectRows(h, entries) {
+    if (!entries.some((e) => e.record != null)) return entries;
+    const projected = await h.ev(`(async () => {
+        ${APP_MOD}
+        const { projectTranscript } = await mod("app/view/agents/transcriptprojection.ts");
+        return ${JSON.stringify(entries)}.map((e) => (e.record != null ? projectTranscript([JSON.stringify(e.record)]) : [e]));
+    })()`);
+    if (!Array.isArray(projected)) throw new Error("the page did not project the fixture's records");
+    return projected.flat();
+}
+
 async function show(h, name) {
-    const { width, ...fixture } = fixtures[name];
-    await showTranscript(h, { ...fixture, width: width ?? WIDE, active: false, renderers: true });
+    const { width, entries, ...fixture } = fixtures[name];
+    await showTranscript(h, { ...fixture, entries: await projectRows(h, entries), width: width ?? WIDE, active: false, renderers: true });
     return (await h.ev(MESSAGES)) ?? [];
 }
 
@@ -507,6 +554,26 @@ export const transcriptArc = {
                 JSON.stringify(compact[1].parts) === JSON.stringify(["plan-review-passed", "never-started", "worker-exited", "quiet"]) &&
                 compact.every((m) => !m.overflows),
             detail: JSON.stringify(compact),
+        });
+
+        const joinedRows = await show(h, "joinedMidTurn");
+        const order = (await h.ev(ORDER)) ?? [];
+        const joinedBubbles = (await h.ev(BUBBLES)) ?? [];
+        await h.shot("cdp-shots/transcript-arc-joined-mid-turn.png");
+        const [joinedBrief, joinedWake, joinedAgent] = joinedRows;
+        steps.push({
+            step: "texts joined mid-turn draw between the steps that read them: the wake row, the agent message with its sender and body, and a plain text as the person's bubble; the run brief stays the first prompt",
+            ok:
+                JSON.stringify(order) === JSON.stringify(["brief", "fold", "wake", "fold", "agent", "fold", "bubble"]) &&
+                joinedRows.length === 3 &&
+                joinedBrief?.kind === "brief" &&
+                joinedWake?.kind === "wake" &&
+                hasAll(joinedWake.text, ["Arc woke the lead", "t-3 failed"]) &&
+                joinedAgent?.kind === "agent" &&
+                hasAll(joinedAgent.text, ["Message from", AGENT_SENDER, AGENT_BODY]) &&
+                !joinedAgent.text.includes("wsh agents send") &&
+                joinedBubbles[joinedBubbles.length - 1]?.includes(JOINED_PLAIN),
+            detail: JSON.stringify({ order, joinedRows, joinedBubbles }),
         });
         return steps;
     },

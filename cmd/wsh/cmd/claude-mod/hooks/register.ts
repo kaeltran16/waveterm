@@ -6,11 +6,29 @@ import type { EngineInterface, Register } from "claude-code";
 import { drawCacheMiss } from "./cache-band";
 import { cacheMissNotice, transcriptEntries } from "./cache-core";
 import { claudecmdsArgs, commandsPayload } from "./commands-core";
-import { controlMsg, deliver, endTurn, steerNotice, takeLines } from "./control-core";
-import type { Turn } from "./control-core";
+import { controlMsg, deliver, isDropped, steerNotice, takeLines } from "./control-core";
+import type { Session } from "./control-core";
 import { ALL_CATEGORIES, applyEdit, goalpostNote, goalpostRole, inspectChange, inspectCommand } from "./goalpost-core";
 import type { GoalpostFinding } from "./goalpost-core";
 import { denial } from "./guard-core";
+import {
+    actionEnded,
+    hold,
+    isHeld,
+    joinNow,
+    newQueue,
+    newStep,
+    nextAction,
+    personsHeld,
+    putBack,
+    release,
+    report,
+    resultsStored,
+    settle,
+    stepEnded,
+    takeBack,
+} from "./queue-core";
+import type { Held } from "./queue-core";
 import {
     isTaggable,
     mentionContext,
@@ -80,10 +98,164 @@ function publishCommandsAtStart($: EngineInterface): void {
     }
 }
 
-// ponytail: turn.start does not say whose turn it is, so a background subagent starting one while the
-// session is idle reads as open, and a mid-turn text sent then waits for the next turn. track turn ids
-// against turn.step's agentId if that ever loses a tell
-const turn: Turn = { isOpen: false, unread: [] };
+// whether the main loop's turn runs: a mid-turn text is held only then, else it runs at once
+let isTurnOpen = false;
+
+// the texts held for the main loop's next request or its turn's end. session.start makes a fresh one
+let queue = newQueue("start");
+
+// the main loop's current request: Arc's held prompts join once its response and every tool result are in
+let step = newStep();
+
+// set by the person's Stop until the next turn: the interrupted call's result ends the batch but no request
+// follows it, and the engine refuses the mod's prompts until the person next sends input
+let isStopping = false;
+
+// the reports wavesrv has yet to take, sent one at a time in order
+let reports: Promise<void> = Promise.resolve();
+
+// a report is the whole held list as of the call, plus every left entry no report has carried yet. a failed
+// take-back report holds its items again and reports them so: wavesrv refused it, and the box did not get them
+function reportQueue($: EngineInterface, takenBack?: { request: string; items: Held[] }) {
+    if (!active) {
+        return;
+    }
+    const payload = report(queue, takenBack?.request);
+    reports = reports.then(async () => {
+        try {
+            const ran = await $.process.run([WSH, "agentqueue", "set"], {
+                stdin: JSON.stringify(payload),
+                timeoutMs: 10_000,
+            });
+            if (ran.exitCode === 0) {
+                settle(queue, payload.left);
+                return;
+            }
+            $.ui.log(`arc: wsh agentqueue set exited ${ran.exitCode}: ${ran.stderr.trim()}`, { to: "debug" });
+        } catch (err) {
+            $.ui.log(`arc: reporting the queue failed: ${String(err)}`, { to: "debug" });
+        }
+        if (takenBack && takenBack.items.length > 0) {
+            putBack(queue, takenBack.items);
+            reportQueue($);
+        }
+    });
+}
+
+// what the cockpit's messages run through
+function sessionOf($: EngineInterface): Session {
+    return {
+        // asUser: the model reads the engine's or the person's words bare, not as a note from a plugin
+        submit: (text: string) => $.prompt.submit({ text, asUser: true }),
+        command: (name: string, args: string) => $.command.run({ command: name, args }),
+        compact: (instructions: string) => $.session.compact({ instructions }),
+    };
+}
+
+// resolves the engine's answer to a send, failing on a refusal, which the engine answers rather than throws
+async function entered(sent: Promise<unknown>): Promise<void> {
+    const result = await sent;
+    if (isDropped(result)) {
+        throw new Error(`refused: ${(result as { drop: string }).drop}`);
+    }
+}
+
+// joins Arc's held prompts to the turn, in arrival order, for the request about to go out. one the session
+// refuses is held again with those after it, so the turn's end sends them in order
+async function joinHeld($: EngineInterface) {
+    const joined = joinNow(queue);
+    for (const [i, item] of joined.entries()) {
+        try {
+            await steerTurn($, item.text);
+        } catch (err) {
+            $.ui.log(`arc: joining a mid-turn text failed: ${String(err)}`, { to: "debug" });
+            putBack(queue, joined.slice(i));
+            break;
+        }
+    }
+}
+
+// sends what the turn left held as the next prompts, in order, one action at a time while no turn runs: the next
+// goes once the call before it resolved (a prompt's as its turn starts, so the next waits for that turn's end; a
+// command's once it ran or queued the prompt it expands to, which no later send can pass). after the person's Stop
+// the engine refuses them all, so the person's go back to the box (reported lost) and Arc's wait for the next turn.
+// a send refused or failed otherwise holds its texts again, still reported, so the person can take theirs back
+// rather than lose it; those and the rest wait for the next turn's end
+function sendHeld($: EngineInterface) {
+    if (isTurnOpen) {
+        return;
+    }
+    if (isStopping) {
+        const persons = personsHeld(queue);
+        if (persons.length > 0) {
+            release(queue, persons);
+            reportQueue($);
+        }
+        return;
+    }
+    const sending = queue;
+    const action = nextAction(sending);
+    if (action === null) {
+        return;
+    }
+    const session = sessionOf($);
+    const sent = action.kind === "command" ? deliver(session, { text: action.text }) : session.submit(action.text);
+    void entered(sent).then(
+        () => {
+            actionEnded(sending);
+            if (sending === queue) {
+                sendHeld($);
+            }
+        },
+        (err) => {
+            $.ui.log(`arc: sending a held mid-turn text failed: ${String(err)}`, { to: "debug" });
+            putBack(sending, action.items);
+            actionEnded(sending);
+            reportQueue($);
+        }
+    );
+    if (action.items.some((item) => item.id !== undefined)) {
+        reportQueue($);
+    }
+}
+
+// a person's text the engine refused at once (after their Stop, until they type): reported held and then
+// missing, so wavesrv reads it as lost and the box gets it back
+async function returnToBox($: EngineInterface, text: string) {
+    const item = hold(queue, text, true, await $.clock.now());
+    reportQueue($);
+    release(queue, [item]);
+    reportQueue($);
+}
+
+// one line of the cockpit's stream: a take-back answers with the person's held items, a text the running
+// turn holds waits for its next request, and the rest runs at once
+async function onControl($: EngineInterface, session: Session, line: string) {
+    const msg = controlMsg(line);
+    if (msg === null) {
+        return;
+    }
+    if ("takeBack" in msg) {
+        reportQueue($, { request: msg.takeBack, items: takeBack(queue) });
+        return;
+    }
+    // a text that arrives while the turn's end is still sending waits behind what it sends
+    if (isHeld(msg, isTurnOpen || queue.isOut)) {
+        const isPerson = "queue" in msg && msg.queue === true;
+        hold(queue, msg.text, isPerson, await $.clock.now());
+        if (isPerson) {
+            reportQueue($);
+        }
+        return;
+    }
+    // not awaited: a prompt resolves only when its turn starts, and the next line may be due first
+    void entered(deliver(session, msg)).catch(async (err) => {
+        $.ui.log(`arc: running the cockpit's prompt failed: ${String(err)}`, { to: "debug" });
+        if ("queue" in msg && msg.queue === true) {
+            await returnToBox($, msg.text);
+        }
+    });
+}
 
 // true while the cockpit's prompt stream is held, so a second session.start (a /clear) opens no second one
 let listening = false;
@@ -95,13 +267,7 @@ async function listenToCockpit($: EngineInterface) {
         return;
     }
     listening = true;
-    const session = {
-        // asUser: the model reads the engine's or the person's words bare, not as a note from a plugin
-        submit: (text: string) => $.prompt.submit({ text, asUser: true }),
-        steer: (text: string) => steerTurn($, text),
-        command: (name: string, args: string) => $.command.run({ command: name, args }),
-        compact: (instructions: string) => $.session.compact({ instructions }),
-    };
+    const session = sessionOf($);
     let buffered = "";
     try {
         for await (const chunk of $.process.spawn({ argv: [WSH, "agentctl"] })) {
@@ -111,14 +277,7 @@ async function listenToCockpit($: EngineInterface) {
             const taken = takeLines(buffered + chunk.text);
             buffered = taken.rest;
             for (const line of taken.lines) {
-                const msg = controlMsg(line);
-                if (msg === null) {
-                    continue;
-                }
-                // not awaited: a prompt resolves only when its turn starts, and the next line may be due first
-                void deliver(session, msg, turn).catch((err) =>
-                    $.ui.log(`arc: running the cockpit's prompt failed: ${String(err)}`, { to: "debug" })
-                );
+                await onControl($, session, line);
             }
         }
     } catch (err) {
@@ -274,10 +433,13 @@ export const register: Register = (on) => {
         active = Boolean((await $.env.get("WAVETERM_BLOCKID")) && (await $.env.get("WAVETERM_JWT")));
         isKnownNonWorker = false;
         mentionCache = null;
+        // a reload or a /clear starts empty: the empty report has wavesrv hand back anything held before
+        queue = newQueue(String(await $.clock.now()));
         const started = await next(e);
         if (active) {
             void listenToCockpit($);
             publishCommandsAtStart($);
+            reportQueue($);
         }
         return started;
     });
@@ -336,19 +498,47 @@ export const register: Register = (on) => {
     });
 
     on("turn.start", async ($, e, next) => {
-        turn.isOpen = true;
+        if (!e.agentId) {
+            isTurnOpen = true;
+            isStopping = false;
+            step = newStep();
+        }
         await update($, cacheMiss, () => null);
         return next(e);
     });
 
-    // a tool's result means another request follows, and it carries every row joined so far.
-    // ponytail: a text joined between the last result and a final answer's request is read and then
-    // submitted again at the turn's end; twice beats never
-    on("session.append", { door: "tool-result" }, ($, e, next) => {
-        if (!e.agentId) {
-            turn.unread = [];
+    // a step's whole response says how many tool calls it made; a step whose calls all finished while it still
+    // streamed has its batch in now. an interrupted step joins nothing: the turn's end sends what is held
+    on("turn.step", async function* ($, e, next) {
+        if (e.agentId) {
+            return yield* next(e);
         }
+        step = newStep();
+        const response = yield* next(e);
+        if (stepEnded(step, response.toolUses.length) && !isStopping && !next.signal.aborted) {
+            await joinHeld($);
+        }
+        return response;
+    });
+
+    // raised before the abort, so it is noted before the interrupted call's result arrives
+    on("session.stop", ($, e, next) => {
+        isStopping = isStopping || e.isTurnRunning;
         return next(e);
+    });
+
+    // the last result of a step's batch means the next request is about to go out: Arc's held prompts join it
+    // then, after every result, so the model reads them at once and no later request carries them again
+    on("session.append", { door: "tool-result" }, async ($, e, next) => {
+        const kept = await next(e);
+        if (e.agentId) {
+            return kept;
+        }
+        const results = e.message.content.filter((block) => block.type === "tool_result").length;
+        if (resultsStored(step, results) && !isStopping && !next.signal.aborted) {
+            await joinHeld($);
+        }
+        return kept;
     });
 
     on("turn.complete", async ($, e, next) => {
@@ -357,10 +547,9 @@ export const register: Register = (on) => {
             isAskInDialog = false;
             await clearAsk($);
         }
-        for (const text of e.agentId ? [] : endTurn(turn)) {
-            void $.prompt.submit({ text, asUser: true }).catch((err) =>
-                $.ui.log(`arc: submitting an unread mid-turn text failed: ${String(err)}`, { to: "debug" })
-            );
+        if (!e.agentId) {
+            isTurnOpen = false;
+            sendHeld($);
         }
         const args = active ? idleArgs(e, transcriptPath, wasAskInDialog) : null;
         if (args) {

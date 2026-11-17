@@ -19,6 +19,7 @@ declare global {
         | "agent:ask"
         | "agent:permission"
         | "jarvis:volunteer"
+        | "agent:queue"
         | "dag:child-done"
         | "dag:dag-blocked"
         | "dag:dag-complete"
@@ -52,6 +53,7 @@ declare global {
         { event: "agent:ask"; data?: AgentAskData; } | 
         { event: "agent:permission"; data?: AgentPermissionData; } | 
         { event: "jarvis:volunteer"; data?: VolunteerData; } | 
+        { event: "agent:queue"; data?: AgentQueueData; } | 
         { event: "dag:child-done"; data?: string; } | 
         { event: "dag:dag-blocked"; data?: string; } | 
         { event: "dag:dag-complete"; data?: string; } | 

@@ -336,6 +336,11 @@ describe("layoutTranscript statuses and Arc messages", () => {
         expect(withRole[0]).toMatchObject({ kind: "arc", message: { kind: "brief" } });
     });
 
+    it("carries a command's output onto its item", () => {
+        const items = layoutTranscript([{ kind: "command", name: "/mcp", output: "Connected" }], { active: true });
+        expect(items[0]).toMatchObject({ kind: "command", name: "/mcp", output: "Connected" });
+    });
+
     it("passes events through as standalone items that break a stretch", () => {
         const entries: AgentEntry[] = [
             { kind: "command", name: "/review", args: "PR #402" },
@@ -412,6 +417,46 @@ describe("layoutTranscript statuses and Arc messages", () => {
         const items = layoutTranscript(entries, { active: true });
         expect(items[1]).toMatchObject({ kind: "notification", notice: true });
         expect(items[2]).toMatchObject({ kind: "user", text: "also check b" });
+    });
+
+    const joined = (text: string): AgentEntry => ({ kind: "user", text, queued: true });
+    const ENVELOPE =
+        '[Message from agent "cache_fixer" (tab 3f2a-b1), sent with wsh agents send. Not typed by the user.]\n';
+
+    it("lays out joined texts by what they say, where they were read, without starting a turn", () => {
+        const entries: AgentEntry[] = [
+            user("go"),
+            bash("npm test"),
+            joined("wake: task 3 failed (exit 1)"),
+            bash("npm run lint"),
+            joined(ENVELOPE + "the cache is fixed"),
+            bash("git status"),
+            joined("also check b"),
+            prose("done"),
+        ];
+        const items = layoutTranscript(entries, { active: true });
+        expect(kinds(items)).toEqual(["user", "steps", "arc", "steps", "arc", "steps", "user", "message"]);
+        expect(items[2]).toMatchObject({ kind: "arc", index: 2, message: { kind: "wake" } });
+        expect(items[4]).toMatchObject({
+            kind: "arc",
+            index: 4,
+            message: { kind: "agent", sender: "cache_fixer", tabId: "3f2a-b1", text: "the cache is fixed" },
+        });
+        expect(items[6]).toMatchObject({ kind: "user", text: "also check b", index: 6 });
+    });
+
+    it("never reads a joined text as a run's brief", () => {
+        const entries = [joined("keep going"), prose("ok"), user("Build task 2")];
+        const items = layoutTranscript(entries, { active: false, ctx: { role: { kind: "worker" } as any } });
+        expect(items[0]).toMatchObject({ kind: "user", text: "keep going" });
+        expect(items[2]).toMatchObject({ kind: "arc", message: { kind: "brief" } });
+    });
+
+    it("draws an agent message sent as a normal prompt as an agent row that starts its turn", () => {
+        const entries = [user("go"), bash("ls"), prose("ok"), user(ENVELOPE + "rebase please"), bash("git fetch")];
+        const items = layoutTranscript(entries, { active: true });
+        expect(kinds(items)).toEqual(["user", "turn", "message", "arc", "steps"]);
+        expect(items[3]).toMatchObject({ kind: "arc", message: { kind: "agent", text: "rebase please" } });
     });
 
     it("flags only the last reply as latest", () => {
