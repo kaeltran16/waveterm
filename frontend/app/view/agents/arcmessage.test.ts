@@ -44,6 +44,28 @@ describe("arcMessageOf", () => {
         expect(arcMessageOf(user("hello"), true)).toBeNull();
     });
 
+    const envelope =
+        '[Message from agent "cache_fixer" (tab 3f2a-b1), sent with wsh agents send. Not typed by the user. Its sender reads your reply with wsh agents read, so answer here and do not send one back.]\n';
+
+    it("classifies an enveloped agent message by its sender, tab and body", () => {
+        expect(arcMessageOf(user(envelope + "the cache is fixed\nrebase onto main"), false)).toEqual({
+            kind: "agent",
+            sender: "cache_fixer",
+            tabId: "3f2a-b1",
+            text: "the cache is fixed\nrebase onto main",
+        });
+    });
+
+    it("an agent message that is a run agent's first entry is still an agent message", () => {
+        expect(arcMessageOf(user(envelope + "hi"), true, worker)?.kind).toBe("agent");
+    });
+
+    it("a text that only quotes an envelope is not an agent message", () => {
+        expect(
+            arcMessageOf(user('he said [Message from agent "x" (tab 1), sent with wsh agents send.]\nhi'), false)
+        ).toBeNull();
+    });
+
     it("only user entries are Arc messages", () => {
         expect(arcMessageOf({ kind: "message", text: "wake: x" }, true, lead)).toBeNull();
     });

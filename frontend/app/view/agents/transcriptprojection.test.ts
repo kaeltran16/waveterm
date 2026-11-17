@@ -1647,3 +1647,57 @@ describe("projectTranscript queued attachments", () => {
         expect(projectTranscript([queued({ commandMode: "prompt" })])).toStrictEqual([]);
     });
 });
+
+describe("projectTranscript texts the arc mod joined mid-turn", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+    const ARC = { kind: "plugin", name: "arc" };
+    const toolUse = L({
+        type: "assistant",
+        timestamp: "2026-05-01T10:00:00.000Z",
+        message: { content: [{ type: "tool_use", id: "b1", name: "Bash", input: { command: "npm test" } }] },
+    });
+    const toolResult = L({
+        type: "user",
+        timestamp: "2026-05-01T10:00:05.000Z",
+        message: { content: [{ type: "tool_result", tool_use_id: "b1", content: "ok" }] },
+    });
+    const joined = (content: unknown, origin: unknown = ARC) =>
+        L({ type: "user", isMeta: true, origin, timestamp: "2026-05-01T10:00:06.000Z", message: { content } });
+
+    it("projects a joined text as a queued user entry where it was written", () => {
+        const out = projectTranscript([
+            toolUse,
+            toolResult,
+            joined([{ type: "text", text: "t-5 passed review" }]),
+            L({ type: "assistant", message: { content: [{ type: "text", text: "noted" }] } }),
+        ]);
+        expect(out.map((e) => e.kind)).toEqual(["action", "user", "message"]);
+        expect(out[1]).toEqual({
+            kind: "user",
+            text: "t-5 passed review",
+            queued: true,
+            ts: Date.parse("2026-05-01T10:00:06.000Z"),
+        });
+    });
+
+    it("projects a joined string content the same way", () => {
+        expect(projectTranscript([joined("wake: task 3 failed (exit 1)")])).toMatchObject([
+            { kind: "user", text: "wake: task 3 failed (exit 1)", queued: true },
+        ]);
+    });
+
+    it("still skips a meta record from anywhere else, such as a skill body", () => {
+        const out = projectTranscript([
+            L({ type: "user", isMeta: true, message: { content: [{ type: "text", text: "# Skill body" }] } }),
+            joined([{ type: "text", text: "from another plugin" }], { kind: "plugin", name: "other" }),
+        ]);
+        expect(out).toEqual([]);
+    });
+
+    it("draws nothing for the mod's read mid-turn notice", () => {
+        const out = projectTranscript([
+            L({ type: "system", subtype: "informational", content: "read mid-turn: also check b", level: "info" }),
+        ]);
+        expect(out).toEqual([]);
+    });
+});

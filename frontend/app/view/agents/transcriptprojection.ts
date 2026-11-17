@@ -196,6 +196,24 @@ function queuedEntry(rec: any): AgentEntry | null {
     return { kind: "user", text: unwrapPasted(prompt), queued: true, ...recTs({ timestamp: att.timestamp ?? rec.timestamp }) };
 }
 
+// A text the arc mod held while the agent worked and joined to the turn at a tool result: a meta record of the arc
+// plugin, read at the step where it was written. Who wrote it is not recorded, so it draws by its text.
+function joinedEntries(rec: any): AgentEntry[] {
+    if (rec.origin?.kind !== "plugin" || rec.origin?.name !== "arc") {
+        return [];
+    }
+    const content = rec.message?.content;
+    const texts =
+        typeof content === "string"
+            ? [content]
+            : Array.isArray(content)
+              ? content.filter((b: any) => b?.type === "text" && typeof b.text === "string").map((b: any) => b.text)
+              : [];
+    return texts
+        .filter((t: string) => t.trim() !== "")
+        .map((t: string) => ({ kind: "user", text: unwrapPasted(t), queued: true, ...recTs(rec) }));
+}
+
 function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntry, { kind: "compaction" }>>): void {
     const last = entries[entries.length - 1];
     if (last != null && last.kind === "compaction") {
@@ -323,6 +341,8 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
         }
         if (rec.type === "user") {
             if (rec.isMeta === true) {
+                // every other meta record (a skill body, a caveat) is plumbing
+                entries.push(...joinedEntries(rec));
                 continue;
             }
             if (rec.isCompactSummary === true) {

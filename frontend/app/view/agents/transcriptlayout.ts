@@ -323,7 +323,8 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
     entries.forEach((e, i) => {
         if (e.kind === "message") lastMessage = i;
         if (e.kind === "interrupted") lastInterrupted = i;
-        if (e.kind === "user" && firstUser < 0) firstUser = i;
+        // a text joined mid-turn is never a run's brief
+        if (e.kind === "user" && !e.queued && firstUser < 0) firstUser = i;
     });
 
     const items: LayoutItem[] = [];

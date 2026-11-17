@@ -546,6 +546,19 @@ function applyBashRecord(entries, content, rec) {
   }
   return true;
 }
+var COMMAND_OUTPUT_RE = /^<local-command-(?:stdout|stderr)>([^]*?)<\/local-command-(?:stdout|stderr)>$/;
+function applyCommandOutput(entries, content) {
+  const m = COMMAND_OUTPUT_RE.exec(content.trim());
+  if (m == null) {
+    return false;
+  }
+  const last = entries[entries.length - 1];
+  const text = stripAnsi(m[1]).trim();
+  if (last?.kind === "command" && last.name !== "/compact" && last.output === void 0 && text !== "") {
+    last.output = text;
+  }
+  return true;
+}
 function parseNotice(prompt) {
   const structured = prompt.includes("<summary>") ? parseTaskNotification(prompt) : null;
   if (structured != null) {
@@ -573,6 +586,14 @@ function queuedEntry(rec) {
     return null;
   }
   return { kind: "user", text: unwrapPasted(prompt), queued: true, ...recTs({ timestamp: att.timestamp ?? rec.timestamp }) };
+}
+function joinedEntries(rec) {
+  if (rec.origin?.kind !== "plugin" || rec.origin?.name !== "arc") {
+    return [];
+  }
+  const content = rec.message?.content;
+  const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.filter((b) => b?.type === "text" && typeof b.text === "string").map((b) => b.text) : [];
+  return texts.filter((t) => t.trim() !== "").map((t) => ({ kind: "user", text: unwrapPasted(t), queued: true, ...recTs(rec) }));
 }
 function mergeCompaction(entries, patch) {
   const last = entries[entries.length - 1];
@@ -680,6 +701,7 @@ function projectTranscriptRecords(records) {
     }
     if (rec.type === "user") {
       if (rec.isMeta === true) {
+        entries.push(...joinedEntries(rec));
         continue;
       }
       if (rec.isCompactSummary === true) {
@@ -696,6 +718,7 @@ function projectTranscriptRecords(records) {
         const note = parseTaskNotification(content);
         if (note != null) {
           entries.push(note);
+        } else if (applyCommandOutput(entries, content)) {
         } else if (content.includes("<local-command-stdout>")) {
         } else if (isInterrupted(content)) {
           entries.push({ kind: "interrupted" });

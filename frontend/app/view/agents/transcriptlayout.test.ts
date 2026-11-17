@@ -407,6 +407,46 @@ describe("layoutTranscript statuses and Arc messages", () => {
         expect(items[2]).toMatchObject({ kind: "user", text: "also check b" });
     });
 
+    const joined = (text: string): AgentEntry => ({ kind: "user", text, queued: true });
+    const ENVELOPE =
+        '[Message from agent "cache_fixer" (tab 3f2a-b1), sent with wsh agents send. Not typed by the user.]\n';
+
+    it("lays out joined texts by what they say, where they were read, without starting a turn", () => {
+        const entries: AgentEntry[] = [
+            user("go"),
+            bash("npm test"),
+            joined("wake: task 3 failed (exit 1)"),
+            bash("npm run lint"),
+            joined(ENVELOPE + "the cache is fixed"),
+            bash("git status"),
+            joined("also check b"),
+            prose("done"),
+        ];
+        const items = layoutTranscript(entries, { active: true });
+        expect(kinds(items)).toEqual(["user", "steps", "arc", "steps", "arc", "steps", "user", "message"]);
+        expect(items[2]).toMatchObject({ kind: "arc", index: 2, message: { kind: "wake" } });
+        expect(items[4]).toMatchObject({
+            kind: "arc",
+            index: 4,
+            message: { kind: "agent", sender: "cache_fixer", tabId: "3f2a-b1", text: "the cache is fixed" },
+        });
+        expect(items[6]).toMatchObject({ kind: "user", text: "also check b", index: 6 });
+    });
+
+    it("never reads a joined text as a run's brief", () => {
+        const entries = [joined("keep going"), prose("ok"), user("Build task 2")];
+        const items = layoutTranscript(entries, { active: false, ctx: { role: { kind: "worker" } as any } });
+        expect(items[0]).toMatchObject({ kind: "user", text: "keep going" });
+        expect(items[2]).toMatchObject({ kind: "arc", message: { kind: "brief" } });
+    });
+
+    it("draws an agent message sent as a normal prompt as an agent row that starts its turn", () => {
+        const entries = [user("go"), bash("ls"), prose("ok"), user(ENVELOPE + "rebase please"), bash("git fetch")];
+        const items = layoutTranscript(entries, { active: true });
+        expect(kinds(items)).toEqual(["user", "turn", "message", "arc", "steps"]);
+        expect(items[3]).toMatchObject({ kind: "arc", message: { kind: "agent", text: "rebase please" } });
+    });
+
     it("flags only the last reply as latest", () => {
         const items = layoutTranscript([prose("a"), user("b"), prose("c")], { active: false });
         expect(items.filter((i) => i.kind === "message").map((i) => (i as any).latest)).toEqual([false, true]);

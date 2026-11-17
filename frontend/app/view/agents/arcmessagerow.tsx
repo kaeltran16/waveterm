@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // One message Arc typed into an agent's transcript, drawn as an event: a wake (one row per line it holds, with the
-// Waited fold and a passed plan review before it), a brief (folded, opening to its text), or a brainstorm line (the
-// judge's result, the builder check, a pane action). arcmessagemodel.ts reads the text; this words and draws it.
+// Waited fold and a passed plan review before it), a brief (folded, opening to its text), a brainstorm line (the
+// judge's result, the builder check, a pane action), or another agent's message (who sent it, then its body).
+// arcmessagemodel.ts reads the text; this words and draws it.
 
 import * as WOS from "@/app/store/wos";
 import { openTarget } from "@/app/view/jarvis/openref";
@@ -16,6 +17,7 @@ import {
     ChevronDown,
     ChevronRight,
     FileText,
+    MessageSquare,
     MousePointerClick,
     Scale,
     X,
@@ -869,6 +871,25 @@ function BrainstormRow({ message, ctx, compact }: ArcMessageRowProps) {
     );
 }
 
+// another agent's message, sent with wsh agents send: who sent it, then what it says
+function AgentMessageRow({ message, compact }: { message: Extract<ArcMessage, { kind: "agent" }>; compact: boolean }) {
+    return (
+        <div data-arc-message="agent" data-agent-sender={message.sender} className={compact ? "my-2" : "mt-1 mb-4"}>
+            <EventHead
+                icon={<MessageSquare size={14} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />}
+                label="Message from"
+                headline={message.sender}
+                compact={compact}
+            />
+            {message.text !== "" ? (
+                <EventBody compact={compact}>
+                    <MarkdownMessage text={message.text} />
+                </EventBody>
+            ) : null}
+        </div>
+    );
+}
+
 export function ArcMessageRow(props: ArcMessageRowProps) {
     const { message } = props;
     switch (message.kind) {
@@ -878,5 +899,7 @@ export function ArcMessageRow(props: ArcMessageRowProps) {
             return <BriefRow {...props} message={message} />;
         case "brainstorm":
             return <BrainstormRow {...props} />;
+        case "agent":
+            return <AgentMessageRow message={message} compact={props.compact} />;
     }
 }
