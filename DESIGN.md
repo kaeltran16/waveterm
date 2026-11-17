@@ -302,6 +302,8 @@ Size tokens are sparse on purpose — most sizes are arbitrary values in
 components: `text-xxxs` 8.5px (micro badges/eyebrows — the former
 `text-[8px]`/`text-[8.5px]` tiers unified), `text-xxs` 10px, `text-default`
 14px (the body size), `text-title` 18px; markdown text 14px with 12px mono.
+Code in the agent transcript (tool panels, prose code blocks) is 12.5px, one
+size from `CODE_TEXT` in `frontend/app/view/agents/tooldetailbody.tsx`.
 Weights come from Tailwind defaults
 (`font-medium/semibold/bold`); no weight or leading tokens exist — do not
 invent them.

@@ -3,7 +3,9 @@
 
 import { useCopyFeedback, type CopyState } from "@/app/element/copyfeedback";
 import { CrossFade } from "@/app/element/crossfade";
+import { cn } from "@/util/util";
 import { highlightLine } from "./highlight";
+import { CODE_TEXT } from "./tooldetailbody";
 
 // Styled fenced-code block for transcript prose (Wave-transcript-feed.dc.html code block).
 // lang label + optional path + copy affordance + line-number gutter + tokenized source.
@@ -30,7 +32,7 @@ export function CodeBlock({ code, lang, path }: { code: string; lang?: string; p
             <div className="overflow-x-auto">
                 <div className="min-w-min py-[9px]">
                     {lines.map((ln, i) => (
-                        <div key={i} className="flex whitespace-pre font-mono text-[12px] leading-[1.75]">
+                        <div key={i} className={cn("flex whitespace-pre font-mono leading-[1.75]", CODE_TEXT)}>
                             <span className="w-[34px] shrink-0 select-none pr-[14px] text-right text-ink-faint">
                                 {i + 1}
                             </span>

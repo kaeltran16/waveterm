@@ -9,7 +9,7 @@ import { useState, type ReactNode } from "react";
 import type { AgentActionEntry, EditFile, ToolImage } from "./agentsviewmodel";
 import { ImageThumbs, toolZoomImages } from "./imagethumbs";
 import { RecordedOutput } from "./recordedoutput";
-import { ToolDetailBody } from "./tooldetailbody";
+import { CODE_TEXT, ToolDetailBody } from "./tooldetailbody";
 import { bashCard, toolRendererKey } from "./renderregistry";
 import { failureLabel, type TestSummary } from "./testoutput";
 import { capDiffLines, hiddenLinesLabel } from "./unifieddiff";
@@ -144,7 +144,10 @@ function TestCard({ summary, output, collapsed }: { summary: TestSummary; output
             <div
                 key={i}
                 data-test-failure
-                className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-[3px] px-3 py-1.5 font-mono text-[11.5px]"
+                className={cn(
+                    "grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-[3px] px-3 py-1.5 font-mono",
+                    CODE_TEXT
+                )}
             >
                 <span className="text-error">FAIL</span>
                 <span className="truncate text-ink-hi" title={label.name}>

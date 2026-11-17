@@ -7,7 +7,7 @@ import { cn } from "@/util/util";
 import { X } from "lucide-react";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { formatDuration } from "./tooldetail";
-import { StatusSquare, ToolDetailBody } from "./tooldetailbody";
+import { CODE_TEXT, StatusSquare, ToolDetailBody } from "./tooldetailbody";
 import { stepTitle } from "./transcriptlayout";
 
 // a failed or blocked call's mark as a word, as the step row draws it; a successful call has none (a square read as
@@ -61,7 +61,8 @@ export function AgentToolDetailModal({ action }: { action: AgentActionEntry }) {
                         <div
                             data-tool-error
                             className={cn(
-                                "whitespace-pre-wrap border-b border-edge-faint px-4 py-3 font-mono text-[12px] leading-[1.6] [overflow-wrap:anywhere]",
+                                "whitespace-pre-wrap border-b border-edge-faint px-4 py-3 font-mono leading-[1.6] [overflow-wrap:anywhere]",
+                                CODE_TEXT,
                                 action.outcome === "blocked" ? "text-muted" : "text-error"
                             )}
                         >

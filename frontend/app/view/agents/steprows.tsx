@@ -16,7 +16,7 @@ import { MarkdownMessage } from "./markdownmessage";
 import { RecordedOutput } from "./recordedoutput";
 import { toolRendererKey } from "./renderregistry";
 import { fmtDuration } from "./runcompletion";
-import { ToolDetailBody } from "./tooldetailbody";
+import { CODE_TEXT, ToolDetailBody } from "./tooldetailbody";
 import { formatDuration } from "./tooldetail";
 import { ToolOutputRenderer } from "./toolrenderers";
 import type { TranscriptContext } from "./transcriptcontext";
@@ -280,7 +280,8 @@ function StepBody({
                     <div
                         data-tool-error
                         className={cn(
-                            "whitespace-pre-wrap border-b border-edge-faint px-3 py-2 font-mono text-[11.5px] leading-[1.6] [overflow-wrap:anywhere] last:border-b-0",
+                            "whitespace-pre-wrap border-b border-edge-faint px-3 py-2 font-mono leading-[1.6] [overflow-wrap:anywhere] last:border-b-0",
+                            CODE_TEXT,
                             tone
                         )}
                     >

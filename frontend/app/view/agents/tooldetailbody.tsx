@@ -8,6 +8,9 @@ import type { ActionDetail, DiffLine } from "./agentsviewmodel";
 import { highlightLine } from "./highlight";
 import { groupGrepMatches, isCodePath, newFileLines, parseLineGutter, type GutterLine } from "./tooldetailmodel";
 
+// one size for code across the transcript (tool panels, prose code blocks), sized to sit just under the 14px prose
+export const CODE_TEXT = "text-[12.5px]";
+
 // inline panels wrap long lines so a narrow card never scrolls sideways; the modal has room, so it keeps them unwrapped
 function lineWrap(variant: "inline" | "modal"): string {
     return variant === "inline" ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "whitespace-pre";
@@ -177,7 +180,7 @@ function DiffRow({ line, numbered, wrap }: { line: DiffLine; numbered: boolean; 
               : "border-l-transparent";
     const gutter = numbered ? (line.sign === "-" ? line.oldNo : (line.newNo ?? line.oldNo)) : line.sign;
     return (
-        <div data-diff-line={line.sign} className={cn("flex border-l-[3px] font-mono text-[12px] leading-[1.6]", tint)}>
+        <div data-diff-line={line.sign} className={cn("flex border-l-[3px] font-mono leading-[1.6]", CODE_TEXT, tint)}>
             <span
                 data-diff-no
                 className={cn("shrink-0 select-none text-right text-ink-faint", numbered ? "w-[42px] pr-3.5" : "w-[22px] pr-2")}
@@ -212,12 +215,15 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                         {g.file ? (
                             <div
                                 data-grep-file
-                                className="flex border-b border-edge-faint px-3 py-1.5 font-mono text-[11.5px] text-ink-mid"
+                                className={cn(
+                                    "flex border-b border-edge-faint px-3 py-1.5 font-mono text-ink-mid",
+                                    CODE_TEXT
+                                )}
                             >
                                 <PanelPath path={g.file} />
                             </div>
                         ) : null}
-                        <div className={cn(pad, "font-mono text-[11.5px] leading-[1.7]")}>
+                        <div className={cn(pad, "font-mono leading-[1.7]", CODE_TEXT)}>
                             <FileLines
                                 lines={g.lines.map((l) => ({ no: l.line, text: l.code, ranges: l.ranges }))}
                                 code={false}
@@ -237,7 +243,7 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
         const lines = parseLineGutter(detail.snippet) ?? detail.snippet.split("\n").map((text) => ({ text }));
         return (
             <div className={cn(pad, modal && "overflow-x-auto")}>
-                <div className={cn("font-mono text-[11.5px] leading-[1.7]", modal && "min-w-min")}>
+                <div className={cn("font-mono leading-[1.7]", CODE_TEXT, modal && "min-w-min")}>
                     <FileLines lines={lines} code={detail.path == null || isCodePath(detail.path)} wrap={wrap} />
                 </div>
             </div>
@@ -248,7 +254,12 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
         return (
             <div className={pad}>
                 {detail.command ? (
-                    <div className="flex gap-2 whitespace-pre-wrap font-mono text-[11.5px] leading-[1.7] text-foreground [overflow-wrap:anywhere]">
+                    <div
+                        className={cn(
+                            "flex gap-2 whitespace-pre-wrap font-mono leading-[1.7] text-foreground [overflow-wrap:anywhere]",
+                            CODE_TEXT
+                        )}
+                    >
                         <span className="shrink-0 select-none text-accent">$</span>
                         <span>{detail.command}</span>
                     </div>
@@ -256,7 +267,8 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                 {detail.output ? (
                     <pre
                         className={cn(
-                            "m-0 font-mono text-[11.5px] leading-[1.7]",
+                            "m-0 font-mono leading-[1.7]",
+                            CODE_TEXT,
                             wrap,
                             modal && "overflow-x-auto",
                             detail.exit ? "text-error" : "text-ink-mid"
@@ -271,12 +283,17 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
     if (detail.kind === "skill") {
         return (
             <div className={pad}>
-                <div className="flex items-center gap-2 font-mono text-[11.5px]">
+                <div className={cn("flex items-center gap-2 font-mono", CODE_TEXT)}>
                     <span className="text-syntax-keyword">skill</span>
                     <span className="text-primary">{detail.name}</span>
                 </div>
                 {detail.args ? (
-                    <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap break-words font-mono text-[11.5px] leading-[1.6] text-secondary">
+                    <pre
+                        className={cn(
+                            "mt-1.5 overflow-x-auto whitespace-pre-wrap break-words font-mono leading-[1.6] text-secondary",
+                            CODE_TEXT
+                        )}
+                    >
                         {detail.args}
                     </pre>
                 ) : null}
@@ -313,7 +330,12 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                 const added = f.badge === "A";
                 return (
                     <div key={i} data-diff-file className="border-b border-edge-faint last:border-b-0">
-                        <div className="flex items-center gap-2 border-b border-edge-faint px-3 py-1.5 font-mono text-[11.5px]">
+                        <div
+                            className={cn(
+                                "flex items-center gap-2 border-b border-edge-faint px-3 py-1.5 font-mono",
+                                CODE_TEXT
+                            )}
+                        >
                             <PanelPath path={f.path} className="text-ink-mid" />
                             {added ? <span className="shrink-0 text-success">new</span> : null}
                             <span className={cn("shrink-0", f.adds > 0 ? "text-diff-added" : "text-muted")}>+{f.adds}</span>
@@ -321,7 +343,7 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                         </div>
                         {added ? (
                             <div data-file-preview className={cn("px-3 py-2", modal && "overflow-x-auto")}>
-                                <div className={cn("font-mono text-[11.5px] leading-[1.7]", modal && "min-w-min")}>
+                                <div className={cn("font-mono leading-[1.7]", CODE_TEXT, modal && "min-w-min")}>
                                     <FileLines lines={newFileLines(f)} code={isCodePath(f.path)} wrap={wrap} />
                                 </div>
                             </div>
@@ -334,7 +356,8 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                                                 key={k}
                                                 data-diff-hunk
                                                 className={cn(
-                                                    "bg-accent/[0.06] pl-[13px] pr-3.5 font-mono text-[11.5px] leading-[1.7] text-muted",
+                                                    "bg-accent/[0.06] pl-[13px] pr-3.5 font-mono leading-[1.7] text-muted",
+                                                    CODE_TEXT,
                                                     wrap,
                                                     k > 0 && "mt-1"
                                                 )}
