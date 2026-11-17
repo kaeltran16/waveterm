@@ -5,10 +5,12 @@ package wshserver
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentctl"
+	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
@@ -70,6 +72,24 @@ func TestAgentControlPassesQueueAndTakeBackToTheStream(t *testing.T) {
 	}
 	if got := read(); got.TakeBack != "r1" || got.Text != "" || got.Queue {
 		t.Fatalf("take-back: got %+v", got)
+	}
+}
+
+// the mod's stream ending with no newer one is a session's end: nothing it held can reach the agent now
+func TestAgentControlEndingLosesWhatTheModHeld(t *testing.T) {
+	const blockId = "8d1e3f02-4c6b-4a79-9f2e-3b0c5d7e9f21"
+	ctx, cancel := context.WithCancel(context.Background())
+	ch := (&WshServer{}).AgentControlCommand(ctx, wshrpc.CommandAgentControlData{ORef: waveobj.MakeORef(waveobj.OType_Block, blockId).String()})
+	held := []baseds.QueuedPrompt{{Id: "m1", Text: "and the tests", Ts: 10}}
+	if err := (&WshServer{}).SetAgentQueueCommand(context.Background(), wshrpc.CommandSetAgentQueueData{BlockId: blockId, Held: held}); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	for range ch {
+	}
+	got, _ := queueEvent(t, blockId)
+	if len(got.Held) != 0 || !reflect.DeepEqual(got.Lost, held) {
+		t.Fatalf("event after the stream ended = %+v, want held [] and lost %+v", got, held)
 	}
 }
 

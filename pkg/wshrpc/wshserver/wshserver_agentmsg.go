@@ -63,6 +63,9 @@ var loadAgentRosterFacts = readAgentRosterFacts
 // deliverAgentMessage hands a message to a session. A var so tests need no live session.
 var deliverAgentMessage = orchestrate.SendToSession
 
+// queueAgentMessage hands a session the person's message typed into its box. A var so tests need no live session.
+var queueAgentMessage = orchestrate.QueueToSession
+
 // blockTranscriptMeta is the transcript path a block's agent hook recorded on it. A var so tests need no block.
 var blockTranscriptMeta = readBlockTranscriptMeta
 
@@ -335,6 +338,7 @@ func agentOpenPrompt(row *agentRow) string {
 
 // AgentPromptCommand hands the cockpit's own prompt to a block's session. A session whose mod holds a
 // control stream runs it as a prompt, leaving the composer and the human's draft alone; any other is typed.
+// Queue sends it as the person's own message, which the mod holds until the turn's next step.
 func (ws *WshServer) AgentPromptCommand(ctx context.Context, data wshrpc.CommandAgentPromptData) error {
 	text := strings.TrimSpace(data.Text)
 	if data.BlockId == "" || text == "" {
@@ -345,6 +349,10 @@ func (ws *WshServer) AgentPromptCommand(ctx context.Context, data wshrpc.Command
 	}
 	if err := unreachablePrompt(ctx, data.BlockId); err != nil {
 		return err
+	}
+	if data.Queue {
+		queueAgentMessage(data.BlockId, text)
+		return nil
 	}
 	deliverAgentMessage(data.BlockId, text)
 	return nil

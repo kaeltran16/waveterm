@@ -28,7 +28,8 @@ var (
 )
 
 // Register opens blockId's stream and returns it with its close. A second stream for the block replaces
-// the first: a mod reload starts its new stream while the old process is still going away.
+// the first: a mod reload starts its new stream while the old process is still going away. Closing the
+// block's current stream loses what its mod held; closing a replaced one leaves that to the newer mod's report.
 func Register(blockId string) (<-chan Msg, func()) {
 	ch := make(chan Msg, queueSize)
 	lock.Lock()
@@ -39,6 +40,8 @@ func Register(blockId string) (<-chan Msg, func()) {
 		defer lock.Unlock()
 		if streams[blockId] == ch {
 			delete(streams, blockId)
+			// under lock, so a stream registering now cannot have its first report lost with the old list
+			endQueue(blockId)
 		}
 	}
 }

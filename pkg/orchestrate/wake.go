@@ -773,6 +773,15 @@ func SendToSession(blockId, text string) {
 	sendWakeFn(blockId, text)
 }
 
+// QueueToSession delivers a message the person typed into an agent's box: over its mod's stream marked Queue,
+// so the mod holds it for the turn's next step and reports it; with no stream it goes as SendToSession's does.
+func QueueToSession(blockId, text string) {
+	if toStream(blockId, text, latestAgentState(blockId, ""), true) {
+		return
+	}
+	sendWakeFn(blockId, text)
+}
+
 // sendWake delivers a wake: a session whose mod holds a control stream is not typed into at all.
 func sendWake(blockId, text string) {
 	if overStream(blockId, text, latestAgentState(blockId, "")) {
@@ -805,6 +814,11 @@ func typeWake(blockId, text string) {
 // it as a prompt of its own. One at work has it joined to the running turn, which is what a tell to a
 // busy worker is for; a mod older than MidTurn runs it as a prompt once that turn ends.
 func overStream(blockId, text, state string) bool {
+	return toStream(blockId, text, state, false)
+}
+
+// toStream is overStream with queue marking the text as the person's own, which the mod holds and reports.
+func toStream(blockId, text, state string, queue bool) bool {
 	if !agentctl.Has(blockId) {
 		return false
 	}
@@ -814,6 +828,7 @@ func overStream(blockId, text, state string) bool {
 	}
 	msg := streamMsg(text)
 	msg.MidTurn = !atPrompt(state)
+	msg.Queue = queue
 	return agentctl.Send(blockId, msg)
 }
 
