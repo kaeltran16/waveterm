@@ -19,16 +19,10 @@ import {
     newQueue,
     newStep,
     nextAction,
-    personsHeld,
     putBack,
-    release,
-    report,
     resultsStored,
-    settle,
     stepEnded,
-    takeBack,
 } from "./queue-core";
-import type { Held } from "./queue-core";
 import {
     isTaggable,
     mentionContext,
@@ -102,7 +96,7 @@ function publishCommandsAtStart($: EngineInterface): void {
 let isTurnOpen = false;
 
 // the texts held for the main loop's next request or its turn's end. session.start makes a fresh one
-let queue = newQueue("start");
+let queue = newQueue();
 
 // the main loop's current request: Arc's held prompts join once its response and every tool result are in
 let step = newStep();
@@ -111,41 +105,10 @@ let step = newStep();
 // follows it, and the engine refuses the mod's prompts until the person next sends input
 let isStopping = false;
 
-// the reports wavesrv has yet to take, sent one at a time in order
-let reports: Promise<void> = Promise.resolve();
-
-// a report is the whole held list as of the call, plus every left entry no report has carried yet. a failed
-// take-back report holds its items again and reports them so: wavesrv refused it, and the box did not get them
-function reportQueue($: EngineInterface, takenBack?: { request: string; items: Held[] }) {
-    if (!active) {
-        return;
-    }
-    const payload = report(queue, takenBack?.request);
-    reports = reports.then(async () => {
-        try {
-            const ran = await $.process.run([WSH, "agentqueue", "set"], {
-                stdin: JSON.stringify(payload),
-                timeoutMs: 10_000,
-            });
-            if (ran.exitCode === 0) {
-                settle(queue, payload.left);
-                return;
-            }
-            $.ui.log(`arc: wsh agentqueue set exited ${ran.exitCode}: ${ran.stderr.trim()}`, { to: "debug" });
-        } catch (err) {
-            $.ui.log(`arc: reporting the queue failed: ${String(err)}`, { to: "debug" });
-        }
-        if (takenBack && takenBack.items.length > 0) {
-            putBack(queue, takenBack.items);
-            reportQueue($);
-        }
-    });
-}
-
 // what the cockpit's messages run through
 function sessionOf($: EngineInterface): Session {
     return {
-        // asUser: the model reads the engine's or the person's words bare, not as a note from a plugin
+        // asUser: the model reads Arc's words bare, not as a note from a plugin
         submit: (text: string) => $.prompt.submit({ text, asUser: true }),
         command: (name: string, args: string) => $.command.run({ command: name, args }),
         compact: (instructions: string) => $.session.compact({ instructions }),
@@ -178,19 +141,10 @@ async function joinHeld($: EngineInterface) {
 // sends what the turn left held as the next prompts, in order, one action at a time while no turn runs: the next
 // goes once the call before it resolved (a prompt's as its turn starts, so the next waits for that turn's end; a
 // command's once it ran or queued the prompt it expands to, which no later send can pass). after the person's Stop
-// the engine refuses them all, so the person's go back to the box (reported lost) and Arc's wait for the next turn.
-// a send refused or failed otherwise holds its texts again, still reported, so the person can take theirs back
-// rather than lose it; those and the rest wait for the next turn's end
+// the engine refuses them all, so they wait for the next turn's end; so does a send refused or failed otherwise,
+// held again with the rest
 function sendHeld($: EngineInterface) {
-    if (isTurnOpen) {
-        return;
-    }
-    if (isStopping) {
-        const persons = personsHeld(queue);
-        if (persons.length > 0) {
-            release(queue, persons);
-            reportQueue($);
-        }
+    if (isTurnOpen || isStopping) {
         return;
     }
     const sending = queue;
@@ -211,49 +165,25 @@ function sendHeld($: EngineInterface) {
             $.ui.log(`arc: sending a held mid-turn text failed: ${String(err)}`, { to: "debug" });
             putBack(sending, action.items);
             actionEnded(sending);
-            reportQueue($);
         }
     );
-    if (action.items.some((item) => item.id !== undefined)) {
-        reportQueue($);
-    }
 }
 
-// a person's text the engine refused at once (after their Stop, until they type): reported held and then
-// missing, so wavesrv reads it as lost and the box gets it back
-async function returnToBox($: EngineInterface, text: string) {
-    const item = hold(queue, text, true, await $.clock.now());
-    reportQueue($);
-    release(queue, [item]);
-    reportQueue($);
-}
-
-// one line of the cockpit's stream: a take-back answers with the person's held items, a text the running
-// turn holds waits for its next request, and the rest runs at once
+// one line of the cockpit's stream: a text the running turn holds waits for its next request, and the rest runs
+// at once
 async function onControl($: EngineInterface, session: Session, line: string) {
     const msg = controlMsg(line);
     if (msg === null) {
         return;
     }
-    if ("takeBack" in msg) {
-        reportQueue($, { request: msg.takeBack, items: takeBack(queue) });
-        return;
-    }
     // a text that arrives while the turn's end is still sending waits behind what it sends
     if (isHeld(msg, isTurnOpen || queue.isOut)) {
-        const isPerson = "queue" in msg && msg.queue === true;
-        hold(queue, msg.text, isPerson, await $.clock.now());
-        if (isPerson) {
-            reportQueue($);
-        }
+        hold(queue, msg.text);
         return;
     }
     // not awaited: a prompt resolves only when its turn starts, and the next line may be due first
-    void entered(deliver(session, msg)).catch(async (err) => {
+    void entered(deliver(session, msg)).catch((err) => {
         $.ui.log(`arc: running the cockpit's prompt failed: ${String(err)}`, { to: "debug" });
-        if ("queue" in msg && msg.queue === true) {
-            await returnToBox($, msg.text);
-        }
     });
 }
 
@@ -433,13 +363,12 @@ export const register: Register = (on) => {
         active = Boolean((await $.env.get("WAVETERM_BLOCKID")) && (await $.env.get("WAVETERM_JWT")));
         isKnownNonWorker = false;
         mentionCache = null;
-        // a reload or a /clear starts empty: the empty report has wavesrv hand back anything held before
-        queue = newQueue(String(await $.clock.now()));
+        // a reload or a /clear starts empty
+        queue = newQueue();
         const started = await next(e);
         if (active) {
             void listenToCockpit($);
             publishCommandsAtStart($);
-            reportQueue($);
         }
         return started;
     });

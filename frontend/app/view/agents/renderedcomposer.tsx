@@ -16,14 +16,13 @@ import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUp } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { forwardRef, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { forwardRef, useMemo, useState, type KeyboardEvent } from "react";
 import { canSendComposer, useAgentComposer, useComposerHandle, type AgentComposerHandle } from "./agentcomposer";
-import { getAgentQueueAtom, getLostAtom, takeBackQueued, takeLost } from "./agentqueuestore";
-import { sendAgentBash, toastSendFailure } from "./agentsend";
+import { sendAgentBash } from "./agentsend";
 import type { AgentVM } from "./agentsviewmodel";
 import { AttachButton, AttachmentTray } from "./attachmenttray";
 import { bashOffKey, bashOnInput } from "./bashmodemodel";
-import { appendLines, boxKey, promptHistory } from "./boxrecallmodel";
+import { boxKey, promptHistory } from "./boxrecallmodel";
 import { builderCheckView } from "./brainstormmodel";
 import { brainstormAtom } from "./brainstormstore";
 import { appendAttachments, pickFilePaths, useComposerAttachments } from "./composerattachments";
@@ -77,59 +76,21 @@ function ContextRing({ agent }: { agent: AgentVM }) {
 }
 
 // ↑ / ↓ in the box (boxrecallmodel.ts), and the mod's lost messages put back into it while it is mounted
-function useBoxRecall(
-    agentId: string,
-    blockId: string | undefined,
-    oref: string,
-    text: string,
-    setText: (fn: (cur: string) => string) => void,
-    held: boolean
-) {
+function useBoxRecall(agentId: string, text: string, setText: (fn: (cur: string) => string) => void) {
     const entries = useAtomValue(entriesAtomFor(agentId));
     const history = useMemo(() => promptHistory(entries), [entries]);
     const [recall, setRecall] = useState<number | null>(null);
-    const takingRef = useRef(false);
-    const lost = useAtomValue(getLostAtom(oref));
-    const putBack = (items: QueuedPrompt[]) => {
-        const texts = items.map((p) => p.text);
-        setText((cur) => appendLines(cur, texts));
-    };
-    useEffect(() => {
-        if (lost.length > 0 && oref !== "") {
-            putBack(takeLost(oref));
-        }
-    }, [lost, oref]);
-    const takeBack = () => {
-        // a second ↑ while the first is out would ask for what the first already took
-        if (takingRef.current || blockId == null) {
-            return;
-        }
-        takingRef.current = true;
-        fireAndForget(async () => {
-            try {
-                putBack(await takeBackQueued(blockId));
-            } catch (e) {
-                toastSendFailure("Queued messages not taken back", e);
-            } finally {
-                takingRef.current = false;
-            }
-        });
-    };
     const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>): boolean => {
         if ((e.key !== "ArrowUp" && e.key !== "ArrowDown") || e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) {
             return false;
         }
-        const act = boxKey(e.key, { text, held, history, recall });
+        const act = boxKey(e.key, { text, history, recall });
         if (act == null) {
             return false;
         }
         e.preventDefault();
-        if (act.kind === "takeback") {
-            takeBack();
-        } else {
-            setRecall(act.recall);
-            setText(() => act.text);
-        }
+        setRecall(act.recall);
+        setText(() => act.text);
         return true;
     };
     return { onKeyDown };
@@ -159,10 +120,7 @@ export const RenderedComposer = forwardRef<
 >(function RenderedComposer({ agent, hasTranscript, onInterrupt, onSubmitText }, ref) {
     const blockId = agent.blockId;
     const [bash, setBash] = useState(false);
-    const oref = blockId != null ? `block:${blockId}` : "";
-    const queue = useAtomValue(getAgentQueueAtom(oref));
-    const held = (queue?.held.length ?? 0) > 0;
-    const box = composerBox(agent, hasTranscript, bash, useBrainstormRoute(agent), held);
+    const box = composerBox(agent, hasTranscript, bash, useBrainstormRoute(agent));
     const route = box.route;
     const { attachments, addPaths, remove, retry, onPaste, clear } = useComposerAttachments();
     // bash mode sends the bare command (no attachment paths, no picker flip) and keeps the tray for the next message.
@@ -186,7 +144,7 @@ export const RenderedComposer = forwardRef<
               }),
     });
     useComposerHandle(ref, setText, taRef);
-    const recall = useBoxRecall(agent.id, blockId, oref, text, setText, held);
+    const recall = useBoxRecall(agent.id, text, setText);
     // before the mention hook: its pick moves the caret in a layout effect the mention hook then reads
     const slash = useSlashPanel({ text, setText, taRef, blockId, off: bash });
     const cwd = useAgentCwd(agent.transcriptPath, blockId);

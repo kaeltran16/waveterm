@@ -63,8 +63,8 @@ var loadAgentRosterFacts = readAgentRosterFacts
 // deliverAgentMessage hands a message to a session. A var so tests need no live session.
 var deliverAgentMessage = orchestrate.SendToSession
 
-// queueAgentMessage hands a session the person's message typed into its box. A var so tests need no live session.
-var queueAgentMessage = orchestrate.QueueToSession
+// typeAgentMessage types the person's message from its box into a session. A var so tests need no live session.
+var typeAgentMessage = orchestrate.TypeToSession
 
 // blockTranscriptMeta is the transcript path a block's agent hook recorded on it. A var so tests need no block.
 var blockTranscriptMeta = readBlockTranscriptMeta
@@ -350,8 +350,8 @@ func (ws *WshServer) AgentPromptCommand(ctx context.Context, data wshrpc.Command
 	if err := unreachablePrompt(ctx, data.BlockId); err != nil {
 		return err
 	}
-	if data.Queue {
-		queueAgentMessage(data.BlockId, text)
+	if data.Person {
+		typeAgentMessage(data.BlockId, text)
 		return nil
 	}
 	deliverAgentMessage(data.BlockId, text)

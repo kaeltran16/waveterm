@@ -54,8 +54,6 @@ declare global {
         text?: string;
         compact?: string;
         midturn?: boolean;
-        queue?: boolean;
-        takeback?: string;
     };
 
     // wshrpc.AgentInfo
@@ -80,13 +78,6 @@ declare global {
         choices: string[];
         ts: number;
         cleared?: boolean;
-    };
-
-    // baseds.AgentQueueData
-    type AgentQueueData = {
-        oref: string;
-        held: QueuedPrompt[];
-        lost?: QueuedPrompt[];
     };
 
     // baseds.AgentStatusData
@@ -585,7 +576,7 @@ declare global {
     type CommandAgentPromptData = {
         blockid: string;
         text: string;
-        queue?: boolean;
+        person?: boolean;
     };
 
     // wshrpc.CommandAgentSyncAdoptData
@@ -647,16 +638,6 @@ declare global {
     type CommandAgentSyncSteeringWriteRtnData = {
         mtime: number;
         conflict: boolean;
-    };
-
-    // wshrpc.CommandAgentTakeBackData
-    type CommandAgentTakeBackData = {
-        blockid: string;
-    };
-
-    // wshrpc.CommandAgentTakeBackRtnData
-    type CommandAgentTakeBackRtnData = {
-        items: QueuedPrompt[];
     };
 
     // wshrpc.CommandAgentsExplainData
@@ -2031,14 +2012,6 @@ declare global {
         incomplete?: boolean;
     };
 
-    // wshrpc.CommandSetAgentQueueData
-    type CommandSetAgentQueueData = {
-        blockid: string;
-        held: QueuedPrompt[];
-        left?: QueueLeft[];
-        takeback?: string;
-    };
-
     // wshrpc.CommandSetChannelProfileData
     type CommandSetChannelProfileData = {
         channelid: string;
@@ -3263,19 +3236,6 @@ declare global {
         shipped?: ShippedItem[];
         events?: TimelineEvent[];
         delta?: TimelineEvent[];
-    };
-
-    // wshrpc.QueueLeft
-    type QueueLeft = {
-        id: string;
-        how: string;
-    };
-
-    // baseds.QueuedPrompt
-    type QueuedPrompt = {
-        id: string;
-        text: string;
-        ts: number;
     };
 
     // wshrpc.RefusedRouteInfo

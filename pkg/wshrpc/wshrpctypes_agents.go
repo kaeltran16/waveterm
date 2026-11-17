@@ -30,8 +30,6 @@ type AgentCommands interface {
 	AgentsReadCommand(ctx context.Context, data CommandAgentsReadData) (*CommandAgentsReadRtnData, error)                                 // a live agent's state and last answer
 	AgentsExplainCommand(ctx context.Context, data CommandAgentsExplainData) (*CommandAgentsExplainRtnData, error)                        // what the roster reads about a tab and why it does or does not list it as live
 	AgentPromptCommand(ctx context.Context, data CommandAgentPromptData) error                                                            // the cockpit's own prompt to a block's agent session: its mod runs it, or it is typed
-	SetAgentQueueCommand(ctx context.Context, data CommandSetAgentQueueData) error                                                        // the arc mod's report of the person's messages it holds for a block
-	AgentTakeBackCommand(ctx context.Context, data CommandAgentTakeBackData) (*CommandAgentTakeBackRtnData, error)                        // take a block's held messages back into the box, before the agent reads them
 	AgentBashCommand(ctx context.Context, data CommandAgentBashData) error                                                                // type a `!` shell command into a block's Claude session, as a person would
 	SetClaudeLiveCommandsCommand(ctx context.Context, data CommandSetClaudeLiveCommandsData) error                                        // keep the slash command list a block's Claude session offers (the arc mod publishes it)
 	GetClaudeLiveCommandsCommand(ctx context.Context, data CommandGetClaudeLiveCommandsData) ([]ClaudeCommandInfo, error)                 // a block's newest published list, empty when it has none
@@ -98,37 +96,13 @@ type BrainstormCheckTimes struct {
 	LongestMs int64 `json:"longestms"`
 }
 
-// Queue marks a prompt typed into an agent's box: its mod holds it for the turn's next step and reports it as
-// the person's queued message. A prompt Arc sends on its own leaves it false.
+// Person marks a prompt typed into an agent's box: it is typed into the session's terminal, so the harness reads
+// it as the person's own and, mid-turn, joins it at the next tool call as its own queue does. A prompt Arc sends
+// on its own leaves it false.
 type CommandAgentPromptData struct {
 	BlockId string `json:"blockid"`
 	Text    string `json:"text"`
-	Queue   bool   `json:"queue,omitempty"`
-}
-
-// QueueLeft names a held message that left the mod's queue: How is "joined" (read at a tool result), "sent"
-// (sent as a prompt at the turn's end) or "takenback" (answered a take-back request).
-type QueueLeft struct {
-	Id  string `json:"id"`
-	How string `json:"how"`
-}
-
-// CommandSetAgentQueueData is the mod's report of what it holds for a block: the whole held list, the ids that
-// left since the last report, and TakeBack, the request id when the report answers one.
-type CommandSetAgentQueueData struct {
-	BlockId  string                `json:"blockid"`
-	Held     []baseds.QueuedPrompt `json:"held"`
-	Left     []QueueLeft           `json:"left,omitempty"`
-	TakeBack string                `json:"takeback,omitempty"`
-}
-
-type CommandAgentTakeBackData struct {
-	BlockId string `json:"blockid"`
-}
-
-// CommandAgentTakeBackRtnData holds the messages taken back, in the order they were sent.
-type CommandAgentTakeBackRtnData struct {
-	Items []baseds.QueuedPrompt `json:"items"`
+	Person  bool   `json:"person,omitempty"`
 }
 
 type CommandAgentBashData struct {
@@ -354,15 +328,11 @@ type CommandAgentControlData struct {
 
 // AgentControlMsg is one thing for the session to do. Text is a prompt as it would be typed: a leading
 // slash is a command. Compact asks for a compaction instead, with these instructions, and wins over Text.
-// MidTurn asks for Text to join the turn the session is running instead of waiting for it to end. Queue marks
-// Text as the person's own message, which the mod reports as held. TakeBack, set alone, asks the mod to hand
-// back everything it holds for the person and report it naming this request id.
+// MidTurn asks for Text to join the turn the session is running instead of waiting for it to end.
 type AgentControlMsg struct {
-	Text     string `json:"text,omitempty"`
-	Compact  string `json:"compact,omitempty"`
-	MidTurn  bool   `json:"midturn,omitempty"`
-	Queue    bool   `json:"queue,omitempty"`
-	TakeBack string `json:"takeback,omitempty"`
+	Text    string `json:"text,omitempty"`
+	Compact string `json:"compact,omitempty"`
+	MidTurn bool   `json:"midturn,omitempty"`
 }
 
 type CommandGetBackgroundAgentsData struct{}

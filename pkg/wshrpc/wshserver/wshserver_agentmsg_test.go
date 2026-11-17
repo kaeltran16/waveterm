@@ -319,25 +319,25 @@ func TestAgentPromptDeliversTheTextBare(t *testing.T) {
 	}
 }
 
-// a prompt typed into the box goes the queued way; any other keeps the plain delivery
-func TestAgentPromptWithQueueGoesTheQueuedWay(t *testing.T) {
+// a prompt typed into the box is typed into the session; any other keeps the plain delivery
+func TestAgentPromptFromThePersonIsTyped(t *testing.T) {
 	sent := scriptAgents(t, threeAgents())
-	oldQueue := queueAgentMessage
-	queued := &[]agentsDelivery{}
-	queueAgentMessage = func(blockId, text string) { *queued = append(*queued, agentsDelivery{blockId, text}) }
-	t.Cleanup(func() { queueAgentMessage = oldQueue })
+	oldType := typeAgentMessage
+	typed := &[]agentsDelivery{}
+	typeAgentMessage = func(blockId, text string) { *typed = append(*typed, agentsDelivery{blockId, text}) }
+	t.Cleanup(func() { typeAgentMessage = oldType })
 	ws := &WshServer{}
-	if err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: agentsBlockA, Text: " and the tests\n", Queue: true}); err != nil {
+	if err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: agentsBlockA, Text: " and the tests\n", Person: true}); err != nil {
 		t.Fatal(err)
 	}
-	if want := (agentsDelivery{agentsBlockA, "and the tests"}); len(*queued) != 1 || (*queued)[0] != want || len(*sent) != 0 {
-		t.Fatalf("queued %+v and delivered %+v, want only %+v queued", *queued, *sent, want)
+	if want := (agentsDelivery{agentsBlockA, "and the tests"}); len(*typed) != 1 || (*typed)[0] != want || len(*sent) != 0 {
+		t.Fatalf("typed %+v and delivered %+v, want only %+v typed", *typed, *sent, want)
 	}
 	if err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: agentsBlockA, Text: "go on"}); err != nil {
 		t.Fatal(err)
 	}
-	if want := (agentsDelivery{agentsBlockA, "go on"}); len(*queued) != 1 || len(*sent) != 1 || (*sent)[0] != want {
-		t.Fatalf("a prompt without queue: queued %+v, delivered %+v, want only %+v delivered", *queued, *sent, want)
+	if want := (agentsDelivery{agentsBlockA, "go on"}); len(*typed) != 1 || len(*sent) != 1 || (*sent)[0] != want {
+		t.Fatalf("a prompt not from the person: typed %+v, delivered %+v, want only %+v delivered", *typed, *sent, want)
 	}
 }
 

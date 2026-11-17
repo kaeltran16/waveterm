@@ -58,23 +58,10 @@ describe("controlMsg", () => {
         });
     });
 
-    it("reads the person's queued message", () => {
-        expect(controlMsg('{"text":"also print the date","midturn":true,"queue":true}')).toEqual({
-            text: "also print the date",
-            midTurn: true,
-            queue: true,
-        });
-    });
-
-    it("reads a take-back request by its id", () => {
-        expect(controlMsg('{"takeback":"r1"}')).toEqual({ takeBack: "r1" });
-    });
-
     it("ignores a line that asks for nothing", () => {
         expect(controlMsg("not json")).toBeNull();
         expect(controlMsg('{"text":""}')).toBeNull();
         expect(controlMsg('{"other":1}')).toBeNull();
-        expect(controlMsg('{"takeback":""}')).toBeNull();
         expect(controlMsg("null")).toBeNull();
     });
 });

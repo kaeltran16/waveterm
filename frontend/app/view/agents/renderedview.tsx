@@ -23,7 +23,6 @@ import { closePeek, codePeekAtom, togglePeek } from "../code/codepeekstore";
 import { interruptAgent } from "./agentactions";
 import type { AgentComposerHandle } from "./agentcomposer";
 import { resolveCwd } from "./agentcwdresolve";
-import { dropModItems, getModItemsAtom } from "./agentqueuestore";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
@@ -36,7 +35,7 @@ import { PermissionBand } from "./permissionband";
 import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
 import { pinnedPrompt, type PinnedPrompt } from "./pinnedprompt";
-import { footList, type Foot } from "./queuedprompts";
+import { footList, type FootItem } from "./queuedprompts";
 import { NeedsInputPill, RenderedBrainstorm } from "./renderedbrainstorm";
 import { useRenderedEntryRow } from "./renderedbsrows";
 import { RenderedComposer } from "./renderedcomposer";
@@ -207,7 +206,7 @@ function PinnedPromptBar({ prompt, onJump }: { prompt: PinnedPrompt | null; onJu
     );
 }
 
-// the line under the last waiting message, counting the mod's and Claude Code's together
+// the line under the last waiting message, counting them
 function QueuedLine({ count }: { count: number }) {
     return (
         <div data-queued-line className="mt-1.5 flex items-center gap-1.5 text-[12px] text-muted">
@@ -223,14 +222,14 @@ function QueuedLine({ count }: { count: number }) {
 // The messages waiting on the agent, after the timeline and above the working line. A message enters as an item
 // (moment 1); it has no exit, since the transcript row that shows it read takes its place in the same frame. The
 // Queued line reveals and leaves in place (moment 6).
-function QueuedFoot({ foot }: { foot: Foot }) {
-    const last = foot.items.length - 1;
+function QueuedFoot({ items }: { items: FootItem[] }) {
+    const last = items.length - 1;
     return (
         <div data-queued-foot>
-            {foot.items.map((item, i) => (
+            {items.map((item, i) => (
                 <motion.div
                     key={item.key}
-                    data-queued-item={item.queued ? "queued" : "taken"}
+                    data-queued-item
                     variants={cardVariants}
                     initial="initial"
                     animate="animate"
@@ -242,7 +241,7 @@ function QueuedFoot({ foot }: { foot: Foot }) {
                         <PersonBubble text={item.text} clamp compact={false} />
                     )}
                     <AnimatePresence initial={false}>
-                        {i === last && foot.queued > 0 ? (
+                        {i === last ? (
                             <motion.div
                                 key="line"
                                 variants={composerReveal}
@@ -251,7 +250,7 @@ function QueuedFoot({ foot }: { foot: Foot }) {
                                 exit="exit"
                                 className="flex justify-end overflow-hidden"
                             >
-                                <QueuedLine count={foot.queued} />
+                                <QueuedLine count={items.length} />
                             </motion.div>
                         ) : null}
                     </AnimatePresence>
@@ -261,18 +260,10 @@ function QueuedFoot({ foot }: { foot: Foot }) {
     );
 }
 
-// the foot's list for the agent; items the transcript now shows read are forgotten
-function useQueuedFoot(agent: AgentVM, entries: AgentEntry[]): Foot {
-    const oref = agent.blockId != null ? `block:${agent.blockId}` : "";
-    const mod = useAtomValue(getModItemsAtom(oref));
+// the foot's list for the agent
+function useQueuedFoot(agent: AgentVM): FootItem[] {
     const waiting = useAtomValue(waitingAtomFor(agent.id));
-    const foot = useMemo(() => footList(mod, waiting, entries), [mod, waiting, entries]);
-    useEffect(() => {
-        if (foot.retired.length > 0) {
-            dropModItems(oref, foot.retired);
-        }
-    }, [foot, oref]);
-    return foot;
+    return useMemo(() => footList(waiting), [waiting]);
 }
 
 export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
@@ -288,16 +279,16 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     });
     const ctx = useTranscriptContext(model, agent);
     const working = useWorkingTail(model.nowAtom, agent, entries);
-    const foot = useQueuedFoot(agent, entries);
+    const foot = useQueuedFoot(agent);
     // one node per change of either, so the memoized timeline does not re-render on every view render; an idle feed
     // gets no foot element, so its list holds only the rows it draws
     const tail = useMemo(() => {
-        if (foot.items.length === 0) {
+        if (foot.length === 0) {
             return working;
         }
         return (
             <>
-                <QueuedFoot foot={foot} />
+                <QueuedFoot items={foot} />
                 {working}
             </>
         );

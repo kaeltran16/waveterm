@@ -107,22 +107,6 @@ type AgentPermissionData struct {
 	Cleared   bool     `json:"cleared,omitempty"`
 }
 
-// QueuedPrompt is one message the person typed into an agent's box that its mod holds for the turn's next
-// step. Ts is the UnixMilli the mod took it.
-type QueuedPrompt struct {
-	Id   string `json:"id"`
-	Text string `json:"text"`
-	Ts   int64  `json:"ts"`
-}
-
-// AgentQueueData is the payload of Event_AgentQueue: what the block's mod holds now, and the messages that
-// were held and then vanished without joining, being sent or being taken back (a reload or a session's end).
-type AgentQueueData struct {
-	ORef string         `json:"oref"`
-	Held []QueuedPrompt `json:"held"`
-	Lost []QueuedPrompt `json:"lost,omitempty"`
-}
-
 // VolunteerData is the payload of Event_JarvisVolunteer: one thing Jarvis chose to say unprompted.
 // Id and At are stamped from the FACT (a run's end time, a dossier's last-touched time), never from
 // the moment of emission — the frontend watermark compares At first and breaks ties on Id, so a

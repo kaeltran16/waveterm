@@ -978,64 +978,28 @@ func TestRetryEnterIsNotTypedIntoASessionWithAStream(t *testing.T) {
 	}
 }
 
-// captureSends records what the typing paths are handed: the plain delivery, which types into a session with no
-// stream, and the one that types whether or not a stream is open.
-func captureSends(t *testing.T) *[]string {
-	t.Helper()
-	origSend, origType := sendWakeFn, typeWakeFn
-	sent := &[]string{}
-	sendWakeFn = func(_, text string) { *sent = append(*sent, text) }
-	typeWakeFn = sendWakeFn
-	t.Cleanup(func() { sendWakeFn, typeWakeFn = origSend, origType })
-	return sent
-}
-
-func publishBlockState(blockId, state string) {
-	oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
-	wps.Broker.Publish(wps.WaveEvent{Event: wps.Event_AgentStatus, Scopes: []string{oref}, Persist: 1,
-		Data: baseds.AgentStatusData{ORef: oref, State: state, Ts: 1}})
-}
-
-func TestQueuedTextMidTurnGoesOverTheStreamMarkedQueued(t *testing.T) {
-	const working = "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e01"
-	typed := captureSends(t)
-	publishBlockState(working, baseds.AgentState_Working)
-	msgs, done := agentctl.Register(working)
-	QueueToSession(working, "and the tests")
-	done()
-	if len(msgs) != 1 {
-		t.Fatalf("stream got %d messages, want 1", len(msgs))
-	}
-	if got := <-msgs; got.Text != "and the tests" || !got.Queue || !got.MidTurn || got.TakeBack != "" {
-		t.Fatalf("stream got %+v, want queued mid-turn text", got)
-	}
-	if len(*typed) != 0 {
-		t.Fatalf("a working session with a stream was typed into: %q", *typed)
-	}
-}
-
-// after the person's Stop, Claude Code refuses a mod's prompts until the person types, so every box message sent
-// over the stream to an idle session bounced back to the box as lost and the person could send nothing
-func TestQueuedTextAtThePromptIsTypedEvenWithAStream(t *testing.T) {
-	const idle = "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e02"
-	typed := captureSends(t)
-	publishBlockState(idle, baseds.AgentState_Idle)
-	msgs, done := agentctl.Register(idle)
-	QueueToSession(idle, "and the tests")
-	done()
-	if len(msgs) != 0 {
-		t.Fatalf("an idle session's stream got %d messages, want none", len(msgs))
-	}
-	if len(*typed) != 1 || (*typed)[0] != "and the tests" {
-		t.Fatalf("typed %q, want the text once", *typed)
-	}
-}
-
-func TestQueuedTextForASessionWithNoStreamIsDeliveredAsPlainText(t *testing.T) {
-	typed := captureSends(t)
-	QueueToSession("no-stream-queue", "and the tests")
-	if len(*typed) != 1 || (*typed)[0] != "and the tests" {
-		t.Fatalf("typed %q, want the text once", *typed)
+// a mod's text reaches the model as a note from the plugin, "not from the user", and after the person's Stop Claude
+// Code refuses a mod's prompts until the person types: every box message sent over the stream to an idle session
+// bounced back to the box, and the person could send nothing
+func TestPersonsTextIsTypedEvenWithAStream(t *testing.T) {
+	const working, idle = "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e01", "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e02"
+	orig := typeWakeFn
+	t.Cleanup(func() { typeWakeFn = orig })
+	for _, tc := range []struct{ block, state string }{{working, baseds.AgentState_Working}, {idle, baseds.AgentState_Idle}} {
+		oref := waveobj.MakeORef(waveobj.OType_Block, tc.block).String()
+		wps.Broker.Publish(wps.WaveEvent{Event: wps.Event_AgentStatus, Scopes: []string{oref}, Persist: 1,
+			Data: baseds.AgentStatusData{ORef: oref, State: tc.state, Ts: 1}})
+		var typed []string
+		typeWakeFn = func(_, text string) { typed = append(typed, text) }
+		msgs, done := agentctl.Register(tc.block)
+		TypeToSession(tc.block, "and the tests")
+		done()
+		if len(msgs) != 0 {
+			t.Fatalf("%s session's stream got %d messages, want none", tc.state, len(msgs))
+		}
+		if len(typed) != 1 || typed[0] != "and the tests" {
+			t.Fatalf("%s session: typed %q, want the text once", tc.state, typed)
+		}
 	}
 }
 

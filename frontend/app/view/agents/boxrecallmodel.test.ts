@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentEntry } from "./agentsviewmodel";
-import { appendLines, boxKey, promptHistory, type BoxKeyState } from "./boxrecallmodel";
+import { boxKey, promptHistory, type BoxKeyState } from "./boxrecallmodel";
 
 const user = (text: string): AgentEntry => ({ kind: "user", text });
 
@@ -13,7 +13,6 @@ const HISTORY = promptHistory(ENTRIES);
 
 const state = (over: Partial<BoxKeyState>): BoxKeyState => ({
     text: "",
-    held: false,
     history: HISTORY,
     recall: null,
     ...over,
@@ -25,7 +24,7 @@ function press(keys: ("ArrowUp" | "ArrowDown")[], start: Partial<BoxKeyState> = 
     const texts: string[] = [];
     for (const k of keys) {
         const act = boxKey(k, s);
-        if (act?.kind === "recall") {
+        if (act != null) {
             s = { ...s, text: act.text, recall: act.recall };
         }
         texts.push(s.text);
@@ -34,10 +33,6 @@ function press(keys: ("ArrowUp" | "ArrowDown")[], start: Partial<BoxKeyState> = 
 }
 
 describe("box ↑ / ↓", () => {
-    it("asks for take-back on ↑ in the empty box while the mod holds something", () => {
-        expect(boxKey("ArrowUp", state({ held: true }))).toEqual({ kind: "takeback" });
-    });
-
     it("steps back through history newest first and stays at the oldest", () => {
         expect(press(["ArrowUp", "ArrowUp", "ArrowUp", "ArrowUp"])).toEqual(["b", "/x", "a", "a"]);
     });
@@ -54,7 +49,6 @@ describe("box ↑ / ↓", () => {
 
     it("leaves ↑ to the caret in a box holding typed text", () => {
         expect(boxKey("ArrowUp", state({ text: "draft" }))).toBeNull();
-        expect(boxKey("ArrowUp", state({ text: "draft", held: true }))).toBeNull();
     });
 
     it("leaves recall once the recalled text is edited", () => {
@@ -63,7 +57,7 @@ describe("box ↑ / ↓", () => {
         expect(boxKey("ArrowDown", state({ text: "b!", recall: 0 }))).toBeNull();
     });
 
-    it("does nothing on ↑ with no history and nothing held", () => {
+    it("does nothing on ↑ with no history", () => {
         expect(boxKey("ArrowUp", state({ history: [] }))).toBeNull();
     });
 });
@@ -97,19 +91,5 @@ describe("prompt history", () => {
 
     it("skips an entry with no text", () => {
         expect(promptHistory([user("a"), user("  ")])).toEqual(["a"]);
-    });
-});
-
-describe("appendLines", () => {
-    it("fills an empty box one line each, in order", () => {
-        expect(appendLines("", ["first", "second"])).toEqual("first\nsecond");
-    });
-
-    it("puts the lines under text already in the box", () => {
-        expect(appendLines("draft", ["first"])).toEqual("draft\nfirst");
-    });
-
-    it("leaves the box as it is with nothing to add", () => {
-        expect(appendLines("draft", [])).toEqual("draft");
     });
 });

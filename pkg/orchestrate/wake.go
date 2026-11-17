@@ -773,15 +773,11 @@ func SendToSession(blockId, text string) {
 	sendWakeFn(blockId, text)
 }
 
-// QueueToSession delivers a message the person typed into an agent's box. Mid-turn it goes over the mod's stream
-// marked Queue, so the mod holds it for the turn's next step and reports it. At the prompt it is typed, stream or
-// not: after the person's Stop, Claude Code refuses a mod's prompts until the person types, so a streamed message
-// would bounce back to the box every time.
-func QueueToSession(blockId, text string) {
-	state := latestAgentState(blockId, "")
-	if !atPrompt(state) && toStream(blockId, text, state, true) {
-		return
-	}
+// TypeToSession delivers a message the person typed into an agent's box by typing it into the session's
+// terminal, stream or not, so the harness reads it as the person's own: mid-turn Claude Code joins it at the next
+// tool call, as text typed into its own box. A mod's text reaches the model as a note from the plugin, "not from the
+// user", and after the person's Stop Claude Code refuses a mod's prompts until the person types.
+func TypeToSession(blockId, text string) {
 	typeWakeFn(blockId, text)
 }
 
@@ -817,11 +813,6 @@ func typeWake(blockId, text string) {
 // it as a prompt of its own. One at work has it joined to the running turn, which is what a tell to a
 // busy worker is for; a mod older than MidTurn runs it as a prompt once that turn ends.
 func overStream(blockId, text, state string) bool {
-	return toStream(blockId, text, state, false)
-}
-
-// toStream is overStream with queue marking the text as the person's own, which the mod holds and reports.
-func toStream(blockId, text, state string, queue bool) bool {
 	if !agentctl.Has(blockId) {
 		return false
 	}
@@ -831,7 +822,6 @@ func toStream(blockId, text, state string, queue bool) bool {
 	}
 	msg := streamMsg(text)
 	msg.MidTurn = !atPrompt(state)
-	msg.Queue = queue
 	return agentctl.Send(blockId, msg)
 }
 

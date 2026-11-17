@@ -116,7 +116,6 @@ export type ComposerBox = {
 };
 
 export const BASH_PLACEHOLDER = "Run a shell command; its output joins the transcript";
-export const QUEUED_PLACEHOLDER = "Press ↑ to edit queued messages";
 const LINE_HINT = "No question open · your line reaches the brainstorm as pushback or a question back";
 
 function routePlaceholder(route: BrainstormRoute | null): string | null {
@@ -135,15 +134,12 @@ function routeAnswers(route: BrainstormRoute | null): string | null {
 
 // the message box's state from the agent's: which placeholder, whether Send is held, whether a turn can be stopped.
 // bash: the box is in ! bash mode, which changes only the placeholder and the Send label (the text runs as a command,
-// not a steer, whatever the agent's state) and drops the brainstorm route. route: brainstormRoute's. queued: the mod
-// holds a message for this agent, which only ↑ can take back, so the placeholder says so; Claude Code's own queue
-// does not count, since ↑ cannot reach it
+// not a steer, whatever the agent's state) and drops the brainstorm route. route: brainstormRoute's
 export function composerBox(
     agent: AgentVM,
     hasTranscript: boolean,
     bash = false,
-    brainstorm: BrainstormRoute | null = null,
-    queued = false
+    brainstorm: BrainstormRoute | null = null
 ): ComposerBox {
     const askBlocks = askDocked(agent);
     const working = agent.state === "working";
@@ -151,14 +147,12 @@ export function composerBox(
     const route = bash ? null : brainstorm;
     const placeholder = bash
         ? BASH_PLACEHOLDER
-        : queued
-          ? QUEUED_PLACEHOLDER
-          : (routePlaceholder(route) ??
-            (kind === "working"
-                ? "Steer the agent; it reads this before its next step"
-                : kind === "idle"
-                  ? `Reply to ${agent.name}, @ to mention, / for commands`
-                  : `Message ${agent.name}, @ to mention, / for commands`));
+        : (routePlaceholder(route) ??
+          (kind === "working"
+              ? "Steer the agent; it reads this before its next step"
+              : kind === "idle"
+                ? `Reply to ${agent.name}, @ to mention, / for commands`
+                : `Message ${agent.name}, @ to mention, / for commands`));
     const sendLabel = bash ? "Run" : working ? "Steer" : "Send";
     const hint = route?.kind === "line" && route.hint ? LINE_HINT : null;
     return {

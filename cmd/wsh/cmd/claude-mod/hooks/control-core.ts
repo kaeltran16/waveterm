@@ -17,12 +17,8 @@ export function takeLines(buffered: string): { lines: string[]; rest: string } {
 }
 
 // one thing the cockpit asked for: a prompt, which midTurn asks to join the running turn instead of
-// waiting for it to end and queue marks as the person's own, a compaction with these instructions, or the
-// person's held messages back, answering the take-back request of this id
-export type ControlMsg =
-    | { text: string; midTurn?: boolean; queue?: boolean }
-    | { compact: string }
-    | { takeBack: string };
+// waiting for it to end, or a compaction with these instructions
+export type ControlMsg = { text: string; midTurn?: boolean } | { compact: string };
 
 const filled = (v: unknown): v is string => typeof v === "string" && v !== "";
 
@@ -33,17 +29,10 @@ export function controlMsg(line: string): ControlMsg | null {
         if (filled(msg?.compact)) {
             return { compact: msg.compact };
         }
-        if (filled(msg?.takeback)) {
-            return { takeBack: msg.takeback };
-        }
         if (!filled(msg?.text)) {
             return null;
         }
-        return {
-            text: msg.text,
-            ...(msg.midturn === true && { midTurn: true }),
-            ...(msg.queue === true && { queue: true }),
-        };
+        return { text: msg.text, ...(msg.midturn === true && { midTurn: true }) };
     } catch {
         return null;
     }

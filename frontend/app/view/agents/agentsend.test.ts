@@ -57,13 +57,13 @@ describe("sendAgentText", () => {
 });
 
 describe("sendTypedText", () => {
-    it("sends the trimmed text as a prompt typed into the box, so the mod queues it", async () => {
+    it("sends the trimmed text as the person's own prompt, to be typed into the terminal", async () => {
         await sendTypedText("blk-1", "  wait, use the other file \n");
         expect(agentPrompt).toHaveBeenCalledTimes(1);
         expect(agentPrompt.mock.calls[0][1]).toEqual({
             blockid: "blk-1",
             text: "wait, use the other file",
-            queue: true,
+            person: true,
         });
     });
 

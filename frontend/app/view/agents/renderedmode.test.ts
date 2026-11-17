@@ -16,7 +16,6 @@ import {
     effectiveViewMode,
     isPickerCommand,
     pickerFlipAtom,
-    QUEUED_PLACEHOLDER,
     sendRoutedLine,
     shouldUnflip,
     toggleViewMode,
@@ -148,17 +147,6 @@ describe("composerBox", () => {
     it("labels Send Run in bash mode, idle or working", () => {
         expect(composerBox(agent(), true, true).sendLabel).toBe("Run");
         expect(composerBox(agent({ state: "working" }), true, true).sendLabel).toBe("Run");
-    });
-    it("while the mod holds a message, the placeholder offers the take-back and nothing else changes", () => {
-        const working = composerBox(agent({ state: "working" }), true);
-        expect(composerBox(agent({ state: "working" }), true, false, null, true)).toEqual({
-            ...working,
-            placeholder: QUEUED_PLACEHOLDER,
-        });
-        expect(composerBox(agent({ state: "working" }), true, false, null, false)).toEqual(working);
-    });
-    it("bash mode keeps its own placeholder while the mod holds a message", () => {
-        expect(composerBox(agent({ state: "working" }), true, true, null, true).placeholder).toBe(BASH_PLACEHOLDER);
     });
     it("labels Send Steer while working and Send otherwise outside bash mode", () => {
         expect(composerBox(agent({ state: "working" }), true).sendLabel).toBe("Steer");
