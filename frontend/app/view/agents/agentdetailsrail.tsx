@@ -18,6 +18,7 @@ import { agentDiffScope, openDiff } from "./agentdiffnav";
 import { hungSilenceMs } from "./agenthung";
 import {
     cacheRewriteTitle,
+    checkoutFacts,
     contextLevel,
     contextNote,
     fileTotals,
@@ -25,6 +26,7 @@ import {
     offersContextReset,
     railAction,
     toolChips,
+    type FilesChip,
 } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import { agentStateView, STATE_TONE_COLOR } from "./agentstateview";
@@ -239,23 +241,15 @@ function FileRow({
 }
 
 // FilesSummary keeps the deltas on one line in FileRow's colors, so a narrow rail wraps after the file count.
-function FilesSummary({
-    files,
-    prefix,
-    counted = true,
-}: {
-    files: { adds: number; dels: number }[];
-    prefix?: string;
-    counted?: boolean;
-}) {
-    const { count, adds, dels } = fileTotals(files);
+export function FilesSummary({ chip }: { chip: FilesChip }) {
     return (
         <>
-            {prefix ? `${prefix} · ` : null}
-            {count}{" "}
-            {counted ? (
+            {chip.prefix ? `${chip.prefix} · ` : null}
+            {chip.count}{" "}
+            {chip.lines ? (
                 <span className="whitespace-nowrap">
-                    <span className="text-diff-added">+{adds}</span> <span className="text-diff-removed">−{dels}</span>
+                    <span className="text-diff-added">+{chip.lines.adds}</span>{" "}
+                    <span className="text-diff-removed">−{chip.lines.dels}</span>
                 </span>
             ) : null}
         </>
@@ -269,6 +263,7 @@ function SealedFiles({ files }: { files: EvidenceFile[] }) {
     }
     const changes = files.map((f) => ({ path: f.path, status: f.stat, adds: f.add, dels: f.del }));
     const { shown } = capFiles(changes, RailFilesCap);
+    const { count, adds, dels } = fileTotals(changes);
     return (
         <>
             <div className="flex flex-col gap-[7px]">
@@ -277,7 +272,7 @@ function SealedFiles({ files }: { files: EvidenceFile[] }) {
                 ))}
             </div>
             <div className="mt-[8px] font-mono text-[10.5px] text-muted">
-                <FilesSummary files={changes} />
+                <FilesSummary chip={{ count, lines: { adds, dels } }} />
             </div>
         </>
     );
@@ -407,8 +402,8 @@ function AgentDetailsPanel({
     const cacheCountdown = isClaude ? formatCacheCountdown(cacheStatus, now) : "—";
     // a land removes the run's worktree, so a landed lead's rail reads its run's landing, not its own checkout
     const landed = role?.kind === "lead" ? leadLandFacts(roleRun) : null;
-    const branch = ended ? ended.branch : (landed?.branch ?? railState?.branch);
-    const worktree = ended ? undefined : railState?.worktree;
+    const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
+    const { branch, worktree, worktreePath, chip } = checkoutFacts({ git: railState, landed, ended, sharedBy });
     const live = agent.blockId != null && !ended;
     const action = sub
         ? null
@@ -421,7 +416,6 @@ function AgentDetailsPanel({
               silentMs,
               askInView,
           });
-    const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
     const offerReset =
         ctxPct != null &&
         offersContextReset({ isClaude, state: agent.state, level: contextLevel(ctxPct, usage?.contextmax), live });
@@ -493,7 +487,7 @@ function AgentDetailsPanel({
                                 {branch || "—"}
                             </DetailLine>
                             {worktree ? (
-                                <DetailLine label="Worktree" title={railState?.cwd ?? undefined} clipStart>
+                                <DetailLine label="Worktree" title={worktreePath} clipStart>
                                     {worktree}
                                 </DetailLine>
                             ) : null}
@@ -701,7 +695,7 @@ function AgentDetailsPanel({
                                   </div>
                               ) : !railState.isRepo ? (
                                   <div className="text-[11.5px] text-muted">Not a git repository</div>
-                              ) : shownFiles.length === 0 ? (
+                              ) : chip == null ? (
                                   <div className="text-[11.5px] text-muted">No changes</div>
                               ) : (
                                   <>
@@ -723,17 +717,9 @@ function AgentDetailsPanel({
                                           <span
                                               data-rail-files-summary
                                               className="min-w-0 text-muted"
-                                              title={
-                                                  sharedBy > 1
-                                                      ? `All changes in this checkout, shared by ${sharedBy} agents`
-                                                      : undefined
-                                              }
+                                              title={chip.title}
                                           >
-                                              <FilesSummary
-                                                  files={changes}
-                                                  prefix={sharedBy > 1 ? "repo" : undefined}
-                                                  counted={counted}
-                                              />
+                                              <FilesSummary chip={chip} />
                                           </span>
                                           <button
                                               type="button"

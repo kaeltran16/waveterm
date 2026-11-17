@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure: what the Agent details rail says in its context row, its footer action, its tool chips, its files summary
-// and the worktree line under its branch. No React.
+// and the worktree line under its branch, and the checkout facts the Rendered header shares with it. No React.
 
 import { usageLevel, type AgentEntry, type AgentState, type AgentVM } from "./agentsviewmodel";
+import { lineCountsShown } from "./gitstatus";
+import type { RailGitState } from "./railstore";
 import type { ClassUsage } from "./usagestats";
 
 // a tool used this few times reads dimmer, so the verbs doing the work stand out
@@ -150,6 +152,56 @@ export function fileTotals(files: { adds: number; dels: number }[]): { count: st
 export function filesSummary(files: { adds: number; dels: number }[]): string {
     const { count, adds, dels } = fileTotals(files);
     return `${count} · +${adds} −${dels}`;
+}
+
+// a files chip, or the rail's files summary: the count, its line totals when git could count them, and "repo" when
+// other agents share the checkout, so its changes are every agent's in it
+export interface FilesChip {
+    count: string;
+    lines?: { adds: number; dels: number };
+    prefix?: "repo";
+    title?: string;
+}
+
+export interface CheckoutFacts {
+    branch: string;
+    worktree?: string;
+    worktreePath?: string;
+    chip: FilesChip | null;
+}
+
+// checkoutFacts is the one reading of an agent's checkout that the rail's Details and Files touched and the Rendered
+// header's subline and files chip all show. A landed lead's worktree is gone with its land and an ended worker's with
+// its task, so both read what the run recorded and have no chip.
+export function checkoutFacts(input: {
+    git: RailGitState | null;
+    landed?: { branch: string } | null;
+    ended?: { branch?: string };
+    sharedBy: number;
+}): CheckoutFacts {
+    const { git, landed, ended, sharedBy } = input;
+    if (ended) {
+        return { branch: ended.branch ?? "", chip: null };
+    }
+    const branch = landed?.branch ?? git?.branch ?? "";
+    if (git == null) {
+        return { branch, chip: null };
+    }
+    const files = git.changes?.files ?? [];
+    const facts = { branch, worktree: git.worktree, worktreePath: git.cwd ?? undefined };
+    if (landed || !git.isRepo || files.length === 0) {
+        return { ...facts, chip: null };
+    }
+    const { count, adds, dels } = fileTotals(files);
+    const chip: FilesChip = { count };
+    if (lineCountsShown(git.changes)) {
+        chip.lines = { adds, dels };
+    }
+    if (sharedBy > 1) {
+        chip.prefix = "repo";
+        chip.title = `All changes in this checkout, shared by ${sharedBy} agents`;
+    }
+    return { ...facts, chip };
 }
 
 const slashed = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
