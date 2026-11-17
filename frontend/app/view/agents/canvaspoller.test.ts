@@ -1,13 +1,22 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: {} }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { canvasOnScreen, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
-import type { CanvasState } from "./canvasstore";
+import { boardUnseen } from "./canvasmodel";
+import { canvasOnScreen, pollAndMerge, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
+import {
+    attachCanvas,
+    detachCanvas,
+    getCanvas,
+    setCanvasMode,
+    showInlineBoard,
+    updateCanvas,
+    type CanvasState,
+} from "./canvasstore";
 
 const NOW = 50_000;
 const BASE = "http://127.0.0.1:5005/canvas/tok";
@@ -261,6 +270,72 @@ describe("pollCanvasOnce", () => {
         await pollCanvasOnce(state({ base: BASE }), io, NOW);
         expect(io.serves).toEqual([]);
         expect(io.urls.every((u) => u.startsWith(`${BASE}/`))).toBe(true);
+    });
+});
+
+describe("pollAndMerge", () => {
+    const AGENT = "agent-poll";
+    const LATER = NOW + 10_000;
+
+    // the agent's canvas, already served, with the given state on top
+    function attached(over: Partial<CanvasState>): void {
+        attachCanvas(AGENT, { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
+        updateCanvas(AGENT, (s) => ({ ...s, base: BASE, status: "ready", ...over }));
+    }
+
+    // a poll during whose reads `during` runs, as a tab click or mode switch landing while it is in flight would
+    function pollWith(during: () => void): CanvasIO {
+        const io = fakeIO({
+            files: { "Main.dc.html": 1000, "States.dc.html": 5000, "canvas.json": 500 },
+            json: JSON_TWO,
+        });
+        return {
+            ...io,
+            get: async (url) => {
+                during();
+                return io.get(url);
+            },
+        };
+    }
+
+    beforeEach(() => {
+        vi.spyOn(Date, "now").mockReturnValue(NOW);
+    });
+    afterEach(() => {
+        detachCanvas(AGENT);
+        vi.restoreAllMocks();
+    });
+
+    it("keeps a board shown while the poll was reading as viewed at the show", async () => {
+        attached({ mode: "terminal", inlineBoard: "Main.dc.html", boardViewedMs: { "Main.dc.html": 9 } });
+        await pollAndMerge(
+            AGENT,
+            pollWith(() => showInlineBoard(AGENT, "States.dc.html", LATER))
+        );
+        const s = getCanvas(AGENT);
+        expect(s.boardViewedMs).toEqual({ "Main.dc.html": NOW, "States.dc.html": LATER });
+        expect(boardUnseen(s, "States.dc.html")).toBe(false);
+    });
+
+    it("keeps a canvas-mode switch made while the poll was reading", async () => {
+        attached({ mode: "canvas", lastViewedMs: 7 });
+        await pollAndMerge(
+            AGENT,
+            pollWith(() => setCanvasMode(AGENT, "canvas", LATER))
+        );
+        expect(getCanvas(AGENT).lastViewedMs).toBe(LATER);
+    });
+
+    it("records the boards on screen as viewed at the poll's time when nothing else moved them", async () => {
+        attached({ mode: "canvas", board: "States.dc.html", lastViewedMs: 7, boardViewedMs: { "States.dc.html": 7 } });
+        await pollAndMerge(
+            AGENT,
+            pollWith(() => {})
+        );
+        const s = getCanvas(AGENT);
+        expect(s.boardViewedMs).toEqual({ "States.dc.html": NOW });
+        expect(s.lastViewedMs).toBe(NOW);
+        expect(s.boardModifiedMs).toEqual({ "Main.dc.html": 1000, "States.dc.html": 5000 });
     });
 });
 

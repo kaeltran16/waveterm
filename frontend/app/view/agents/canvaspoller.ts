@@ -176,7 +176,24 @@ export async function pollAndMerge(agentId: string, io: CanvasIO = tauriCanvasIO
         return;
     }
     const patch = await pollCanvasOnce(s, io, Date.now(), canvasOnScreen(s, getBrainstorm(agentId)));
-    updateCanvas(agentId, (cur) => (cur.topic === s.topic && cur.dir === s.dir ? { ...cur, ...patch } : cur));
+    updateCanvas(agentId, (cur) => (cur.topic === s.topic && cur.dir === s.dir ? mergePoll(cur, patch) : cur));
+}
+
+// the patch's viewed times come from the poll's snapshot, so a show or mode switch that landed while it was reading
+// is newer: viewed times only move forward
+function mergePoll(cur: CanvasState, patch: Partial<CanvasState>): CanvasState {
+    const next = { ...cur, ...patch };
+    if (patch.lastViewedMs != null) {
+        next.lastViewedMs = Math.max(cur.lastViewedMs, patch.lastViewedMs);
+    }
+    if (patch.boardViewedMs != null) {
+        const viewed = { ...cur.boardViewedMs };
+        for (const [board, ms] of Object.entries(patch.boardViewedMs)) {
+            viewed[board] = Math.max(viewed[board] ?? ms, ms);
+        }
+        next.boardViewedMs = viewed;
+    }
+    return next;
 }
 
 export function useCanvasPoller(model: AgentsViewModel, agent: AgentVM | undefined): void {
