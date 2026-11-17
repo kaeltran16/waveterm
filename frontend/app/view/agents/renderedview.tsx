@@ -44,6 +44,9 @@ import { TranscriptSkeleton } from "./transcriptskeleton";
 
 // the transcript column's measure, and the pinned bar's (the Working board)
 const COLUMN = "mx-auto w-full max-w-[736px]";
+// the transcript column, shared with an ended worker's read-back. Only a markdown message's top-level text blocks keep
+// a reading measure; cards, code and diffs use the width
+export const TRANSCRIPT_COLUMN = `${COLUMN} flex min-h-full flex-col [&_.agent-md>:is(p,ul,ol,h1,h2,h3,h4,h5,h6,blockquote)]:max-w-[75ch]`;
 const BUBBLE = "[data-user-bubble]";
 // the docked peek's share of the view at most, so the transcript keeps the rest
 const PEEK_MAX_HEIGHT = "50%";
@@ -241,12 +244,8 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                     className="h-full overflow-y-auto px-6 py-[18px]"
                 >
                     {/* min-h, not h: the stick-to-bottom observer watches this box, so it must grow with the
-                        timeline (an image or chart that lays out late) for the tail to stay pinned. Only a markdown
-                        message's top-level text blocks keep a reading measure; cards, code and diffs use the width */}
-                    <div
-                        data-rendered-column
-                        className={`${COLUMN} flex min-h-full flex-col [&_.agent-md>:is(p,ul,ol,h1,h2,h3,h4,h5,h6,blockquote)]:max-w-[75ch]`}
-                    >
+                        timeline (an image or chart that lays out late) for the tail to stay pinned */}
+                    <div data-rendered-column className={TRANSCRIPT_COLUMN}>
                         {entries.length > 0 ? (
                             <>
                                 <AnimatePresence initial={false}>

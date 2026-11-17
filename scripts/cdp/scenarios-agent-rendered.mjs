@@ -20,6 +20,8 @@ import {
     closeTabs,
     focusAgent,
     makeTab,
+    pinDefaultView,
+    restoreDefaultView,
     restoreRoster,
     setRoster,
     toolResult,
@@ -263,7 +265,9 @@ const viewOf = (id) => `(() => {
     return {
         rendered: s?.querySelector("[data-rendered-view]") != null,
         termInDom: term != null,
-        termShown: term != null && getComputedStyle(term).display !== "none",
+        // under Rendered the terminal stays laid out but invisible, so its controller starts
+        termShown: term != null && term.checkVisibility({ visibilityProperty: true }),
+        termLaidOut: term != null && term.clientWidth > 0,
     };
 })()`;
 
@@ -411,6 +415,8 @@ export default function (_kit) {
                 const ctx = { tabIds: [], tempFiles: [], dir: mkdtempSync(join(tmpdir(), "verify-agent-rendered-")) };
                 // a throw past this point still returns ctx, so teardown removes whatever was already made
                 try {
+                    // the shipped default, whatever this dev app's Settings hold
+                    await pinDefaultView(h, "rendered");
                     ctx.probe = join(ctx.dir, "keyprobe.log");
                     const aPath = writeTranscript(ctx.dir, `rendered-a-${tag}`, [
                         userText(PROMPT),
@@ -529,15 +535,28 @@ export default function (_kit) {
                 await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
                 ctx.focusEmulated = true;
 
-                await step("rendered: toggle — clicking Rendered on A shows the rendered view, the terminal stays mounted and hidden", async () => {
-                    const before = await h.ev(viewOf(ctx.aId));
-                    const clicked = await clickToggle(h, "Rendered");
+                await step("rendered: toggle — A opens Rendered by default with its terminal laid out and invisible; Terminal shows the terminal, Rendered brings the view back", async () => {
+                    await wait(`${RV} != null`);
+                    const opened = await h.ev(viewOf(ctx.aId));
+                    const toTerm = await clickToggle(h, "Terminal");
+                    await wait(`${RV} == null`);
+                    const term = await h.ev(viewOf(ctx.aId));
+                    const toRendered = await clickToggle(h, "Rendered");
                     await wait(`${RV} != null`);
                     const after = await h.ev(viewOf(ctx.aId));
                     await h.shot(SHOT(1, "toggle"));
                     return [
-                        clicked && !before.rendered && before.termShown && after.rendered && after.termInDom && !after.termShown,
-                        { clicked, before, after },
+                        opened.rendered &&
+                            opened.termLaidOut &&
+                            !opened.termShown &&
+                            toTerm &&
+                            !term.rendered &&
+                            term.termShown &&
+                            toRendered &&
+                            after.rendered &&
+                            after.termInDom &&
+                            !after.termShown,
+                        { opened, term, after },
                     ];
                 });
 
@@ -2142,6 +2161,7 @@ export default function (_kit) {
                 if (ctx.focusEmulated) {
                     await step("turn focus emulation off", () => h.cdp("Emulation.setFocusEmulationEnabled", { enabled: false }));
                 }
+                await step("restore the default view", () => restoreDefaultView(h));
                 // a Stop retires every request still pending on the block
                 for (const blockId of ctx.blocks ?? []) {
                     await step(`publish a Stop for ${blockId}`, () => publishStatus(h, ctx, blockId, { state: "idle", hook: "Stop" }));

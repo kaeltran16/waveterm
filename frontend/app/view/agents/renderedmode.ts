@@ -1,24 +1,40 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Terminal | Rendered: two views of one claude process in the Agent surface center. The mode is per agent and not
-// persisted (every agent opens in the terminal). A picker command sent from the rendered composer flips the agent to
-// the terminal until its next prompt boundary, since the picker only exists in the TUI.
+// Terminal | Rendered: two views of one claude process in the Agent surface center. Every agent opens in the view the
+// Settings default names (one canRender refuses shows the terminal); a toggle overrides it for that agent until
+// restart. A picker command sent from the rendered composer flips the agent to the terminal until its next prompt
+// boundary, since the picker only exists in the TUI.
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { atom, type PrimitiveAtom } from "jotai";
+import { atom, type PrimitiveAtom, type WritableAtom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import { contextTokens } from "./agentrailmodel";
 import { hasAnswerableAsk, type AgentVM } from "./agentsviewmodel";
 
 export type ViewMode = "terminal" | "rendered";
 
-const viewModeAtoms = new Map<string, PrimitiveAtom<ViewMode>>();
+export const DEFAULT_VIEW_MODE: ViewMode = "rendered";
+
+// getOnInit: toggleViewMode reads it outside React, before anything has mounted the atom
+export const defaultViewModeAtom = atomWithStorage<ViewMode>("agent.view.default", DEFAULT_VIEW_MODE, undefined, {
+    getOnInit: true,
+}) as PrimitiveAtom<ViewMode>;
+
+type ViewModeAtom = WritableAtom<ViewMode, [ViewMode], void>;
+
+const viewModeAtoms = new Map<string, ViewModeAtom>();
 const pickerFlipAtoms = new Map<string, PrimitiveAtom<number | null>>();
 
-export function viewModeAtom(agentId: string): PrimitiveAtom<ViewMode> {
+// the agent's toggled view, else the Settings default, so changing the default moves every untoggled agent
+export function viewModeAtom(agentId: string): ViewModeAtom {
     let a = viewModeAtoms.get(agentId);
     if (a == null) {
-        a = atom<ViewMode>("terminal");
+        const chosen = atom(null) as PrimitiveAtom<ViewMode | null>;
+        a = atom(
+            (get) => get(chosen) ?? get(defaultViewModeAtom),
+            (_get, set, mode: ViewMode) => set(chosen, mode)
+        );
         viewModeAtoms.set(agentId, a);
     }
     return a;

@@ -7,6 +7,8 @@ import {
     canRender,
     composerBox,
     contextRing,
+    DEFAULT_VIEW_MODE,
+    defaultViewModeAtom,
     effectiveViewMode,
     isPickerCommand,
     pickerFlipAtom,
@@ -166,8 +168,10 @@ describe("contextRing", () => {
 });
 
 describe("toggleViewMode", () => {
-    it("flips the mode, and a flipped agent goes back to rendered with the flip cleared", () => {
+    it("opens rendered, flips the mode, and a flipped agent goes back to rendered with the flip cleared", () => {
         const id = "toggle-agent";
+        expect(globalStore.get(viewModeAtom(id))).toBe("rendered");
+        toggleViewMode(id);
         expect(globalStore.get(viewModeAtom(id))).toBe("terminal");
         toggleViewMode(id);
         expect(globalStore.get(viewModeAtom(id))).toBe("rendered");
@@ -177,5 +181,18 @@ describe("toggleViewMode", () => {
         expect(globalStore.get(viewModeAtom(id))).toBe("rendered");
         toggleViewMode(id);
         expect(globalStore.get(viewModeAtom(id))).toBe("terminal");
+    });
+    it("an untoggled agent follows the Settings default; a toggled one keeps its choice", () => {
+        const fresh = "default-agent";
+        const toggled = "toggled-agent";
+        toggleViewMode(toggled);
+        expect(globalStore.get(viewModeAtom(toggled))).toBe("terminal");
+        globalStore.set(defaultViewModeAtom, "terminal");
+        expect(globalStore.get(viewModeAtom(fresh))).toBe("terminal");
+        toggleViewMode(fresh);
+        expect(globalStore.get(viewModeAtom(fresh))).toBe("rendered");
+        globalStore.set(defaultViewModeAtom, "rendered");
+        expect(globalStore.get(viewModeAtom(toggled))).toBe("terminal");
+        globalStore.set(defaultViewModeAtom, DEFAULT_VIEW_MODE);
     });
 });

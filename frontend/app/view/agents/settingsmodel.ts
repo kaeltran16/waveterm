@@ -162,6 +162,13 @@ export function settingsSections(): SettingSectionDef[] {
                     key: "agent.rail.visible",
                     scope: "local",
                 },
+                {
+                    id: "general.view",
+                    title: "Claude agents open in",
+                    desc: "The Agent surface's center for a live Claude session. v flips one agent until restart.",
+                    key: "agent.view.default",
+                    scope: "local",
+                },
             ],
         },
         {

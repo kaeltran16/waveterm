@@ -67,6 +67,28 @@ export const focusAgent = (h, id) =>
         return true;`
     );
 
+// the Settings default view for claude agents (Rendered unless set). A scenario built on the terminal pins it to
+// "terminal" in arrange and calls restoreDefaultView in teardown; the first pin keeps the user's value in the page
+export const pinDefaultView = (h, mode) =>
+    agentPage(
+        h,
+        `const R = await mod("app/view/agents/renderedmode.ts");
+        if (!("__defaultViewPrev" in window)) window.__defaultViewPrev = globalStore.get(R.defaultViewModeAtom);
+        globalStore.set(R.defaultViewModeAtom, ${JSON.stringify(mode)});
+        return true;`
+    );
+
+export const restoreDefaultView = (h) =>
+    agentPage(
+        h,
+        `const R = await mod("app/view/agents/renderedmode.ts");
+        if ("__defaultViewPrev" in window) {
+            globalStore.set(R.defaultViewModeAtom, window.__defaultViewPrev);
+            delete window.__defaultViewPrev;
+        }
+        return true;`
+    );
+
 const SETTLE_MS = 1_500;
 const SETTLE_CAP_MS = 10_000;
 const MS_PER_MINUTE = 60_000;

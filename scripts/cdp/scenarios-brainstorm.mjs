@@ -1,5 +1,6 @@
 // Brainstorm scenarios, and BS_KIT, the helpers the scenarios-brainstorm-*.mjs modules are handed.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { pinDefaultView, restoreDefaultView } from "./agent-page-fixtures.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
@@ -515,6 +516,8 @@ export const brainstormMode = {
         const ctx = { cwd, file: join(cwd, ".superpowers", "brainstorm", BS_TOPIC, "brainstorm.json") };
         // a throw past this point still returns ctx, so teardown removes whatever was already made
         try {
+            // the pane's way back is checked against the terminal, so the agent opens there
+            await pinDefaultView(h, "terminal");
             // the New run window approve opens needs a registered project; the agent's project label names it
             await h.rpc("createproject", { name: BS_TOPIC, path: cwd });
             ctx.project = BS_TOPIC;
@@ -1396,6 +1399,7 @@ export const brainstormMode = {
             }
         };
         await step("restore document.hasFocus", () => h.ev("delete document.hasFocus"));
+        await step("restore the default view", () => restoreDefaultView(h));
         // the app's own hide: the main window gaining focus
         await step("hide the popup", () => h.ev(`window.dispatchEvent(new Event("focus"))`));
         await step("close the popup's session", () => ctx.popup?.close());
