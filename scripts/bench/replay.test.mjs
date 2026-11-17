@@ -164,7 +164,10 @@ describe("start", () => {
 
         const starts = procs.calls.filter((c) => c.cmd === "wsh" && c.args[1] === "start");
         expect(starts.map((c) => c.cwd)).toEqual(ARMS.map((a) => join(bench, "wt", `resource-${a}`)));
-        expect(starts[0].args[2]).toBe("Build Resource management.");
+        // both arms get one goal, naming the spec's title and the pick's base
+        expect(starts[0].args[2]).toMatch(/^Build Resource management\./);
+        expect(starts[0].args[2]).toContain(PICK.base);
+        expect(starts[1].args[2]).toBe(starts[0].args[2]);
         // the engine refuses a spec outside the repository at submit, so each run's spec is in its worktree
         const specs = ARMS.map((a) => join(bench, "wt", `resource-${a}`, PICK.specPath));
         expect(starts.map((c) => c.args[c.args.indexOf("--spec") + 1])).toEqual(specs);

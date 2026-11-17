@@ -97,6 +97,15 @@ function specTitle(text, pickId) {
     return m[1];
 }
 
+// a lead that finds the feature on main otherwise takes the spec for shipped work and lands nothing (a08ba9b8)
+export function replayGoal(title, base) {
+    return (
+        `Build ${title}. This is a plan-skill benchmark replay from base ${base}: the spec shipped on main later, ` +
+        `and this run rebuilds it from that base. Build it in this tree as if it had not shipped; do not stop ` +
+        `because main has it, and do not read main, other branches or other worktrees for its code.`
+    );
+}
+
 function parseJson(text, what) {
     try {
         return JSON.parse(text);
@@ -145,7 +154,7 @@ export function start({ bench, pickId, picks = loadPicks(), main, settingsPath =
     const specText = run("git", ["show", `${pick.specCommit}:${pick.specPath}`], main);
     // the judges' copy; each run gets its own inside its worktree
     writeFileSync(join(bench, "specs", `${pick.id}.md`), specText);
-    const goal = `Build ${specTitle(specText, pick.id)}.`;
+    const goal = replayGoal(specTitle(specText, pick.id), pick.base);
     return ARMS.map((arm) => startArm({ bench, pick, arm, main, specText, goal, build, settingsPath, run }));
 }
 
