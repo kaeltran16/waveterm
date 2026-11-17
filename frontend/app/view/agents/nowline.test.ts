@@ -4,10 +4,13 @@
 import { describe, expect, it } from "vitest";
 import type { AgentEntry, AgentState } from "./agentsviewmodel";
 import {
+    GLYPH_CYCLE_MS,
+    glyphPose,
     nowLineState,
     nowLineText,
     SHIMMER_HALF_CH,
-    shimmerCenter,
+    shimmerSweep,
+    SPINNER_FRAME_MS,
     SPINNER_FRAMES,
     spinnerGlyph,
     summarizeTurn,
@@ -175,14 +178,34 @@ describe("spinnerGlyph", () => {
     });
 });
 
-describe("shimmerCenter", () => {
-    it("moves one character a frame from before the verb to past it, then restarts", () => {
+describe("shimmerSweep", () => {
+    it("sweeps from before the verb to past it at one character per spinner frame", () => {
         const len = 10;
-        const span = len + 2 * SHIMMER_HALF_CH;
-        const seq = Array.from({ length: span }, (_, t) => shimmerCenter(t, len));
-        expect(seq[0]).toBe(-SHIMMER_HALF_CH);
-        expect(seq.at(-1)).toBe(len + SHIMMER_HALF_CH - 1);
-        expect(seq.every((c, i) => i === 0 || c - seq[i - 1] === 1)).toBe(true);
-        expect(shimmerCenter(span, len)).toBe(-SHIMMER_HALF_CH);
+        const sweep = shimmerSweep(len);
+        expect(sweep.from).toBe(-SHIMMER_HALF_CH);
+        expect(sweep.to).toBe(len + SHIMMER_HALF_CH);
+        expect(sweep.durationMs).toBe((sweep.to - sweep.from) * SPINNER_FRAME_MS);
+    });
+});
+
+describe("glyphPose", () => {
+    const n = SPINNER_FRAMES.length;
+    const frames = 2 * (2 * n - 2);
+    const at = (tick: number) => glyphPose((tick + 0.5) / frames);
+
+    it("steps claude's frames at its pace across one cycle", () => {
+        expect(Array.from({ length: frames }, (_, t) => at(t).glyph)).toEqual(
+            Array.from({ length: frames }, (_, t) => spinnerGlyph(t))
+        );
+        expect(GLYPH_CYCLE_MS).toBe(frames * SPINNER_FRAME_MS);
+    });
+
+    it("turns once per cycle and swells largest on the largest frame", () => {
+        expect(glyphPose(0).rotate).toBe(0);
+        expect(glyphPose(0.5).rotate).toBe(180);
+        const largest = at(n - 1);
+        expect(largest.glyph).toBe(SPINNER_FRAMES.at(-1));
+        expect(largest.scale).toBeGreaterThan(at(0).scale);
+        expect(glyphPose(0).scale).toBeCloseTo(glyphPose(0.999).scale, 1);
     });
 });

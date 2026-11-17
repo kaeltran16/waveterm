@@ -18,6 +18,15 @@ const SEP = " · ";
 export const SPINNER_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽"];
 // the shimmer's half-width in characters; a sweep starts and ends this far outside the verb so it enters and leaves
 export const SHIMMER_HALF_CH = 2;
+// claude's own spinner pace
+export const SPINNER_FRAME_MS = 120;
+// the frames forward then back, each end shown once
+const GLYPH_BOUNCE_FRAMES = 2 * SPINNER_FRAMES.length - 2;
+// one glyph turn spans two bounces, so it spins slower than the frames step
+const GLYPH_CYCLE_FRAMES = 2 * GLYPH_BOUNCE_FRAMES;
+export const GLYPH_CYCLE_MS = GLYPH_CYCLE_FRAMES * SPINNER_FRAME_MS;
+const GLYPH_SCALE_MIN = 0.9;
+const GLYPH_SCALE_MAX = 1.1;
 
 export interface TurnSummary {
     startTs?: number;
@@ -100,10 +109,26 @@ export function spinnerGlyph(tick: number): string {
     return SPINNER_FRAMES[i < n ? i : period - i];
 }
 
-/** The shimmer's centre `tick` frames in, in characters from the verb's start: one character a frame, from just
- *  before the verb to just past it, then over again. */
-export function shimmerCenter(tick: number, verbLength: number): number {
-    return (tick % (verbLength + 2 * SHIMMER_HALF_CH)) - SHIMMER_HALF_CH;
+/** One sweep of the shimmer's centre, in characters from the verb's start: from just before the verb to just past
+ *  it, one character per spinner frame, so a longer verb takes longer. */
+export function shimmerSweep(verbLength: number): { from: number; to: number; durationMs: number } {
+    const span = verbLength + 2 * SHIMMER_HALF_CH;
+    return { from: -SHIMMER_HALF_CH, to: verbLength + SHIMMER_HALF_CH, durationMs: span * SPINNER_FRAME_MS };
+}
+
+/** The glyph `phase` (0..1) into one GLYPH_CYCLE_MS: claude's frame cycle at its own pace, plus one full turn and a
+ *  scale that swells and shrinks with the frames, so the frame steps read as one continuous motion. */
+export function glyphPose(phase: number): { glyph: string; rotate: number; scale: number } {
+    const p = ((phase % 1) + 1) % 1;
+    const tick = Math.floor(p * GLYPH_CYCLE_FRAMES);
+    // 0 at the smallest frame, 1 at the largest, back to 0: the frames' own bounce, made continuous
+    const bounces = GLYPH_CYCLE_FRAMES / GLYPH_BOUNCE_FRAMES;
+    const swell = 1 - Math.abs(((p * bounces) % 1) * 2 - 1);
+    return {
+        glyph: spinnerGlyph(tick),
+        rotate: p * 360,
+        scale: GLYPH_SCALE_MIN + (GLYPH_SCALE_MAX - GLYPH_SCALE_MIN) * swell,
+    };
 }
 
 function toolCount(n: number): string {
