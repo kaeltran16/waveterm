@@ -670,6 +670,40 @@ async function heredocStep(h) {
     };
 }
 
+// a short Bash call with no description gets no title: its command is the row's own text, drawn no smaller than the
+// output it opens
+const BARE_TURN = [
+    user("What changed?", T0),
+    bash({ command: "git status --short", output: " M src/retry.js", ts: T0 + S, durationMs: 200 }),
+    prose("Only retry.js.", T0 + 2 * S),
+];
+
+const BARE_STATE = probe(`
+    const step = [...root.querySelectorAll('[data-step]')].find((s) => s.textContent.includes('git status --short'));
+    const mono = step?.querySelector('button .font-mono');
+    const out = step?.querySelector('[data-tool-panel] pre');
+    return {
+        mono: mono?.textContent ?? null,
+        rowSize: mono ? getComputedStyle(mono).fontSize : null,
+        outputSize: out ? getComputedStyle(out).fontSize : null,
+    };
+`);
+
+async function bareCommandStep(h) {
+    await showTranscript(h, { entries: BARE_TURN, width: 736 });
+    await h.ev(openFold);
+    await sleep(MOTION_MS);
+    await h.ev(openStep("git status --short"));
+    await sleep(MOTION_MS);
+    const s = await h.ev(BARE_STATE);
+    await h.shot("cdp-shots/transcript-base-bare-command.png");
+    return {
+        step: "Bare command: an untitled Bash row draws its command at the size of the output it opens",
+        ok: s?.mono === "git status --short" && s.rowSize != null && s.rowSize === s.outputSize,
+        detail: JSON.stringify(s),
+    };
+}
+
 // two turns, each started by a background-task notification that arrived as its own record (not queued): each its own
 // Worked for line with its reply after it, rather than one fold swallowing both
 const NOTIFIED_REPLIES = ["The first test run passed.", "The second test run passed too."];
@@ -1319,6 +1353,7 @@ export const transcriptBase = {
         steps.push(await thoughtStep(h));
         steps.push(await clampModeStep(h));
         steps.push(await heredocStep(h));
+        steps.push(await bareCommandStep(h));
         steps.push(await cdPreviewStep(h));
         steps.push(await notifiedStep(h));
         steps.push(await notificationLabelStep(h));
