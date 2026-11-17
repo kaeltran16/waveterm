@@ -23,7 +23,8 @@ Bench dir: `~/arc-bench/plan-skill-2026-11-17`. Picks are pinned in `plan-skill-
 
 ```
 <bench>/runs.json                      [{pick, arm, runId, base, branch, worktree, spec, arcBuild, startedTs}]
-<bench>/specs/<pick>.md                the spec text, copied from its source commit
+<bench>/specs/<pick>.md                the spec text, copied from its source commit (the judges' copy; each run gets
+                                       its own at the spec's repo path in its worktree: the engine refuses one outside)
 <bench>/wt/<pick>-<arm>/               the arm's git worktree (branch bench/<pick>-<arm>)
 <bench>/mutation/<pick>-<arm>-go.json  gomutate's output
 <bench>/mutation/<pick>-<arm>-ts.json  tsmutate's output

@@ -160,12 +160,16 @@ describe("start", () => {
 
         expect(procs.state.settingsAtStart).toEqual(ARMS);
         expect(readJson(settings)).toEqual({ keep: 1 });
-        const spec = join(bench, "specs", "resource.md");
-        expect(readFileSync(spec, "utf8")).toContain("# Resource management");
+        expect(readFileSync(join(bench, "specs", "resource.md"), "utf8")).toContain("# Resource management");
 
         const starts = procs.calls.filter((c) => c.cmd === "wsh" && c.args[1] === "start");
         expect(starts.map((c) => c.cwd)).toEqual(ARMS.map((a) => join(bench, "wt", `resource-${a}`)));
         expect(starts[0].args[2]).toBe("Build Resource management.");
+        // the engine refuses a spec outside the repository at submit, so each run's spec is in its worktree
+        const specs = ARMS.map((a) => join(bench, "wt", `resource-${a}`, PICK.specPath));
+        expect(starts.map((c) => c.args[c.args.indexOf("--spec") + 1])).toEqual(specs);
+        for (const s of specs) expect(readFileSync(s, "utf8")).toContain("# Resource management");
+        const spec = specs[0];
 
         const adds = procs.calls.filter((c) => c.cmd === "git" && c.args[1] === "add");
         expect(adds.map((c) => c.args)).toEqual(

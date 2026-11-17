@@ -105,12 +105,16 @@ function parseJson(text, what) {
     }
 }
 
-function startArm({ bench, pick, arm, main, specFile, goal, build, settingsPath, run }) {
+function startArm({ bench, pick, arm, main, specText, goal, build, settingsPath, run }) {
     const branch = `bench/${pick.id}-${arm}`;
     const worktree = join(bench, "wt", `${pick.id}-${arm}`);
     run("git", ["worktree", "add", "-b", branch, worktree, pick.base], main);
     // the main checkout's current junction script, not the older copy at the pick's base
     run(process.execPath, [join(main, "scripts", "worktree-junctions.mjs"), "prepare"], worktree);
+    // the engine commits the spec into the run's branch at submit, so it must sit inside the repository
+    const specFile = join(worktree, pick.specPath);
+    mkdirSync(dirname(specFile), { recursive: true });
+    writeFileSync(specFile, specText);
     const prototype = pick.prototype ? join(main, pick.prototype) : null;
     const startedTs = Date.now();
     const out = withPlanSkill(settingsPath, arm, () => run("wsh", startArgs({ goal, worktree, spec: specFile, prototype }), worktree));
@@ -139,10 +143,10 @@ export function start({ bench, pickId, picks = loadPicks(), main, settingsPath =
     }
     mkdirSync(join(bench, "specs"), { recursive: true });
     const specText = run("git", ["show", `${pick.specCommit}:${pick.specPath}`], main);
-    const specFile = join(bench, "specs", `${pick.id}.md`);
-    writeFileSync(specFile, specText);
+    // the judges' copy; each run gets its own inside its worktree
+    writeFileSync(join(bench, "specs", `${pick.id}.md`), specText);
     const goal = `Build ${specTitle(specText, pick.id)}.`;
-    return ARMS.map((arm) => startArm({ bench, pick, arm, main, specFile, goal, build, settingsPath, run }));
+    return ARMS.map((arm) => startArm({ bench, pick, arm, main, specText, goal, build, settingsPath, run }));
 }
 
 export function status({ bench, run = sh }) {
