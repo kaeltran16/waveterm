@@ -1700,4 +1700,55 @@ describe("projectTranscript texts the arc mod joined mid-turn", () => {
         ]);
         expect(out).toEqual([]);
     });
+
+    // the row Claude Code 2.1.326 writes for $.session.append at a tool result
+    const note = (attachment: Record<string, unknown>) =>
+        L({
+            type: "attachment",
+            timestamp: "2026-05-01T10:00:06.000Z",
+            attachment: { type: "plugin_note", plugin: "arc", rowUuid: "r1", sentAs: "system", ...attachment },
+        });
+
+    it("projects a plugin note as a queued user entry where it was written, its lines joined", () => {
+        const out = projectTranscript([
+            toolUse,
+            toolResult,
+            note({ content: ["wake: task 3 passed review", "wsh jarvis dag status t-3"] }),
+            L({ type: "assistant", message: { content: [{ type: "text", text: "noted" }] } }),
+        ]);
+        expect(out.map((e) => e.kind)).toEqual(["action", "user", "message"]);
+        expect(out[1]).toEqual({
+            kind: "user",
+            text: "wake: task 3 passed review\nwsh jarvis dag status t-3",
+            queued: true,
+            ts: Date.parse("2026-05-01T10:00:06.000Z"),
+        });
+    });
+
+    it("skips a plugin note the engine has not sent yet, and one from another plugin", () => {
+        const out = projectTranscript([
+            note({ content: [], heldContent: ["Reply with KIWI."], sentAs: undefined }),
+            note({ plugin: "other", content: ["from another plugin"] }),
+        ]);
+        expect(out).toEqual([]);
+    });
+
+    it("projects the person's held messages sent at the turn's end as their own prompt", () => {
+        const out = projectTranscript([
+            L({
+                type: "user",
+                timestamp: "2026-05-01T10:01:00.000Z",
+                origin: { kind: "plugin", name: "arc", asUser: true },
+                promptSource: "system",
+                message: { role: "user", content: "only touch renderedcomposer.tsx\nand keep the Esc order" },
+            }),
+        ]);
+        expect(out).toEqual([
+            {
+                kind: "user",
+                text: "only touch renderedcomposer.tsx\nand keep the Esc order",
+                ts: Date.parse("2026-05-01T10:01:00.000Z"),
+            },
+        ]);
+    });
 });

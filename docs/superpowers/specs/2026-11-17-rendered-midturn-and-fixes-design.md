@@ -17,7 +17,7 @@ This work closes both gaps. It also fixes two problems found along the way:
 ## Goals
 
 - A message sent while the agent works behaves as it does in Claude Code's own box: it shows at once as queued, it
-  can be taken back to edit until the agent takes it, and Esc stops the turn and sends it.
+  can be taken back to edit until the agent takes it, and Esc stops the turn and puts it back in the box.
 - Every message waiting on the agent shows the same way, whether it was sent from the Rendered box or typed in the
   terminal.
 - Every message the agent reads mid-turn shows: your own, and Arc's.
@@ -57,16 +57,18 @@ This work closes both gaps. It also fixes two problems found along the way:
 ## Approach
 
 The arc mod holds the queue. A message the box sends while the agent works goes to the mod, which keeps it in its
-own list instead of joining it at once. At the agent's next tool result, the moment Claude Code takes its own queued
-messages, the mod joins everything it holds to the turn. Until then a message can be taken back.
+own list until the turn ends, then sends what it holds as the next prompt, as Claude Code does with its own queue.
+Until then a message can be taken back. Only Arc's own texts join the running turn, at the agent's next tool result,
+as plugin notes.
 
-The mod reports what it holds to Arc, and the Rendered view draws the Queued bubbles from that report. When the turn
-ends with messages still held, the mod sends them as the next prompt, as Claude Code does with its own queue.
+The mod reports what it holds to Arc, and the Rendered view draws the Queued bubbles from that report. Esc stops the
+turn, and the held messages come back to the box with a note instead of being sent: after a Stop the engine drops a
+plugin's submit until the person types in the terminal.
 
-Why the mod: it is the only part of Arc in the engine's path at the tool-result moment. So only the mod can join a
-message exactly when Claude Code would while keeping it takeable until then. Typing into Claude Code's own queue
-would break the constraint. A queue held in the frontend would hear about the next tool step only after the next
-request had left, so the agent would read the message a step late, and a reload would lose it.
+Why the mod: it is the only part of Arc in the engine's path at the turn's end and at each tool result. So only the
+mod can hold a message takeable until the agent reads it, and join Arc's texts exactly when the next request goes
+out. Typing into Claude Code's own queue would break the constraint. A queue held in the frontend would hear about
+the turn's end only after it had passed, and a reload would lose it.
 
 ## Decisions
 
@@ -80,15 +82,16 @@ request had left, so the agent would read the message a step late, and a reload 
 - **↑ takes the queue back.** ↑ in the empty box takes every message the mod still holds back into the box, one per
   line, in the order they were sent. Their bubbles go and the turn keeps running. Enter queues the text again. Why:
   Claude Code's own ↑ does the same.
-- **Esc stops and sends.** Esc stops the turn, and the queued messages then go as the next prompt. Why: Claude Code's
-  Esc with a queue does the same.
+- **Esc stops and returns them.** Esc stops the turn, and the queued messages come back to the box with a note, as
+  a message the mod lost does; Enter then sends them. The line keeps its "Esc to stop and send now" wording. Why: the
+  engine drops a plugin's submit after a Stop until the person types in the terminal, so the mod cannot send them as
+  the next prompt the way Claude Code's Esc does.
 - **There is no Send now.** Why: the mod can only stop the turn, not move the running command to the background as
   Claude Code's Send now does. A stopping Send now would only repeat Esc.
-- **Taken messages stay in place.** When the agent takes the messages, at its next step or as the next prompt at the
-  turn's end, the Queued line goes and the bubbles stay where they were sent. The record of a joined message, which
-  today is skipped, draws as your bubble. The mod's notice line for the join ("read mid-turn") does not draw.
-- **A joined message can't come back.** Once the mod has joined a message to the turn, it can no longer be taken
-  back. ↑ then works on whatever is still held.
+- **Taken messages stay in place.** When the turn ends and the mod sends the messages as the next prompt, the Queued
+  line goes and the bubbles stay where they were sent, until that prompt's own record draws them.
+- **Held until the turn ends.** The person's messages never join the running turn: they stay held, and takeable with
+  ↑, until the turn ends. ↑ works on whatever is still held.
 - **↑ with nothing queued recalls history.** With nothing queued, ↑ in the empty box recalls this session's own typed
   prompts, whether typed in the box or the terminal, newest first, and ↓ steps forward. Past the newest, the box is
   empty again. Why: Claude Code's box does the same, and the session's prompts are the ones worth sending again.
@@ -96,8 +99,9 @@ request had left, so the agent would read the message a step late, and a reload 
   the Queued line, and ↑ takes it back like a message. When the turn ends it runs as a command, never joined to the
   turn as text, in the order it was sent among the queued prompts. Why: joined as text, the model would read the
   command instead of it running.
-- **No message is read twice.** Each message is read by the agent exactly once. A message held until a turn ends goes
-  as the next prompt, never also joined. Today a message joined after the turn's last tool result can be read twice.
+- **No message is read twice.** Each message is read by the agent exactly once. The person's messages go only as the
+  turn-end prompt; Arc's texts join at a tool result, or go as their own prompt at the turn's end, never both. Today a
+  message joined after the turn's last tool result can be read twice.
 
 ### Messages typed in the terminal
 
@@ -113,9 +117,10 @@ for every message waiting on the agent, with nothing typed into the terminal.
 Arc's own messages to a working agent, such as a run's wakes or a message from another agent, are never queued:
 they never show as Queued and can't be taken back. Only messages typed into an agent's box, whether the Rendered box
 or an agent card's box, go to the mod's queue. The mod still holds an Arc message until the agent's next step and
-joins it there, or sends it as its own prompt at the turn's end, exactly as it does a queued one. Why: nobody takes
-an Arc message back, and the agent reads a joined row only when its next request goes out, so joining at once would
-be read at that same step; joining at the step itself is what keeps a message from being read twice.
+joins it there as a plugin note, or sends it as its own prompt at the turn's end. A Stop keeps Arc's texts held for
+the next turn. Why: nobody takes an Arc message back, and the agent reads a joined row only when its next request goes
+out, so joining at once would be read at that same step; joining at the step itself is what keeps a message from
+being read twice.
 
 Their joined records, which are hidden today, draw as the Arc events they are, at the step where the agent read them:
 a wake as a wake, another agent's message as an agent message. Agent-to-agent messages are not an Arc event kind yet,

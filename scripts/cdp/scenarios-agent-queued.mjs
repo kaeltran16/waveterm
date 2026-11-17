@@ -1,8 +1,9 @@
 // Agent review scenario `agent-queued`: messages waiting on a working agent, drawn at the foot of the Rendered
 // transcript. The roster is one fixture claude agent Q, backed by a real tab with no controller and no arc mod, working
 // on a Bash call. The mod's reports are driven over rpc with SetAgentQueueCommand, as `wsh agentqueue set` sends them;
-// Claude Code's own queue is driven by appending queue-operation records to Q's transcript. Teardown reports nothing
-// held, publishes a Stop, restores the roster, closes the tab and removes the temp dir.
+// Claude Code's own queue is driven by appending queue-operation records to Q's transcript. For ↑ the page then holds
+// Q's control stream and plays the mod (startPageMod). Teardown hands back what is held, closes that stream, reports
+// nothing held, publishes a Stop, restores the roster, closes the tab and removes the temp dir.
 
 import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,7 +21,7 @@ import {
     userText,
     writeTranscript,
 } from "./agent-page-fixtures.mjs";
-import { polishWaitFor } from "./scenarios-shared.mjs";
+import { APP_MOD, polishWaitFor } from "./scenarios-shared.mjs";
 
 const NAME = "agent-queued";
 const MODEL_ID = "claude-opus-5-5";
@@ -125,6 +126,84 @@ async function publishStatus(h, ctx, blockId, fields) {
 async function report(h, ctx, held, left = []) {
     await h.rpc("setagentqueue", { blockid: ctx.qBlock, held, ...(left.length > 0 ? { left } : {}) });
     ctx.held = held;
+}
+
+const BOX = `${RV}?.querySelector("[data-rendered-composer] textarea")`;
+const BOX_VALUE = `(${BOX}?.value ?? null)`;
+// how the box toasts a take-back wavesrv refused (renderedcomposer.tsx)
+const TAKEBACK_FAILED = "Queued messages not taken back";
+const TOAST_TEXT = (level) => `[...document.querySelectorAll('[data-notification-toast="${level}"]')].map((t) => (t.textContent ?? "").replace(/\\s+/g, " ").trim())`;
+// the page mod's stream outlives every step; teardown closes it
+const PAGE_MOD_STREAM_MS = 10 * 60_000;
+
+// sets the box's text as typing would
+const typeBox = (h, text) =>
+    h.ev(`(() => {
+        const ta = ${BOX};
+        if (!ta) return false;
+        ta.focus();
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(ta, ${JSON.stringify(text)});
+        ta.dispatchEvent(new Event("input", { bubbles: true }));
+        return true;
+    })()`);
+
+// a key in the box, dispatched on it: CDP key events need page focus the WebView often lacks
+const pressBox = (h, key) =>
+    h.ev(`(() => {
+        const ta = ${BOX};
+        if (!ta) return false;
+        ta.focus();
+        ta.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, code: ${JSON.stringify(key)}, bubbles: true, cancelable: true }));
+        return true;
+    })()`);
+
+// The page holds Q's AgentControlCommand stream and plays the arc mod over it: a {takeback} is answered with a report
+// handing back everything held (unless told to ignore one), and a queued {text} is held and reported. Every report goes
+// through SetAgentQueueCommand, as `wsh agentqueue set` sends it.
+async function startPageMod(h, ctx) {
+    return h.ev(`(async () => {
+        ${APP_MOD}
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
+        const blockid = ${JSON.stringify(ctx.qBlock)};
+        const fm = { held: [], n: 0, ignoreTakeback: 0, msgs: [], error: null };
+        fm.report = async (held, left = [], takeback) => {
+            await RpcApi.SetAgentQueueCommand(TabRpcClient, { blockid, held, ...(left.length > 0 ? { left } : {}), ...(takeback ? { takeback } : {}) });
+            fm.held = held;
+        };
+        fm.gen = RpcApi.AgentControlCommand(TabRpcClient, { oref: "block:" + blockid }, { timeout: ${PAGE_MOD_STREAM_MS} });
+        (async () => {
+            for await (const msg of fm.gen) {
+                fm.msgs.push(msg);
+                if (msg?.takeback) {
+                    if (fm.ignoreTakeback > 0) {
+                        fm.ignoreTakeback--;
+                        continue;
+                    }
+                    await fm.report([], fm.held.map((p) => ({ id: p.id, how: "takenback" })), msg.takeback);
+                } else if (msg?.text && msg.queue) {
+                    await fm.report([...fm.held, { id: "fx-page-" + ++fm.n, text: msg.text, ts: Date.now() }]);
+                }
+            }
+        })().catch((e) => (fm.error = String(e?.message ?? e)));
+        window.__fakeMod = fm;
+        return { ok: true };
+    })().catch((e) => ({ ok: false, error: String(e?.message ?? e) }))`);
+}
+
+const pageReport = (h, held, left = []) =>
+    h.ev(`window.__fakeMod.report(${JSON.stringify(held)}, ${JSON.stringify(left)}).then(() => true)`);
+
+async function stopPageMod(h) {
+    await h.ev(`(async () => {
+        const fm = window.__fakeMod;
+        if (!fm) return true;
+        delete window.__fakeMod;
+        if (fm.held.length > 0) await fm.report([], fm.held.map((p) => ({ id: p.id, how: "takenback" })));
+        // return() sends the cancel at once; its promise can wait behind the pending read, so it is not awaited
+        void fm.gen.return();
+        return true;
+    })()`);
 }
 
 export default function (_kit) {
@@ -294,6 +373,89 @@ export default function (_kit) {
                     return [ok, { queued: queued.foot, taken: taken.foot, frames }];
                 });
 
+                // from here the page holds Q's control stream and plays the mod: it answers take-backs and holds what
+                // the box queues
+                const modReady = await startPageMod(h, ctx);
+                const fmHeld = () => h.ev(`window.__fakeMod?.held ?? null`);
+                const tA = { id: "fx-q-tb-1", text: "Rename the panel hook to useSlashKeys." };
+                const tB = { id: "fx-q-tb-2", text: "and leave the mention hook's name alone" };
+                const sentText = `${tA.text}\n${tB.text}`;
+                const flatSent = `${tA.text} ${tB.text}`;
+                const LOST = { id: "fx-q-lost-1", text: "Check the composer test still passes." };
+                const boxValue = () => h.ev(BOX_VALUE);
+                const waitBox = (want) => polishWaitFor(h, `${BOX_VALUE} === ${JSON.stringify(want)}`, WAIT_MS);
+
+                await step("queued: ↑ in the empty box takes back both messages — the box holds both lines in order, both bubbles and the Queued line go, the working line stays", async () => {
+                    if (!modReady.ok) return [false, modReady];
+                    const now = Date.now();
+                    await pageReport(h, [
+                        { ...tA, ts: now },
+                        { ...tB, ts: now + 1 },
+                    ]);
+                    const queued = await waitFoot(`f.items.length === 2 && f.lines.length === 1 && f.placeholder === ${JSON.stringify(QUEUED_PLACEHOLDER)}`);
+                    await typeBox(h, "");
+                    await pressBox(h, "ArrowUp");
+                    const filled = await waitBox(sentText);
+                    const gone = await waitFoot(`f.items.length === 0 && f.lines.length === 0`);
+                    const working = await h.ev(`${RV}?.querySelector("[data-working-line]") != null`);
+                    await h.shot(SHOT(6, "taken-back"));
+                    const ok = queued.met && filled && gone.met && working;
+                    return [ok, { queued: queued.met, box: await boxValue(), foot: gone.foot, working, held: await fmHeld() }];
+                });
+
+                await step("queued: Enter queues the taken-back text again as one bubble with the Queued line, and the box empties", async () => {
+                    await pressBox(h, "Enter");
+                    const { met, foot } = await waitFoot(`f.items.length === 1 && f.lines.length === 1`);
+                    const emptied = await waitBox("");
+                    await h.shot(SHOT(7, "requeued"));
+                    const ok = met && emptied && foot.items[0].text === flatSent && foot.lines[0] === `Queued ${LINE_TAIL}`;
+                    return [ok, { foot, box: await boxValue(), held: await fmHeld() }];
+                });
+
+                await step("queued: a take-back the mod leaves unanswered shows the error toast, the box stays empty and the bubble stays queued", async () => {
+                    await h.ev(`(() => { window.__fakeMod.ignoreTakeback = 1; return true; })()`);
+                    await pressBox(h, "ArrowUp");
+                    const toast = await polishWaitFor(h, `${TOAST_TEXT("error")}.some((t) => t.includes(${JSON.stringify(TAKEBACK_FAILED)}))`, WAIT_MS);
+                    const foot = await h.ev(FOOT);
+                    await h.shot(SHOT(8, "takeback-failed"));
+                    const ok =
+                        toast &&
+                        (await boxValue()) === "" &&
+                        foot.items.length === 1 &&
+                        foot.items[0].state === "queued" &&
+                        foot.lines[0] === `Queued ${LINE_TAIL}`;
+                    return [ok, { toast, toasts: await h.ev(TOAST_TEXT("error")), foot, box: await boxValue() }];
+                });
+
+                await step("queued: with nothing queued, ↑ recalls the newest typed prompt and ↓ empties the box", async () => {
+                    // the held message goes as the turn-end prompt, so nothing is queued and it is the newest prompt
+                    const held = (await fmHeld()) ?? [];
+                    await pageReport(h, [], held.map((p) => ({ id: p.id, how: "sent" })));
+                    append([userText(sentText, { ts: iso(Date.now() + 1_000) })]);
+                    const cleared = await waitFoot(`f.items.length === 0 && f.lines.length === 0 && f.placeholder === ${JSON.stringify(WORKING_PLACEHOLDER)}`);
+                    await pressBox(h, "ArrowUp");
+                    const recalled = await waitBox(sentText);
+                    await h.shot(SHOT(9, "recalled"));
+                    await pressBox(h, "ArrowDown");
+                    const emptied = await waitBox("");
+                    const ok = cleared.met && recalled && emptied;
+                    return [ok, { foot: cleared.foot, recalled, emptied, box: await boxValue() }];
+                });
+
+                await step("queued: a report that drops a held message without a left shows the warning toast and puts its text back in the box", async () => {
+                    await pageReport(h, [{ ...LOST, ts: Date.now() }]);
+                    const shown = await waitFoot(`f.items.length === 1 && f.lines.length === 1`);
+                    await pageReport(h, []);
+                    const toast = await polishWaitFor(h, `${TOAST_TEXT("warn")}.some((t) => t.includes(${JSON.stringify(`1 queued message did not reach ${ctx.roster[0].name}`)}))`, WAIT_MS);
+                    const back = await waitBox(LOST.text);
+                    const gone = await waitFoot(`f.items.length === 0 && f.lines.length === 0`);
+                    await h.shot(SHOT(10, "lost-back"));
+                    // the box is left empty for the next scenario
+                    await typeBox(h, "");
+                    const ok = shown.met && toast && back && gone.met;
+                    return [ok, { toast, toasts: await h.ev(TOAST_TEXT("warn")), back, foot: gone.foot }];
+                });
+
                 return steps;
             },
             async teardown(h, ctx) {
@@ -304,6 +466,8 @@ export default function (_kit) {
                         console.error(`${NAME} teardown: ${what} failed: ${err?.message ?? err}`);
                     }
                 };
+                // the page's mod hands back what it holds before its stream closes, so nothing reads as lost
+                await step("stop the page's mod", () => stopPageMod(h));
                 if (ctx.qBlock != null) {
                     // handed back rather than dropped, so nothing reads as lost
                     if ((ctx.held ?? []).length > 0) {

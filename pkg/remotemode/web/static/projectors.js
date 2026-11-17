@@ -572,6 +572,7 @@ var PASTED_CONTENT_RE = /<pasted_content id="[^"]+">\n?([^]*?)\n?<\/pasted_conte
 function unwrapPasted(text) {
   return text.replace(PASTED_CONTENT_RE, "$1");
 }
+var ARC_PLUGIN = "arc";
 function recTs(rec) {
   const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
   return Number.isFinite(ts) ? { ts } : {};
@@ -588,12 +589,23 @@ function queuedEntry(rec) {
   return { kind: "user", text: unwrapPasted(prompt), queued: true, ...recTs({ timestamp: att.timestamp ?? rec.timestamp }) };
 }
 function joinedEntries(rec) {
-  if (rec.origin?.kind !== "plugin" || rec.origin?.name !== "arc") {
+  if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN) {
     return [];
   }
   const content = rec.message?.content;
   const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.filter((b) => b?.type === "text" && typeof b.text === "string").map((b) => b.text) : [];
   return texts.filter((t) => t.trim() !== "").map((t) => ({ kind: "user", text: unwrapPasted(t), queued: true, ...recTs(rec) }));
+}
+function noteEntry(rec) {
+  const att = rec.attachment;
+  if (att.plugin !== ARC_PLUGIN || !Array.isArray(att.content)) {
+    return null;
+  }
+  const text = att.content.filter((l) => typeof l === "string").join("\n");
+  if (text.trim() === "") {
+    return null;
+  }
+  return { kind: "user", text: unwrapPasted(text), queued: true, ...recTs(rec) };
 }
 function mergeCompaction(entries, patch) {
   const last = entries[entries.length - 1];
@@ -802,6 +814,13 @@ function projectTranscriptRecords(records) {
         } else {
           entries.push({ kind: "user", text: "", images, ...recTs(rec) });
         }
+      }
+      continue;
+    }
+    if (rec.type === "attachment" && rec.attachment?.type === "plugin_note") {
+      const entry = noteEntry(rec);
+      if (entry != null) {
+        entries.push(entry);
       }
       continue;
     }
