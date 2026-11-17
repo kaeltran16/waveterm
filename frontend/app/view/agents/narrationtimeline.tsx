@@ -1091,7 +1091,9 @@ function NoticeRow({
                 <Info size={13} strokeWidth={2.2} className="shrink-0" aria-hidden />
                 <span className="shrink-0 text-ink-mid">{status ? "Background task" : "Notice"}</span>
                 <span className="min-w-0 truncate">{summary.split("\n")[0]}</span>
-                {status ? <span className="shrink-0">· {status}</span> : null}
+                {status ? (
+                    <span className={cn("shrink-0", status !== "completed" && "text-warning")}>· {status}</span>
+                ) : null}
                 {canExpand ? (
                     <span className="flex shrink-0">
                         <TurnChevron open={open} size={12} strokeWidth={2.2} />
