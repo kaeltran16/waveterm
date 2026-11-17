@@ -177,7 +177,8 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
 
     // the surface stays mounted, so the effects above never run on a switch back to it, and arriving left
     // focus on <body>: typing reached the agent only after a click. Arriving hands focus to the live
-    // terminal, or the wrapper when none is showing (canvas, brainstorm, subagent interior, no terminal).
+    // terminal or the Rendered composer, or the wrapper when neither is showing (canvas, brainstorm, subagent
+    // interior, no terminal).
     useEffect(() => {
         const wrap = wrapRef.current;
         if (
@@ -189,8 +190,13 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         ) {
             return;
         }
-        const term = wrap.querySelector<HTMLElement>(`[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`);
-        (term?.checkVisibility({ visibilityProperty: true }) ? term : wrap).focus({ preventScroll: true });
+        const target = [
+            `[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`,
+            "[data-rendered-composer] textarea",
+        ]
+            .map((sel) => wrap.querySelector<HTMLElement>(sel))
+            .find((el) => el?.checkVisibility({ visibilityProperty: true }));
+        (target ?? wrap).focus({ preventScroll: true });
     }, [surface]);
 
     // Agent-surface keys live in the registry (bindings.ts). Stable array — run() reads live atoms.

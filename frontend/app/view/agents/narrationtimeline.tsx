@@ -72,31 +72,47 @@ function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: b
     );
 }
 
-// A finished turn's work behind its Worked-for line, which opens to the items in order. finishing: the turn just
-// finished under a mounted feed, so it mounts open and folds its work away under the new line. unfold: drawn open
-// with no reveal, so a find over the transcript sees every row where it will stay.
+// A finished turn's work behind its Worked-for line, which opens to the items in order. live: the working turn, drawn
+// open with no line and unclipped, so its rows sit as they would flat; when it finishes the same rows fold. finishing:
+// the turn just finished under a mounted feed, so it mounts open and folds its work away under the new line. unfold:
+// drawn open with no reveal, so a find over the transcript sees every row where it will stay.
 function TurnFold({
     fold,
+    live,
     finishing,
     unfold,
     compact,
     children,
 }: {
     fold: FoldSummary;
+    live: boolean;
     finishing: boolean;
     unfold: boolean;
     compact: boolean;
     children: React.ReactNode;
 }) {
     const [toggled, setToggled] = useState(false);
-    const [settled, setSettled] = useState(!finishing);
-    useEffect(() => setSettled(true), []);
+    // open for one render after the turn is done, which clips the pane before it collapses: an exiting pane keeps the
+    // props it last rendered with
+    const [settled, setSettled] = useState(!finishing && !live);
+    useEffect(() => {
+        if (!live) {
+            setSettled(true);
+        }
+    }, [live]);
     const open = unfold || !settled || toggled;
-    const body = <AnimatePresence initial={false}>{children}</AnimatePresence>;
+    // a turn that mounts live gains rows as they arrive, and those enter as the feed's own do
+    const body = <AnimatePresence initial={live}>{children}</AnimatePresence>;
     return (
-        <div data-turn-fold>
-            <FoldLine fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />
-            {unfold ? <div>{body}</div> : <PaneReveal open={open}>{body}</PaneReveal>}
+        <div data-turn-fold={live ? undefined : ""} data-turn-live={live ? "" : undefined}>
+            {live ? null : <FoldLine fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />}
+            {unfold ? (
+                <div>{body}</div>
+            ) : (
+                <PaneReveal open={open} className={live ? "overflow-visible" : undefined}>
+                    {body}
+                </PaneReveal>
+            )}
         </div>
     );
 }
@@ -334,7 +350,9 @@ function NoticeRow({
                 <Info size={13} strokeWidth={2.2} className="shrink-0" aria-hidden />
                 <span className="shrink-0 text-ink-mid">{head.label}</span>
                 <span className="min-w-0 truncate">{head.text}</span>
-                {status ? <span className="shrink-0">· {status}</span> : null}
+                {status ? (
+                    <span className={cn("shrink-0", status !== "completed" && "text-warning")}>· {status}</span>
+                ) : null}
                 {canExpand ? (
                     <span className="flex shrink-0">
                         <TurnChevron open={open} size={12} strokeWidth={2.2} />
@@ -595,6 +613,17 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     useEffect(() => {
         mounted.current = true;
     }, []);
+    // a row enters with its fade once: one a turn takes in (its first step, or the live turn's start) is redrawn
+    // inside it, and must not fade in again. Recorded after commit, so a render React discards records nothing
+    const drawn = useRef(new Set<string>());
+    const rendered: string[] = [];
+    const entering = (id: string) => {
+        rendered.push(id);
+        return mounted.current && !drawn.current.has(id);
+    };
+    useEffect(() => {
+        rendered.forEach((id) => drawn.current.add(id));
+    });
     const cardCtx = ctx ?? NO_CTX;
     const isCompact = !!compact;
     const visibleItems =
@@ -624,11 +653,12 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                 <TurnFold
                     key={"f" + item.startIndex}
                     fold={item.fold}
+                    live={!!item.live}
                     finishing={mounted.current && item === lastTurn}
                     unfold={!!unfold}
                     compact={isCompact}
                 >
-                    {item.items.map((child) => renderItem(child, item.latest))}
+                    {item.items.map((child) => renderItem(child, item.latest || !!item.live))}
                 </TurnFold>
             );
         }
@@ -644,7 +674,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     )}
                     onContextMenu={copyMenu(item.text)}
                     variants={viewFade}
-                    initial={shouldFadeEntry("message") ? "initial" : false}
+                    initial={entering("m" + item.index) && shouldFadeEntry("message") ? "initial" : false}
                     animate="animate"
                 >
                     <MarkdownMessage text={item.text} />
@@ -658,7 +688,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     data-thought
                     className={cn("min-w-0", isCompact ? "my-2" : "my-2.5")}
                     variants={viewFade}
-                    initial={shouldFadeEntry("thought") ? "initial" : false}
+                    initial={entering("t" + item.index) && shouldFadeEntry("thought") ? "initial" : false}
                     animate="animate"
                 >
                     <ThoughtText text={item.text} compact={isCompact} />
@@ -673,6 +703,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                 <motion.div
                     key={(item.kind === "arc" ? "a" : "") + at}
                     data-entry-row
+                    data-entry-index={at}
                     variants={viewFade}
                     initial={shouldFadeEntry("user") ? "initial" : false}
                     animate="animate"
@@ -686,6 +717,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                 <motion.div
                     key={item.index}
                     data-user-bubble
+                    data-entry-index={item.index}
                     className={cn("flex justify-end", isCompact ? "my-3.5 ml-7" : "my-6")}
                     onContextMenu={copyMenu(item.text)}
                     variants={viewFade}
@@ -729,7 +761,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                 <motion.div
                     key={item.index}
                     variants={viewFade}
-                    initial="initial"
+                    initial={entering("n" + item.index) ? "initial" : false}
                     animate="animate"
                 >
                     {item.notice ? (
@@ -784,7 +816,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     key={"c" + item.index}
                     className={isCompact ? "my-2" : "my-2.5"}
                     variants={cardVariants}
-                    initial="initial"
+                    initial={entering("c" + item.index) ? "initial" : false}
                     animate="animate"
                 >
                     <WshCardItem step={item.step} ctx={cardCtx} compact={isCompact} />
@@ -800,7 +832,12 @@ export const NarrationTimeline = memo(function NarrationTimeline({
         }
         // a new stretch arrives as one box, so its fade is one entrance, never a burst of tool lines
         return (
-            <motion.div key={"s" + item.startIndex} variants={viewFade} initial="initial" animate="animate">
+            <motion.div
+                key={"s" + item.startIndex}
+                variants={viewFade}
+                initial={entering("s" + item.startIndex) ? "initial" : false}
+                animate="animate"
+            >
                 <StepBox
                     steps={item.steps}
                     thoughts={item.thoughts}

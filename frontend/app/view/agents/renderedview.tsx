@@ -34,10 +34,10 @@ import { useWorkingTail } from "./nowlineview";
 import { PermissionBand } from "./permissionband";
 import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
-import { pinnedPrompt, type PinnedPrompt } from "./pinnedprompt";
+import { lastPrompt, pinnedPrompt, samePin, type PinnedPrompt, type RowOf } from "./pinnedprompt";
 import { footList, type FootItem } from "./queuedprompts";
 import { NeedsInputPill, RenderedBrainstorm } from "./renderedbrainstorm";
-import { useRenderedEntryRow } from "./renderedbsrows";
+import { PinnedRow, useEntryRowView, useRenderedEntryRow } from "./renderedbsrows";
 import { RenderedComposer } from "./renderedcomposer";
 import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
 import type { ReplyFileLink } from "./replyfilelinks";
@@ -52,7 +52,6 @@ const COLUMN = "mx-auto w-full max-w-[736px]";
 // the transcript column, shared with an ended worker's read-back. Only a markdown message's top-level text blocks keep
 // a reading measure; cards, code and diffs use the width
 export const TRANSCRIPT_COLUMN = `${COLUMN} flex min-h-full flex-col [&_.agent-md>:is(p,ul,ol,h1,h2,h3,h4,h5,h6,blockquote)]:max-w-[75ch]`;
-const BUBBLE = "[data-user-bubble]";
 // the docked peek's share of the view at most, so the transcript keeps the rest
 const PEEK_MAX_HEIGHT = "50%";
 
@@ -152,41 +151,58 @@ function AskCard({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     );
 }
 
-function lastBubble(scroller: HTMLElement | null): HTMLElement | null {
-    const all = scroller?.querySelectorAll<HTMLElement>(BUBBLE);
-    return all != null && all.length > 0 ? all[all.length - 1] : null;
+// the timeline's row for an entry: its bubble, or the row a host drew in its place (NarrationTimeline)
+function promptRow(scroller: HTMLElement | null, index: number | undefined): HTMLElement | null {
+    return index == null ? null : (scroller?.querySelector<HTMLElement>(`[data-entry-index="${index}"]`) ?? null);
 }
 
 // which prompt the bar pins, re-read on each scroll and after each layout of the timeline
-function usePinnedPrompt(scrollRef: RefObject<HTMLDivElement>, entries: AgentEntry[], ctx: TranscriptContext) {
+function usePinnedPrompt(
+    scrollRef: RefObject<HTMLDivElement>,
+    entries: AgentEntry[],
+    ctx: TranscriptContext,
+    rowOf: RowOf
+) {
     const [prompt, setPrompt] = useState<PinnedPrompt | null>(null);
     const update = () => {
         const el = scrollRef.current;
         if (el == null) {
             return;
         }
+        const last = lastPrompt(entries, ctx, rowOf);
         const next = pinnedPrompt(
-            entries,
-            lastBubble(el)?.getBoundingClientRect() ?? null,
-            el.getBoundingClientRect(),
-            ctx
+            last,
+            promptRow(el, last?.index)?.getBoundingClientRect() ?? null,
+            el.getBoundingClientRect()
         );
-        setPrompt((prev) => (prev?.index === next?.index && prev?.text === next?.text ? prev : next));
+        setPrompt((prev) => (samePin(prev, next) ? prev : next));
     };
-    useLayoutEffect(update, [entries, ctx]);
+    useLayoutEffect(update, [entries, ctx, rowOf]);
     const jump = () => {
         const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        lastBubble(scrollRef.current)?.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+        promptRow(scrollRef.current, prompt?.index)?.scrollIntoView({
+            block: "start",
+            behavior: reduce ? "auto" : "smooth",
+        });
     };
     return { prompt, update, jump };
 }
 
-function PinnedPromptBar({ prompt, onJump }: { prompt: PinnedPrompt | null; onJump: () => void }) {
-    // the bar keeps its text while it leaves
-    const textRef = useRef("");
+function PinnedPromptBar({
+    prompt,
+    agent,
+    onJump,
+}: {
+    prompt: PinnedPrompt | null;
+    agent: AgentVM;
+    onJump: () => void;
+}) {
+    // the bar keeps what it shows while it leaves
+    const shownRef = useRef<PinnedPrompt | null>(null);
     if (prompt != null) {
-        textRef.current = prompt.text;
+        shownRef.current = prompt;
     }
+    const shown = shownRef.current;
     return (
         <PopoverReveal
             open={prompt != null}
@@ -200,7 +216,13 @@ function PinnedPromptBar({ prompt, onJump }: { prompt: PinnedPrompt | null; onJu
                 onClick={onJump}
                 className={`${COLUMN} pointer-events-auto flex cursor-pointer items-center gap-2.5 rounded-[10px] border border-edge-mid bg-surface px-3 py-[7px] text-left text-[13px] text-secondary hover:border-edge-strong`}
             >
-                <span className="min-w-0 flex-1 truncate">{textRef.current}</span>
+                {shown?.row != null ? (
+                    <span data-pinned-row={shown.row.kind} className="flex min-w-0 flex-1 items-center gap-2">
+                        <PinnedRow view={shown.row} agent={agent} />
+                    </span>
+                ) : (
+                    <span className="min-w-0 flex-1 truncate">{shown?.text ?? ""}</span>
+                )}
                 <ArrowUp size={13} strokeWidth={2.2} aria-hidden className="shrink-0 text-muted" />
             </button>
         </PopoverReveal>
@@ -294,11 +316,12 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
             </>
         );
     }, [foot, working]);
-    const pin = usePinnedPrompt(scrollRef, entries, ctx);
+    const rowOf = useEntryRowView(agent);
+    const pin = usePinnedPrompt(scrollRef, entries, ctx, rowOf);
     const composerRef = useRef<AgentComposerHandle>(null);
     const askShown = askDocked(agent);
     const replyPeek = useReplyPeek(model, agent);
-    const entryRow = useRenderedEntryRow(model, agent);
+    const entryRow = useRenderedEntryRow(model, agent, rowOf);
     // the picker only exists in the TUI, so the flip lands before the command is typed
     const onSubmitText = (text: string) => {
         if (isPickerCommand(text)) {
@@ -363,14 +386,13 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                         <RenderedBrainstorm model={model} agent={agent} />
                     </div>
                 </div>
-                <PinnedPromptBar prompt={pin.prompt} onJump={pin.jump} />
+                <PinnedPromptBar prompt={pin.prompt} agent={agent} onJump={pin.jump} />
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
             {replyPeek.dock}
             <PermissionBand
                 agentId={agent.id}
                 blockId={agent.blockId}
-                askShown={askShown}
                 onLastChoice={() => composerRef.current?.focus()}
             />
             <div data-rendered-composer className="shrink-0 px-6 pb-4 pt-3">

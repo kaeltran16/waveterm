@@ -361,6 +361,33 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
         ]);
     });
 
+    describe("subagent finish vs background notice", () => {
+        const call = (id: string, name: string) =>
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input: {} }] } });
+        const finish = (id: string, status: string, summary: string) =>
+            L({
+                type: "user",
+                message: {
+                    content: `<task-notification>\n<task-id>t1</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n<summary>${summary}</summary>\n</task-notification>`,
+                },
+            });
+        const notes = (lines: string[]) => projectTranscript(lines).filter((e) => e.kind === "notification");
+
+        // its own record starts a turn (spec #6), so a background shell's finish is a notification by source, not a notice
+        it("labels a background shell's finish by its source", () => {
+            const summary = "Background shell command didn't finish before the previous session ended";
+            expect(notes([call("toolu_b", "Bash"), finish("toolu_b", "stopped", summary)])).toEqual([
+                { kind: "notification", summary, status: "stopped", source: "command" },
+            ]);
+        });
+
+        it("keeps a killed subagent, which carries no result, a subagent finish", () => {
+            expect(notes([call("toolu_a", "Agent"), finish("toolu_a", "killed", 'Agent "x" was stopped')])).toEqual([
+                { kind: "notification", summary: 'Agent "x" was stopped', status: "killed", source: "subagent" },
+            ]);
+        });
+    });
+
     it("skips a user-string <local-command-stdout> record (with ANSI) rather than leaking the raw tag", () => {
         const content = "<local-command-stdout>[2mCompacted (ctrl+o to see full summary)[22m</local-command-stdout>";
         expect(projectTranscript([L({ type: "user", message: { content } })])).toEqual([]);

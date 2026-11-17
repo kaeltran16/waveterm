@@ -11,7 +11,7 @@
 const NAME = "rendered-bs-check";
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
 const SPEC = "docs/superpowers/specs/2026-11-17-run-memory-pressure-design.md";
-// the past checks' times (ms), the BuilderCheck board's: usual 5:02, longest 6:10
+// the past checks' times (ms), the BuilderCheck board's: usual 5m 02s, longest 6m 10s
 const USUAL_MS = 302_000;
 const LONGEST_MS = 370_000;
 const READING_AGO_MS = 130_000;
@@ -163,15 +163,15 @@ export default (kit) => {
                 r.kind === "check" &&
                 r.stage === "reading" &&
                 r.pending.startsWith("Builder check A builder is reading the design.") &&
-                r.times === "usual 5:02 · longest 6:10" &&
-                /^2:\d\d$/.test(r.clock) &&
+                r.times === "usual 5m 02s · longest 6m 10s" &&
+                /^2m \d\ds$/.test(r.clock) &&
                 r.running === "running" &&
                 r.bar &&
                 r.usualAt === "81.6%" &&
                 r.fillTone === "within" &&
                 fill > 30 &&
                 fill < 81.6 &&
-                r.note === "Checks here usually take about 5 minutes. You can read the design meanwhile." &&
+                r.note === "Checks here usually take about 5m. Edits to the design wait until it is back." &&
                 r.noteWarns === false;
             return [ok, r];
         });
@@ -183,10 +183,11 @@ export default (kit) => {
             await h.shot(SHOT(2, "past-usual"));
             const ok =
                 r.stage === "reading" &&
-                /^7:\d\d$/.test(r.clock) &&
+                /^7m \d\ds$/.test(r.clock) &&
                 r.fillAt === "100%" &&
                 r.fillTone === "over" &&
-                r.note === "Taking longer than usual: most checks here finish in about 5 minutes." &&
+                r.note ===
+                    "Taking longer than usual: most checks here finish in about 5m. Edits to the design wait until it is back." &&
                 r.noteWarns === true &&
                 r.failed === "";
             return [ok, r];
@@ -224,7 +225,7 @@ export default (kit) => {
                 r.specLink?.disabled === false &&
                 r.counts === "1 already in the design 1 the agent decided 1 for you" &&
                 r.needsInput &&
-                r.askHead === "Brainstorm · Builder question · 1 of 1 → Final queue Open brainstorm" &&
+                r.askHead === "Builder question · 1 of 1 → Final queue Open brainstorm" &&
                 r.qText === OPEN.q &&
                 r.qWhy === OPEN.why &&
                 r.rows.length === 2 &&

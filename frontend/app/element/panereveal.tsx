@@ -9,7 +9,7 @@
 
 import { cn } from "@/util/util";
 import { AnimatePresence, MotionConfig, motion, type Variants } from "motion/react";
-import type { ReactNode } from "react";
+import { useMemo, useRef, type ReactNode, type RefObject } from "react";
 import { paneReveal } from "./motiontokens";
 
 interface PaneRevealProps {
@@ -19,13 +19,32 @@ interface PaneRevealProps {
     children: ReactNode;
 }
 
+// motion resolves a height exit from "auto" by setting the pane to its end height to measure it, which clamps the
+// scrollTop of an element scroller around it (motion restores only the window's): a pane closing near a feed's
+// bottom threw the feed to its clamped place, then the rows slid back. An exit from the pane's px height needs no
+// measurement.
+function exitFromPx(variants: Variants, pane: RefObject<HTMLDivElement>): Variants {
+    const exit = variants.exit;
+    if (exit == null || typeof exit !== "object" || !("height" in exit)) {
+        return variants;
+    }
+    return {
+        ...variants,
+        exit: () =>
+            pane.current == null ? exit : { ...exit, height: [pane.current.offsetHeight, exit.height as number] },
+    };
+}
+
 export function PaneReveal({ open, variants = paneReveal, className, children }: PaneRevealProps) {
+    const pane = useRef<HTMLDivElement>(null);
+    const resolved = useMemo(() => exitFromPx(variants, pane), [variants]);
     return (
         <MotionConfig reducedMotion="user">
             <AnimatePresence initial={false}>
                 {open && (
                     <motion.div
-                        variants={variants}
+                        ref={pane}
+                        variants={resolved}
                         initial="initial"
                         animate="animate"
                         exit="exit"

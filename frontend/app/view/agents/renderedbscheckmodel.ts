@@ -6,12 +6,14 @@
 
 import {
     checkAsk,
+    checkClock,
     checkMain,
     partTitle,
     plural,
     type BrainstormFile,
     type BuilderCheckView,
     type CheckClock,
+    type CheckSpan,
 } from "./brainstormmodel";
 
 export type CheckCardState = "reading" | "taking-in" | "failed" | "asking" | "settled";
@@ -47,4 +49,57 @@ const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 // the clock's bar as CSS widths: the fill and the usual mark, fractions of the longest past check
 export function clockBar(bar: CheckClock["bar"], over: boolean): { fill: string; usual: string; over: boolean } | null {
     return bar == null ? null : { fill: pct(bar.fill), usual: pct(bar.usual), over };
+}
+
+const SEC_MS = 1000;
+const MIN_SEC = 60;
+// the check locks the design's edits (editLock), so the card says so where the pane says to read meanwhile
+const EDITS_WAIT = "Edits to the design wait until it is back.";
+
+// "5m 02s", the board's reading of a duration; under a minute, "42s"
+export function cardTime(ms: number): string {
+    const secs = Math.max(0, Math.floor(ms / SEC_MS));
+    const m = Math.floor(secs / MIN_SEC);
+    const s = secs % MIN_SEC;
+    return m === 0 ? `${s}s` : `${m}m ${String(s).padStart(2, "0")}s`;
+}
+
+function cardAbout(ms: number): string {
+    const mins = Math.round(ms / (MIN_SEC * SEC_MS));
+    return mins < 1 ? "under a minute" : `about ${mins}m`;
+}
+
+// the pane's clock (checkClock) in the BuilderCheck and CheckStates boards' words: their times and their note
+export function cardClock(
+    check: Extract<BuilderCheckView, { kind: "pending" }>,
+    span: CheckSpan | null,
+    times: BrainstormCheckTimes | null,
+    now: number
+): CheckClock {
+    const clock = checkClock(check, span, times, now);
+    const ms = span == null ? null : (span.end ?? now) - span.start;
+    const elapsed = ms == null ? null : cardTime(ms);
+    const known = times != null && times.usualms > 0 && times.longestms > 0;
+    const timesText = known ? `usual ${cardTime(times.usualms)} · longest ${cardTime(times.longestms)}` : null;
+    if (check.stage === "taking-in") {
+        const done = elapsed == null ? "The builder finished." : `The builder finished in ${elapsed}.`;
+        return {
+            ...clock,
+            elapsed,
+            times: timesText,
+            note: `${done} The agent is sorting its questions into yours, its calls and what the design already answers.`,
+        };
+    }
+    if (!known) {
+        return { ...clock, elapsed, times: null, note: EDITS_WAIT };
+    }
+    const about = cardAbout(times.usualms);
+    return {
+        ...clock,
+        elapsed,
+        times: timesText,
+        note: clock.over
+            ? `Taking longer than usual: most checks here finish in ${about}. ${EDITS_WAIT}`
+            : `Checks here usually take ${about}. ${EDITS_WAIT}`,
+    };
 }

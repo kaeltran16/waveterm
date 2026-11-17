@@ -112,8 +112,10 @@ Cockpit and surfaces:
 
 Orchestrator:
 
-- **Plan-skill bench** (2026-11-16) — held until 2026-11-30: the real-run comparison of `arc:plan` against
-  `arc:writing-plans` and the replay bench (spec Decisions 8 and 9 of the slim-superpowers design), its own plan.
+- **Plan-skill bench** (2026-11-16) — the tooling shipped 2026-11-17 (`scripts/bench/README.md`); the replay
+  bench itself (spec Decisions 8 and 9 of the slim-superpowers design) is run by hand. Its live calls
+  (`replay.mjs start`, `blindreview.mjs`'s `claude -p`, `verdict.mjs` on the real store) were never exercised
+  before landing; the first pick shows whether they work.
 - **DAG liveness batching (M1)** — 42.7 ms per running task per 30 s tick on 191 session files; build
   the per-schedule snapshot only when the corpus nears ~3,000 files.
 - **Automated board rendering** for the final verifier — revive when a verdict misses a layout defect a

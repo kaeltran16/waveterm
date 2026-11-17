@@ -137,15 +137,13 @@ function RequestBand({
 export function PermissionBand({
     agentId,
     blockId,
-    askShown,
     onLastChoice,
 }: {
     agentId: string;
     blockId: string;
-    askShown: boolean;
     onLastChoice: () => void;
 }) {
-    const pending = bandRequests(useAtomValue(getAgentPermissionsAtom(`block:${blockId}`)), askShown);
+    const pending = bandRequests(useAtomValue(getAgentPermissionsAtom(`block:${blockId}`)));
     if (pending.length === 0) {
         return null;
     }

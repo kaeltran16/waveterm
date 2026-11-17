@@ -556,6 +556,12 @@ function parseTaskNotification(content) {
     ...notificationSource(summary)
   };
 }
+var SUBAGENT_TOOLS = /* @__PURE__ */ new Set(["Task", "Agent"]);
+function isSubagentFinish(content, actionById) {
+  const id = /<tool-use-id>([^<]*)<\/tool-use-id>/.exec(content)?.[1].trim();
+  const tool = id != null ? actionById.get(id)?._tool : void 0;
+  return tool != null ? SUBAGENT_TOOLS.has(tool) : content.includes("<result>");
+}
 var BASH_INPUT_RE = /^<bash-input>([^]*)<\/bash-input>$/;
 var BASH_OUTPUT_RE = /^<bash-stdout>([^]*?)<\/bash-stdout>\s*<bash-stderr>([^]*?)<\/bash-stderr>$/;
 function applyBashRecord(entries, content, rec) {
@@ -770,7 +776,11 @@ function projectTranscriptRecords(records) {
         }
         const note = parseTaskNotification(content);
         if (note != null) {
-          entries.push({ ...note, ...recTs(rec) });
+          entries.push({
+            ...note,
+            ...recTs(rec),
+            ...isSubagentFinish(content, actionById) ? { source: "subagent" } : {}
+          });
         } else if (applyCommandOutput(entries, content)) {
         } else if (opensWith(content, "<local-command-stdout>")) {
         } else if (isInterrupted(content)) {

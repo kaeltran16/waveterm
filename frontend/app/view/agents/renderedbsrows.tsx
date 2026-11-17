@@ -4,7 +4,7 @@
 // The Rendered transcript's own rows for brainstorm entries: an answer Arc sent folds to its question and pick with
 // where it was picked (opening read-only to the question's options), an answer only the file's history knows reads as
 // answered, a canvas mark line is a bubble with its crop, and the brainstorm's pane-action lines draw at the column's
-// compact sizes. renderedbsrowsmodel.ts decides which; this draws it.
+// compact sizes. renderedbsrowsmodel.ts decides which; this draws it, and the pinned bar's one-line read of each.
 
 import { turnTransition } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
@@ -69,6 +69,32 @@ function OptionList({ view, compact }: { view: AnswerView; compact: boolean }) {
     );
 }
 
+// the folded answer's line: the question it answers and the pick; the pinned bar draws it alone
+function AnswerSummary({ view, compact }: { view: AnswerView; compact: boolean }) {
+    return (
+        <>
+            <Lightbulb size={14} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />
+            <span className={cn("shrink-0 font-mono text-muted", compact ? "text-[11.5px]" : "text-[12px]")}>
+                {view.builder ? "Builder" : `Q${view.n}`}
+            </span>
+            <span className={cn("min-w-0 truncate text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}>
+                {view.question}
+            </span>
+            <span className="flex-1" />
+            <Check size={12} strokeWidth={2.8} className="shrink-0 text-success" aria-hidden />
+            <span
+                data-rbs-answer
+                className={cn(
+                    "max-w-[40%] shrink-0 truncate font-semibold text-foreground",
+                    compact ? "text-[12.5px]" : "text-[13.5px]"
+                )}
+            >
+                {view.answer}
+            </span>
+        </>
+    );
+}
+
 // one answered question, folded to its pick and where it was picked; opened, read-only, to the question, its why and its
 // options with the pick marked (decision 4): answering again is the pane's
 function FoldedAnswer({ view, compact }: { view: AnswerView; compact: boolean }) {
@@ -88,24 +114,7 @@ function FoldedAnswer({ view, compact }: { view: AnswerView; compact: boolean })
                     compact ? "gap-2 px-2.5 py-2" : "gap-2.5 px-3 py-[9px]"
                 )}
             >
-                <Lightbulb size={14} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />
-                <span className={cn("shrink-0 font-mono text-muted", compact ? "text-[11.5px]" : "text-[12px]")}>
-                    {view.builder ? "Builder" : `Q${view.n}`}
-                </span>
-                <span className={cn("min-w-0 truncate text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}>
-                    {view.question}
-                </span>
-                <span className="flex-1" />
-                <Check size={12} strokeWidth={2.8} className="shrink-0 text-success" aria-hidden />
-                <span
-                    data-rbs-answer
-                    className={cn(
-                        "max-w-[40%] shrink-0 truncate font-semibold text-foreground",
-                        compact ? "text-[12.5px]" : "text-[13.5px]"
-                    )}
-                >
-                    {view.answer}
-                </span>
+                <AnswerSummary view={view} compact={compact} />
                 <span
                     className={cn("shrink-0 whitespace-nowrap text-muted", compact ? "text-[11.5px]" : "text-[12px]")}
                 >
@@ -151,10 +160,18 @@ function AnsweredRow({ n, answer, compact }: { n: number; answer: string; compac
                 compact ? "my-2 text-[12px]" : "my-3 text-[12.5px]"
             )}
         >
+            <AnsweredSummary n={n} answer={answer} />
+        </div>
+    );
+}
+
+function AnsweredSummary({ n, answer }: { n: number; answer: string }) {
+    return (
+        <>
             <Lightbulb size={13} strokeWidth={2} className="shrink-0" aria-hidden />
             <span className="shrink-0">You answered question {n}:</span>
             <span className="min-w-0 truncate text-secondary">{answer}</span>
-        </div>
+        </>
     );
 }
 
@@ -188,14 +205,20 @@ function useCropUrl(view: MarkView, projectDir: string | null, base: string | nu
     return root == null ? null : `${root}/${encodeURIComponent(view.canvas)}/feedback/${encodeURIComponent(view.file)}`;
 }
 
-// a mark sent from the canvas: a user bubble with the marked crop and the note, and where it was made
-function MarkBubble({ view, agent, compact }: { view: MarkView; agent: AgentVM; compact: boolean }) {
+// the mark's crop URL, its board's label and how to open the board at it, for the bubble and the pinned bar
+function useMark(view: MarkView, agent: AgentVM) {
     const c = useAtomValue(canvasStateAtom(agent.id));
     const projectDir = projectDirOf(agent, view.canvas, c?.topic ?? null, c?.projectDir ?? null);
     const base = c?.topic === view.canvas && c.projectDir === projectDir ? c.base : null;
     const url = useCropUrl(view, projectDir, base);
     const board = boardLabel(view.board);
     const open = projectDir != null ? () => openMarkedBoard(agent, view, projectDir) : undefined;
+    return { url, board, open };
+}
+
+// a mark sent from the canvas: a user bubble with the marked crop and the note, and where it was made
+function MarkBubble({ view, agent, compact }: { view: MarkView; agent: AgentVM; compact: boolean }) {
+    const { url, board, open } = useMark(view, agent);
     return (
         <div
             data-rbs-row="mark"
@@ -267,18 +290,58 @@ function EntryRow({ view, agent, compact }: { view: EntryRowView; agent: AgentVM
     }
 }
 
-export function useRenderedEntryRow(
-    model: AgentsViewModel,
-    agent: AgentVM
-): (entry: AgentEntry, index: number) => ReactNode | null {
+// a pinned mark: its crop small, the note and where it was made, on one line
+function PinnedMark({ view, agent }: { view: MarkView; agent: AgentVM }) {
+    const { url, board } = useMark(view, agent);
+    return (
+        <>
+            {url != null ? (
+                <img
+                    src={url}
+                    alt={`The mark on ${board}`}
+                    className="block h-[18px] w-auto max-w-[48px] shrink-0 rounded-[3px] border border-accent object-cover"
+                />
+            ) : (
+                <span className="block h-[18px] w-[32px] shrink-0 rounded-[3px] border border-accent" />
+            )}
+            {view.note != null ? <span className="min-w-0 truncate text-foreground">{view.note}</span> : null}
+            <span className="shrink-0 whitespace-nowrap text-muted">
+                marked on {board} · {view.canvas}
+            </span>
+        </>
+    );
+}
+
+// the pinned bar's line for a prompt the transcript draws as its own row, read as that row reads
+export function PinnedRow({ view, agent }: { view: EntryRowView; agent: AgentVM }) {
+    switch (view.kind) {
+        case "answer":
+            return <AnswerSummary view={view} compact={true} />;
+        case "answered":
+            return <AnsweredSummary n={view.n} answer={view.answer} />;
+        case "mark":
+            return <PinnedMark view={view} agent={agent} />;
+    }
+}
+
+// which row the transcript draws for an entry, from the agent's brainstorm and its answer records
+export function useEntryRowView(agent: AgentVM): (entry: AgentEntry) => EntryRowView | null {
     const s = useAtomValue(brainstormAtom(agent.id));
     const all = useAtomValue(brainstormAnswersAtom);
-    const ctx = useTranscriptContext(model, agent);
     const records = s != null ? (all[s.path] ?? NO_RECORDS) : NO_RECORDS;
     const file = s?.file ?? null;
+    return useCallback((entry: AgentEntry) => entryRowView(entry, records, file), [records, file]);
+}
+
+export function useRenderedEntryRow(
+    model: AgentsViewModel,
+    agent: AgentVM,
+    rowOf: (entry: AgentEntry) => EntryRowView | null
+): (entry: AgentEntry, index: number) => ReactNode | null {
+    const ctx = useTranscriptContext(model, agent);
     return useCallback(
         (entry: AgentEntry, _index: number): ReactNode | null => {
-            const view = entryRowView(entry, records, file);
+            const view = rowOf(entry);
             if (view != null) {
                 return <Measured>{(compact) => <EntryRow view={view} agent={agent} compact={compact} />}</Measured>;
             }
@@ -291,6 +354,6 @@ export function useRenderedEntryRow(
             }
             return null;
         },
-        [records, file, ctx, agent]
+        [rowOf, ctx, agent]
     );
 }

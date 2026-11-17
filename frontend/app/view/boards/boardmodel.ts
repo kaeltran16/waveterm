@@ -280,8 +280,113 @@ function applyUpdate(els: ExcalidrawElement[], i: number, u: AnswerUpdate, now: 
     }
 }
 
+// --- arrow routing. convertToExcalidrawElements binds a skeleton arrow to its shapes without moving it there (it
+// keeps the 100px stub its x, y put down), and nothing re-routes an arrow whose shape code moved, so applyAnswer
+// lays every such arrow's bound ends on their shapes' outlines.
+
+type Point = [number, number];
+
+const ARROW_GAP = 8;
+
+function center(el: ExcalidrawElement): Point {
+    return [el.x + el.width / 2, el.y + el.height / 2];
+}
+
+// where the ray from el's center toward `toward` leaves its outline, pushed out by the gap; null when `toward`
+// is inside el, as with overlapping shapes, where no straight arrow reads right.
+function edgePoint(el: ExcalidrawElement, toward: Point): Point | null {
+    const [cx, cy] = center(el);
+    const dx = toward[0] - cx;
+    const dy = toward[1] - cy;
+    const hw = el.width / 2;
+    const hh = el.height / 2;
+    if (hw <= 0 || hh <= 0 || (dx === 0 && dy === 0)) {
+        return null;
+    }
+    const rx = Math.abs(dx) / hw;
+    const ry = Math.abs(dy) / hh;
+    // t is the fraction of (dx, dy) at which the ray meets the outline
+    let t = 1 / Math.max(rx, ry);
+    if (el.type === "ellipse") {
+        t = 1 / Math.hypot(rx, ry);
+    } else if (el.type === "diamond") {
+        t = 1 / (rx + ry);
+    }
+    if (t >= 1) {
+        return null;
+    }
+    const s = t + ARROW_GAP / Math.hypot(dx, dy);
+    return [cx + dx * s, cy + dy * s];
+}
+
+// where Excalidraw puts an arrow's label: the middle point, or the middle of the middle segment
+function labelAnchor(points: readonly Point[]): Point {
+    const mid = Math.floor(points.length / 2);
+    if (points.length % 2 === 1) {
+        return points[mid];
+    }
+    const [a, b] = [points[mid - 1], points[mid]];
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+}
+
+// routes els[i] in place, its label with it; an arrow it can't route stays as drawn
+function routeArrow(els: ExcalidrawElement[], i: number, now: number): void {
+    const el = els[i];
+    if (el.type !== "arrow" || el.points.length < 2) {
+        return;
+    }
+    const shapeAt = (id: string | undefined) => els.find((s) => s.id === id && !s.isDeleted);
+    const from = shapeAt(el.startBinding?.elementId);
+    const to = shapeAt(el.endBinding?.elementId);
+    const abs: Point[] = el.points.map((p) => [el.x + p[0], el.y + p[1]]);
+    const last = abs.length - 1;
+    // a bent arrow aims each end at its neighbor point; a straight one runs center to center
+    const aimStart = last > 1 ? abs[1] : to ? center(to) : abs[last];
+    const aimEnd = last > 1 ? abs[last - 1] : from ? center(from) : abs[0];
+    const start = from ? edgePoint(from, aimStart) : abs[0];
+    const end = to ? edgePoint(to, aimEnd) : abs[last];
+    if (start == null || end == null) {
+        return;
+    }
+    const routed: Point[] = [start, ...abs.slice(1, last), end];
+    const xs = routed.map((p) => p[0] - start[0]);
+    const ys = routed.map((p) => p[1] - start[1]);
+    const binding = (b: typeof el.startBinding) => (b == null ? null : { ...b, focus: 0, gap: ARROW_GAP });
+    els[i] = bump(
+        el,
+        {
+            x: start[0],
+            y: start[1],
+            points: xs.map((x, k) => [x, ys[k]]),
+            width: Math.max(...xs) - Math.min(...xs),
+            height: Math.max(...ys) - Math.min(...ys),
+            startBinding: binding(el.startBinding),
+            endBinding: binding(el.endBinding),
+        },
+        now
+    );
+    const t = boundTextAt(els, el.id);
+    if (t >= 0) {
+        const [mx, my] = labelAnchor(routed);
+        els[t] = bump(els[t], { x: mx - els[t].width / 2, y: my - els[t].height / 2 }, now);
+    }
+}
+
+// added arrows, and arrows bound to a shape the answer moved or resized
+function routeArrows(els: ExcalidrawElement[], addedIds: Set<string>, movedIds: Set<string>, now: number): void {
+    els.forEach((el, i) => {
+        if (el.type !== "arrow" || el.isDeleted || ("elbowed" in el && el.elbowed)) {
+            return;
+        }
+        const ends = [el.startBinding?.elementId, el.endBinding?.elementId];
+        if (addedIds.has(el.id) || ends.some((id) => id != null && movedIds.has(id))) {
+            routeArrow(els, i, now);
+        }
+    });
+}
+
 // added (already converted) goes on top; update and remove skip ids the board no longer has, since you may have
-// deleted them while the drawer answered. Arrows bound to a moved shape are not re-routed (decision 6).
+// deleted them while the drawer answered.
 export function applyAnswer(
     scene: BoardScene,
     answer: BoardAnswer,
@@ -292,11 +397,15 @@ export function applyAnswer(
     const liveAt = (id: string): number => els.findIndex((el) => el.id === id && !el.isDeleted);
     const shapeIds = added.filter((el) => !isBoundText(el)).map((el) => el.id);
     const textIds: string[] = [];
+    const movedIds = new Set<string>();
     for (const u of parseUpdates(answer.update)) {
         const i = liveAt(u.id);
         if (i >= 0) {
             applyUpdate(els, i, u, now, textIds);
             shapeIds.push(u.id);
+            if (u.x != null || u.y != null || u.width != null || u.height != null) {
+                movedIds.add(u.id);
+            }
         }
     }
     for (const id of answer.remove ?? []) {
@@ -310,6 +419,7 @@ export function applyAnswer(
             els[t] = bump(els[t], { isDeleted: true }, now);
         }
     }
+    routeArrows(els, new Set(added.map((el) => el.id)), movedIds, now);
     return {
         scene: { ...scene, elements: els },
         shapeIds: [...new Set(shapeIds)].filter((id) => liveAt(id) >= 0),

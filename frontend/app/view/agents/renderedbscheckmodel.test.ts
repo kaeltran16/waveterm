@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { BrainstormFile, BuilderCheckView, BuilderQuestion } from "./brainstormmodel";
-import { builderHead, checkCardState, clockBar, settledLine } from "./renderedbscheckmodel";
+import { builderHead, cardClock, cardTime, checkCardState, clockBar, settledLine } from "./renderedbscheckmodel";
 
 const READING: BuilderCheckView = { kind: "pending", stage: "reading", text: "A builder is reading the design." };
 const TAKING_IN: BuilderCheckView = {
@@ -95,5 +95,51 @@ describe("clockBar", () => {
 
     it("flags a reading check past the usual time", () => {
         expect(clockBar({ fill: 1, usual: 0.81 }, true)).toEqual({ fill: "100.0%", usual: "81.0%", over: true });
+    });
+});
+
+describe("cardTime", () => {
+    it("reads minutes and padded seconds, and seconds alone under a minute", () => {
+        expect(cardTime(302_000)).toBe("5m 02s");
+        expect(cardTime(370_999)).toBe("6m 10s");
+        expect(cardTime(42_000)).toBe("42s");
+        expect(cardTime(-5)).toBe("0s");
+    });
+});
+
+describe("cardClock", () => {
+    const TIMES = { usualms: 302_000, longestms: 370_000 };
+    const START = 1_000_000;
+    const pending = (v: BuilderCheckView) => v as Extract<BuilderCheckView, { kind: "pending" }>;
+
+    it("reads the builder's time and the past checks' times as the BuilderCheck board does", () => {
+        const c = cardClock(pending(READING), { start: START, end: null }, TIMES, START + 130_000);
+        expect(c.elapsed).toBe("2m 10s");
+        expect(c.times).toBe("usual 5m 02s · longest 6m 10s");
+        expect(c.running).toBe(true);
+        expect(c.over).toBe(false);
+        expect(c.note).toBe("Checks here usually take about 5m. Edits to the design wait until it is back.");
+    });
+
+    it("says it is taking longer once past the usual time", () => {
+        const c = cardClock(pending(READING), { start: START, end: null }, TIMES, START + 460_000);
+        expect(c.over).toBe(true);
+        expect(c.note).toBe(
+            "Taking longer than usual: most checks here finish in about 5m. Edits to the design wait until it is back."
+        );
+    });
+
+    it("says how long the builder took while the agent takes its questions in", () => {
+        const c = cardClock(pending(TAKING_IN), { start: START, end: START + 302_000 }, TIMES, START + 900_000);
+        expect(c.elapsed).toBe("5m 02s");
+        expect(c.running).toBe(false);
+        expect(c.note.startsWith("The builder finished in 5m 02s.")).toBe(true);
+    });
+
+    it("drops the times with no past checks to go by", () => {
+        const c = cardClock(pending(READING), { start: START, end: null }, null, START + 10_000);
+        expect(c.times).toBeNull();
+        expect(c.elapsed).toBe("10s");
+        expect(c.note).toBe("Edits to the design wait until it is back.");
     });
 });

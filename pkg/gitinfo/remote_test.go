@@ -3,11 +3,77 @@ package gitinfo
 
 import (
 	"context"
+	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
+
+// fakeGitHangEnv makes the test binary act as a git that hangs on the argument it names and otherwise
+// answers as a repo on branch main with an origin remote, so a test can time out one chosen git call.
+const fakeGitHangEnv = "GITINFO_FAKE_GIT_HANG"
+
+func TestMain(m *testing.M) {
+	if hang := os.Getenv(fakeGitHangEnv); hang != "" {
+		runFakeGit(hang, os.Args[1:])
+	}
+	os.Exit(m.Run())
+}
+
+func runFakeGit(hang string, args []string) {
+	if slices.Contains(args, hang) {
+		time.Sleep(time.Minute)
+	}
+	switch {
+	case slices.Contains(args, "--is-inside-work-tree"):
+		fmt.Println("true")
+	case slices.Contains(args, "remote"):
+		fmt.Println("origin")
+	case slices.Contains(args, "symbolic-ref"):
+		fmt.Println("main")
+	}
+	os.Exit(0)
+}
+
+// useHangingGit puts a copy of the test binary first on PATH as git, run as the fake above.
+func useHangingGit(t *testing.T, hang string) {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	name := "git"
+	if runtime.GOOS == "windows" {
+		name = "git.exe"
+	}
+	src, err := os.Open(self)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	dst, err := os.OpenFile(filepath.Join(bin, name), os.O_CREATE|os.O_WRONLY, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		t.Fatal(err)
+	}
+	if err := dst.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(fakeGitHangEnv, hang)
+}
+
+// hangDeadline outlives the fake's quick answers and cuts the hanging call short
+const hangDeadline = 2 * time.Second
 
 // cloneOfBare makes a bare remote holding one commit on main and a clone of it whose main tracks
 // origin/main. It returns the bare remote's and the clone's directories.
@@ -116,6 +182,32 @@ func TestPushNotARepo(t *testing.T) {
 	}
 	if got.IsRepo || got.Failure != nil {
 		t.Fatalf("push = %+v, want IsRepo false and no failure", got)
+	}
+}
+
+// a git killed at its deadline exits 1 on Windows, the same code as "no such ref", so a timeout must
+// not read as a detached HEAD or a branch to publish
+func TestPushTimedOutGitIsAnError(t *testing.T) {
+	for _, hang := range []string{"symbolic-ref", "@{u}"} {
+		t.Run(hang, func(t *testing.T) {
+			useHangingGit(t, hang)
+			ctx, cancel := context.WithTimeout(context.Background(), hangDeadline)
+			defer cancel()
+			got, err := Push(ctx, t.TempDir())
+			if err == nil {
+				t.Fatalf("push = %+v (failure %+v), want an error", got, got.Failure)
+			}
+		})
+	}
+}
+
+func TestRemoteStatusTimedOutGitIsAnError(t *testing.T) {
+	useHangingGit(t, "@{u}")
+	ctx, cancel := context.WithTimeout(context.Background(), hangDeadline)
+	defer cancel()
+	got, err := RemoteStatus(ctx, t.TempDir())
+	if err == nil {
+		t.Fatalf("status = %+v, want an error", got)
 	}
 }
 

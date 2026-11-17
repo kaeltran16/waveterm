@@ -45,6 +45,8 @@ const turns = (items: LayoutItem[]) => items.filter((i): i is TurnItem => i.kind
 // every stretch, those inside a folded turn included
 const stepsItems = (items: LayoutItem[]): Extract<LayoutItem, { kind: "steps" }>[] =>
     items.flatMap((i) => (i.kind === "steps" ? [i] : i.kind === "turn" ? stepsItems(i.items) : []));
+// the rows as the feed draws them: a live turn's are unfolded in place
+const drawn = (items: LayoutItem[]) => items.flatMap((i) => (i.kind === "turn" && i.live ? i.items : [i]));
 const at = (items: LayoutItem[]) => items.map((i) => ("index" in i ? i.index : i.startIndex));
 
 const CHUNK_DONE = 'E=2bd27b27 && wsh effort chunk status "$E" 3 done --note "retry fixed"';
@@ -73,15 +75,18 @@ describe("layoutTranscript folds", () => {
         expect(kinds(items)).toEqual(["user", "turn", "message"]);
     });
 
-    it("keeps the live turn's stretches open while active and folds them once it is not", () => {
-        const live = turn.slice(0, 5);
-        expect(kinds(layoutTranscript(live, { active: true }))).toEqual(["user", "steps"]);
-        expect(kinds(layoutTranscript(live, { active: false }))).toEqual(["user", "turn"]);
+    // the renderer keys a turn by its startIndex, so the live turn finishing folds the rows it drew, not new ones
+    it("lays the live turn out as the turn it folds into, marked live until it is not", () => {
+        const working = turns(layoutTranscript(turn.slice(0, 5), { active: true }));
+        const done = turns(layoutTranscript(turn.slice(0, 5), { active: false }));
+        expect(working.map((t) => [t.startIndex, t.live])).toEqual([[1, true]]);
+        expect(done.map((t) => [t.startIndex, t.live])).toEqual([[1, undefined]]);
+        expect(kinds(drawn(layoutTranscript(turn.slice(0, 5), { active: true })))).toEqual(["user", "steps"]);
     });
 
     it("folds an earlier turn while the agent works on a later one", () => {
         const entries = [...turn, user("again", T0 + 50 * S), read("d.ts"), prose("looking"), read("e.ts")];
-        expect(kinds(layoutTranscript(entries, { active: true }))).toEqual([
+        expect(kinds(drawn(layoutTranscript(entries, { active: true })))).toEqual([
             "user",
             "turn",
             "message",
@@ -188,8 +193,11 @@ describe("layoutTranscript folds", () => {
     it("flags no turn item latest while active", () => {
         const entries: AgentEntry[] = [user("go"), read("a"), prose("ok"), user("again"), read("b"), prose("ok")];
         const items = layoutTranscript(entries, { active: true });
-        expect(turns(items)).toHaveLength(1);
-        expect(turns(items).map((t) => t.latest)).toEqual([false]);
+        // the working turn is a turn item too, marked live, not latest
+        expect(turns(items).map((t) => [t.latest, !!t.live])).toEqual([
+            [false, false],
+            [false, true],
+        ]);
     });
 
     it("names Skill calls in the phrase", () => {
@@ -278,7 +286,7 @@ describe("layoutTranscript folds", () => {
 describe("layoutTranscript wsh calls", () => {
     it("draws a successful change call as a card that splits the stretch", () => {
         const entries = [user("go"), read("a"), read("b"), bash(CHUNK_DONE), read("c"), prose("ok")];
-        const items = layoutTranscript(entries, { active: true });
+        const items = drawn(layoutTranscript(entries, { active: true }));
         expect(kinds(items)).toEqual(["user", "steps", "card", "steps", "message"]);
         const card = items[2] as Extract<LayoutItem, { kind: "card" }>;
         expect(card.index).toBe(3);
@@ -288,9 +296,9 @@ describe("layoutTranscript wsh calls", () => {
     });
 
     it("keeps a failed change call a failed step", () => {
-        const items = layoutTranscript([user("go"), read("a"), bash(CHUNK_DONE, { exit: 1 }), read("c")], {
-            active: true,
-        });
+        const items = drawn(
+            layoutTranscript([user("go"), read("a"), bash(CHUNK_DONE, { exit: 1 }), read("c")], { active: true })
+        );
         expect(kinds(items)).toEqual(["user", "steps"]);
         const step = stepsItems(items)[0].steps[1];
         expect(step.status).toBe("fail");
@@ -305,11 +313,13 @@ describe("layoutTranscript wsh calls", () => {
             command: CHUNK_DONE,
             outcome: "fail",
         };
-        expect(kinds(layoutTranscript([failed], { active: true }))).toEqual(["steps"]);
+        expect(kinds(drawn(layoutTranscript([failed], { active: true })))).toEqual(["steps"]);
     });
 
     it("keeps a pending change call a running step", () => {
-        const items = layoutTranscript([user("go"), bash(CHUNK_DONE, { pending: true, ts: T0 })], { active: true });
+        const items = drawn(
+            layoutTranscript([user("go"), bash(CHUNK_DONE, { pending: true, ts: T0 })], { active: true })
+        );
         expect(kinds(items)).toEqual(["user", "steps"]);
         expect(stepsItems(items)[0].steps[0].status).toBe("running");
     });
@@ -444,7 +454,7 @@ describe("layoutTranscript statuses and Arc messages", () => {
             { kind: "interrupted" },
         ];
         // the live turn, so nothing folds them
-        const items = layoutTranscript(entries, { active: true });
+        const items = drawn(layoutTranscript(entries, { active: true }));
         expect(kinds(items)).toEqual(["command", "steps", "compaction", "steps", "notification", "interrupted"]);
         expect(items[0]).toEqual({ kind: "command", name: "/review", args: "PR #402", isSkill: undefined, index: 0 });
         expect(items[2]).toEqual({
@@ -528,7 +538,7 @@ describe("layoutTranscript statuses and Arc messages", () => {
             joined("also check b"),
             prose("done"),
         ];
-        const items = layoutTranscript(entries, { active: true });
+        const items = drawn(layoutTranscript(entries, { active: true }));
         expect(kinds(items)).toEqual(["user", "steps", "arc", "steps", "arc", "steps", "user", "message"]);
         expect(items[2]).toMatchObject({ kind: "arc", index: 2, message: { kind: "wake" } });
         expect(items[4]).toMatchObject({
@@ -548,7 +558,7 @@ describe("layoutTranscript statuses and Arc messages", () => {
 
     it("draws an agent message sent as a normal prompt as an agent row that starts its turn", () => {
         const entries = [user("go"), bash("ls"), prose("ok"), user(ENVELOPE + "rebase please"), bash("git fetch")];
-        const items = layoutTranscript(entries, { active: true });
+        const items = drawn(layoutTranscript(entries, { active: true }));
         expect(kinds(items)).toEqual(["user", "turn", "message", "arc", "steps"]);
         expect(items[3]).toMatchObject({ kind: "arc", message: { kind: "agent", text: "rebase please" } });
     });
@@ -601,7 +611,9 @@ describe("layoutTranscript thoughts", () => {
 
     it("a thought before a wsh change card stands alone before it", () => {
         const card = bash(CHUNK_DONE);
-        const items = layoutTranscript([user("go"), thought("marking it"), card], { active: true, thoughts: true });
+        const items = drawn(
+            layoutTranscript([user("go"), thought("marking it"), card], { active: true, thoughts: true })
+        );
         expect(kinds(items)).toEqual(["user", "thought", "card"]);
     });
 

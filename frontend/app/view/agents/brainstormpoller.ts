@@ -41,7 +41,7 @@ import {
 import { boardKey, turnBoards, type TurnBoard } from "./brainstormworking";
 import { boardsFromCanvasJson, boardUrl, canvasDesignDir } from "./canvasmodel";
 import { tauriCanvasIO } from "./canvaspoller";
-import { tauriSendIO } from "./canvassend";
+import { tauriFileIO } from "./fileio";
 import { entriesAtomFor } from "./livetranscriptatoms";
 
 const CANVAS_JSON = "canvas.json";
@@ -126,7 +126,7 @@ export async function listAllOpenBrainstorms(
 }
 
 export async function dismissBrainstorm(brainstormFile: string): Promise<void> {
-    await tauriSendIO.write(dismissedMarkerPath(brainstormFile), new Uint8Array());
+    await tauriFileIO.write(dismissedMarkerPath(brainstormFile), new Uint8Array());
 }
 
 // a spike is served from the same folder as the boards, so a file whose only mockups are spikes needs it served too
@@ -260,8 +260,7 @@ export const tauriBrainstormIO: BrainstormIO = {
 export const tauriOpenBrainstormsIO: OpenBrainstormsIO = {
     stat: tauriBrainstormIO.stat,
     read: tauriBrainstormIO.read,
-    // read at call time: canvassend can reach this module through an import cycle before tauriSendIO exists
-    list: (path) => tauriSendIO.list(path),
+    list: tauriFileIO.list,
 };
 
 // `wsh agent-hook` stamps the agent's block on every prompt it submits, the terminal's included

@@ -34,9 +34,11 @@ export type DesignRow = {
 };
 
 export type DesignView = {
-    // every decision is yours: the head sums the design up and the builder check is next
+    // every decision is yours: one line sums the design up and the builder check is next
     settled: boolean;
     line: string;
+    // settled: how many guesses the user confirmed, beside the line; null with none
+    confirmed: string | null;
     confirmAll: number | null;
     check: boolean;
     rows: DesignRow[];
@@ -71,9 +73,12 @@ function confirmedGuesses(f: BrainstormFile): number {
 
 function settledLine(f: BrainstormFile): string {
     const n = decisionParts(f).length;
+    return `The design · ${n} of ${n} yours`;
+}
+
+function confirmedLine(f: BrainstormFile): string | null {
     const confirmed = confirmedGuesses(f);
-    const base = `The design · ${n} of ${n} yours`;
-    return confirmed > 0 ? `${base} · you confirmed ${plural(confirmed, "guess", "guesses")}` : base;
+    return confirmed > 0 ? `you confirmed ${plural(confirmed, "guess", "guesses")}` : null;
 }
 
 export function designView(
@@ -86,6 +91,7 @@ export function designView(
     return {
         settled,
         line: settled ? settledLine(f) : head.line,
+        confirmed: settled ? confirmedLine(f) : null,
         confirmAll: head.action === "confirm-all" ? head.guesses : null,
         check: head.action === "check",
         rows: drawnDecisionParts(f).map((p) => ({

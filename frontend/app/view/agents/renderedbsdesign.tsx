@@ -6,8 +6,9 @@
 // the one press to Check with a builder. A pick or a send goes the pane's way (pickPart, sendBrainstorm).
 
 import { TickNumber } from "@/app/element/ticknumber";
+import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Check } from "lucide-react";
 import type { JSX } from "react";
 import {
     builderCheckView,
@@ -33,7 +34,7 @@ import {
 import { CANVAS_PRIMARY_BTN } from "./canvaspane";
 import { CardFrame } from "./renderedbrainstorm";
 import type { CardProps } from "./renderedbrainstormmodel";
-import { designView, type DesignRow } from "./renderedbsdesignmodel";
+import { designView, type DesignRow, type DesignView } from "./renderedbsdesignmodel";
 
 const LINK =
     "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline";
@@ -137,6 +138,77 @@ function DesignRowView({ row, pressed, dimmed, locked, title, compact, onPick, o
     );
 }
 
+// every decision yours: the BuilderCheck board's one row, so "The design" reads once, with no card head over it
+function SettledDesign({
+    agent,
+    v,
+    locked,
+    title,
+    error,
+    compact,
+    onCheck,
+}: {
+    agent: CardProps["agent"];
+    v: DesignView;
+    locked: boolean;
+    title: string | undefined;
+    error: string | null;
+    compact: boolean;
+    onCheck: () => void;
+}) {
+    return (
+        <div className="flex flex-col gap-2" data-rendered-bs-design="">
+            <div
+                data-rendered-bs-design-settled
+                className={cn(
+                    "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] border border-edge-mid bg-surface",
+                    compact ? "px-3 py-2.5" : "px-[14px] py-[11px]"
+                )}
+            >
+                <Check size={12} strokeWidth={2.8} className="shrink-0 text-success" aria-hidden />
+                <span
+                    data-rendered-bs-design-line
+                    className={cn("font-semibold text-primary", compact ? "text-[12.5px]" : "text-[13.5px]")}
+                >
+                    {v.line}
+                </span>
+                {v.confirmed != null ? (
+                    <span data-rendered-bs-design-confirmed className="text-[12.5px] text-muted">
+                        {v.confirmed}
+                    </span>
+                ) : null}
+                <span className="flex-1" />
+                <button
+                    type="button"
+                    data-rendered-bs-open
+                    onClick={() => openBrainstormAt(agent.id, {})}
+                    className={LINK}
+                >
+                    Open brainstorm
+                    <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
+                </button>
+                {v.check ? (
+                    <button
+                        type="button"
+                        data-rendered-bs-check-btn
+                        disabled={locked}
+                        title={title}
+                        onClick={onCheck}
+                        className={cn(CANVAS_PRIMARY_BTN, "flex-none")}
+                    >
+                        Check with a builder
+                    </button>
+                ) : null}
+            </div>
+            <ErrorLine error={error} attrs={{ "data-rendered-bs-error": "" }} />
+        </div>
+    );
+}
+
+// the confirm card trading for the settled row fades as a view swap: the same ViewSwap, its key changed
+const SETTLED_KEY = "settled";
+const CONFIRM_KEY = "confirm";
+
 export function DesignCard({ agent, s, f, compact }: CardProps): JSX.Element | null {
     const act = useAction();
     const check: BuilderCheckView = builderCheckView(
@@ -156,58 +228,57 @@ export function DesignCard({ agent, s, f, compact }: CardProps): JSX.Element | n
     const send = (a: BrainstormAction) =>
         void act.run(() => sendBrainstorm(agent, a, undefined, undefined, "transcript"));
     const primary = cn(CANVAS_PRIMARY_BTN, "flex-none");
+    if (v.settled) {
+        return (
+            <ViewSwap swapKey={SETTLED_KEY}>
+                <SettledDesign
+                    agent={agent}
+                    v={v}
+                    locked={locked}
+                    title={title}
+                    error={act.error}
+                    compact={compact}
+                    onCheck={() => send({ kind: "check" })}
+                />
+            </ViewSwap>
+        );
+    }
     return (
-        <CardFrame
-            agent={agent}
-            s={s}
-            f={f}
-            asking={true}
-            head={
-                <span className="whitespace-nowrap font-mono font-semibold">
-                    {v.settled ? "The design" : "Confirm the design"}
-                </span>
-            }
-            compact={compact}
-            attr="data-rendered-bs-design"
-        >
-            <div className={cn("flex gap-[14px]", compact ? "flex-col" : "items-center")}>
-                <span
-                    data-rendered-bs-design-line
-                    className={cn(
-                        "min-w-0 flex-1 leading-[1.5] text-ink-mid",
-                        compact ? "text-[12.5px]" : "text-[13.5px]"
-                    )}
-                >
-                    {v.line}
-                </span>
-                {v.confirmAll != null ? (
-                    <button
-                        type="button"
-                        data-rendered-bs-confirm-all
-                        disabled={locked}
-                        title={title}
-                        onClick={() => send({ kind: "confirm-all" })}
-                        className={cn(primary, compact && "self-start")}
+        <ViewSwap swapKey={CONFIRM_KEY}>
+            <CardFrame
+                agent={agent}
+                s={s}
+                f={f}
+                asking={true}
+                head={<span className="whitespace-nowrap font-mono font-semibold">Confirm the design</span>}
+                compact={compact}
+                attr="data-rendered-bs-design"
+            >
+                <div className={cn("flex gap-[14px]", compact ? "flex-col" : "items-center")}>
+                    <span
+                        data-rendered-bs-design-line
+                        className={cn(
+                            "min-w-0 flex-1 leading-[1.5] text-ink-mid",
+                            compact ? "text-[12.5px]" : "text-[13.5px]"
+                        )}
                     >
-                        <span>
-                            Confirm all <TickNumber value={v.confirmAll} /> guesses
-                        </span>
-                    </button>
-                ) : null}
-                {v.settled && v.check ? (
-                    <button
-                        type="button"
-                        data-rendered-bs-check-btn
-                        disabled={locked}
-                        title={title}
-                        onClick={() => send({ kind: "check" })}
-                        className={cn(primary, compact && "self-start")}
-                    >
-                        Check with a builder
-                    </button>
-                ) : null}
-            </div>
-            {v.settled ? null : (
+                        {v.line}
+                    </span>
+                    {v.confirmAll != null ? (
+                        <button
+                            type="button"
+                            data-rendered-bs-confirm-all
+                            disabled={locked}
+                            title={title}
+                            onClick={() => send({ kind: "confirm-all" })}
+                            className={cn(primary, compact && "self-start")}
+                        >
+                            <span>
+                                Confirm all <TickNumber value={v.confirmAll} /> guesses
+                            </span>
+                        </button>
+                    ) : null}
+                </div>
                 <div data-rendered-bs-design-rows className="flex flex-col">
                     {v.rows.map((r) => (
                         <DesignRowView
@@ -224,35 +295,35 @@ export function DesignCard({ agent, s, f, compact }: CardProps): JSX.Element | n
                         />
                     ))}
                 </div>
-            )}
-            {v.notes.length > 0 && !v.settled ? (
-                <div
-                    data-rendered-bs-found
-                    className={cn(
-                        "flex gap-x-[10px] gap-y-1 text-[12.5px] text-ink-mid",
-                        compact ? "flex-wrap" : "items-baseline"
-                    )}
-                >
-                    <span className="font-semibold text-secondary">What the agent found · {v.notes.length}</span>
-                    <span className="min-w-0 truncate">{v.notes.map((n) => n.title).join(" · ")}</span>
-                    <span className="flex-1" />
-                    <button
-                        type="button"
-                        data-rendered-bs-read-found
-                        onClick={() => openBrainstormAt(agent.id, { part: v.notes[0].id })}
-                        className={LINK}
+                {v.notes.length > 0 ? (
+                    <div
+                        data-rendered-bs-found
+                        className={cn(
+                            "flex gap-x-[10px] gap-y-1 text-[12.5px] text-ink-mid",
+                            compact ? "flex-wrap" : "items-baseline"
+                        )}
                     >
-                        Read in the brainstorm
-                        <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-                    </button>
-                </div>
-            ) : null}
-            {v.waiting != null ? (
-                <span data-rendered-bs-design-waiting className="text-[12px] text-muted">
-                    {v.waiting}
-                </span>
-            ) : null}
-            <ErrorLine error={act.error} attrs={{ "data-rendered-bs-error": "" }} />
-        </CardFrame>
+                        <span className="font-semibold text-secondary">What the agent found · {v.notes.length}</span>
+                        <span className="min-w-0 truncate">{v.notes.map((n) => n.title).join(" · ")}</span>
+                        <span className="flex-1" />
+                        <button
+                            type="button"
+                            data-rendered-bs-read-found
+                            onClick={() => openBrainstormAt(agent.id, { part: v.notes[0].id })}
+                            className={LINK}
+                        >
+                            Read in the brainstorm
+                            <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
+                        </button>
+                    </div>
+                ) : null}
+                {v.waiting != null ? (
+                    <span data-rendered-bs-design-waiting className="text-[12px] text-muted">
+                        {v.waiting}
+                    </span>
+                ) : null}
+                <ErrorLine error={act.error} attrs={{ "data-rendered-bs-error": "" }} />
+            </CardFrame>
+        </ViewSwap>
     );
 }

@@ -1204,6 +1204,12 @@ func exitCodeOf(err error) int {
 	return -1
 }
 
+// gitFault reports a git call that did not answer: it never ran, or ctx ran out. A git killed at the
+// deadline exits 1 on Windows, the code git uses for "no such ref", so the exit code alone cannot tell.
+func gitFault(ctx context.Context, err error) bool {
+	return ctx.Err() != nil || exitCodeOf(err) <= 0
+}
+
 // failureOf turns the error run() already returns into a GitFailure. cmd.Output() populates
 // ExitError.Stderr, so both the code and git's message are available without changing how git is
 // invoked — and without CombinedOutput, which would fold stderr into the stdout callers parse.
