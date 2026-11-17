@@ -59,6 +59,7 @@ describe("agent canvas mode chips", () => {
         focusIdAtom: atom<string | undefined>("a1") as PrimitiveAtom<string | undefined>,
         surfaceAtom: atom<SurfaceKey>("agent"),
         terminalsAtom: atom([]),
+        agentsAtom: atom([]),
     } as any;
     const real = [...buildGlobalBindings(model), ...buildAgentBindings(model)];
     const chips = () =>
