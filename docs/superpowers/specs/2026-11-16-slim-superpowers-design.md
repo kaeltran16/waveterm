@@ -99,8 +99,8 @@ fixed template with a cap; the builder check flagging padding.
    makes writing-plans the default.
 
    Agent's call: the bench and its tooling are not part of this work; they get their own plan once the weeks
-   of use are done. (2026-11-17: the tooling's plan, `docs/superpowers/plans/2026-11-17-plan-skill-bench.md`,
-   was built early so the tools are ready; the bench itself still runs only after the weeks of use.) This work lands in two parts: the engine override (Decision 1) first and alone, then the
+   of use are done. (2026-11-17: the user lifted the hold; the tooling
+   is built and the bench runs before superpowers is turned off.) This work lands in two parts: the engine override (Decision 1) first and alone, then the
    skills, the setting and superpowers off.
 10. **pi.** A pi lead no longer needs the superpowers package once arc:plan and Arc's design skill replace the
     upstream skills; the orchestrator guide's pi requirement is updated.

@@ -1,6 +1,6 @@
 // Mutation score of the TS lines a tree added since a base commit, for the plan-skill bench.
 // Stryker runs through npx with a config written to a temp dir, so the tree's package.json and lockfile never change.
-// Writes the bench's shared mutation JSON (see docs/superpowers/plans/2026-11-17-plan-skill-bench.md).
+// Writes the bench's shared mutation JSON (see scripts/bench/README.md).
 // Usage: node scripts/bench/tsmutate.mjs --dir <tree> --base <sha> --out <file>
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
