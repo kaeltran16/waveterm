@@ -180,7 +180,7 @@ export default (kit) => {
                         r.dot &&
                         !r.check &&
                         r.close === null &&
-                        r.switchShown;
+                        !r.switchShown;
                     return [ok, r];
                 });
 
@@ -265,7 +265,7 @@ export default (kit) => {
                     return [ok, r];
                 });
 
-                await step("a removed brainstorm with no close record is the gone card, and the header's Brainstorm switch goes", async () => {
+                await step("a removed brainstorm with no close record is the gone card, and the header draws no Brainstorm switch in Rendered", async () => {
                     rmSync(ctx.file);
                     const shown = await polishWaitFor(h, `${GONE}?.getAttribute("data-rendered-bs-gone") === "removed"`, BS_POLL_WAIT_MS * 2);
                     const r = await readGone(h);
@@ -276,21 +276,21 @@ export default (kit) => {
                         r.text.startsWith(`${TOPIC}'s brainstorm file is gone`) &&
                         r.text.includes("It is no longer at") &&
                         r.text.includes("brainstorm.json") &&
-                        r.text.endsWith("The Brainstorm switch in the header goes with it; the answers above stay in the transcript.") &&
+                        r.text.endsWith("The answers above stay in the transcript.") &&
                         r.inside === true &&
                         !r.run &&
                         !r.switchShown;
                     return [ok, { shown, ...r }];
                 });
 
-                await step("the file back: the run card returns and the Brainstorm switch with it", async () => {
+                await step("the file back: the run card returns, still with no header switch in Rendered (the tab replaces it)", async () => {
                     writeFile(ctx, { ...RUN_FILE });
                     await waitCard(h, "run");
                     await drawn(h, `!!card?.querySelector("[data-rendered-bs-run-state]")`);
                     await setRun(h, MERGED("passed"));
                     await drawn(h, `!!card?.querySelector("[data-rendered-bs-close]")`);
                     const r = await readRun(h);
-                    return [r.kind === "run" && r.close?.text === "Close the brainstorm" && r.switchShown, r];
+                    return [r.kind === "run" && r.close?.text === "Close the brainstorm" && !r.switchShown, r];
                 });
 
                 await step("Close the brainstorm deletes the brainstorm and canvas folders only, and the closed row replaces the card", async () => {

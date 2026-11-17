@@ -6,6 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: {} }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
+import { globalStore } from "@/app/store/jotaiStore";
+import { atom } from "jotai";
+import type { AgentsViewModel } from "./agents";
 import { boardUnseen } from "./canvasmodel";
 import { canvasOnScreen, pollAndMerge, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
 import {
@@ -17,6 +20,11 @@ import {
     updateCanvas,
     type CanvasState,
 } from "./canvasstore";
+import { viewModeAtom } from "./renderedmode";
+import { closeWorkspaceTab, openWorkspaceTab } from "./workspacestore";
+
+// nothing in its roster, so every agent is in the Terminal view, where the canvas's mode says whether it shows
+const TERMINAL = { agentsAtom: atom([]) } as unknown as AgentsViewModel;
 
 const NOW = 50_000;
 const BASE = "http://127.0.0.1:5005/canvas/tok";
@@ -309,6 +317,7 @@ describe("pollAndMerge", () => {
     it("keeps a board shown while the poll was reading as viewed at the show", async () => {
         attached({ mode: "terminal", inlineBoard: "Main.dc.html", boardViewedMs: { "Main.dc.html": 9 } });
         await pollAndMerge(
+            TERMINAL,
             AGENT,
             pollWith(() => showInlineBoard(AGENT, "States.dc.html", LATER))
         );
@@ -320,6 +329,7 @@ describe("pollAndMerge", () => {
     it("keeps a canvas-mode switch made while the poll was reading", async () => {
         attached({ mode: "canvas", lastViewedMs: 7 });
         await pollAndMerge(
+            TERMINAL,
             AGENT,
             pollWith(() => setCanvasMode(AGENT, "canvas", LATER))
         );
@@ -329,6 +339,7 @@ describe("pollAndMerge", () => {
     it("records the boards on screen as viewed at the poll's time when nothing else moved them", async () => {
         attached({ mode: "canvas", board: "States.dc.html", lastViewedMs: 7, boardViewedMs: { "States.dc.html": 7 } });
         await pollAndMerge(
+            TERMINAL,
             AGENT,
             pollWith(() => {})
         );
@@ -337,20 +348,41 @@ describe("pollAndMerge", () => {
         expect(s.lastViewedMs).toBe(NOW);
         expect(s.boardModifiedMs).toEqual({ "Main.dc.html": 1000, "States.dc.html": 5000 });
     });
+
+    it("counts the Canvas tab as on screen in Rendered, and the Terminal view's mode not at all", async () => {
+        const rendered = {
+            agentsAtom: atom([{ id: AGENT, name: AGENT, task: "", state: "idle", agent: "claude", blockId: "blk" }]),
+        } as unknown as AgentsViewModel;
+        globalStore.set(viewModeAtom(AGENT), "rendered");
+        attached({ mode: "canvas", board: "States.dc.html", lastViewedMs: 7, boardViewedMs: { "States.dc.html": 7 } });
+        await pollAndMerge(
+            rendered,
+            AGENT,
+            pollWith(() => {})
+        );
+        expect(getCanvas(AGENT).lastViewedMs).toBe(7);
+        openWorkspaceTab(AGENT, { kind: "canvas" });
+        await pollAndMerge(
+            rendered,
+            AGENT,
+            pollWith(() => {})
+        );
+        expect(getCanvas(AGENT).lastViewedMs).toBe(NOW);
+        expect(getCanvas(AGENT).boardViewedMs).toEqual({ "States.dc.html": NOW });
+        closeWorkspaceTab(AGENT, "canvas");
+    });
 });
 
 describe("canvasOnScreen", () => {
-    const board = (mode: "terminal" | "brainstorm", open: string | null) => ({ mode, board: open });
-
-    it("is the canvas pane in canvas mode when the agent has no brainstorm", () => {
-        expect(canvasOnScreen(state({ mode: "canvas" }), null)).toBe(true);
-        expect(canvasOnScreen(state({ mode: "terminal" }), null)).toBe(false);
+    it("is the canvas pane or tab while the canvas shows", () => {
+        expect(canvasOnScreen("canvas", null)).toBe(true);
+        expect(canvasOnScreen(null, null)).toBe(false);
     });
-    it("is a brainstorm's full-size board whatever the canvas mode", () => {
-        expect(canvasOnScreen(state({ mode: "terminal" }), board("brainstorm", "Main.dc.html"))).toBe(true);
+    it("is a brainstorm's full-size board while the brainstorm shows", () => {
+        expect(canvasOnScreen("brainstorm", { board: "Main.dc.html" })).toBe(true);
     });
-    it("is off while the brainstorm shows no board or the terminal", () => {
-        expect(canvasOnScreen(state({ mode: "canvas" }), board("brainstorm", null))).toBe(false);
-        expect(canvasOnScreen(state({ mode: "canvas" }), board("terminal", "Main.dc.html"))).toBe(false);
+    it("is off while the brainstorm shows no board, or does not show", () => {
+        expect(canvasOnScreen("brainstorm", { board: null })).toBe(false);
+        expect(canvasOnScreen(null, { board: "Main.dc.html" })).toBe(false);
     });
 });

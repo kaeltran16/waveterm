@@ -140,7 +140,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | Keys | Action |
 |---|---|
 | `j` / `k` (or `↓` / `↑`, `→` / `←`) | Next / previous row in the tree: agents, workers and terminals |
-| `d` | Toggle the agent rail (Terminal), or collapse the workspace pane (Rendered, with tabs open) |
+| `d` | Toggle the agent rail (Terminal), or collapse the workspace pane (Rendered, with tabs open; while a shown Brainstorm tab asks with a fourth answer, `d` picks it) |
 | `f` | Toggle terminal fullscreen (in Rendered it hides the tree and keeps the workspace pane) |
 | `v` | Toggle the focused Claude Code agent between Terminal and Rendered |
 | `Ctrl`+`Shift`+`B` | The same toggle, also while typing in the terminal or the composer, when the agent has no brainstorm or canvas (with one, it switches to that instead) |
@@ -155,11 +155,11 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 ### Agent: canvas mode
 
-`c` works when the focused agent has a canvas. In canvas mode, `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas.
+`c` works when the focused agent has a canvas. In Terminal the canvas takes over the center (canvas mode), and there `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas. In Rendered the canvas is the workspace pane's Canvas tab beside the transcript: `c` and `Ctrl`+`Shift`+`B` open and close the tab, and the board keys below work while it is the shown tab.
 
 | Keys | Action |
 |---|---|
-| `c` | Show the agent's canvas; from the canvas, back to the terminal |
+| `c` | Show the agent's canvas; from the canvas, back to the terminal (in Rendered: open or close its tab) |
 | `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal |
 | `[` / `]` | Previous / next board |
 | `m` | Mark part of the board; in mark mode, stop marking |
@@ -167,11 +167,11 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 ### Agent: brainstorm mode
 
-`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In brainstorm mode, `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area, and `↓` / `↑` stand down there (`←` / `→` and `Ctrl`+`Tab` still move between agents).
+`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In Rendered the brainstorm is the workspace pane's Brainstorm tab beside the transcript: `b` and `Ctrl`+`Shift`+`B` open and close the tab, the keys below work while it is the shown tab, and the transcript's keys stay. In brainstorm mode (Terminal), `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area, and `↓` / `↑` stand down there (`←` / `→` and `Ctrl`+`Tab` still move between agents).
 
 | Keys | Action |
 |---|---|
-| `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal (while the question offers a B, `b` picks it instead) |
+| `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal (in Rendered: open or close its tab). While the question offers a B, `b` picks it instead |
 | `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal or while `b` picks an answer |
 | `a` / `b` / `c` / `d` | While the brainstorm asks a question with answers to pick from: focus that answer; `Enter` sends it |
 | `Esc` | Back one level, as the pane's back control does: from a full-size board to the question or design it was opened from; from the design opened over the question (or over the agent writing) back to it. A focused field keeps its own `Esc`, and on a board with a drawn mark `Esc` stays the mark note's |

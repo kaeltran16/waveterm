@@ -42,7 +42,7 @@ const FILE = {
 const SETTLE = "brainstorm: settle keep queue";
 
 export default (kit) => {
-    const { scenario, waitCard, narrow, widen, recordSends, waitSent, agentPage, backToRendered, polishWaitFor, HOST, PANE, WAIT_MS } =
+    const { scenario, waitCard, narrow, widen, recordSends, waitSent, agentPage, closePaneTabs, polishWaitFor, HOST, PANE, WAIT_MS } =
         kit;
     const CARD = `${HOST}?.querySelector("[data-rendered-bs-review]")`;
     const ROW = (id) => `${CARD}?.querySelector('[data-rendered-bs-review-row="${id}"]')`;
@@ -142,7 +142,7 @@ export default (kit) => {
                     return { pressed: keep?.getAttribute("aria-pressed") ?? null, clickedGate: mine != null };
                 })()`);
                 await h.shot(SHOT(3, "pane"));
-                const back = await backToRendered(h, ctx);
+                const back = await closePaneTabs(h, ctx);
                 const hasCard = await waitCard(h, "review");
                 const s = await readReview(h);
                 const gate = s.rows.find((r) => r.id === "gate");

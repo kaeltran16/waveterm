@@ -38,13 +38,14 @@ import { getLastOutputAtom } from "./agentcontrollerstore";
 import { FilesSummary } from "./agentdetailsrail";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
 import { hungSilenceMs } from "./agenthung";
+import { showPane, usePaneShown } from "./agentpanes";
 import { checkoutFacts, contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import { agentStateView, STATE_TONE_COLOR } from "./agentstateview";
 import { agentRunDone, type AgentVM } from "./agentsviewmodel";
-import { brainstormAtom, brainstormWaitOf, setBrainstormMode } from "./brainstormstore";
+import { brainstormAtom, brainstormWaitOf } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
-import { canvasStateAtom, setCanvasMode } from "./canvasstore";
+import { canvasStateAtom } from "./canvasstore";
 import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick } from "./committick";
@@ -56,7 +57,6 @@ import { leadLandFacts } from "./leadland";
 import { useRailGit } from "./railgit";
 import { railStateAtom, railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { remoteStatusAtom, toggleHandToPhone } from "./remotestore";
-import { brainstormSwitchShown } from "./renderedbsrunmodel";
 import { canRender, effectiveViewMode, pickerFlipAtom, toggleViewMode, viewModeAtom } from "./renderedmode";
 import { useRoleAsks } from "./roleasks";
 import { agentProject, isEndedWorkerId, leadAgentOf, leadDisplayName } from "./runlineage";
@@ -217,11 +217,11 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const reviewOpen = useAtomValue(docReviewAtom) != null;
     const viewMode = effectiveViewMode(useAtomValue(viewModeAtom(agent.id)), useAtomValue(pickerFlipAtom(agent.id)));
     const renderable = canRender(agent, { ended, stage });
-    // mirrors agentsurface: an agent with a brainstorm never shows its canvas
-    const paneShown = brainstorm?.mode === "brainstorm" || (brainstorm == null && canvas?.mode === "canvas");
+    const shown = usePaneShown(model, agent.id);
     const rendered = renderable && viewMode === "rendered";
-    // the pane switch's other half names the view it returns to
-    const centerLabel = rendered ? "Rendered" : "Terminal";
+    // in Terminal a brainstorm or canvas takes over the center; in Rendered it is a workspace tab, which replaces the
+    // header's switch
+    const centerTaken = !rendered && shown != null;
     // Ctrl+Shift+B goes to the pane when the agent has one, so then only v flips the view
     const viewToggleKeys = brainstorm != null || canvas != null ? formatChordString("v") : viewKeys("v");
     const viewToggleTitle = `${rendered ? "Show the terminal" : "Show rendered"} (${viewToggleKeys})`;
@@ -497,13 +497,13 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         <ChevronLeft size={12} strokeWidth={2} aria-hidden />
                     </button>
                 ) : null}
-                {brainstorm != null && brainstormSwitchShown(brainstorm, rendered) ? (
+                {rendered ? null : brainstorm != null ? (
                     <Segmented
                         role="group"
                         ariaLabel="Show terminal or brainstorm"
-                        value={brainstorm.mode}
+                        value={shown === "brainstorm" ? "brainstorm" : "terminal"}
                         options={[
-                            { key: "terminal", label: centerLabel, title: `${centerLabel} (${viewKeys("b")})` },
+                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("b")})` },
                             {
                                 key: "brainstorm",
                                 label: (
@@ -520,21 +520,21 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                                 title: `Brainstorm (${viewKeys("b")})`,
                             },
                         ]}
-                        onChange={(m) => setBrainstormMode(agent.id, m, Date.now())}
+                        onChange={(m) => showPane(model, agent.id, "brainstorm", m === "brainstorm", Date.now())}
                     />
-                ) : brainstorm == null && canvas != null ? (
+                ) : canvas != null ? (
                     <Segmented
                         role="group"
                         ariaLabel="Show terminal or canvas"
-                        value={canvas.mode}
+                        value={shown === "canvas" ? "canvas" : "terminal"}
                         options={[
-                            { key: "terminal", label: centerLabel, title: `${centerLabel} (${viewKeys("c")})` },
+                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("c")})` },
                             {
                                 key: "canvas",
                                 label: (
                                     <>
                                         Canvas
-                                        {isUnseen(canvas) ? (
+                                        {isUnseen(canvas, shown === "canvas") ? (
                                             <span
                                                 aria-label="updated since you last looked"
                                                 className="h-[6px] w-[6px] rounded-full bg-accent"
@@ -545,13 +545,13 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                                 title: `Canvas (${viewKeys("c")})`,
                             },
                         ]}
-                        onChange={(m) => setCanvasMode(agent.id, m, Date.now())}
+                        onChange={(m) => showPane(model, agent.id, "canvas", m === "canvas", Date.now())}
                     />
                 ) : null}
                 {blockId != null ? (
                     <>
                         {/* an open pane hides the terminal, so there is no view for this to flip */}
-                        {renderable && !paneShown ? (
+                        {renderable && !centerTaken ? (
                             <button
                                 type="button"
                                 data-view-toggle

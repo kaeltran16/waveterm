@@ -10,6 +10,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { getWebServerEndpoint } from "@/util/endpoints";
 import { useAtomValue } from "jotai";
 import { useEffect } from "react";
+import { paneShown, type PaneKind } from "./agentpanes";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { getBrainstorm, type BrainstormState } from "./brainstormstore";
@@ -71,13 +72,10 @@ function boardsOnScreen(s: CanvasState, boards: CanvasBoard[], onScreen: boolean
     return s.inlineBoard != null ? [...pane, s.inlineBoard] : pane;
 }
 
-// whether the agent surface is drawing the canvas's boards: its own pane, or a brainstorm's full-size board, which
-// draws the same pane while the canvas itself stays in terminal mode (agentsurface.tsx picks between them)
-export function canvasOnScreen(s: CanvasState, brainstorm: Pick<BrainstormState, "mode" | "board"> | null): boolean {
-    if (brainstorm == null) {
-        return s.mode === "canvas";
-    }
-    return brainstorm.mode === "brainstorm" && brainstorm.board != null;
+// whether the agent surface is drawing the canvas's boards: its own pane or tab, or a brainstorm's full-size board,
+// which draws the same pane while the canvas itself is not the one shown. shown is agentpanes.ts's paneShown
+export function canvasOnScreen(shown: PaneKind | null, brainstorm: Pick<BrainstormState, "board"> | null): boolean {
+    return shown === "canvas" || (shown === "brainstorm" && brainstorm?.board != null);
 }
 
 export async function pollCanvasOnce(
@@ -170,12 +168,17 @@ export const tauriCanvasIO: CanvasIO = {
 
 // A result that lands after the focus moved to another agent, or after the canvas was detached or re-attached
 // to another topic, is dropped rather than written over the newer state.
-export async function pollAndMerge(agentId: string, io: CanvasIO = tauriCanvasIO): Promise<void> {
+export async function pollAndMerge(
+    model: AgentsViewModel,
+    agentId: string,
+    io: CanvasIO = tauriCanvasIO
+): Promise<void> {
     const s = globalStore.get(canvasStateAtom(agentId));
     if (s == null) {
         return;
     }
-    const patch = await pollCanvasOnce(s, io, Date.now(), canvasOnScreen(s, getBrainstorm(agentId)));
+    const onScreen = canvasOnScreen(paneShown(model, agentId), getBrainstorm(agentId));
+    const patch = await pollCanvasOnce(s, io, Date.now(), onScreen);
     updateCanvas(agentId, (cur) => (cur.topic === s.topic && cur.dir === s.dir ? mergePoll(cur, patch) : cur));
 }
 
@@ -211,7 +214,7 @@ export function useCanvasPoller(model: AgentsViewModel, agent: AgentVM | undefin
                 return;
             }
             busy = true;
-            pollAndMerge(id)
+            pollAndMerge(model, id)
                 .catch((e) => console.warn("canvas poll failed", id, e))
                 .finally(() => (busy = false));
         };

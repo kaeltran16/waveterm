@@ -926,7 +926,7 @@ export default function (_kit) {
 
                 // Claude Code raises a permission request for the question dialog too; put one in the page's queue (a
                 // server-held one would outlive the step and turn the next Edit request into a queue of two)
-                await step("rendered: ask permission — the ask card's own AskUserQuestion request draws no band, nor once the card closes before the request retires, and the rail does not send you to the terminal", async () => {
+                await step("rendered: ask permission — the ask card's own AskUserQuestion request draws no band, nor once the card closes before the request retires", async () => {
                     // the last step answered its ask, so a fresh one is raised
                     const raised = await raiseAsk([ASK_QUESTION]);
                     await wait(`${ASK} != null && !(${ASK}.textContent ?? "").includes("Answered")`);
@@ -940,23 +940,15 @@ export default function (_kit) {
                         }]);
                         return true;`
                     );
-                    // the hint is on the rail's panel, which starts closed in a fresh profile; the old value goes back
-                    const railWas = await agentPage(
-                        h,
-                        `const { railVisibleAtom } = await mod("app/view/agents/railstore.ts");
-                        const was = globalStore.get(railVisibleAtom);
-                        globalStore.set(railVisibleAtom, true);
-                        return was;`
-                    );
                     let seen;
                     try {
-                        await wait(`document.querySelector("[data-rail-hint]") != null`, 2000);
+                        // the check is that no band draws, so give one time to
+                        await sleep(PROBE_SETTLE_MS);
                         seen = await h.ev(`(() => {
                             const rv = ${RV};
                             return {
                                 ask: rv?.querySelector("[data-rendered-ask]") != null,
                                 band: rv?.querySelector("[data-permission-band], [data-permission-queue]") != null,
-                                hint: (document.querySelector("[data-rail-hint]")?.textContent ?? "").trim(),
                             };
                         })()`);
                         await h.shot(SHOT(9, "ask-permission"));
@@ -970,13 +962,11 @@ export default function (_kit) {
                         await agentPage(
                             h,
                             `const { removeAgentPermission } = await mod("app/view/agents/permissionstore.ts");
-                            const { railVisibleAtom } = await mod("app/view/agents/railstore.ts");
                             removeAgentPermission(${JSON.stringify(aOref)}, "fx-rendered-ask-perm");
-                            globalStore.set(railVisibleAtom, ${JSON.stringify(railWas === true)});
                             return true;`
                         );
                     }
-                    return [injected && seen.ask && !seen.band && !seen.bandAfterClear && seen.hint === "waiting on you", seen];
+                    return [injected && seen.ask && !seen.band && !seen.bandAfterClear, seen];
                 });
 
                 await step("rendered: MultiQuestion — two tabs, the second multi-select with two picked, 1/2 answered", async () => {

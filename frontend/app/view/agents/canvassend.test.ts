@@ -2,15 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
+import { atom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { attachBrainstorm, detachBrainstorm, getBrainstorm, openBrainstormBoard } from "./brainstormstore";
 import { canvasHandoffLine, type Mark } from "./canvasmarks";
 import { sendCanvasMark, type SendIO } from "./canvassend";
 import { attachCanvas, detachCanvas, getCanvas, markFromTranscript, setCanvasMode, updateCanvas } from "./canvasstore";
 import { viewModeAtom } from "./renderedmode";
+import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "./workspacestore";
 
 const AGENT = { id: "a1", name: "Arc", blockId: "blk-1" } as AgentVM;
+// nothing in its roster, so the agent is in the Terminal view, where a mark is sent from the center's canvas
+const TERMINAL = { agentsAtom: atom([]) } as unknown as AgentsViewModel;
 const DIR = "/p/.superpowers/design/t";
 const MARK: Mark = { x: 10, y: 10, w: 40, h: 40, note: "too wide" };
 
@@ -67,7 +72,7 @@ afterEach(() => {
 describe("sendCanvasMark", () => {
     it("saves the next feedback picture, sends one line to the agent as a prompt, then goes back to the terminal", async () => {
         const io = fakeIO();
-        await sendCanvasMark(AGENT, io);
+        await sendCanvasMark(TERMINAL, AGENT, io);
         expect(io.made).toEqual([`${DIR}/feedback`]);
         expect(io.written).toEqual([`${DIR}/feedback/004.png`]);
         expect(io.sent).toEqual([
@@ -81,7 +86,7 @@ describe("sendCanvasMark", () => {
 
     it("a mark started from the transcript ends, once sent, with the agent back in Rendered", async () => {
         markFromTranscript("a1");
-        await sendCanvasMark(AGENT, fakeIO());
+        await sendCanvasMark(TERMINAL, AGENT, fakeIO());
         expect(getCanvas("a1")!.mode).toBe("terminal");
         expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
     });
@@ -93,21 +98,58 @@ describe("sendCanvasMark", () => {
         setCanvasMode("a1", "terminal", 1);
         updateCanvas("a1", (s) => ({ ...s, marking: true, mark: MARK }));
         markFromTranscript("a1");
-        await sendCanvasMark(AGENT, fakeIO());
+        await sendCanvasMark(TERMINAL, AGENT, fakeIO());
         expect(getBrainstorm("a1")!.mode).toBe("terminal");
         expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
     });
 
     it("a mark started in the pane ends where it does today", async () => {
         attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0, "brainstorm");
-        await sendCanvasMark(AGENT, fakeIO());
+        await sendCanvasMark(TERMINAL, AGENT, fakeIO());
         expect(getBrainstorm("a1")!.mode).toBe("brainstorm");
         expect(globalStore.get(viewModeAtom("a1"))).toBe("terminal");
     });
 
+    describe("in Rendered", () => {
+        const RENDERED = {
+            agentsAtom: atom([{ ...AGENT, task: "", state: "idle", agent: "claude" }]),
+        } as unknown as AgentsViewModel;
+        beforeEach(() => {
+            globalStore.set(viewModeAtom("a1"), "rendered");
+            setCanvasMode("a1", "terminal", 1);
+            updateCanvas("a1", (s) => ({ ...s, marking: true, mark: MARK }));
+            openWorkspaceTab("a1", { kind: "canvas" });
+        });
+        afterEach(() => {
+            closeWorkspaceTab("a1", "canvas");
+            closeWorkspaceTab("a1", "brainstorm");
+        });
+
+        it("a sent mark leaves the Canvas tab open beside the transcript, the mark gone", async () => {
+            markFromTranscript("a1");
+            await sendCanvasMark(RENDERED, AGENT, fakeIO());
+            const ws = globalStore.get(workspaceAtom("a1"));
+            expect(ws.active).toBe("canvas");
+            expect(ws.tabs).toEqual([{ kind: "canvas" }]);
+            expect(getCanvas("a1")).toMatchObject({ marking: false, mark: null, markFrom: null });
+            expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
+        });
+
+        it("a mark on the Brainstorm tab's board leaves that tab on its board", async () => {
+            attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0);
+            openBrainstormBoard("a1", "States.dc.html");
+            openWorkspaceTab("a1", { kind: "brainstorm" });
+            markFromTranscript("a1");
+            await sendCanvasMark(RENDERED, AGENT, fakeIO());
+            expect(globalStore.get(workspaceAtom("a1")).active).toBe("brainstorm");
+            expect(getBrainstorm("a1")).toMatchObject({ mode: "terminal", board: "States.dc.html" });
+            expect(getCanvas("a1")!.marking).toBe(false);
+        });
+    });
+
     it("a failed send from the transcript stays in the pane with the mark", async () => {
         markFromTranscript("a1");
-        await expect(sendCanvasMark(AGENT, fakeIO({ prompt: fail }))).rejects.toThrow();
+        await expect(sendCanvasMark(TERMINAL, AGENT, fakeIO({ prompt: fail }))).rejects.toThrow();
         expect(getCanvas("a1")!.mode).toBe("canvas");
         expect(getCanvas("a1")!.markFrom).toBe("transcript");
         expect(globalStore.get(viewModeAtom("a1"))).toBe("terminal");
@@ -121,7 +163,7 @@ describe("sendCanvasMark", () => {
                 bytes = b;
             },
         });
-        await sendCanvasMark(AGENT, io);
+        await sendCanvasMark(TERMINAL, AGENT, io);
         expect(Array.from(bytes!)).toEqual([9, 8]);
     });
 
@@ -129,6 +171,7 @@ describe("sendCanvasMark", () => {
         let cropped: unknown = null;
         const rect = { left: 5, top: 6, width: 7, height: 8 };
         await sendCanvasMark(
+            TERMINAL,
             AGENT,
             fakeIO({
                 boardRect: () => rect,
@@ -150,7 +193,7 @@ describe("sendCanvasMark", () => {
         ["board rect", { boardRect: (): null => null }],
     ])("a %s failure throws, sends nothing, and keeps the mark", async (_name, over) => {
         const io = fakeIO(over as Partial<SendIO>);
-        await expect(sendCanvasMark(AGENT, io)).rejects.toThrow(Error);
+        await expect(sendCanvasMark(TERMINAL, AGENT, io)).rejects.toThrow(Error);
         expect(io.sent).toEqual([]);
         const s = getCanvas("a1")!;
         expect(s.mark).toEqual(MARK);
@@ -160,20 +203,20 @@ describe("sendCanvasMark", () => {
 
     it("a send failure throws and keeps the mark", async () => {
         const io = fakeIO({ prompt: fail });
-        await expect(sendCanvasMark(AGENT, io)).rejects.toThrow("boom");
+        await expect(sendCanvasMark(TERMINAL, AGENT, io)).rejects.toThrow("boom");
         expect(getCanvas("a1")!.mark).toEqual(MARK);
     });
 
     it("refuses with no mark", async () => {
         updateCanvas("a1", (s) => ({ ...s, mark: null }));
         const io = fakeIO();
-        await expect(sendCanvasMark(AGENT, io)).rejects.toThrow("Nothing to send");
+        await expect(sendCanvasMark(TERMINAL, AGENT, io)).rejects.toThrow("Nothing to send");
         expect(io.written).toEqual([]);
     });
 
     it("refuses with no canvas", async () => {
         detachCanvas("a1");
-        await expect(sendCanvasMark(AGENT, fakeIO())).rejects.toThrow("Nothing to send");
+        await expect(sendCanvasMark(TERMINAL, AGENT, fakeIO())).rejects.toThrow("Nothing to send");
     });
 
     it("refuses an agent with no terminal before capturing", async () => {
@@ -184,7 +227,7 @@ describe("sendCanvasMark", () => {
                 return new Blob([]);
             },
         });
-        await expect(sendCanvasMark({ ...AGENT, blockId: undefined }, io)).rejects.toThrow(
+        await expect(sendCanvasMark(TERMINAL, { ...AGENT, blockId: undefined }, io)).rejects.toThrow(
             "This agent has no session to send to"
         );
         expect(captured).toBe(false);
@@ -197,14 +240,14 @@ describe("sendCanvasMark", () => {
             boards: [{ name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 }],
         }));
         const io = fakeIO({ list: async () => [] });
-        await sendCanvasMark(AGENT, io);
+        await sendCanvasMark(TERMINAL, AGENT, io);
         expect(io.sent[0][1]).toBe(canvasHandoffLine(".superpowers/design/t/feedback/001.png", "Main.dc.html", MARK));
     });
 
     it("keeps a Windows dir's separators", async () => {
         updateCanvas("a1", (s) => ({ ...s, dir: "C:\\p\\.superpowers\\design\\t" }));
         const io = fakeIO();
-        await sendCanvasMark(AGENT, io);
+        await sendCanvasMark(TERMINAL, AGENT, io);
         expect(io.written).toEqual(["C:\\p\\.superpowers\\design\\t\\feedback\\004.png"]);
     });
 });

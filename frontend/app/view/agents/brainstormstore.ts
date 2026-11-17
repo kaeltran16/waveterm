@@ -26,6 +26,7 @@ import {
 } from "./brainstormmodel";
 import { canvasDir, type CanvasBoard } from "./canvasmodel";
 import { attachCanvas, setMarking } from "./canvasstore";
+import { openWorkspaceTab } from "./workspacestore";
 
 export type BrainstormState = {
     topic: string;
@@ -192,8 +193,14 @@ export function brainstormOwner(topic: string): string | null {
     return Object.keys(all).find((id) => all[id].topic === topic) ?? null;
 }
 
+// mode is the Terminal view's: whether the brainstorm takes over the center there (agentpanes.ts's showPane)
 export function setBrainstormMode(agentId: string, mode: "terminal" | "brainstorm", now: number): void {
     updateBrainstorm(agentId, (s) => (mode === "brainstorm" ? { ...s, mode, lastViewedMs: now } : { ...s, mode }));
+}
+
+// showing the brainstorm, in either view, is a look at it
+export function stampBrainstormViewed(agentId: string, now: number): void {
+    updateBrainstorm(agentId, (s) => ({ ...s, lastViewedMs: now }));
 }
 
 export function openBrainstormBoard(agentId: string, board: string | null): void {
@@ -206,7 +213,8 @@ export function openBrainstormDesign(agentId: string, open: boolean): void {
 
 // The pane at a place, for a control outside it (the Rendered transcript's cards): a part opens the design at that
 // part's row (in the check phase, the review's cursor on it), a board the pane's board view on that board of the
-// brainstorm's canvas, marking on for mark; neither, the pane as it was
+// brainstorm's canvas, marking on for mark; neither, the pane as it was. Its callers are Rendered cards, so the pane
+// opens as the workspace's Brainstorm tab, beside the transcript
 export function openBrainstormAt(
     agentId: string,
     at: { part?: string; board?: string; mark?: boolean },
@@ -216,7 +224,8 @@ export function openBrainstormAt(
     if (s == null) {
         return;
     }
-    setBrainstormMode(agentId, "brainstorm", now);
+    stampBrainstormViewed(agentId, now);
+    openWorkspaceTab(agentId, { kind: "brainstorm" });
     const canvas = s.file?.canvas;
     if (at.part != null) {
         const part = at.part;

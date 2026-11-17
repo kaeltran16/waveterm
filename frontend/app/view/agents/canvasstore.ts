@@ -110,12 +110,18 @@ export function canvasOwner(topic: string, live: ReadonlySet<string>): string | 
     return null;
 }
 
+// mode is the Terminal view's: whether the canvas takes over the center there (agentpanes.ts's showPane)
 export function setCanvasMode(agentId: string, mode: "terminal" | "canvas", now: number): void {
     updateCanvas(agentId, (s) =>
         mode === "canvas"
             ? { ...s, mode, lastViewedMs: now }
             : { ...s, mode, marking: false, mark: null, markFrom: null }
     );
+}
+
+// showing the canvas, in either view, is a look at it
+export function stampCanvasViewed(agentId: string, now: number): void {
+    updateCanvas(agentId, (s) => ({ ...s, lastViewedMs: now }));
 }
 
 export function showInlineBoard(agentId: string, board: string | null, now: number): void {
@@ -161,9 +167,4 @@ export function setMark(agentId: string, mark: Mark | null): void {
 export function focusedCanvas(model: AgentsViewModel): CanvasState | null {
     const id = globalStore.get(model.focusIdAtom);
     return id ? getCanvas(id) : null;
-}
-
-export function focusedCanvasMode(model: AgentsViewModel): CanvasState | null {
-    const s = focusedCanvas(model);
-    return s?.mode === "canvas" ? s : null;
 }

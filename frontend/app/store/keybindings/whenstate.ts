@@ -93,8 +93,8 @@ for (const predicateAtom of PREDICATE_ATOMS) {
 
 // The canvas and brainstorm predicates (buildAgentBindings, and the surface/agent switches in buildGlobalBindings)
 // read the focused agent's canvasStateAtom and brainstormAtom: one atom per agent, picked by a model-owned focus
-// id, so neither can be a static PREDICATE_ATOMS entry. The `d` bindings read its workspace, view mode and picker
-// flip the same way. This follows the focus and re-subscribes them, and watches the terminal roster
+// id, so neither can be a static PREDICATE_ATOMS entry. Whether either shows (agentpanes.ts's paneShown) and the `d`
+// bindings read its workspace, view mode and picker flip the same way. This follows the focus and re-subscribes them, and watches the terminal roster
 // agent:toggle-rail reads; the completeness test counts these atoms and the roster as covered here. Returns the
 // unsubscribe.
 export function watchFocusedCanvas(model: AgentsViewModel): () => void {

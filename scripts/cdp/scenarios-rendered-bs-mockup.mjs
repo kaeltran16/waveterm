@@ -21,6 +21,7 @@ export default (kit) => {
     const kindIs = (kind) => `${CARD}?.getAttribute("data-rendered-mockup") === ${JSON.stringify(kind)}`;
     const TAB = (b) => `${HOST}?.querySelector('[data-live-board-tab="${b}"]')`;
     const FRAME = `${HOST}?.querySelector("[data-live-board] iframe")`;
+    const TAB_PANE = `document.querySelector('aside[aria-label="Workspace"] [data-canvas-pane]')`;
 
     const canvasDir = (ctx) => join(ctx.cwd, ".superpowers", "design", ctx.topic);
     const projectDir = (ctx) => join(canvasDir(ctx), "project");
@@ -144,13 +145,13 @@ export default (kit) => {
             ];
         });
 
-        await step("Mark opens the canvas pane with marking on, and a sent mark comes back to Rendered", async () => {
+        await step("Mark opens the Canvas tab beside the transcript with marking on, and a sent mark leaves the tab open", async () => {
             await kit.recordSends(h);
             await h.ev(`${HOST}?.querySelector("[data-live-boards-mark]")?.click()`);
-            const pane = await polishWaitFor(h, `!!document.querySelector("[data-canvas-pane]")`, WAIT_MS);
+            const pane = await polishWaitFor(h, `!!${TAB_PANE}`, WAIT_MS);
             const marking = await polishWaitFor(
                 h,
-                `[...(document.querySelector("[data-canvas-pane]")?.querySelectorAll("button[aria-pressed]") ?? [])]
+                `[...(${TAB_PANE}?.querySelectorAll("button[aria-pressed]") ?? [])]
                     .some((b) => (b.textContent || "").trim() === "Mark" && b.getAttribute("aria-pressed") === "true")`,
                 WAIT_MS
             );
@@ -163,10 +164,18 @@ export default (kit) => {
             await h.ev(`[...(document.querySelector("[data-canvas-mark-note]")?.querySelectorAll("button") ?? [])]
                 .find((b) => (b.textContent || "").trim().startsWith("Send"))?.click()`);
             const line = await kit.waitSent(h, 0, WAIT_MS);
-            const back = await polishWaitFor(h, `${RV} != null && !document.querySelector("[data-canvas-pane]")`, WAIT_MS);
+            const kept = await polishWaitFor(
+                h,
+                `${RV} != null && !!${TAB_PANE} && !document.querySelector("[data-canvas-mark-note]") &&
+                    ![...(${TAB_PANE}?.querySelectorAll("button[aria-pressed]") ?? [])]
+                        .some((b) => (b.textContent || "").trim() === "Mark" && b.getAttribute("aria-pressed") === "true")`,
+                WAIT_MS
+            );
+            // closed, so the column is back to its own width for the narrow step
+            const back = await kit.closePaneTabs(h, ctx);
             return [
-                pane && marking && !rendered && dragged && note && line != null && line.includes(MARK_NOTE) && back,
-                { pane, marking, rendered, dragged, note, line, back },
+                pane && marking && rendered && dragged && note && line != null && line.includes(MARK_NOTE) && kept && back,
+                { pane, marking, rendered, dragged, note, line, kept, back },
             ];
         });
 

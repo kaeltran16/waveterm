@@ -27,6 +27,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { CodePeekContext } from "../code/codepeekhost";
 import type { AgentsViewModel } from "./agents";
 import { AgentDetailsRail } from "./agentdetailsrail";
+import { usePaneShown } from "./agentpanes";
 import { AgentHeader } from "./agentheader";
 import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
@@ -35,7 +36,6 @@ import { BrainstormPane } from "./brainstormpane";
 import { brainstormAtom } from "./brainstormstore";
 import { CanvasPane } from "./canvaspane";
 import { useCanvasPoller } from "./canvaspoller";
-import { canvasStateAtom } from "./canvasstore";
 import { rosterLoadPhase } from "./cockpitsurfacemodel";
 import { autoOpenedAskIdsAtom, docReviewAtom, shouldAutoOpen } from "./docreview";
 import { EndedTranscript } from "./endedtranscript";
@@ -76,27 +76,25 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const agent = focused ?? firstInTree ?? agents[0] ?? terminals[0];
     const showSub = focusSub != null && focusSub.parentId === agent?.id;
     const brainstorm = useAtomValue(brainstormAtom(agent?.id ?? ""));
-    const brainstormMode = brainstorm?.mode === "brainstorm";
-    // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
-    const canvasMode = useAtomValue(canvasStateAtom(agent?.id ?? ""))?.mode === "canvas" && brainstorm == null;
-    // both hide the terminal and the rail
-    const paneMode = canvasMode || brainstormMode;
+    // the brainstorm or canvas showing: Rendered's tab beside the transcript, or the Terminal view's center
+    const shown = usePaneShown(model, agent?.id ?? "");
     const compacted = brainstorm?.file?.compacted;
-    const showCompacted = !paneMode && compacted != null && compacted > brainstorm!.lastViewedMs;
+    const showCompacted = shown == null && compacted != null && compacted > brainstorm!.lastViewedMs;
     useCanvasPoller(model, agent);
-    // ended workers, the final stage, the brainstorm and canvas panes and a subagent interior all win over Rendered
+    // ended workers, the final stage and a subagent interior all win over Rendered
     const viewMode = effectiveViewMode(
         useAtomValue(viewModeAtom(agent?.id ?? "")),
         useAtomValue(pickerFlipAtom(agent?.id ?? ""))
     );
-    // the view the agent is in, which picks the workspace pane over the details rail even while a brainstorm or
-    // canvas holds the center
     const inRendered =
         agent != null &&
         viewMode === "rendered" &&
         !showSub &&
         canRender(agent, { ended: isEndedWorkerId(agent.id), stage: stage != null && agent.id === stage.agent.id });
-    const showRendered = inRendered && !paneMode;
+    // in Terminal a brainstorm or canvas takes over the center, hiding the terminal and the rail; Rendered keeps the
+    // transcript and shows it as a workspace tab
+    const centerPane = inRendered ? null : shown;
+    const paneMode = centerPane != null;
     const ws = useAtomValue(workspaceAtom(agent?.id ?? ""));
     const shape = inRendered ? paneShape(ws) : "none";
     const [rowRef, , rowRect] = useDimensionsWithCallbackRef<HTMLDivElement>();
@@ -169,21 +167,21 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const lastRendered = useRef<{ id: string; on: boolean } | null>(null);
     useEffect(() => {
         const prev = lastRendered.current;
-        lastRendered.current = agent != null ? { id: agent.id, on: showRendered } : null;
-        if (agent == null || prev == null || prev.on === showRendered) {
+        lastRendered.current = agent != null ? { id: agent.id, on: inRendered } : null;
+        if (agent == null || prev == null || prev.on === inRendered) {
             return;
         }
         if (prev.id !== agent.id) {
-            if (showRendered) {
+            if (inRendered) {
                 wrapRef.current?.focus();
             }
             return;
         }
-        const target = showRendered
+        const target = inRendered
             ? "[data-rendered-composer] textarea"
             : `[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`;
         wrapRef.current?.querySelector<HTMLElement>(target)?.focus();
-    }, [agent?.id, showRendered]);
+    }, [agent?.id, inRendered]);
 
     // the surface stays mounted, so the effects above never run on a switch back to it, and arriving left
     // focus on <body>: typing reached the agent only after a click. Arriving hands focus to the live
@@ -261,7 +259,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                             data-agent-terminal={a.id}
                                             className={cn(
                                                 "min-h-0 flex-1",
-                                                terminalClass(a.id === agent.id, paneMode, showRendered)
+                                                terminalClass(a.id === agent.id, paneMode, inRendered)
                                             )}
                                         >
                                             <CodePeekContext.Provider
@@ -275,9 +273,9 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                     <EndedTranscript model={model} agent={agent} />
                                 ) : stage != null && agent.id === stage.agent.id ? (
                                     <FinalStagePane model={model} run={stage.run} />
-                                ) : brainstormMode ? (
+                                ) : centerPane === "brainstorm" ? (
                                     <BrainstormPane model={model} agent={agent} />
-                                ) : canvasMode ? (
+                                ) : centerPane === "canvas" ? (
                                     // keyed like the brainstorm pane, so opening the canvas or another agent's fades in
                                     <motion.div
                                         key={agent.id}
@@ -292,7 +290,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                     <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
                                         No live terminal for this agent.
                                     </div>
-                                ) : showRendered ? (
+                                ) : inRendered ? (
                                     <RenderedView key={agent.id} model={model} agent={agent} />
                                 ) : null}
                             </div>
@@ -313,7 +311,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     </AnimatePresence>
                 </div>
                 {!fullscreen && !paneMode && !inRendered && agent.kind !== "terminal" ? (
-                    <AgentDetailsRail model={model} agent={agent} askInView={showRendered && askDocked(agent)} />
+                    <AgentDetailsRail model={model} agent={agent} askInView={inRendered && askDocked(agent)} />
                 ) : null}
             </div>
         </MotionConfig>

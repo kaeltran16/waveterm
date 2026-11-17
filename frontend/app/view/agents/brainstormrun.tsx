@@ -17,6 +17,7 @@ import { closeTargets, runStepView, shortRunId, type RunStepState, type RunStepV
 import { brainstormAtom, shownBrainstormFile, type BrainstormState } from "./brainstormstore";
 import {
     BS_RAIL,
+    BS_SPLIT,
     DOT,
     DOT_ASKED,
     DOT_GUESS,
@@ -71,7 +72,7 @@ export function RunStep({
         <>
             <Toolbar topic={s.topic} f={f} progress={false} merged={view.merged} />
             <StaleBanner s={s} />
-            <div className="flex min-h-0 flex-1">
+            <div className={BS_SPLIT}>
                 <div
                     data-brainstorm-run={view.state}
                     className="flex min-w-0 flex-1 flex-col gap-[18px] overflow-y-auto bg-background px-[22px] pb-[30px] pt-[22px] *:flex-none"
