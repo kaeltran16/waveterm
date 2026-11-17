@@ -1198,7 +1198,7 @@ export default function (_kit) {
                         JSON.stringify(menu.labels) === JSON.stringify(MODEL_ALIASES) &&
                         seen.mode === "Default permissions" &&
                         seen.ring?.text === `${USAGE.contextpct}%` &&
-                        seen.ring.title.includes("1M") &&
+                        seen.ring.title === "Session, context and token usage" &&
                         !seen.header.model &&
                         !seen.header.mode &&
                         !seen.header.context;

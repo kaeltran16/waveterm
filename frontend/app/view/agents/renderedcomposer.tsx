@@ -12,12 +12,25 @@
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { composerReveal, microFade } from "@/app/element/motiontokens";
+import { PopoverReveal } from "@/app/element/popoverreveal";
+import { useEscapeClose } from "@/app/hook/useEscapeClose";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUp } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { forwardRef, useMemo, useState, type KeyboardEvent } from "react";
+import {
+    forwardRef,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type KeyboardEvent,
+    type RefObject,
+} from "react";
 import { canSendComposer, useAgentComposer, useComposerHandle, type AgentComposerHandle } from "./agentcomposer";
+import type { ContextFacts } from "./agentrailmodel";
+import type { AgentsViewModel } from "./agents";
 import { sendAgentBash } from "./agentsend";
 import type { AgentVM } from "./agentsviewmodel";
 import { AttachButton, AttachmentTray } from "./attachmenttray";
@@ -38,7 +51,9 @@ import {
     sendRoutedLine,
     type BrainstormRoute,
 } from "./renderedmode";
+import { ContextLine, SessionLine, useSessionLoaders, useSessionView } from "./sessionfacts";
 import { useSlashPanel } from "./slashpanel";
+import { TokenUsageSection } from "./tokenusagesection";
 
 const BoxMinH = 22; // one line of 14px text
 const BoxMaxShare = 0.4; // of the window: grows to here, then the textarea scrolls
@@ -46,32 +61,118 @@ const BoxMaxShare = 0.4; // of the window: grows to here, then the textarea scro
 const RING_R = 5.5;
 const RING_C = 2 * Math.PI * RING_R;
 
-function ContextRing({ agent }: { agent: AgentVM }) {
-    const ring = contextRing(agent.usage);
-    if (ring == null) {
-        return null;
-    }
+const RING_STROKE: Record<ContextFacts["level"], string> = {
+    ok: "stroke-accent",
+    warn: "stroke-warning",
+    hot: "stroke-error",
+};
+// closed, the ring's percent reads muted until the context is worth a look
+const RING_TEXT: Record<ContextFacts["level"], string> = { ok: "text-muted", warn: "text-warning", hot: "text-error" };
+
+// the popover's facts and their loaders mount only while it is open, so a closed ring keeps no 1 s clock
+function SessionPopoverBody({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+    const view = useSessionView(model, agent);
+    useSessionLoaders(agent, { id: agent.id, path: agent.transcriptPath });
     return (
-        <span
-            data-context-ring
-            title={ring.title}
-            className="inline-flex shrink-0 items-center gap-1.5 text-[12px] text-muted"
-        >
-            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
-                <circle cx="7" cy="7" r={RING_R} fill="none" strokeWidth="2" className="stroke-edge-strong" />
-                <circle
-                    cx="7"
-                    cy="7"
-                    r={RING_R}
-                    fill="none"
-                    strokeWidth="2"
-                    strokeDasharray={`${ring.arc * RING_C} ${RING_C}`}
-                    transform="rotate(-90 7 7)"
-                    className="stroke-accent"
-                />
-            </svg>
-            {ring.pct}%
-        </span>
+        <>
+            <div className="flex flex-col gap-[6px]">
+                <SessionLine view={view} />
+                {view.context ? <ContextLine ctx={view.context} blockId={agent.blockId} /> : null}
+            </div>
+            <div className="border-t border-border pt-[12px]">
+                <TokenUsageSection />
+            </div>
+        </>
+    );
+}
+
+// the context ring is the session popover's button: Session, Context and Token usage, the details rail's facts for
+// this view. Esc or the ring again closes it and hands focus back to the box; a click outside closes it and leaves
+// focus where the click put it
+function ContextRing({
+    model,
+    agent,
+    boxRef,
+}: {
+    model: AgentsViewModel;
+    agent: AgentVM;
+    boxRef: RefObject<HTMLTextAreaElement | null>;
+}) {
+    const ring = contextRing(agent.usage);
+    const [open, setOpen] = useState(false);
+    const ringRef = useRef<HTMLButtonElement>(null);
+    const panelRef = useRef<HTMLDivElement>(null);
+    const close = useCallback(() => setOpen(false), []);
+    useEscapeClose(open, close, boxRef);
+    useEffect(() => {
+        if (!open) {
+            return;
+        }
+        const onDown = (e: PointerEvent) => {
+            const t = e.target as Node | null;
+            if (!panelRef.current?.contains(t) && !ringRef.current?.contains(t)) {
+                close();
+            }
+        };
+        window.addEventListener("pointerdown", onDown, true);
+        return () => window.removeEventListener("pointerdown", onDown, true);
+    }, [open, close]);
+    const toggle = () => {
+        if (open) {
+            close();
+            boxRef.current?.focus();
+        } else {
+            setOpen(true);
+        }
+    };
+    // positioned against the box, so the popover sits above the whole composer, right-aligned
+    return (
+        <>
+            <button
+                ref={ringRef}
+                type="button"
+                data-context-ring
+                aria-expanded={open}
+                title="Session, context and token usage"
+                onClick={toggle}
+                className={cn(
+                    "inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[6px] border px-[7px] py-[4px] text-[12px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                    open
+                        ? "border-edge-strong bg-surface-hover text-secondary"
+                        : cn("border-transparent hover:bg-surface-hover", RING_TEXT[ring.level])
+                )}
+            >
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+                    <circle cx="7" cy="7" r={RING_R} fill="none" strokeWidth="2" className="stroke-edge-strong" />
+                    <circle
+                        cx="7"
+                        cy="7"
+                        r={RING_R}
+                        fill="none"
+                        strokeWidth="2"
+                        strokeDasharray={`${ring.arc * RING_C} ${RING_C}`}
+                        transform="rotate(-90 7 7)"
+                        className={RING_STROKE[ring.level]}
+                    />
+                </svg>
+                {ring.pct != null ? `${ring.pct}%` : null}
+            </button>
+            <PopoverReveal
+                open={open}
+                origin="bottom right"
+                className="absolute bottom-[calc(100%+8px)] right-0 z-10 w-[320px]"
+            >
+                <div
+                    ref={panelRef}
+                    role="dialog"
+                    aria-label="Session"
+                    data-session-popover
+                    className="flex flex-col gap-[12px] rounded-[12px] border border-edge-mid bg-surface-raised p-[14px] shadow-popover"
+                >
+                    <SessionPopoverBody model={model} agent={agent} />
+                </div>
+            </PopoverReveal>
+        </>
     );
 }
 
@@ -116,8 +217,14 @@ function useBrainstormRoute(agent: AgentVM): BrainstormRoute | null {
 
 export const RenderedComposer = forwardRef<
     AgentComposerHandle,
-    { agent: AgentVM; hasTranscript: boolean; onInterrupt: () => void; onSubmitText?: (text: string) => void }
->(function RenderedComposer({ agent, hasTranscript, onInterrupt, onSubmitText }, ref) {
+    {
+        model: AgentsViewModel;
+        agent: AgentVM;
+        hasTranscript: boolean;
+        onInterrupt: () => void;
+        onSubmitText?: (text: string) => void;
+    }
+>(function RenderedComposer({ model, agent, hasTranscript, onInterrupt, onSubmitText }, ref) {
     const blockId = agent.blockId;
     const [bash, setBash] = useState(false);
     const box = composerBox(agent, hasTranscript, bash, useBrainstormRoute(agent));
@@ -277,7 +384,7 @@ export const RenderedComposer = forwardRef<
                     ) : null}
                 </AnimatePresence>
                 <span className="flex-1" />
-                <ContextRing agent={agent} />
+                <ContextRing model={model} agent={agent} boxRef={taRef} />
                 {button === "stop" ? (
                     <button
                         type="button"

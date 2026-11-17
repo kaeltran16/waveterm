@@ -308,19 +308,16 @@ describe("sendRoutedLine", () => {
 });
 
 describe("contextRing", () => {
-    it("is absent with no reported context", () => {
-        expect(contextRing(undefined)).toBeNull();
-        expect(contextRing({})).toBeNull();
+    it("draws empty, without a percent, with no reported context", () => {
+        expect(contextRing(undefined)).toEqual({ pct: null, arc: 0, level: "ok" });
+        expect(contextRing({ contextmax: 1_000_000 })).toEqual({ pct: null, arc: 0, level: "ok" });
     });
-    it("rounds the percent, clamps the arc and titles with tokens only when the window size is known", () => {
-        const known = contextRing({ contextpct: 6.4, contextmax: 1_000_000 });
-        expect(known?.pct).toBe(6);
-        expect(known?.title).toContain("6");
-        expect(known?.title).toContain("1M");
-        const unknown = contextRing({ contextpct: 140 });
-        expect(unknown?.pct).toBe(140);
-        expect(unknown?.arc).toBe(1);
-        expect(unknown?.title).not.toContain("tokens");
+    it("rounds the percent and clamps the arc", () => {
+        expect(contextRing({ contextpct: 6.4, contextmax: 1_000_000 })).toEqual({ pct: 6, arc: 0.064, level: "ok" });
+        expect(contextRing({ contextpct: 140 })).toEqual({ pct: 140, arc: 1, level: "hot" });
+    });
+    it("takes the context gauge's level, so a big window re-read every turn warns", () => {
+        expect(contextRing({ contextpct: 18, contextmax: 1_000_000 })?.level).toBe("warn");
     });
 });
 

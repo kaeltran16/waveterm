@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
     cacheRewriteTitle,
     checkoutFacts,
+    contextFacts,
     contextLevel,
     contextNote,
     contextTokens,
@@ -82,6 +83,33 @@ describe("offersContextReset", () => {
         expect(offersContextReset({ ...base, level: "ok" })).toBe(false);
         expect(offersContextReset({ ...base, isClaude: false })).toBe(false);
         expect(offersContextReset({ ...base, live: false })).toBe(false);
+    });
+});
+
+describe("contextFacts", () => {
+    const idle = { isClaude: true, state: "idle" as const, live: true };
+
+    it("has no Context row without a context reading", () => {
+        expect(contextFacts(undefined, idle)).toBeNull();
+        expect(contextFacts({ contextmax: 200_000 }, idle)).toBeNull();
+    });
+
+    it("reads a filling window as warn and offers Compact and Clear to an idle live claude agent", () => {
+        expect(contextFacts({ contextpct: 62, contextmax: 200_000 }, idle)).toEqual({
+            pct: 62,
+            max: 200_000,
+            level: "warn",
+            note: "124k of 200k tokens",
+            offerReset: true,
+        });
+    });
+
+    it("offers no reset for a cheap context or a busy agent", () => {
+        expect(contextFacts({ contextpct: 6, contextmax: 1_000_000 }, idle)?.offerReset).toBe(false);
+        expect(contextFacts({ contextpct: 62, contextmax: 200_000 }, { ...idle, state: "working" })?.offerReset).toBe(
+            false
+        );
+        expect(contextFacts({ contextpct: 62, contextmax: 200_000 }, { ...idle, live: false })?.offerReset).toBe(false);
     });
 });
 

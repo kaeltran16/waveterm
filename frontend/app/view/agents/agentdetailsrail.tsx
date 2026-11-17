@@ -2,43 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { CollapsibleRail, RailPanelBody, type RailSection } from "@/app/element/collapsiblerail";
-import { Meter } from "@/app/element/meter";
 import { easeFluidCss, MOTION, popoverReveal } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
 import { formatChordString } from "@/util/keysym";
-import { cn, fireAndForget } from "@/util/util";
+import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowLeft, ArrowUpRight, ChevronLeft } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect } from "react";
 import { driveAgent, NUDGE_INPUT } from "./agentactions";
-import { getLastOutputAtom } from "./agentcontrollerstore";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
-import { hungSilenceMs } from "./agenthung";
 import {
-    cacheRewriteTitle,
     checkoutFacts,
     contextLevel,
-    contextNote,
     fileTotals,
     lastTurnInterrupted,
-    offersContextReset,
     railAction,
     toolChips,
     type FilesChip,
 } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
-import { agentStateView, STATE_TONE_COLOR } from "./agentstateview";
-import {
-    agentRunDone,
-    displayAgeMs,
-    formatAgeShort,
-    recentActions,
-    summarizeActions,
-    type AgentVM,
-} from "./agentsviewmodel";
-import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
+import { recentActions, summarizeActions, type AgentVM } from "./agentsviewmodel";
 import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
 import { finalRowFocusId, isFinalStageId } from "./finalstage";
 import { FinalStageRail } from "./finalstagerail";
@@ -49,27 +33,21 @@ import { prettyModel } from "./modellabel";
 import { useRailGit } from "./railgit";
 import { railVisibleAtom } from "./railstore";
 import { useRoleAsks } from "./roleasks";
-import { agentProject, isEndedWorkerId } from "./runlineage";
+import { agentProject } from "./runlineage";
 import { NeedsYouSection, RunSection, TaskSection } from "./runrailsections";
 import { SectionLabel, SubLabel } from "./sectionlabel";
 import type { SubagentState } from "./session-models/sessionviewmodel";
-import { isStandingBy } from "./shelltasks";
-import { shellTasksByIdAtom } from "./shelltasksstore";
+import {
+    ContextLine,
+    DetailLine,
+    GAUGE_FILL,
+    GAUGE_TEXT,
+    SessionLine,
+    useSessionLoaders,
+    useSessionView,
+} from "./sessionfacts";
 import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
 import { TokenUsageSection } from "./tokenusagesection";
-import { loadSessionUsage } from "./transcriptusagestore";
-
-const GAUGE_FILL: Record<"ok" | "warn" | "hot", string> = {
-    ok: "bg-accent",
-    warn: "bg-warning",
-    hot: "bg-error",
-};
-
-const GAUGE_TEXT: Record<"ok" | "warn" | "hot", string> = {
-    ok: "text-accent",
-    warn: "text-warning",
-    hot: "text-error",
-};
 
 const SUB_COLOR: Record<SubagentState, string> = {
     working: "var(--color-accent)",
@@ -79,76 +57,6 @@ const SUB_COLOR: Record<SubagentState, string> = {
 };
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; the summary line under it counts them all
-const USAGE_REFRESH_MS = 15_000;
-
-// Details is the rail's facts about the session: its project, its branch and the worktree it works in, how long it
-// has been in its state, and how full its context window is.
-function DetailLine({
-    label,
-    title,
-    clipStart,
-    children,
-}: {
-    label: string;
-    title?: string;
-    // clipStart elides the start of a long value instead of its end, for a path whose tail names it
-    clipStart?: boolean;
-    children: React.ReactNode;
-}) {
-    return (
-        <div className="flex min-w-0 items-baseline gap-[10px]">
-            <span className="w-[52px] shrink-0 text-[12px] text-muted">{label}</span>
-            <span
-                title={title}
-                dir={clipStart ? "rtl" : undefined}
-                className="min-w-0 flex-1 truncate text-left font-mono text-[11.5px] font-medium text-secondary"
-            >
-                {clipStart ? <bdi dir="ltr">{children}</bdi> : children}
-            </span>
-        </div>
-    );
-}
-
-const RESET_BTN =
-    "flex-none cursor-pointer rounded-[6px] px-[6px] py-[2px] font-mono text-[10.5px] font-semibold text-accent-soft hover:bg-surface-hover";
-
-// onReset, when given, offers Compact and Clear under the note: they shrink what every turn re-reads
-function ContextLine({ pct, max, onReset }: { pct: number; max?: number; onReset?: (cmd: string) => void }) {
-    const level = contextLevel(pct, max);
-    const note = contextNote(pct, max);
-    return (
-        <>
-            <div title={note || undefined} className="flex min-w-0 items-center gap-[10px]">
-                <span className="w-[52px] shrink-0 text-[12px] text-muted">Context</span>
-                <Meter pct={pct} fill={GAUGE_FILL[level]} height={5} radius={3} track="bg-border" className="flex-1" />
-                <span className={cn("w-[34px] text-right font-mono text-[11.5px] font-semibold", GAUGE_TEXT[level])}>
-                    {Math.round(pct)}%
-                </span>
-            </div>
-            {note ? <div className="pl-[62px] font-mono text-[10.5px] text-muted">{note}</div> : null}
-            {onReset ? (
-                <div className="flex gap-[4px] pl-[56px]">
-                    <button
-                        type="button"
-                        onClick={() => onReset("/compact\r")}
-                        title="summarize the conversation so far and keep going from the summary"
-                        className={RESET_BTN}
-                    >
-                        Compact
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => onReset("/clear\r")}
-                        title="start a fresh conversation; /resume brings this one back"
-                        className={RESET_BTN}
-                    >
-                        Clear
-                    </button>
-                </div>
-            ) : null}
-        </>
-    );
-}
 
 // RailStrip is the collapsed rail: the expand chevron, a badge for questions waiting on you, and the context
 // window as a vertical gauge, so both read without opening the rail.
@@ -332,7 +240,6 @@ function AgentDetailsPanel({
 }) {
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
-    const standingBy = isStandingBy(agent.state, useAtomValue(shellTasksByIdAtom)[agent.id] ?? [], subs);
     const focusSub = useAtomValue(focusSubagentAtom);
     const sub = focusSub?.parentId === agent.id ? focusSub : null;
     const subVM = sub ? subs.find((s) => s.id === sub.agentId) : undefined;
@@ -341,49 +248,14 @@ function AgentDetailsPanel({
     const entries = sub ? subEntries : ownEntries;
     const { lineage, role, roleRun, asks, yours } = useRoleAsks(model, agent);
     const agents = useAtomValue(model.agentsAtom);
-    const usage = agent.usage;
-    const ctxPct = usage?.contextpct;
     const tools = toolChips(summarizeActions(recentActions(entries, 0)).byVerb);
     const railState = useRailGit(agent);
-    const cacheStatus = useAtomValue(agentCacheStatusAtom);
-    const now = useAtomValue(model.nowAtom);
-    const endedWorker = useAtomValue(model.endedWorkerAtom);
-    const ended = endedWorker?.agent.id === agent.id ? endedWorker : undefined;
-    const silentMs = hungSilenceMs(
+    const session = useSessionView(model, agent);
+    const { ended, standingBy, silentMs, live, age } = session;
+    useSessionLoaders(
         agent,
-        useAtomValue(getLastOutputAtom(agent.blockId ?? "")),
-        useAtomValue(model.structuralNowAtom)
+        sub ? { id: `sub:${sub.agentId}`, path: sub.transcriptPath } : { id: agent.id, path: agent.transcriptPath }
     );
-    // the header's inputs, so the Session line and the header pill always read the same
-    const task = role?.kind === "worker" ? roleRun?.dag?.tasks?.find((t) => t.id === role.taskId) : undefined;
-    const stateView = agentStateView({
-        agent,
-        ended: isEndedWorkerId(agent.id),
-        landed: task?.merged === true,
-        runDone: agentRunDone(agent, standingBy),
-        standingBy,
-        silentMs,
-    });
-    // re-read while focused: every turn writes the cache again, so a status read once at focus
-    // counts down to "expired" under an agent that is still working
-    useEffect(() => {
-        fireAndForget(() => loadCacheStatusForAgent(agent.id, agent.transcriptPath));
-        const refresh = setInterval(() => {
-            fireAndForget(() => loadCacheStatusForAgent(agent.id, agent.transcriptPath, { silent: true }));
-        }, USAGE_REFRESH_MS);
-        return () => clearInterval(refresh);
-    }, [agent.id, agent.transcriptPath]);
-
-    // token usage follows the transcript in view: a subagent's own while its interior is open
-    const usageId = sub ? `sub:${sub.agentId}` : agent.id;
-    const usagePath = sub ? sub.transcriptPath : agent.transcriptPath;
-    useEffect(() => {
-        fireAndForget(() => loadSessionUsage(usageId, usagePath));
-        const refresh = setInterval(() => {
-            fireAndForget(() => loadSessionUsage(usageId, usagePath, { silent: true }));
-        }, USAGE_REFRESH_MS);
-        return () => clearInterval(refresh);
-    }, [usageId, usagePath]);
 
     const changes = railState?.changes?.files ?? [];
     const { shown: shownFiles } = capFiles(changes, RailFilesCap);
@@ -396,15 +268,10 @@ function AgentDetailsPanel({
     };
     const drive = (data: string) => driveAgent(agent.blockId, data);
 
-    const age = formatAgeShort(displayAgeMs(agent, now));
-    const isClaude = (agent.agent || "claude") === "claude";
-    // "—" is a cache nobody has read yet; the line leaves it out rather than say so
-    const cacheCountdown = isClaude ? formatCacheCountdown(cacheStatus, now) : "—";
     // a land removes the run's worktree, so a landed lead's rail reads its run's landing, not its own checkout
     const landed = role?.kind === "lead" ? leadLandFacts(roleRun) : null;
     const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
     const { branch, worktree, worktreePath, chip } = checkoutFacts({ git: railState, landed, ended, sharedBy });
-    const live = agent.blockId != null && !ended;
     const action = sub
         ? null
         : railAction({
@@ -416,9 +283,6 @@ function AgentDetailsPanel({
               silentMs,
               askInView,
           });
-    const offerReset =
-        ctxPct != null &&
-        offersContextReset({ isClaude, state: agent.state, level: contextLevel(ctxPct, usage?.contextmax), live });
 
     const subHead: RailSection[] =
         sub != null
@@ -491,35 +355,8 @@ function AgentDetailsPanel({
                                     {worktree}
                                 </DetailLine>
                             ) : null}
-                            <DetailLine
-                                label="Session"
-                                title={
-                                    cacheCountdown !== "—" ? cacheRewriteTitle(ctxPct, usage?.contextmax) : undefined
-                                }
-                            >
-                                {stateView ? (
-                                    <>
-                                        <span data-rail-state style={{ color: STATE_TONE_COLOR[stateView.tone] }}>
-                                            {stateView.text}
-                                        </span>
-                                        <span className="text-muted"> · </span>
-                                    </>
-                                ) : null}
-                                {ended ? <>{age} ago</> : age}
-                                {cacheCountdown !== "—" ? (
-                                    <>
-                                        <span className="text-muted"> · </span>
-                                        cache {cacheCountdown}
-                                    </>
-                                ) : null}
-                            </DetailLine>
-                            {ctxPct != null ? (
-                                <ContextLine
-                                    pct={ctxPct}
-                                    max={usage?.contextmax}
-                                    onReset={offerReset ? drive : undefined}
-                                />
-                            ) : null}
+                            <SessionLine view={session} />
+                            {session.context ? <ContextLine ctx={session.context} blockId={agent.blockId} /> : null}
                         </>
                     )}
                 </div>

@@ -352,6 +352,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                 <div className={COLUMN}>
                     <RenderedComposer
                         ref={composerRef}
+                        model={model}
                         agent={agent}
                         hasTranscript={entries.length > 0}
                         onInterrupt={() => interruptAgent(agent.blockId)}

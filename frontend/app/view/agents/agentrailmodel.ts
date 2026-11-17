@@ -77,6 +77,28 @@ export function offersContextReset(o: {
     return o.isClaude && o.live && o.state === "idle" && o.level !== "ok";
 }
 
+export interface ContextFacts {
+    pct: number;
+    max?: number;
+    level: Level;
+    note: string;
+    offerReset: boolean;
+}
+
+// contextFacts is the Context row the rail and the ring's popover both draw. Null without a reading: there is no row.
+export function contextFacts(
+    usage: AgentUsage | undefined,
+    o: { isClaude: boolean; state: AgentVM["state"]; live: boolean }
+): ContextFacts | null {
+    const pct = usage?.contextpct;
+    if (pct == null) {
+        return null;
+    }
+    const max = usage.contextmax;
+    const level = contextLevel(pct, max);
+    return { pct, max, level, note: contextNote(pct, max), offerReset: offersContextReset({ ...o, level }) };
+}
+
 // cacheRewriteTitle is the Session line's tooltip: an expired cache makes the next turn write the whole context again.
 export function cacheRewriteTitle(pct: number | undefined, max: number | undefined): string | undefined {
     const tokens = pct != null ? contextTokens(pct, max) : undefined;
