@@ -8,7 +8,18 @@ import { localFileUrl } from "@/app/view/jarvis/localimage";
 import { getWebServerEndpoint } from "@/util/endpoints";
 import { fetch } from "@/util/fetchutil";
 import { cn, fireAndForget } from "@/util/util";
-import { Ban, Check, Copy, File as FileIcon, GitBranch, Info, X } from "lucide-react";
+import {
+    Activity,
+    Ban,
+    Check,
+    Copy,
+    File as FileIcon,
+    GitBranch,
+    Info,
+    SquareTerminal,
+    X,
+    type LucideIcon,
+} from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { cardVariants, shouldFadeEntry, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
@@ -247,18 +258,25 @@ function InterruptedDivider({ compact }: { compact: boolean }) {
 
 type NotificationSource = Extract<AgentEntry, { kind: "notification" }>["source"];
 
-// each source's label, and the leading words of its summary the label already says (Claude Code writes "Background
-// command "x" completed", "Monitor event: "x"", "Agent "x" finished")
-const NOTIFICATION_LABELS: Record<NonNullable<NotificationSource>, { label: string; lead: RegExp }> = {
-    command: { label: "Background command", lead: /^Background command\b:?\s*/ },
-    monitor: { label: "Monitor", lead: /^Monitor(?: event)?\b:?\s*/ },
-    subagent: { label: "Subagent", lead: /^(?:Sub)?agent\b:?\s*/i },
+// each source's label and icon, and the leading words of its summary the label already says (Claude Code writes
+// "Background command "x" completed", "Monitor event: "x"", "Agent "x" finished")
+const NOTIFICATION_LABELS: Record<NonNullable<NotificationSource>, { label: string; lead: RegExp; icon: LucideIcon }> = {
+    command: { label: "Background command", lead: /^Background command\b:?\s*/, icon: SquareTerminal },
+    monitor: { label: "Monitor", lead: /^Monitor(?: event)?\b:?\s*/, icon: Activity },
+    subagent: { label: "Subagent", lead: /^(?:Sub)?agent\b:?\s*/i, icon: GitBranch },
 };
 
-// a notification's label by its source (fallback when unknown) and its summary without the words the label repeats
-function notificationHead(source: NotificationSource, summary: string, fallback: string): { label: string; text: string } {
+// a notification's label and icon by its source (fallback when unknown) and its summary without the words the label
+// repeats
+function notificationHead(
+    source: NotificationSource,
+    summary: string,
+    fallback: string
+): { label: string; text: string; icon: LucideIcon } {
     const known = source != null ? NOTIFICATION_LABELS[source] : undefined;
-    return known ? { label: known.label, text: summary.replace(known.lead, "") } : { label: fallback, text: summary };
+    return known
+        ? { label: known.label, text: summary.replace(known.lead, ""), icon: known.icon }
+        : { label: fallback, text: summary, icon: Info };
 }
 
 // A finished background task (<task-notification> as its own record): "<label> · summary · status", opening to its
@@ -294,7 +312,7 @@ function TaskNotificationRow({
                     canExpand ? "cursor-pointer hover:border-edge-strong" : "cursor-default"
                 )}
             >
-                <GitBranch size={14} strokeWidth={2.2} className={cn("shrink-0", tone)} aria-hidden />
+                <head.icon size={14} strokeWidth={2.2} className={cn("shrink-0", tone)} aria-hidden />
                 <span className="shrink-0 text-secondary">{head.label}</span>
                 {head.text ? <span className="min-w-0 truncate">{head.text}</span> : null}
                 <span className="min-w-[6px] flex-1" />

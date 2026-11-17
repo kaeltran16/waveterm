@@ -1209,7 +1209,7 @@ export default function (_kit) {
                     const keys = await waitProbe(ctx, from, [SHIFT_TAB, SHIFT_TAB]);
                     await h.shot(SHOT(16, "permission-mode"));
                     const shiftTabs = keys.lines.filter((l) => l === SHIFT_TAB).length;
-                    return [menu.picked && relabeled && keys.ok && shiftTabs === 2, { menu, label, keys: keys.lines }];
+                    return [menu.picked && relabeled && keys.ok && shiftTabs === 2, { menu, relabeled, label, keys: keys.lines }];
                 });
 
                 await step("rendered: esc interrupt — Esc in P's composer types ESC into the pty", async () => {

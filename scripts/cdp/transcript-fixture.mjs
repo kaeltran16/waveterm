@@ -8,6 +8,8 @@ const SEAM_POLLS = 25;
 const SEAM_POLL_MS = 200;
 const CLEAR_POLLS = 25;
 const CLEAR_POLL_MS = 100;
+const SHOW_POLLS = 50;
+const SHOW_POLL_MS = 100;
 // the modal's open motion and the rows' fade-in settle before a step reads styles
 const SETTLE_MS = 900;
 
@@ -33,6 +35,8 @@ export async function clearTranscript(h) {
 export async function showTranscript(h, { entries, width, ...opts }) {
     await clearTranscript(h);
     await h.ev(`window.__narrationFeedFixture.show(${JSON.stringify(entries)}, ${width}, ${JSON.stringify(opts)})`);
+    // a cold first mount can outlast the settle: wait for the root before it
+    for (let i = 0; i < SHOW_POLLS && !(await h.ev(`${rootExpr} != null`)); i++) await sleep(SHOW_POLL_MS);
     await sleep(SETTLE_MS);
 }
 

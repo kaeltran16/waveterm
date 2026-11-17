@@ -1260,7 +1260,8 @@ const LABELLED = [
 const LABELS_STATE = probe(`
     const head = (source) => {
         const row = root.querySelector('[data-notification-source="' + source + '"]');
-        return row ? { text: row.querySelector('button')?.textContent ?? null, notice: row.hasAttribute('data-notice') } : null;
+        const button = row?.querySelector('button');
+        return row ? { text: button?.textContent ?? null, notice: row.hasAttribute('data-notice'), icon: button?.querySelector('svg')?.getAttribute('class') ?? null } : null;
     };
     return { command: head('command'), monitor: head('monitor'), subagent: head('subagent') };
 `);
@@ -1272,9 +1273,11 @@ async function notificationLabelStep(h) {
     await h.shot("cdp-shots/transcript-base-notification-labels.png");
     const once = (text, words) => (text ?? "").split(words).length === 2;
     return {
-        step: 'Notification labels: a background command, a monitor event and a subagent each read their own label, never repeating the summary\'s leading words',
+        step: 'Notification labels: a background command, a monitor event and a subagent each read their own label and icon, never repeating the summary\'s leading words',
         ok:
             s != null &&
+            (s.command?.icon ?? "").includes("terminal") &&
+            (s.subagent?.icon ?? "").includes("git-branch") &&
             (s.command?.text ?? "").startsWith("Background command") &&
             once(s.command.text, "Background command") &&
             s.command.text.includes('"Run the suite" completed') &&
