@@ -41,10 +41,6 @@ const WSH = "__WSH_PATH__";
 // set at session.start; a reload runs register and session.start again, so it never goes stale
 let active = false;
 
-// the session's transcript, as its latest prompt named it; a status report carries it so a cockpit
-// that replays the report still follows the file. null after a reload until the next prompt
-let transcriptPath: string | null = null;
-
 // the last turn's cache miss, shown above the prompt until the next turn starts; null when none is
 const cacheMiss = atom({ plugin: "arc", key: "cacheMiss" } as const, null);
 
@@ -389,11 +385,6 @@ export const register: Register = (on) => {
         return next(e);
     });
 
-    on("classic.UserPromptSubmit", ($, e, next) => {
-        transcriptPath = e.transcript_path || null;
-        return next(e);
-    });
-
     // bare @ is claude code's file mention and stays untouched
     on("prompt.autocomplete", { token: /^@@/ }, async ($, e, next) => {
         if (!active) {
@@ -480,7 +471,7 @@ export const register: Register = (on) => {
             isTurnOpen = false;
             sendHeld($);
         }
-        const args = active ? idleArgs(e, transcriptPath, wasAskInDialog) : null;
+        const args = active ? idleArgs(e, wasAskInDialog) : null;
         if (args) {
             try {
                 const ran = await $.process.run([WSH, ...args]);
