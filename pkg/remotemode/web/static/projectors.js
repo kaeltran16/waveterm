@@ -72,6 +72,21 @@ function editFromPatch(path, patch) {
   });
   return { path, badge: patch.every((h) => h.oldLines === 0) ? "A" : "M", adds, dels, lines };
 }
+var WINDOWS_DRIVE = /^[a-z]:\//i;
+function relativePath(path, cwd) {
+  const p = path.replace(/\\/g, "/");
+  const base = (cwd ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+  if (base === "") {
+    return p;
+  }
+  const fold = (s) => WINDOWS_DRIVE.test(base) ? s.toLowerCase() : s;
+  return fold(p).startsWith(fold(base) + "/") ? p.slice(base.length + 1) : p;
+}
+var TOOL_USE_ERROR_RE = /^\s*<tool_use_error>([^]*?)<\/tool_use_error>\s*$/;
+function unwrapToolError(body) {
+  const m = TOOL_USE_ERROR_RE.exec(body);
+  return (m ? m[1] : body).trim();
+}
 var GREP_PREFIX = /^(.*?:\d+):?(.*)$/;
 function parseGrep(output) {
   return output.split("\n").filter((l) => l.trim() !== "").map((l) => {
@@ -510,8 +525,20 @@ function bashNeverRan(body) {
 function isInterrupted(text) {
   return text.trimStart().startsWith("[Request interrupted by user");
 }
+var NOTIFICATION_SOURCES = [
+  [/^Background (command|shell)\b/, "command"],
+  [/^Monitor\b/, "monitor"],
+  [/^Agent\b/, "subagent"]
+];
+function notificationSource(summary) {
+  const hit = NOTIFICATION_SOURCES.find(([re]) => re.test(summary));
+  return hit ? { source: hit[1] } : {};
+}
+function opensWith(content, tag) {
+  return content.trimStart().startsWith(tag);
+}
 function parseTaskNotification(content) {
-  if (!content.includes("<task-notification>")) {
+  if (!opensWith(content, "<task-notification>")) {
     return null;
   }
   const grab = (tag) => {
@@ -519,7 +546,14 @@ function parseTaskNotification(content) {
     return m ? m[1].trim() : void 0;
   };
   const result = grab("result");
-  return { kind: "notification", summary: grab("summary") ?? "", status: grab("status"), ...result ? { result } : {} };
+  const summary = grab("summary") ?? "";
+  return {
+    kind: "notification",
+    summary,
+    status: grab("status"),
+    ...result ? { result } : {},
+    ...notificationSource(summary)
+  };
 }
 var BASH_INPUT_RE = /^<bash-input>([^]*)<\/bash-input>$/;
 var BASH_OUTPUT_RE = /^<bash-stdout>([^]*?)<\/bash-stdout>\s*<bash-stderr>([^]*?)<\/bash-stderr>$/;
@@ -566,7 +600,7 @@ function parseNotice(prompt) {
   }
   const m = /<task-notification>([^]*?)<\/task-notification>/.exec(prompt);
   const summary = (m ? m[1] : prompt).trim();
-  return summary !== "" ? { kind: "notification", summary, notice: true } : null;
+  return summary !== "" ? { kind: "notification", summary, notice: true, ...notificationSource(summary) } : null;
 }
 var PASTED_CONTENT_RE = /<pasted_content id="[^"]+">\n?([^]*?)\n?<\/pasted_content id="[^"]+">/g;
 function unwrapPasted(text) {
@@ -685,15 +719,19 @@ function projectTranscriptRecords(records) {
           if (block.name === "Bash" && typeof block.input?.command === "string") {
             action.command = block.input.command;
           }
+          const cwd = typeof rec.cwd === "string" ? rec.cwd : void 0;
+          const filePath = relativePath(String(block.input?.file_path ?? ""), cwd);
           if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
             action.detail = {
               kind: "edit",
-              files: [buildEditDiff(String(block.input.file_path ?? ""), block.input.old_string, String(block.input.new_string ?? ""))]
+              files: [
+                buildEditDiff(filePath, block.input.old_string, String(block.input.new_string ?? ""))
+              ]
             };
           } else if (block.name === "Write" && block.input && typeof block.input.content === "string") {
             action.detail = {
               kind: "edit",
-              files: [buildEditDiff(String(block.input.file_path ?? ""), "", block.input.content)]
+              files: [buildEditDiff(filePath, "", block.input.content)]
             };
           } else if (block.name === "Skill" && block.input && typeof block.input.skill === "string") {
             const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
@@ -703,6 +741,8 @@ function projectTranscriptRecords(records) {
           }
           action._useTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
           action._tool = block.name;
+          action._input = block.input;
+          action._cwd = cwd;
           entries.push(action);
           if (typeof block.id === "string") {
             actionById.set(block.id, action);
@@ -729,9 +769,9 @@ function projectTranscriptRecords(records) {
         }
         const note = parseTaskNotification(content);
         if (note != null) {
-          entries.push(note);
+          entries.push({ ...note, ...recTs(rec) });
         } else if (applyCommandOutput(entries, content)) {
-        } else if (content.includes("<local-command-stdout>")) {
+        } else if (opensWith(content, "<local-command-stdout>")) {
         } else if (isInterrupted(content)) {
           entries.push({ kind: "interrupted" });
         } else {
@@ -769,21 +809,39 @@ function projectTranscriptRecords(records) {
           action.images = images2;
         }
         const tool = action._tool;
-        const blocked = tool === "Bash" && block.is_error === true && bashNeverRan(body);
-        if (tool === "Grep" && body) {
-          const matches = parseGrep(body);
-          action.detail = { kind: "grep", matches };
+        const input = action._input;
+        const cwd = action._cwd;
+        const failed = block.is_error === true;
+        const blocked = tool === "Bash" && failed && bashNeverRan(body);
+        const error = failed && (tool !== "Bash" || blocked) ? unwrapToolError(body) : "";
+        if (error !== "") {
+          action.error = error;
+        }
+        if (tool === "Grep" && body && !failed) {
+          const matches = parseGrep(body).map((m) => m.loc ? { ...m, loc: relativePath(m.loc, cwd) } : m);
+          action.detail = {
+            kind: "grep",
+            matches,
+            ...typeof input?.pattern === "string" ? { pattern: input.pattern } : {},
+            ...input?.["-i"] === true ? { ignoreCase: true } : {}
+          };
           action.summary = `${matches.length} match${matches.length === 1 ? "" : "es"}`;
-        } else if ((tool === "Read" || tool === "Glob") && body) {
+        } else if ((tool === "Read" || tool === "Glob") && body && !failed) {
           const { snippet, truncated } = sliceRead(body, READ_MODAL_MAX_LINES2);
-          action.detail = { kind: "read", snippet, truncated };
+          action.detail = {
+            kind: "read",
+            snippet,
+            truncated,
+            ...tool === "Read" && typeof input?.file_path === "string" ? { path: relativePath(input.file_path, cwd) } : {}
+          };
           action.summary = `${body.split("\n").length} lines`;
         } else if (tool === "Bash" && body) {
           action.detail = {
             kind: "bash",
             command: action.command,
-            output: body,
-            exit: blocked ? null : block.is_error === true ? 1 : 0
+            // a call that never ran has no output; its reason is the error
+            output: blocked ? "" : stripAnsi(body),
+            exit: blocked ? null : failed ? 1 : 0
           };
         } else if (action.detail?.kind === "edit") {
           const numbered = editFromPatch(action.detail.files[0].path, rec.toolUseResult?.structuredPatch);
@@ -808,10 +866,11 @@ function projectTranscriptRecords(records) {
       }
       const images = toolResultImages(content);
       if (images.length > 0) {
-        const own = entries.slice(firstEntry).find((e) => e.kind === "user");
-        if (own != null && own.kind === "user") {
-          own.images = images;
-        } else {
+        const own = entries.slice(firstEntry);
+        const user = own.find((e) => e.kind === "user");
+        if (user != null && user.kind === "user") {
+          user.images = images;
+        } else if (!own.some((e) => e.kind === "interrupted")) {
           entries.push({ kind: "user", text: "", images, ...recTs(rec) });
         }
       }
@@ -859,6 +918,8 @@ function projectTranscriptRecords(records) {
       delete e._done;
       delete e._useTs;
       delete e._tool;
+      delete e._input;
+      delete e._cwd;
     }
   }
   return entries;

@@ -108,6 +108,28 @@ export function editFromPatch(path: string, patch: unknown): EditFile | null {
     return { path, badge: patch.every((h) => h.oldLines === 0) ? "A" : "M", adds, dels, lines };
 }
 
+const WINDOWS_DRIVE = /^[a-z]:\//i;
+
+// a path as the panel shows it: forward slashes, relative to cwd when under it (compared as Windows does for a drive
+// path), else whole
+export function relativePath(path: string, cwd: string | undefined): string {
+    const p = path.replace(/\\/g, "/");
+    const base = (cwd ?? "").replace(/\\/g, "/").replace(/\/+$/, "");
+    if (base === "") {
+        return p;
+    }
+    const fold = (s: string) => (WINDOWS_DRIVE.test(base) ? s.toLowerCase() : s);
+    return fold(p).startsWith(fold(base) + "/") ? p.slice(base.length + 1) : p;
+}
+
+const TOOL_USE_ERROR_RE = /^\s*<tool_use_error>([^]*?)<\/tool_use_error>\s*$/;
+
+// a failed tool result's text without claude's <tool_use_error> wrapper
+export function unwrapToolError(body: string): string {
+    const m = TOOL_USE_ERROR_RE.exec(body);
+    return (m ? m[1] : body).trim();
+}
+
 const GREP_PREFIX = /^(.*?:\d+):?(.*)$/;
 
 export function parseGrep(output: string): GrepMatch[] {

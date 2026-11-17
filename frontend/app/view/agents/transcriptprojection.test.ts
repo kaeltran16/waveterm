@@ -107,7 +107,7 @@ describe("projectTranscript", () => {
         const result = (id: string, content: string) =>
             JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: id, is_error: true, content }] } });
         const out = projectTranscript([use("b1", "task build > log"), result("b1", refusal), use("b2", "grep x f"), result("b2", "Exit code 1\n")]);
-        expect(out[0]).toMatchObject({ outcome: "blocked", detail: { kind: "bash", exit: null, output: refusal } });
+        expect(out[0]).toMatchObject({ outcome: "blocked", detail: { kind: "bash", exit: null, output: "" } });
         expect(out[1]).toMatchObject({ outcome: "fail", detail: { kind: "bash", exit: 1 } });
     });
 });
@@ -348,6 +348,7 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
                 summary: 'Agent "Map layout" finished',
                 status: "completed",
                 result: "Here is the report.",
+                source: "subagent",
             },
         ]);
     });
@@ -1310,6 +1311,7 @@ describe("projectTranscript malformed and mistyped records", () => {
                 summary: "2 matches",
                 detail: {
                     kind: "grep",
+                    pattern: "const",
                     matches: [
                         { loc: "src/a.ts:12", code: " const x = 1;" },
                         { loc: "src/a.ts:14", code: " const y = 2;" },
@@ -1321,14 +1323,14 @@ describe("projectTranscript malformed and mistyped records", () => {
                 verb: "grep",
                 target: "x",
                 summary: "1 match",
-                detail: { kind: "grep", matches: [{ loc: "src/a.ts:12", code: " const x = 1;" }] },
+                detail: { kind: "grep", pattern: "x", matches: [{ loc: "src/a.ts:12", code: " const x = 1;" }] },
             },
             {
                 kind: "action",
                 verb: "read",
                 target: "a.ts",
                 summary: "3 lines",
-                detail: { kind: "read", snippet: "l1\nl2\nl3", truncated: false },
+                detail: { kind: "read", snippet: "l1\nl2\nl3", truncated: false, path: "/p/a.ts" },
             },
             {
                 kind: "action",
@@ -1623,7 +1625,13 @@ describe("projectTranscript queued attachments", () => {
             "<task-notification><task-id>b1</task-id><summary>Background command finished</summary><status>completed</status></task-notification>";
         const out = projectTranscript([queued({ commandMode: "task-notification", prompt })]);
         expect(out).toStrictEqual([
-            { kind: "notification", summary: "Background command finished", status: "completed", notice: true },
+            {
+                kind: "notification",
+                summary: "Background command finished",
+                status: "completed",
+                source: "command",
+                notice: true,
+            },
         ]);
     });
 
@@ -1750,5 +1758,286 @@ describe("projectTranscript texts the arc mod joined mid-turn", () => {
                 ts: Date.parse("2026-05-01T10:01:00.000Z"),
             },
         ]);
+    });
+});
+
+// shapes from the 11-17 evidence sessions (worker f860511c t-4, detector eed05670)
+describe("projectTranscript fix round 2", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+    const CWD = "C:\\Users\\kael02\\AppData\\Local\\arc-wt\\f860511c-t-4";
+    const TS = "2026-11-17T03:19:30.120Z";
+    const use = (id: string, name: string, input: unknown) =>
+        L({
+            type: "assistant",
+            cwd: CWD,
+            timestamp: TS,
+            message: { content: [{ type: "tool_use", id, name, input }] },
+        });
+    const result = (id: string, content: unknown, opts: { is_error?: boolean; toolUseResult?: unknown } = {}) =>
+        L({
+            type: "user",
+            cwd: CWD,
+            timestamp: TS,
+            message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error: opts.is_error ?? false }] },
+            ...(opts.toolUseResult !== undefined ? { toolUseResult: opts.toolUseResult } : {}),
+        });
+    const notificationRecord = (summary: string, timestamp?: string) =>
+        L({
+            type: "user",
+            ...(timestamp ? { timestamp } : {}),
+            origin: { kind: "task-notification", producer: "session-task" },
+            message: {
+                content: [
+                    "<task-notification>",
+                    "<task-id>b58fanlr5</task-id>",
+                    `<summary>${summary}</summary>`,
+                    "<event>1:2026-11-17 14:34:26 start: train</event>",
+                    "</task-notification>",
+                ].join("\n"),
+            },
+        });
+
+    it("gives a record of an interruption and images no empty-text user entry", () => {
+        const out = projectTranscript([
+            L({
+                type: "user",
+                message: {
+                    content: [
+                        { type: "text", text: "[Request interrupted by user]" },
+                        { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } },
+                    ],
+                },
+            }),
+        ]);
+        expect(out).toEqual([{ kind: "interrupted" }]);
+    });
+
+    it("draws a brief that quotes both tags as a user prompt with its full text", () => {
+        const brief =
+            "You are the worker for task 4.\nA `<task-notification>` arrives as a user record, and a slash command's " +
+            "`<local-command-stdout>` fills its command.\n<summary>not a notification</summary>";
+        const stdoutOnly = "Read the `<local-command-stdout>` record shape first.";
+        const out = projectTranscript([
+            L({ type: "user", timestamp: TS, message: { content: brief } }),
+            L({ type: "user", timestamp: TS, message: { content: stdoutOnly } }),
+        ]);
+        expect(out).toEqual([
+            { kind: "user", text: brief, ts: Date.parse(TS) },
+            { kind: "user", text: stdoutOnly, ts: Date.parse(TS) },
+        ]);
+    });
+
+    it("gives a notification user record its record time and a monitor source", () => {
+        const summary = 'Monitor event: "plant bench cycle on .236 (step starts/ends, stop)"';
+        expect(projectTranscript([notificationRecord(summary, "2026-11-17T07:05:55.079Z")])).toEqual([
+            { kind: "notification", summary, source: "monitor", ts: Date.parse("2026-11-17T07:05:55.079Z") },
+        ]);
+    });
+
+    it.each([
+        ['Background command "Run transcript-base scenario in isolated dev app" completed (exit code 0)', "command"],
+        ["Background shell command didn't finish before the previous session ended", "command"],
+        ['Monitor event: "plant bench cycle on .236"', "monitor"],
+        ['Agent "Map layout" finished', "subagent"],
+    ])("reads the source of %s", (summary, source) => {
+        expect(projectTranscript([notificationRecord(summary)])[0]).toMatchObject({ kind: "notification", source });
+    });
+
+    it("leaves the source off a notification whose summary names no known source", () => {
+        expect(projectTranscript([notificationRecord("Something else happened")])[0]).not.toHaveProperty("source");
+    });
+
+    it("reads the source of a queued notice too, which keeps no record time", () => {
+        const out = projectTranscript([
+            L({
+                type: "attachment",
+                timestamp: TS,
+                attachment: {
+                    type: "queued_command",
+                    commandMode: "task-notification",
+                    prompt: '<task-notification>\n<task-id>b58</task-id>\n<summary>Monitor event: "bench"</summary>\n</task-notification>',
+                },
+            }),
+        ]);
+        expect(out).toEqual([{ kind: "notification", summary: 'Monitor event: "bench"', source: "monitor", notice: true }]);
+    });
+
+    it("strips ANSI colour codes from a Bash result's output", () => {
+        const out = projectTranscript([
+            use("b1", "Bash", { command: "npx prettier --check x.ts", description: "Lint and format check" }),
+            result("b1", "Checking formatting...\n[\x1b[33mwarn\x1b[39m] frontend/x.ts"),
+        ]);
+        expect((out[0] as any).detail.output).toBe("Checking formatting...\n[warn] frontend/x.ts");
+    });
+
+    it("puts a refused Bash call's reason in error, unwrapped, and leaves no wrapper in its output", () => {
+        const reason =
+            "Refused by Arc: Claude Code already saves a background command's output to its output file, which Arc shows.";
+        const out = projectTranscript([
+            use("b1", "Bash", { command: "node final-verify.mjs > t4-final.log 2>&1", run_in_background: true }),
+            result("b1", `<tool_use_error>${reason}</tool_use_error>`, {
+                is_error: true,
+                toolUseResult: `Error: ${reason}`,
+            }),
+        ]);
+        expect(out[0]).toMatchObject({
+            outcome: "blocked",
+            error: reason,
+            detail: { kind: "bash", command: "node final-verify.mjs > t4-final.log 2>&1", exit: null, output: "" },
+        });
+        expect(JSON.stringify(out)).not.toContain("tool_use_error");
+    });
+
+    it("keeps a Bash call that ran and failed to its output and exit code, with no error", () => {
+        const out = projectTranscript([
+            use("b1", "Bash", { command: "go test ./x" }),
+            result("b1", "Exit code 1\nFAIL x", { is_error: true }),
+        ]);
+        expect(out[0]).toMatchObject({ outcome: "fail", detail: { kind: "bash", output: "Exit code 1\nFAIL x", exit: 1 } });
+        expect(out[0]).not.toHaveProperty("error");
+    });
+
+    it("puts a failed Edit's error beside its attempted diff", () => {
+        const msg = "No changes to make: old_string and new_string are exactly the same.";
+        const file = `${CWD}\\frontend\\app\\view\\agents\\transcriptprojection.ts`;
+        const out = projectTranscript([
+            use("e1", "Edit", { file_path: file, old_string: "// a", new_string: "// a" }),
+            result("e1", `<tool_use_error>${msg}</tool_use_error>`, { is_error: true, toolUseResult: `Error: ${msg}` }),
+        ]);
+        expect(out[0]).toMatchObject({ outcome: "fail", error: msg, detail: { kind: "edit" } });
+    });
+
+    it("puts a failed Monitor call's multi-line error on the action", () => {
+        const msg =
+            "InputValidationError: Monitor failed due to the following issue:\nThe required parameter `description` is missing";
+        const out = projectTranscript([
+            use("m1", "Monitor", { query: "select:Monitor", max_results: "1" }),
+            result("m1", `<tool_use_error>${msg}</tool_use_error>`, { is_error: true }),
+        ]);
+        expect(out[0]).toMatchObject({ kind: "action", outcome: "fail", error: msg });
+        expect(out[0]).not.toHaveProperty("detail");
+    });
+
+    it("gives a failed Read its error and no read panel built from the error text", () => {
+        const out = projectTranscript([
+            use("r1", "Read", { file_path: `${CWD}\\missing.ts` }),
+            result("r1", "File does not exist.", { is_error: true }),
+        ]);
+        expect(out[0]).toMatchObject({ outcome: "fail", error: "File does not exist." });
+        expect(out[0]).not.toHaveProperty("detail");
+    });
+
+    it("sets no error on a call that succeeded", () => {
+        const out = projectTranscript([use("r1", "Read", { file_path: `${CWD}\\a.ts` }), result("r1", "1\tx")]);
+        expect(out[0]).not.toHaveProperty("error");
+    });
+
+    it("writes edit paths relative to the record's cwd, and a path outside it absolute, with forward slashes", () => {
+        const patch = [{ oldStart: 3, oldLines: 1, newStart: 3, newLines: 1, lines: ["-a", "+b"] }];
+        const out = projectTranscript([
+            use("e1", "Edit", { file_path: `${CWD}\\frontend\\app\\a.ts`, old_string: "a", new_string: "b" }),
+            result("e1", "ok", { toolUseResult: { structuredPatch: patch } }),
+            use("e2", "Edit", { file_path: "D:\\other\\b.ts", old_string: "a", new_string: "b" }),
+            result("e2", "ok"),
+            use("w1", "Write", {
+                file_path: "c:/users/kael02/appdata/local/arc-wt/f860511c-t-4/docs/c.md",
+                content: "x",
+            }),
+            result("w1", "ok"),
+        ]);
+        expect(out.map((e: any) => e.detail.files[0].path)).toEqual(["frontend/app/a.ts", "D:/other/b.ts", "docs/c.md"]);
+    });
+
+    it("compares a POSIX cwd by whole path segments", () => {
+        const at = (file_path: string) =>
+            L({
+                type: "assistant",
+                cwd: "/home/u/proj",
+                message: { content: [{ type: "tool_use", id: file_path, name: "Write", input: { file_path, content: "x" } }] },
+            });
+        const out = projectTranscript([at("/home/u/proj/src/a.ts"), at("/home/u/project2/a.ts")]);
+        expect(out.map((e: any) => e.detail.files[0].path)).toEqual(["src/a.ts", "/home/u/project2/a.ts"]);
+    });
+
+    it("gives a Grep detail relative locations, its pattern and its case-insensitive flag", () => {
+        const body = [
+            `${CWD}\\frontend\\app\\cockpit\\palette-items.ts:144:                kind: "command" as const,`,
+            'frontend\\app\\view\\agents\\agentsviewmodel.test.ts:1184:            { kind: "command", name: "/clear" },',
+        ].join("\n");
+        const out = projectTranscript([
+            use("g1", "Grep", {
+                pattern: "local-command-stdout|CommandChip",
+                path: `${CWD}\\frontend`,
+                output_mode: "content",
+                "-i": true,
+            }),
+            result("g1", body),
+        ]);
+        expect((out[0] as any).detail).toEqual({
+            kind: "grep",
+            pattern: "local-command-stdout|CommandChip",
+            ignoreCase: true,
+            matches: [
+                { loc: "frontend/app/cockpit/palette-items.ts:144", code: '                kind: "command" as const,' },
+                {
+                    loc: "frontend/app/view/agents/agentsviewmodel.test.ts:1184",
+                    code: '            { kind: "command", name: "/clear" },',
+                },
+            ],
+        });
+    });
+
+    it("leaves ignoreCase off a case-sensitive Grep", () => {
+        const out = projectTranscript([
+            use("g1", "Grep", { pattern: "x", output_mode: "content", "-n": true }),
+            result("g1", "a.ts:1:x"),
+        ]);
+        expect((out[0] as any).detail).toMatchObject({ kind: "grep", pattern: "x" });
+        expect((out[0] as any).detail).not.toHaveProperty("ignoreCase");
+    });
+
+    it("gives a cat -n Read detail its path relative to the cwd", () => {
+        const body = "200\t}\n201\t\n202\t// the messages that have reply text";
+        const out = projectTranscript([
+            use("r1", "Read", {
+                file_path: `${CWD}\\frontend\\app\\view\\agents\\transcriptprojection.ts`,
+                offset: 200,
+                limit: 3,
+            }),
+            result("r1", body),
+        ]);
+        expect((out[0] as any).detail).toEqual({
+            kind: "read",
+            snippet: body,
+            truncated: false,
+            path: "frontend/app/view/agents/transcriptprojection.ts",
+        });
+    });
+
+    it("keeps a Write that created a file as badge A, and draws a Write that updated one as its patch with badge M", () => {
+        const update = [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: [" keep", "-old", "+new"] }];
+        const out = projectTranscript([
+            use("w1", "Write", { file_path: `${CWD}\\docs\\new.md`, content: "# Title\nbody" }),
+            result("w1", "File created successfully", { toolUseResult: { type: "create", structuredPatch: [] } }),
+            use("w2", "Write", { file_path: `${CWD}\\docs\\plan.md`, content: "keep\nnew" }),
+            result("w2", "The file has been updated", { toolUseResult: { type: "update", structuredPatch: update } }),
+        ]);
+        expect((out[0] as any).detail.files[0]).toEqual({
+            path: "docs/new.md",
+            badge: "A",
+            adds: 2,
+            dels: 0,
+            lines: [
+                { sign: "+", text: "# Title" },
+                { sign: "+", text: "body" },
+            ],
+        });
+        expect((out[1] as any).detail.files[0]).toMatchObject({ path: "docs/plan.md", badge: "M", adds: 1, dels: 1 });
+        expect((out[1] as any).detail.files[0].lines[0]).toEqual({ sign: "", text: "keep", oldNo: 4, newNo: 4 });
+    });
+
+    it("does not leak the scratch fields it keeps for the result", () => {
+        const out = projectTranscript([use("g1", "Grep", { pattern: "x" }), result("g1", "a.ts:1:x")]);
+        expect(Object.keys(out[0]).filter((k) => k.startsWith("_"))).toEqual([]);
     });
 });
