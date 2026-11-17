@@ -14,6 +14,7 @@ import {
     cycleId,
     deriveTerminalVMs,
     displayAgeMs,
+    followGlides,
     formatAge,
     formatAgeShort,
     formatAgo,
@@ -40,6 +41,7 @@ import {
     sortAgents,
     STICK_THRESHOLD_PX,
     streamableTranscriptAgents,
+    stuckAfterScroll,
     summarizeActions,
     taskProgress,
     toggleSelection,
@@ -109,6 +111,41 @@ describe("isNearBottom", () => {
     });
     it("exposes the default threshold used by the narration card", () => {
         expect(STICK_THRESHOLD_PX).toBe(24);
+    });
+});
+
+describe("stuckAfterScroll", () => {
+    // observed: the pin's own scroll event read after a row grew 26px released the tail, so a streaming feed stopped
+    // following until the reader clicked Latest
+    const s = (stuck: boolean, near: boolean, wentUp: boolean, resized = false) => ({ stuck, near, wentUp, resized });
+    it("a stuck region scrolled down but left short of the bottom stays stuck", () => {
+        expect(stuckAfterScroll(s(true, false, false))).toBe(true);
+    });
+    it("a scroll up past the threshold releases it", () => {
+        expect(stuckAfterScroll(s(true, false, true))).toBe(false);
+    });
+    // observed: a new turn folding the one above moved scrollTop up by scroll anchoring, which read as the reader's
+    it("a scroll up that came with the feed resizing is layout, and keeps it stuck", () => {
+        expect(stuckAfterScroll(s(true, false, true, true))).toBe(true);
+    });
+    it("a released region sticks again only near the bottom", () => {
+        expect(stuckAfterScroll(s(false, false, false))).toBe(false);
+        expect(stuckAfterScroll(s(false, false, false, true))).toBe(false);
+        expect(stuckAfterScroll(s(false, true, false))).toBe(true);
+    });
+    it("near the bottom it stays stuck even after a small scroll up", () => {
+        expect(stuckAfterScroll(s(true, true, true))).toBe(true);
+    });
+});
+
+describe("followGlides", () => {
+    it("glides a gap within one viewport", () => {
+        expect(followGlides(120, 600)).toBe(true);
+        expect(followGlides(600, 600)).toBe(true);
+    });
+    it("jumps a gap longer than the viewport, and has nothing to glide at the bottom", () => {
+        expect(followGlides(601, 600)).toBe(false);
+        expect(followGlides(0, 600)).toBe(false);
     });
 });
 

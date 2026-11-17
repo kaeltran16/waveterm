@@ -92,11 +92,12 @@ function toolCount(n: number): string {
     return n === 1 ? "1 tool" : `${n} tools`;
 }
 
-/** The line's copy: the spinner's glyph and verb (null with no spinner on screen) and the facts after it. A compact
- *  host drops the tool count. */
-export function nowLineText(line: NowLine, compact = false): { lead: string | null; rest: string } {
+/** The line's copy: the spinner's verb (null with no spinner on screen) and the facts after it. A compact host drops
+ *  the tool count. The spinner's glyph is left out: claude cycles it faster than the 1s screen sample, so a sampled
+ *  glyph only jumps; the view draws its own. */
+export function nowLineText(line: NowLine, compact = false): { verb: string | null; rest: string } {
     if (line.kind === "hidden") {
-        return { lead: null, rest: "" };
+        return { verb: null, rest: "" };
     }
     const parts = [
         line.spinner == null ? "Working" : undefined,
@@ -105,5 +106,5 @@ export function nowLineText(line: NowLine, compact = false): { lead: string | nu
         compact || line.tools === 0 ? undefined : toolCount(line.tools),
     ];
     const rest = parts.filter((p) => p != null).join(SEP);
-    return { lead: line.spinner == null ? null : `${line.spinner.glyph} ${line.spinner.verb}`, rest };
+    return { verb: line.spinner?.verb ?? null, rest };
 }

@@ -122,12 +122,19 @@ describe("nowLineState", () => {
 describe("nowLineText", () => {
     const working = line({ entries: [user(T0), ...actions(3)], spinner: SPINNER });
 
-    it("leads with the spinner's glyph and verb, then elapsed and tokens", () => {
-        const { lead, rest } = nowLineText(working);
-        expect(lead).toBe(`${SPINNER.glyph} ${SPINNER.verb}`);
+    it("leads with the spinner's verb, then elapsed and tokens", () => {
+        const { verb, rest } = nowLineText(working);
+        expect(verb).toBe(SPINNER.verb);
         expect(rest.indexOf(fmtDuration(60_000))).toBe(0);
         expect(rest).toContain("4.5k");
         expect(rest).toContain("3");
+    });
+
+    // the screen is sampled once a second while claude cycles its glyph many times a second: a copy keyed on the
+    // sampled glyph cross-faded the verb out and back in on nearly every tick
+    it("is the same copy whichever spinner glyph the screen was sampled on", () => {
+        const at = (glyph: string) => nowLineText(line({ entries: [user(T0)], spinner: { ...SPINNER, glyph } }));
+        expect(at("✢")).toEqual(at("✽"));
     });
 
     it("a compact host drops the tool count and keeps the rest", () => {
@@ -139,12 +146,12 @@ describe("nowLineText", () => {
     });
 
     it("with no spinner there is no lead and the elapsed still shows", () => {
-        const { lead, rest } = nowLineText(line({ entries: [user(T0), done()], now: T0 + 2_000 }));
-        expect(lead).toBeNull();
+        const { verb, rest } = nowLineText(line({ entries: [user(T0), done()], now: T0 + 2_000 }));
+        expect(verb).toBeNull();
         expect(rest).toContain(fmtDuration(2_000));
     });
 
     it("hidden has no copy", () => {
-        expect(nowLineText({ kind: "hidden" })).toEqual({ lead: null, rest: "" });
+        expect(nowLineText({ kind: "hidden" })).toEqual({ verb: null, rest: "" });
     });
 });

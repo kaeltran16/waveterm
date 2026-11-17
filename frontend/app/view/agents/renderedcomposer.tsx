@@ -187,7 +187,7 @@ export const RenderedComposer = forwardRef<
                         aria-label="Interrupt (Esc)"
                         title="Interrupt (Esc)"
                         onClick={onInterrupt}
-                        className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-foreground hover:opacity-85"
+                        className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded bg-foreground hover:opacity-85"
                     >
                         <span aria-hidden className="h-2.5 w-2.5 rounded-[2px] bg-background" />
                     </button>
@@ -199,7 +199,7 @@ export const RenderedComposer = forwardRef<
                         title={box.sendLabel}
                         onClick={send}
                         disabled={!canSend}
-                        className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-accent text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-40 disabled:hover:bg-accent"
+                        className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded bg-accent text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-40 disabled:hover:bg-accent"
                     >
                         <ArrowUp size={15} strokeWidth={2.6} aria-hidden />
                     </button>

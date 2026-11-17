@@ -6,7 +6,7 @@
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { useLayoutEffect, useRef, useState } from "react";
-import { isNearBottom } from "./agentsviewmodel";
+import { followGlides, isNearBottom, stuckAfterScroll } from "./agentsviewmodel";
 
 // the row at the top of the viewport: its place counted from the end of the feed's rows, which rows prepended above it
 // do not move, and the offset of its top under the viewport's
@@ -34,6 +34,10 @@ function restoreRowPlace(scroller: HTMLElement, rows: Element, place: RowPlace):
     }
 }
 
+function reducedMotion(): boolean {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 // A feed the host remounts (a new `mount`) has all new nodes, which the browser's scroll anchoring cannot follow, so
 // the row that was at the top of the viewport is put back where it was. `rows` returns the element whose children are
 // the feed's rows.
@@ -43,19 +47,20 @@ export interface HoldPlace {
 }
 
 // A scroll region that sticks to the tail while the user is at the bottom, releases when they scroll
-// up to read history, and re-sticks on jumpToBottom. `entries` is the dependency that triggers the
-// re-pin: pass the same array the feed renders. layout-effect (not effect) so the pin lands before
-// paint — otherwise a taller feed paints at the old scrollTop then snaps down a frame later.
+// up to read history, and re-sticks on jumpToBottom or on scrolling back down to the end; new content glides in
+// while stuck. `entries` is the dependency that triggers the re-pin: pass the same array the feed renders.
+// layout-effect (not effect) so the pin lands before paint — otherwise a taller feed paints at the old scrollTop
+// then snaps down a frame later.
 export function useStickToBottom(entries: unknown[], hold?: HoldPlace) {
     const scrollRef = useRef<HTMLDivElement>(null);
     const stickRef = useRef(true);
     // the reader's place while released from the tail, taken after each layout and scroll
     const placeRef = useRef<RowPlace | null>(null);
     const mountRef = useRef(hold?.mount);
-    // jumpToBottom's smooth scroll is on its way down: its first frames still read as far from the bottom and
-    // would release the tail (bringing the pill back) unless ignored; scrolling up meanwhile cancels it
-    const arrivingRef = useRef(false);
+    // the first pin, and the first after a remount, lands at once: opening a feed must not glide through it
+    const placedRef = useRef(false);
     const lastTopRef = useRef(0);
+    const lastHeightRef = useRef(0);
     const [atBottom, setAtBottom] = useState(true);
 
     const remember = () => {
@@ -71,15 +76,26 @@ export function useStickToBottom(entries: unknown[], hold?: HoldPlace) {
         }
         if (mountRef.current !== hold?.mount) {
             mountRef.current = hold?.mount;
+            placedRef.current = false;
             const rows = hold?.rows();
             if (!stickRef.current && rows != null && placeRef.current != null) {
                 restoreRowPlace(el, rows, placeRef.current);
             }
         }
         const pin = () => {
-            if (stickRef.current) {
+            if (!stickRef.current) {
+                return;
+            }
+            const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+            if (placedRef.current && !reducedMotion() && followGlides(gap, el.clientHeight)) {
+                el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+            } else {
                 el.scrollTop = el.scrollHeight;
             }
+            placedRef.current = true;
+            // a scroll up from here, even one coalesced with this pin's own event, still reads as up
+            lastTopRef.current = el.scrollTop;
+            lastHeightRef.current = el.scrollHeight;
         };
         pin();
         remember();
@@ -101,15 +117,12 @@ export function useStickToBottom(entries: unknown[], hold?: HoldPlace) {
         const near = isNearBottom(el);
         const top = el.scrollTop;
         const wentUp = top < lastTopRef.current;
+        const resized = el.scrollHeight !== lastHeightRef.current;
         lastTopRef.current = top;
-        if (arrivingRef.current) {
-            if (!near && !wentUp) {
-                return;
-            }
-            arrivingRef.current = false;
-        }
-        stickRef.current = near;
-        setAtBottom(near);
+        lastHeightRef.current = el.scrollHeight;
+        const stuck = stuckAfterScroll({ stuck: stickRef.current, near, wentUp, resized });
+        stickRef.current = stuck;
+        setAtBottom(stuck);
         remember();
     };
 
@@ -120,12 +133,12 @@ export function useStickToBottom(entries: unknown[], hold?: HoldPlace) {
         }
         stickRef.current = true;
         setAtBottom(true);
-        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches || isNearBottom(el)) {
+        lastTopRef.current = el.scrollTop;
+        lastHeightRef.current = el.scrollHeight;
+        if (reducedMotion() || isNearBottom(el)) {
             el.scrollTop = el.scrollHeight;
             return;
         }
-        arrivingRef.current = true;
-        lastTopRef.current = el.scrollTop;
         el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     };
 

@@ -18,11 +18,13 @@ import { getAgentPermissionsAtom } from "./permissionstore";
 import { getLastHookAtom } from "./session-models/agentstatusstore";
 import { parseSpinner } from "./spinnerrow";
 
+const SPINNER_GLYPH = "✻";
+
 export function WorkingLine({ line, compact = false }: { line: NowLine; compact?: boolean }) {
     if (line.kind === "hidden") {
         return null;
     }
-    const { lead, rest } = nowLineText(line, compact);
+    const { verb, rest } = nowLineText(line, compact);
     return (
         <motion.div
             data-working-line
@@ -35,14 +37,15 @@ export function WorkingLine({ line, compact = false }: { line: NowLine; compact?
                 compact ? "mt-1 gap-[7px] text-[12px]" : "mt-2 gap-2 text-[13px]"
             )}
         >
-            {lead != null ? (
+            {verb != null ? (
                 // claude cycles the verb while it works; each new one cross-fades in
-                <CrossFade swapKey={lead} className="shrink-0">
+                <CrossFade swapKey={verb} className="shrink-0">
                     <span
                         data-working-verb
                         className={cn("font-mono text-provider-claude", compact ? "text-[11.5px]" : "text-[12.5px]")}
                     >
-                        {lead}
+                        {/* a steady breathing glyph (pulse driver, 12fps) stands in for claude's cycling one */}
+                        <span className="pulse-soft">{SPINNER_GLYPH}</span> {verb}
                     </span>
                 </CrossFade>
             ) : null}

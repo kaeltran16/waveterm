@@ -146,8 +146,8 @@ async function answerBarSteps(h, rec) {
 // the working line: a pure WorkingLine whose line each step rewrites, then the live one a host draws as its tail
 const WORKING_LIB = `
     const t0 = Date.now();
-    const spin = (verb) => ({ glyph: "✻", verb, detail: "24s · ↓ 1.8k tokens", tokens: "1.8k" });
-    const working = (verb) => ({ kind: "working", spinner: spin(verb), elapsedMs: 24000, tokens: "1.8k", tools: 4 });
+    const spin = (verb, glyph = "✻") => ({ glyph, verb, detail: "24s · ↓ 1.8k tokens", tokens: "1.8k" });
+    const working = (verb, glyph) => ({ kind: "working", spinner: spin(verb, glyph), elapsedMs: 24000, tokens: "1.8k", tools: 4 });
     const verbOf = () => flat(host.querySelector("[data-working-verb]"));
     const live = (state) => ({
         nowAtom: model.nowAtom,
@@ -177,13 +177,25 @@ async function workingLineSteps(h, rec) {
         const swapped = host.querySelector("[data-working-verb]")?.closest("[data-crossfade]");
         const verbSwap = { first: cw.seen[0] ?? null, settled: await settle(() => swapped), verb: verbOf() };
 
+        // each 1s tick samples claude's cycling glyph at a different frame: only the verb may swap the copy
+        const gw = watchAdded((n) => (host.contains(n) && n.matches("[data-crossfade]") ? n : null));
+        const glyphEl = () => host.querySelector("[data-working-verb] .pulse-soft");
+        const breath = sampleFrames(() => opacity(glyphEl()));
+        for (const g of ["✢", "✳", "✶", "·"]) {
+            host.render({ line: working("Pondering…", g) });
+            await nap(250);
+        }
+        breath.stop();
+        gw.stop();
+        const glyphTicks = { swaps: gw.seen.length, verb: verbOf(), breath: breath.values.length };
+
         unmountAll();
         host = await mount("app/view/agents/nowlineview.tsx", "LiveWorkingLine", live("working"), { style: ${JSON.stringify(MOUNT_STYLE)} });
         await until(() => host.querySelector("[data-working-line]") != null, 3000);
         const whileWorking = flat(host.querySelector("[data-working-line]"));
         host.render(live("idle"));
         await nap(${SETTLE_MS});
-        return { enter, verbSwap, idle: { whileWorking, gone: host.querySelector("[data-working-line]") == null } };
+        return { enter, verbSwap, glyphTicks, idle: { whileWorking, gone: host.querySelector("[data-working-line]") == null } };
     `);
     rec(
         "5. working line: the line appearing when the agent starts working fades in",
@@ -194,6 +206,11 @@ async function workingLineSteps(h, rec) {
         "6. working line: the spinner's verb changing cross-fades the new verb in",
         crossFaded(r?.verbSwap) && r.verbSwap.verb === "✻ Pondering…",
         JSON.stringify(r?.verbSwap ?? r)
+    );
+    rec(
+        "6b. working line: a new spinner glyph with the same verb swaps nothing, and the drawn glyph keeps breathing",
+        r?.glyphTicks != null && r.glyphTicks.swaps === 0 && r.glyphTicks.verb === "✻ Pondering…" && r.glyphTicks.breath >= 3,
+        JSON.stringify(r?.glyphTicks ?? r)
     );
     rec(
         "7. working line: the live line reads Working and the turn's time with no spinner on screen, and leaves once the agent is idle",

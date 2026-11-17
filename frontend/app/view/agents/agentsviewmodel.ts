@@ -187,6 +187,19 @@ export function isNearBottom(
     return m.scrollHeight - m.scrollTop - m.clientHeight < threshold;
 }
 
+/** Pure: whether a stick-to-bottom region is stuck after a scroll. Its own pins and glides only scroll down, and the
+ *  feed can grow past the threshold before their scroll event is read, so only a scroll up releases it; and only
+ *  the reader's: a scroll up that came with the feed resizing is scroll anchoring, not them. */
+export function stuckAfterScroll(s: { stuck: boolean; near: boolean; wentUp: boolean; resized: boolean }): boolean {
+    return s.near || (s.stuck && (!s.wentUp || s.resized));
+}
+
+/** Pure: whether following the tail glides or jumps. A gap longer than the viewport (a feed shown again or
+ *  remounted) jumps, so the reader is not dragged through history. */
+export function followGlides(gap: number, clientHeight: number): boolean {
+    return gap > 0 && gap <= clientHeight;
+}
+
 export interface AgentSections {
     asking: AgentVM[];
     working: AgentVM[];
