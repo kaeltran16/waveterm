@@ -8,7 +8,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import type { AgentActionEntry, EditFile, ToolImage } from "./agentsviewmodel";
 import { ImageThumbs } from "./imagethumbs";
-import { ToolDetailBody } from "./narrationtimeline";
+import { ToolDetailBody } from "./tooldetailbody";
 import { bashCard, toolRendererKey } from "./renderregistry";
 import { failureLabel, stripAnsi, type TestSummary } from "./testoutput";
 import { capDiffLines } from "./unifieddiff";

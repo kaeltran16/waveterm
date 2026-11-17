@@ -5,7 +5,7 @@ import { ModalShell } from "@/app/modals/modalshell";
 import { modalsModel } from "@/app/store/modalmodel";
 import { X } from "lucide-react";
 import type { AgentActionEntry } from "./agentsviewmodel";
-import { StatusSquare, ToolDetailBody } from "./narrationtimeline";
+import { StatusSquare, ToolDetailBody } from "./tooldetailbody";
 import { formatDuration } from "./tooldetail";
 import { stepTitle } from "./transcriptlayout";
 
