@@ -132,6 +132,12 @@ export class RpcApiType {
         return client.wshRpcCall("agentsyncsteeringwrite", data, opts);
     }
 
+    // command "agenttakeback" [call]
+    AgentTakeBackCommand(client: WshClient, data: CommandAgentTakeBackData, opts?: RpcOpts): Promise<CommandAgentTakeBackRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agenttakeback", data, opts);
+        return client.wshRpcCall("agenttakeback", data, opts);
+    }
+
     // command "answeragent" [call]
     AnswerAgentCommand(client: WshClient, data: CommandAnswerAgentData, opts?: RpcOpts): Promise<void> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "answeragent", data, opts);
@@ -1216,6 +1222,12 @@ export class RpcApiType {
     SearchSessionsCommand(client: WshClient, data: CommandSearchSessionsData, opts?: RpcOpts): Promise<CommandSearchSessionsRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "searchsessions", data, opts);
         return client.wshRpcCall("searchsessions", data, opts);
+    }
+
+    // command "setagentqueue" [call]
+    SetAgentQueueCommand(client: WshClient, data: CommandSetAgentQueueData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "setagentqueue", data, opts);
+        return client.wshRpcCall("setagentqueue", data, opts);
     }
 
     // command "setchannelprofile" [call]

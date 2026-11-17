@@ -43,6 +43,36 @@ func TestAgentControlStreamsWhatIsSentUntilTheCallerLeaves(t *testing.T) {
 	}
 }
 
+func TestAgentControlPassesQueueAndTakeBackToTheStream(t *testing.T) {
+	const blockId = "7c0d2e91-3b5a-4f68-8e1d-2a9b4c6d8e10"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
+	ch := (&WshServer{}).AgentControlCommand(ctx, wshrpc.CommandAgentControlData{ORef: oref})
+	if !agentctl.Send(blockId, agentctl.Msg{Text: "and the tests", MidTurn: true, Queue: true}) ||
+		!agentctl.Send(blockId, agentctl.Msg{TakeBack: "r1"}) {
+		t.Fatalf("the open stream did not take the messages")
+	}
+	read := func() wshrpc.AgentControlMsg {
+		select {
+		case msg := <-ch:
+			if msg.Error != nil {
+				t.Fatalf("stream error: %v", msg.Error)
+			}
+			return msg.Response
+		case <-time.After(2 * time.Second):
+			t.Fatalf("nothing streamed")
+		}
+		return wshrpc.AgentControlMsg{}
+	}
+	if got := read(); got.Text != "and the tests" || !got.MidTurn || !got.Queue || got.TakeBack != "" {
+		t.Fatalf("queued text: got %+v", got)
+	}
+	if got := read(); got.TakeBack != "r1" || got.Text != "" || got.Queue {
+		t.Fatalf("take-back: got %+v", got)
+	}
+}
+
 func TestAgentControlRefusesAnORefThatIsNoBlock(t *testing.T) {
 	ch := (&WshServer{}).AgentControlCommand(context.Background(), wshrpc.CommandAgentControlData{ORef: "tab:abc"})
 	if msg := <-ch; msg.Error == nil {

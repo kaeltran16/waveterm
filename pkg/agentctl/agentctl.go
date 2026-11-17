@@ -12,11 +12,14 @@ const queueSize = 16
 
 // Msg is one thing for a session to do: run Text as a prompt, or compact with Compact as the instructions,
 // which wins when both are set. MidTurn asks for Text to join the turn the session is running, as typed
-// text would, instead of waiting for it to end.
+// text would, instead of waiting for it to end. Queue marks Text as the person's own message, which the
+// mod reports as held. TakeBack, set alone, asks the mod to hand back what it holds, naming the request.
 type Msg struct {
-	Text    string
-	Compact string
-	MidTurn bool
+	Text     string
+	Compact  string
+	MidTurn  bool
+	Queue    bool
+	TakeBack string
 }
 
 var (
