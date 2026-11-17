@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+    actionEnded,
     hold,
     isHeld,
     joinNow,
     newQueue,
     newStep,
+    nextAction,
     personsHeld,
     putBack,
     release,
@@ -136,6 +138,54 @@ describe("turnEndPlan", () => {
     it("carries the items each action sends, so a failed send can put them back", () => {
         const queue = queueOf(["a", "person"], ["b", "person"]);
         expect(turnEndPlan(queue).map((action) => texts(action.items))).toEqual([["a", "b"]]);
+    });
+});
+
+describe("nextAction", () => {
+    it("releases an action only once the one before it is taken, the rest still held and reported", () => {
+        const queue = queueOf(["a", "person"], ["b", "person"], ["/x", "person"], ["c", "person"]);
+        expect(nextAction(queue)).toMatchObject({ kind: "prompt", text: "a\nb" });
+        expect(nextAction(queue)).toBeNull();
+        expect(report(queue)).toEqual({
+            held: [
+                { id: "s1-3", text: "/x", ts: T0 + 2 },
+                { id: "s1-4", text: "c", ts: T0 + 3 },
+            ],
+            left: [
+                { id: "s1-1", how: "sent" },
+                { id: "s1-2", how: "sent" },
+            ],
+        });
+        actionEnded(queue);
+        expect(nextAction(queue)).toMatchObject({ kind: "command", text: "/x" });
+        expect(nextAction(queue)).toBeNull();
+        actionEnded(queue);
+        expect(nextAction(queue)).toMatchObject({ kind: "prompt", text: "c" });
+        actionEnded(queue);
+        expect(nextAction(queue)).toBeNull();
+    });
+
+    it("lets a take-back between two actions return only what is still held", () => {
+        const queue = queueOf(["a", "person"], ["b", "person"], ["/x", "person"], ["c", "person"]);
+        nextAction(queue);
+        expect(texts(takeBack(queue))).toEqual(["/x", "c"]);
+        actionEnded(queue);
+        expect(nextAction(queue)).toBeNull();
+    });
+
+    it("sends the rest in the order turnEndPlan would", () => {
+        const plan = turnEndPlan(queueOf(["a", "person"], ["wake: t-1", "arc"], ["/x", "person"], ["b", "person"]));
+        const queue = queueOf(["a", "person"], ["wake: t-1", "arc"], ["/x", "person"], ["b", "person"]);
+        const sent = [];
+        for (let action = nextAction(queue); action !== null; action = nextAction(queue)) {
+            sent.push(action);
+            actionEnded(queue);
+        }
+        expect(sent).toEqual(plan);
+    });
+
+    it("releases nothing when nothing is held", () => {
+        expect(nextAction(newQueue("s1"))).toBeNull();
     });
 });
 

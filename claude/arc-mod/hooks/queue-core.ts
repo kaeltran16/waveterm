@@ -15,8 +15,9 @@ export type Held = { seq: number; text: string; ts: number; id?: string };
 export type LeftHow = "sent" | "takenback";
 export type Left = { id: string; how: LeftHow };
 
-// the held texts in arrival order, and the person's items that left since the last report wavesrv took
-export type Queue = { held: Held[]; left: Left[]; seq: number; idPrefix: string };
+// the held texts in arrival order, the person's items that left since the last report wavesrv took, and whether
+// a turn-end action is out and not yet taken
+export type Queue = { held: Held[]; left: Left[]; seq: number; idPrefix: string; isOut: boolean };
 
 // what `wsh agentqueue set` reads on stdin
 export type Report = {
@@ -31,7 +32,7 @@ export type TurnEndAction = { kind: "prompt" | "command"; text: string; items: H
 // idPrefix must differ per queue (per load of the mod): a reload drops the queue, and an id reused after it
 // would read as one wavesrv already reported lost
 export function newQueue(idPrefix: string): Queue {
-    return { held: [], left: [], seq: 0, idPrefix };
+    return { held: [], left: [], seq: 0, idPrefix, isOut: false };
 }
 
 // whether a stream message waits in the queue: the person's queued text and Arc's mid-turn text, while a turn
@@ -80,6 +81,27 @@ export function turnEndPlan(queue: Queue): TurnEndAction[] {
         }
     }
     return plan;
+}
+
+// the first action of turnEndPlan, taken out of the held list, or null while the one before it is out. the engine
+// does not keep call order (a command queues at once, a prompt only after its hooks), so the turn's end sends one
+// action at a time; the rest stay held, reported and takeable, until actionEnded
+export function nextAction(queue: Queue): TurnEndAction | null {
+    if (queue.isOut) {
+        return null;
+    }
+    const [first] = turnEndPlan({ ...queue, held: [...queue.held], left: [] });
+    if (first === undefined) {
+        return null;
+    }
+    take(queue, (item) => !first.items.includes(item), "sent");
+    queue.isOut = true;
+    return first;
+}
+
+// the action out was taken (or failed and was put back): the next may go
+export function actionEnded(queue: Queue): void {
+    queue.isOut = false;
 }
 
 // the person's held items, in the order they were sent; Arc's stay held

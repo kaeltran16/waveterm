@@ -12,11 +12,13 @@ import { ALL_CATEGORIES, applyEdit, goalpostNote, goalpostRole, inspectChange, i
 import type { GoalpostFinding } from "./goalpost-core";
 import { denial } from "./guard-core";
 import {
+    actionEnded,
     hold,
     isHeld,
     joinNow,
     newQueue,
     newStep,
+    nextAction,
     personsHeld,
     putBack,
     release,
@@ -25,7 +27,6 @@ import {
     settle,
     stepEnded,
     takeBack,
-    turnEndPlan,
 } from "./queue-core";
 import type { Held } from "./queue-core";
 import {
@@ -174,10 +175,16 @@ async function joinHeld($: EngineInterface) {
     }
 }
 
-// sends what the turn left held as the next prompts, in order. after the person's Stop the engine refuses them
-// all, so the person's go back to the box (reported lost) and Arc's wait for the next turn. a send refused or
-// failed otherwise holds its texts again, still reported, so the person can take theirs back rather than lose it
+// sends what the turn left held as the next prompts, in order, one action at a time while no turn runs: the next
+// goes once the call before it resolved (a prompt's as its turn starts, so the next waits for that turn's end; a
+// command's once it ran or queued the prompt it expands to, which no later send can pass). after the person's Stop
+// the engine refuses them all, so the person's go back to the box (reported lost) and Arc's wait for the next turn.
+// a send refused or failed otherwise holds its texts again, still reported, so the person can take theirs back
+// rather than lose it; those and the rest wait for the next turn's end
 function sendHeld($: EngineInterface) {
+    if (isTurnOpen) {
+        return;
+    }
     if (isStopping) {
         const persons = personsHeld(queue);
         if (persons.length > 0) {
@@ -186,17 +193,28 @@ function sendHeld($: EngineInterface) {
         }
         return;
     }
-    const plan = turnEndPlan(queue);
-    const session = sessionOf($);
-    for (const action of plan) {
-        const sent = action.kind === "command" ? deliver(session, { text: action.text }) : session.submit(action.text);
-        void entered(sent).catch((err) => {
-            $.ui.log(`arc: sending a held mid-turn text failed: ${String(err)}`, { to: "debug" });
-            putBack(queue, action.items);
-            reportQueue($);
-        });
+    const sending = queue;
+    const action = nextAction(sending);
+    if (action === null) {
+        return;
     }
-    if (plan.some((action) => action.items.some((item) => item.id !== undefined))) {
+    const session = sessionOf($);
+    const sent = action.kind === "command" ? deliver(session, { text: action.text }) : session.submit(action.text);
+    void entered(sent).then(
+        () => {
+            actionEnded(sending);
+            if (sending === queue) {
+                sendHeld($);
+            }
+        },
+        (err) => {
+            $.ui.log(`arc: sending a held mid-turn text failed: ${String(err)}`, { to: "debug" });
+            putBack(sending, action.items);
+            actionEnded(sending);
+            reportQueue($);
+        }
+    );
+    if (action.items.some((item) => item.id !== undefined)) {
         reportQueue($);
     }
 }
@@ -221,7 +239,8 @@ async function onControl($: EngineInterface, session: Session, line: string) {
         reportQueue($, { request: msg.takeBack, items: takeBack(queue) });
         return;
     }
-    if (isHeld(msg, isTurnOpen)) {
+    // a text that arrives while the turn's end is still sending waits behind what it sends
+    if (isHeld(msg, isTurnOpen || queue.isOut)) {
         const isPerson = "queue" in msg && msg.queue === true;
         hold(queue, msg.text, isPerson, await $.clock.now());
         if (isPerson) {
