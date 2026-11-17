@@ -95,11 +95,27 @@ func parsePermissionRequest(raw []byte) (wshrpc.CommandAgentPermissionData, erro
 // PermissionRequest and the PostToolUse of the same call agree. It is computed only here: the server
 // compares keys and never recomputes one.
 func toolKey(name string, input json.RawMessage) string {
+	if name == "AskUserQuestion" {
+		input = askQuestionsOnly(input)
+	}
 	h := sha256.New()
 	h.Write([]byte(name))
 	h.Write([]byte{0})
 	h.Write(canonicalJSON(input))
 	return hex.EncodeToString(h.Sum(nil))[:toolKeyHexLen]
+}
+
+// askQuestionsOnly keeps a question call's questions: claude adds the answers and annotations to the input once the
+// dialog is answered, so the PostToolUse would never match the PermissionRequest raised before it. Input without
+// questions is used as it came.
+func askQuestionsOnly(input json.RawMessage) json.RawMessage {
+	var in struct {
+		Questions json.RawMessage `json:"questions"`
+	}
+	if json.Unmarshal(input, &in) != nil || len(in.Questions) == 0 {
+		return input
+	}
+	return in.Questions
 }
 
 // canonicalJSON re-encodes input with object keys sorted (encoding/json orders map keys). Numbers stay

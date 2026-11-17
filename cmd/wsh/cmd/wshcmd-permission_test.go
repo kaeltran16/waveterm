@@ -77,6 +77,26 @@ func TestParsePermissionRequest(t *testing.T) {
 	}
 }
 
+// claude raises a permission request for its question dialog, then reports the answered call's PostToolUse with
+// answers and annotations added to the input; the keys must still agree, or the request outlives the question
+// and the cockpit shows "Allow AskUserQuestion?" once the ask card goes
+func TestAskUserQuestionKeySurvivesAnswers(t *testing.T) {
+	questions := `{"questions":[{"question":"Proceed?","header":"Go","options":[{"label":"Yes"},{"label":"No"}],"multiSelect":false}]}`
+	req, err := parsePermissionRequest([]byte(`{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":` + questions + `}`))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	answered := `{"questions":[{"question":"Proceed?","header":"Go","options":[{"label":"Yes"},{"label":"No"}],"multiSelect":false}],"answers":{"Proceed?":"Yes"},"annotations":{}}`
+	_, postKey := hookStatusIdentity(ccHookEvent{HookEventName: "PostToolUse", ToolName: "AskUserQuestion", ToolInput: json.RawMessage(answered)})
+	if postKey != req.ToolKey {
+		t.Fatalf("PostToolUse key %q != PermissionRequest key %q", postKey, req.ToolKey)
+	}
+	other := `{"questions":[{"question":"Stop?","header":"Go","options":[{"label":"Yes"}],"multiSelect":false}]}`
+	if toolKey("AskUserQuestion", json.RawMessage(other)) == req.ToolKey {
+		t.Fatal("another question gave the same key")
+	}
+}
+
 func TestParsePermissionRequestRejectsBadPayloads(t *testing.T) {
 	for _, body := range []string{``, `not json`, `{"tool_input":{"command":"ls"}}`, `{"tool_name":""}`} {
 		if _, err := parsePermissionRequest([]byte(body)); err == nil {
