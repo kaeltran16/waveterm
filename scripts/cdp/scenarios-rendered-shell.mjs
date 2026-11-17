@@ -39,8 +39,9 @@ const LAST_PROMPT = "Run node test.js, find why it fails, fix src/retry.js and r
 const LONG_REPLY = Array.from({ length: 40 }, (_, i) => `- finding ${i + 1}: the first retry waits 0 ms because i starts at 0.`).join("\n");
 const RUN_CMD = "node test.js";
 const TURN_MS = 24_000;
-const SPINNER_VERB = "✻ Cogitating…";
-const SPINNER_ROW = `${SPINNER_VERB} (24s · ↓ 1.8k tokens · esc to interrupt)`;
+// the line draws the verb alone; the glyph is the line's own, cycling
+const SPINNER_VERB = "Cogitating…";
+const SPINNER_ROW = `✻ ${SPINNER_VERB} (24s · ↓ 1.8k tokens · esc to interrupt)`;
 const TOKENS = "↓ 1.8k tokens";
 // the Read and the running Bash after the last prompt
 const TURN_TOOLS = 2;

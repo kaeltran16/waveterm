@@ -179,15 +179,16 @@ async function workingLineSteps(h, rec) {
 
         // each 1s tick samples claude's cycling glyph at a different frame: only the verb may swap the copy
         const gw = watchAdded((n) => (host.contains(n) && n.matches("[data-crossfade]") ? n : null));
-        const glyphEl = () => host.querySelector("[data-working-verb] .pulse-soft");
-        const breath = sampleFrames(() => opacity(glyphEl()));
+        const frames = sampleFrames(() => host.querySelector("[data-working-glyph]")?.textContent ?? null);
+        const shimmer = sampleFrames(() => host.querySelector("[data-working-line]")?.style.getPropertyValue("--shimmer") || null);
         for (const g of ["✢", "✳", "✶", "·"]) {
             host.render({ line: working("Pondering…", g) });
             await nap(250);
         }
-        breath.stop();
+        frames.stop();
+        shimmer.stop();
         gw.stop();
-        const glyphTicks = { swaps: gw.seen.length, verb: verbOf(), breath: breath.values.length };
+        const glyphTicks = { swaps: gw.seen.length, verb: verbOf(), frames: frames.values.length, shimmer: shimmer.values.length };
 
         unmountAll();
         host = await mount("app/view/agents/nowlineview.tsx", "LiveWorkingLine", live("working"), { style: ${JSON.stringify(MOUNT_STYLE)} });
@@ -204,12 +205,16 @@ async function workingLineSteps(h, rec) {
     );
     rec(
         "6. working line: the spinner's verb changing cross-fades the new verb in",
-        crossFaded(r?.verbSwap) && r.verbSwap.verb === "✻ Pondering…",
+        crossFaded(r?.verbSwap) && r.verbSwap.verb === "Pondering…",
         JSON.stringify(r?.verbSwap ?? r)
     );
     rec(
-        "6b. working line: a new spinner glyph with the same verb swaps nothing, and the drawn glyph keeps breathing",
-        r?.glyphTicks != null && r.glyphTicks.swaps === 0 && r.glyphTicks.verb === "✻ Pondering…" && r.glyphTicks.breath >= 3,
+        "6b. working line: a new spinner glyph with the same verb swaps nothing, while the drawn glyph cycles and the shimmer sweeps the verb",
+        r?.glyphTicks != null &&
+            r.glyphTicks.swaps === 0 &&
+            r.glyphTicks.verb === "Pondering…" &&
+            r.glyphTicks.frames >= 3 &&
+            r.glyphTicks.shimmer >= 3,
         JSON.stringify(r?.glyphTicks ?? r)
     );
     rec(

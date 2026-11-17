@@ -3,7 +3,17 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentEntry, AgentState } from "./agentsviewmodel";
-import { nowLineState, nowLineText, summarizeTurn, TURN_SKEW_MS, type NowLine } from "./nowline";
+import {
+    nowLineState,
+    nowLineText,
+    SHIMMER_HALF_CH,
+    shimmerCenter,
+    SPINNER_FRAMES,
+    spinnerGlyph,
+    summarizeTurn,
+    TURN_SKEW_MS,
+    type NowLine,
+} from "./nowline";
 import { fmtDuration } from "./runcompletion";
 import type { SpinnerRead } from "./spinnerrow";
 
@@ -153,5 +163,26 @@ describe("nowLineText", () => {
 
     it("hidden has no copy", () => {
         expect(nowLineText({ kind: "hidden" })).toEqual({ verb: null, rest: "" });
+    });
+});
+
+describe("spinnerGlyph", () => {
+    it("plays the frames forward then back, each end once per bounce", () => {
+        const n = SPINNER_FRAMES.length;
+        const seq = Array.from({ length: 2 * (2 * n - 2) }, (_, t) => spinnerGlyph(t));
+        const bounce = [...SPINNER_FRAMES, ...SPINNER_FRAMES.slice(1, -1).reverse()];
+        expect(seq).toEqual([...bounce, ...bounce]);
+    });
+});
+
+describe("shimmerCenter", () => {
+    it("moves one character a frame from before the verb to past it, then restarts", () => {
+        const len = 10;
+        const span = len + 2 * SHIMMER_HALF_CH;
+        const seq = Array.from({ length: span }, (_, t) => shimmerCenter(t, len));
+        expect(seq[0]).toBe(-SHIMMER_HALF_CH);
+        expect(seq.at(-1)).toBe(len + SHIMMER_HALF_CH - 1);
+        expect(seq.every((c, i) => i === 0 || c - seq[i - 1] === 1)).toBe(true);
+        expect(shimmerCenter(span, len)).toBe(-SHIMMER_HALF_CH);
     });
 });

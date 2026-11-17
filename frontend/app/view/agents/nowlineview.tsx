@@ -11,22 +11,65 @@ import { screenRows } from "@/app/view/term/termscreen";
 import { cn } from "@/util/util";
 import { useAtomValue, type Atom } from "jotai";
 import { motion } from "motion/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, type CSSProperties } from "react";
 import type { AgentEntry, AgentState, AgentVM } from "./agentsviewmodel";
-import { nowLineState, nowLineText, type NowLine } from "./nowline";
+import {
+    nowLineState,
+    nowLineText,
+    SHIMMER_HALF_CH,
+    shimmerCenter,
+    SPINNER_FRAMES,
+    spinnerGlyph,
+    type NowLine,
+} from "./nowline";
 import { getAgentPermissionsAtom } from "./permissionstore";
 import { getLastHookAtom } from "./session-models/agentstatusstore";
 import { parseSpinner } from "./spinnerrow";
 
-const SPINNER_GLYPH = "✻";
+// claude's own spinner pace; a timer at this rate, not an infinite css animation, which holds the page at display rate
+const SPINNER_FRAME_MS = 120;
+// the glyph shown before the first frame and under reduced motion; the cycle continues from it
+const REST_GLYPH = "✻";
+// the shimmer's position in characters, set per frame; the far-off fallback leaves the verb unlit before the first
+const SHIMMER_AT = "var(--shimmer, -99)";
+const SHIMMER_STYLE: CSSProperties = {
+    backgroundImage: `linear-gradient(90deg,
+        var(--color-provider-claude) calc((${SHIMMER_AT} + 0.5 - ${SHIMMER_HALF_CH}) * 1ch),
+        color-mix(in oklab, var(--color-provider-claude) 35%, var(--color-primary)) calc((${SHIMMER_AT} + 0.5) * 1ch),
+        var(--color-provider-claude) calc((${SHIMMER_AT} + 0.5 + ${SHIMMER_HALF_CH}) * 1ch))`,
+};
+
+/** Cycles the glyph and sweeps the shimmer by writing the DOM directly, so a frame re-renders nothing. Still under
+ *  reduced motion, and with no verb to draw. */
+function useSpinnerFrames(verbLength: number | null) {
+    const lineRef = useRef<HTMLDivElement>(null);
+    const glyphRef = useRef<HTMLSpanElement>(null);
+    useEffect(() => {
+        if (verbLength == null || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            return;
+        }
+        let tick = SPINNER_FRAMES.indexOf(REST_GLYPH);
+        const timer = setInterval(() => {
+            tick++;
+            if (glyphRef.current != null) {
+                glyphRef.current.textContent = spinnerGlyph(tick);
+            }
+            lineRef.current?.style.setProperty("--shimmer", String(shimmerCenter(tick, verbLength)));
+        }, SPINNER_FRAME_MS);
+        return () => clearInterval(timer);
+    }, [verbLength]);
+    return { lineRef, glyphRef };
+}
 
 export function WorkingLine({ line, compact = false }: { line: NowLine; compact?: boolean }) {
+    const { verb, rest } = nowLineText(line, compact);
+    const { lineRef, glyphRef } = useSpinnerFrames(verb?.length ?? null);
     if (line.kind === "hidden") {
         return null;
     }
-    const { verb, rest } = nowLineText(line, compact);
     return (
         <motion.div
+            ref={lineRef}
             data-working-line
             data-compact={compact || undefined}
             variants={microFade}
@@ -38,16 +81,23 @@ export function WorkingLine({ line, compact = false }: { line: NowLine; compact?
             )}
         >
             {verb != null ? (
-                // claude cycles the verb while it works; each new one cross-fades in
-                <CrossFade swapKey={verb} className="shrink-0">
-                    <span
-                        data-working-verb
-                        className={cn("font-mono text-provider-claude", compact ? "text-[11.5px]" : "text-[12.5px]")}
-                    >
-                        {/* a steady breathing glyph (pulse driver, 12fps) stands in for claude's cycling one */}
-                        <span className="pulse-soft">{SPINNER_GLYPH}</span> {verb}
+                <span
+                    className={cn(
+                        "flex shrink-0 items-center gap-[1ch] font-mono",
+                        compact ? "text-[11.5px]" : "text-[12.5px]"
+                    )}
+                >
+                    {/* outside the cross-fade, so a verb change does not restart the glyph's cycle */}
+                    <span ref={glyphRef} data-working-glyph className="text-provider-claude">
+                        {REST_GLYPH}
                     </span>
-                </CrossFade>
+                    {/* claude cycles the verb while it works; each new one cross-fades in */}
+                    <CrossFade swapKey={verb}>
+                        <span data-working-verb className="bg-clip-text text-transparent" style={SHIMMER_STYLE}>
+                            {verb}
+                        </span>
+                    </CrossFade>
+                </span>
             ) : null}
             <span data-working-facts className="min-w-0 truncate">
                 {rest}

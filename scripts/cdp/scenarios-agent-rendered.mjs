@@ -78,7 +78,8 @@ const NOW_REPLY = "The jarvis tests pass now.";
 const NOW_TURN_MS = 3 * 60_000;
 const NOW_CALL_MS = 42_000;
 const NOW_END_MS = 5_000;
-const SPINNER_VERB = "✻ Undulating…";
+// the line draws the verb alone; the glyph is the line's own, cycling
+const SPINNER_VERB = "Undulating…";
 const SPINNER_DETAIL = "(3m 10s · ↓ 4.5k tokens · thinking with high effort)";
 const SPINNER_TOKENS = "↓ 4.5k tokens";
 const iso = (ms) => new Date(ms).toISOString();
@@ -1592,7 +1593,7 @@ export default function (_kit) {
                         `const { termForBlock } = await mod("app/view/term/termscreen.ts");
                         const t = termForBlock(${JSON.stringify(ctx.aBlock)});
                         if (!t?.write) return false;
-                        t.write(${JSON.stringify(`\r\n${SPINNER_VERB} ${SPINNER_DETAIL}`)});
+                        t.write(${JSON.stringify(`\r\n✻ ${SPINNER_VERB} ${SPINNER_DETAIL}`)});
                         return true;`
                     );
                     const { met, line } = await waitLine(`n.verb === ${JSON.stringify(SPINNER_VERB)}`);

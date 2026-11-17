@@ -14,6 +14,10 @@ import type { SpinnerRead } from "./spinnerrow";
 export const TURN_SKEW_MS = 2000;
 const SUBMIT_HOOK = "UserPromptSubmit";
 const SEP = " · ";
+// claude's spinner frames, which its terminal spinner plays forward then back
+export const SPINNER_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽"];
+// the shimmer's half-width in characters; a sweep starts and ends this far outside the verb so it enters and leaves
+export const SHIMMER_HALF_CH = 2;
 
 export interface TurnSummary {
     startTs?: number;
@@ -86,6 +90,20 @@ export function nowLineState(input: {
         line.tokens = spinner.tokens;
     }
     return line;
+}
+
+/** The drawn glyph `tick` frames in: the frames forward then back, each end shown once per bounce. */
+export function spinnerGlyph(tick: number): string {
+    const n = SPINNER_FRAMES.length;
+    const period = 2 * n - 2;
+    const i = tick % period;
+    return SPINNER_FRAMES[i < n ? i : period - i];
+}
+
+/** The shimmer's centre `tick` frames in, in characters from the verb's start: one character a frame, from just
+ *  before the verb to just past it, then over again. */
+export function shimmerCenter(tick: number, verbLength: number): number {
+    return (tick % (verbLength + 2 * SHIMMER_HALF_CH)) - SHIMMER_HALF_CH;
 }
 
 function toolCount(n: number): string {
