@@ -109,7 +109,7 @@ import {
 import type { WorkingTurn } from "./brainstormworking";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN, CanvasPane, EdgeState, EXPLAINER } from "./canvaspane";
 
-const NO_RUN: Atom<Run | undefined> = atom(undefined as Run | undefined);
+export const NO_RUN: Atom<Run | undefined> = atom(undefined as Run | undefined);
 
 const PART_DOT: Record<PartView, string> = {
     yours: DOT_YOURS,
@@ -533,7 +533,7 @@ function DesignMain({
 
 // how long this machine's past builder checks took; null until read, or when they could not be. Read again for each
 // check (key, its run), so the one before it counts
-function useCheckTimes(key: string | undefined): BrainstormCheckTimes | null {
+export function useCheckTimes(key: string | undefined): BrainstormCheckTimes | null {
     const [times, setTimes] = useState<BrainstormCheckTimes | null>(null);
     useEffect(() => {
         let live = true;
