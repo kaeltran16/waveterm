@@ -54,12 +54,20 @@ func Push(ctx context.Context, cwd string) (*PushResult, error) {
 	if err != nil || strings.TrimSpace(inside) != "true" {
 		return &PushResult{IsRepo: false}, nil
 	}
-	branch, err := run(ctx, cwd, "symbolic-ref", "--quiet", "--short", "HEAD")
+	branchArgs := []string{"symbolic-ref", "--quiet", "--short", "HEAD"}
+	branch, err := run(ctx, cwd, branchArgs...)
 	if err != nil {
+		if gitFault(ctx, err) {
+			return nil, describeGitError(branchArgs, err)
+		}
 		return &PushResult{IsRepo: true, Failure: &GitFailure{Command: "git push", ExitCode: -1, Stderr: detachedPushMessage}}, nil
 	}
 	args := []string{"push"}
-	if _, err := run(ctx, cwd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err != nil {
+	upArgs := []string{"rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"}
+	if _, err := run(ctx, cwd, upArgs...); err != nil {
+		if gitFault(ctx, err) {
+			return nil, describeGitError(upArgs, err)
+		}
 		args = []string{"push", "-u", publishRemote, strings.TrimSpace(branch)}
 	}
 	if _, err := runNetwork(ctx, cwd, args...); err != nil {
@@ -89,11 +97,11 @@ func RemoteStatus(ctx context.Context, cwd string) (*RemoteFacts, error) {
 	upArgs := []string{"rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"}
 	up, err := run(ctx, cwd, upArgs...)
 	if err != nil {
-		// git exiting non-zero is "no upstream" (or detached), a normal state; anything else is a fault
-		if exitCodeOf(err) > 0 {
-			return facts, nil
+		// git exiting non-zero is "no upstream" (or detached), a normal state; a fault is an error
+		if gitFault(ctx, err) {
+			return nil, describeGitError(upArgs, err)
 		}
-		return nil, describeGitError(upArgs, err)
+		return facts, nil
 	}
 	countArgs := []string{"rev-list", "--left-right", "--count", "@{u}...HEAD"}
 	out, err := run(ctx, cwd, countArgs...)
