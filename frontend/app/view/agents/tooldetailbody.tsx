@@ -6,18 +6,11 @@ import { cn } from "@/util/util";
 import { Ban, Check, Ellipsis, X } from "lucide-react";
 import type { ActionDetail, DiffLine } from "./agentsviewmodel";
 import { highlightLine } from "./highlight";
+import { groupGrepMatches, isCodePath, newFileLines, parseLineGutter, type GutterLine } from "./tooldetailmodel";
 
 // inline panels wrap long lines so a narrow card never scrolls sideways; the modal has room, so it keeps them unwrapped
 function lineWrap(variant: "inline" | "modal"): string {
     return variant === "inline" ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "whitespace-pre";
-}
-
-// a failure's code only: exit 0 is the normal case, and null means the command never ran
-function ExitChip({ exit }: { exit: number | null }) {
-    if (!exit) {
-        return null;
-    }
-    return <span className="rounded-[4px] bg-error/15 px-1.5 py-px font-mono text-[11px] text-error">exit {exit}</span>;
 }
 
 // pending: the call has no result yet (running, or waiting on a permission prompt), so it claims neither outcome
@@ -107,6 +100,72 @@ function HighlightedCode({ text }: { text: string }) {
     );
 }
 
+// a path cut from the left, so its file name stays visible; bdi keeps the path's own order under the rtl direction
+function PanelPath({ path, className }: { path: string; className?: string }) {
+    return (
+        <span data-panel-path dir="rtl" className={cn("min-w-0 flex-1 truncate text-left", className)}>
+            <bdi dir="ltr">{path}</bdi>
+        </span>
+    );
+}
+
+// a file's lines with their numbers in a muted gutter of their own, so a wrapped line hangs under its text; plain
+// text for a file the tokenizer would misread as code, and a grep line's matches marked
+function FileLines({
+    lines,
+    code,
+    wrap,
+}: {
+    lines: (GutterLine & { ranges?: [number, number][] })[];
+    code: boolean;
+    wrap: string;
+}) {
+    const widest = lines.reduce((n, l) => Math.max(n, String(l.no ?? "").length), 0);
+    return (
+        <>
+            {lines.map((l, i) => (
+                <div key={i} data-file-line className="flex gap-3">
+                    {widest > 0 ? (
+                        <span
+                            data-line-no
+                            className="shrink-0 select-none text-right text-ink-faint"
+                            style={{ minWidth: `${widest}ch` }}
+                        >
+                            {l.no}
+                        </span>
+                    ) : null}
+                    <span data-line-text className={cn("min-w-0", wrap, !code && "text-secondary")}>
+                        {l.ranges ? (
+                            <MarkedLine code={l.text} ranges={l.ranges} />
+                        ) : code ? (
+                            <HighlightedCode text={l.text} />
+                        ) : (
+                            l.text || " "
+                        )}
+                    </span>
+                </div>
+            ))}
+        </>
+    );
+}
+
+// a grep line with its matches marked
+function MarkedLine({ code, ranges }: { code: string; ranges: [number, number][] }) {
+    const parts: React.ReactNode[] = [];
+    let at = 0;
+    ranges.forEach(([start, end], k) => {
+        parts.push(code.slice(at, start));
+        parts.push(
+            <mark key={k} data-grep-hit className="rounded-[3px] bg-accent/20 text-primary">
+                {code.slice(start, end)}
+            </mark>
+        );
+        at = end;
+    });
+    parts.push(code.slice(at));
+    return <>{parts}</>;
+}
+
 // one diff line: a 3px edge and a tint mark the side, the gutter holds the line's number (the new side's, a removed
 // line's old one), or its sign when the diff carries no numbers
 function DiffRow({ line, numbered, wrap }: { line: DiffLine; numbered: boolean; wrap: string }) {
@@ -140,29 +199,46 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
     const pad = modal ? "px-4 py-3" : "px-3 py-2";
     const wrap = lineWrap(variant);
     if (detail.kind === "grep") {
+        // one header per file, its lines numbered under it; inline wraps, the modal shows each line whole
+        const groups = groupGrepMatches(detail.matches, detail.pattern, detail.ignoreCase);
         return (
-            <div className={pad}>
-                {detail.matches.map((g, i) => (
-                    <div key={i} className="flex gap-3 whitespace-pre font-mono text-[11.5px] leading-[1.7]">
-                        <span className="shrink-0 text-muted">{g.loc}</span>
-                        <span className="min-w-0 flex-1 truncate text-secondary">{g.code}</span>
+            <div className={cn("flex flex-col", modal && "overflow-x-auto")}>
+                {groups.map((g, i) => (
+                    <div
+                        key={i}
+                        data-grep-group
+                        className={cn("border-b border-edge-faint last:border-b-0", modal && "min-w-min")}
+                    >
+                        {g.file ? (
+                            <div
+                                data-grep-file
+                                className="flex border-b border-edge-faint px-3 py-1.5 font-mono text-[11.5px] text-ink-mid"
+                            >
+                                <PanelPath path={g.file} />
+                            </div>
+                        ) : null}
+                        <div className={cn(pad, "font-mono text-[11.5px] leading-[1.7]")}>
+                            <FileLines
+                                lines={g.lines.map((l) => ({ no: l.line, text: l.code, ranges: l.ranges }))}
+                                code={false}
+                                wrap={wrap}
+                            />
+                        </div>
                     </div>
                 ))}
-                {detail.more ? <div className={cn("pt-1.5", MONO_FAINT)}>{detail.more}</div> : null}
+                {detail.more ? <div className={cn(pad, MONO_FAINT)}>{detail.more}</div> : null}
             </div>
         );
     }
     if (detail.kind === "read") {
         // syntax-highlight the file body with the feed's lightweight tokenizer (same one CodeBlock uses).
-        // Kept off shiki deliberately — the feed is on the cockpit boot path.
+        // Kept off shiki deliberately — the feed is on the cockpit boot path. No path (a Glob, an older record):
+        // highlighted, as before.
+        const lines = parseLineGutter(detail.snippet) ?? detail.snippet.split("\n").map((text) => ({ text }));
         return (
             <div className={cn(pad, modal && "overflow-x-auto")}>
                 <div className={cn("font-mono text-[11.5px] leading-[1.7]", modal && "min-w-min")}>
-                    {detail.snippet.split("\n").map((ln, i) => (
-                        <div key={i} className={wrap}>
-                            <HighlightedCode text={ln} />
-                        </div>
-                    ))}
+                    <FileLines lines={lines} code={detail.path == null || isCodePath(detail.path)} wrap={wrap} />
                 </div>
             </div>
         );
@@ -188,12 +264,6 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                     >
                         {detail.output}
                     </pre>
-                ) : null}
-                {/* inline, the step row's own exit chip already names a failure */}
-                {modal && detail.exit ? (
-                    <div className="mt-2 flex items-center gap-2">
-                        <ExitChip exit={detail.exit} />
-                    </div>
                 ) : null}
             </div>
         );
@@ -234,40 +304,50 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
             </div>
         );
     }
-    // edit: per file, a header (path, "new" for an added file, +a −d) over its lines
+    // edit: per file, a header (path, "new" for an added file, +a −d) over its lines; an added file is all one green
+    // wall as a diff, so it previews as the file itself
     return (
         <div className="flex flex-col">
             {detail.files.map((f, i) => {
                 const numbered = f.lines.some((l) => l.oldNo != null || l.newNo != null);
+                const added = f.badge === "A";
                 return (
                     <div key={i} data-diff-file className="border-b border-edge-faint last:border-b-0">
                         <div className="flex items-center gap-2 border-b border-edge-faint px-3 py-1.5 font-mono text-[11.5px]">
-                            <span className="min-w-0 flex-1 truncate text-ink-mid">{f.path}</span>
-                            {f.badge === "A" ? <span className="shrink-0 text-success">new</span> : null}
+                            <PanelPath path={f.path} className="text-ink-mid" />
+                            {added ? <span className="shrink-0 text-success">new</span> : null}
                             <span className={cn("shrink-0", f.adds > 0 ? "text-diff-added" : "text-muted")}>+{f.adds}</span>
                             <span className={cn("shrink-0", f.dels > 0 ? "text-diff-removed" : "text-muted")}>−{f.dels}</span>
                         </div>
-                        <div className={cn("py-2", modal && "overflow-x-auto")}>
-                            <div className={modal ? "min-w-min" : undefined}>
-                                {f.lines.map((l, k) =>
-                                    l.hunk ? (
-                                        <div
-                                            key={k}
-                                            data-diff-hunk
-                                            className={cn(
-                                                "bg-accent/[0.06] pl-[13px] pr-3.5 font-mono text-[11.5px] leading-[1.7] text-muted",
-                                                wrap,
-                                                k > 0 && "mt-1"
-                                            )}
-                                        >
-                                            {l.text}
-                                        </div>
-                                    ) : (
-                                        <DiffRow key={k} line={l} numbered={numbered} wrap={wrap} />
-                                    )
-                                )}
+                        {added ? (
+                            <div data-file-preview className={cn("px-3 py-2", modal && "overflow-x-auto")}>
+                                <div className={cn("font-mono text-[11.5px] leading-[1.7]", modal && "min-w-min")}>
+                                    <FileLines lines={newFileLines(f)} code={isCodePath(f.path)} wrap={wrap} />
+                                </div>
                             </div>
-                        </div>
+                        ) : (
+                            <div className={cn("py-2", modal && "overflow-x-auto")}>
+                                <div className={modal ? "min-w-min" : undefined}>
+                                    {f.lines.map((l, k) =>
+                                        l.hunk ? (
+                                            <div
+                                                key={k}
+                                                data-diff-hunk
+                                                className={cn(
+                                                    "bg-accent/[0.06] pl-[13px] pr-3.5 font-mono text-[11.5px] leading-[1.7] text-muted",
+                                                    wrap,
+                                                    k > 0 && "mt-1"
+                                                )}
+                                            >
+                                                {l.text}
+                                            </div>
+                                        ) : (
+                                            <DiffRow key={k} line={l} numbered={numbered} wrap={wrap} />
+                                        )
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 );
             })}

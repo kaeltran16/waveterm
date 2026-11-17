@@ -144,11 +144,283 @@ const INSIGHT = `(() => {
     return is ? [is.borderTopWidth, is.borderRightWidth, is.borderBottomWidth, is.borderLeftWidth] : null;
 })()`;
 
-async function show(h, width) {
+// the tool panels (spec 2026-11-17 transcript renderer fix round 2, #14-#17 and decision 47), one call of each kind
+const DEEP_PATH = "frontend/app/view/agents/" + "nested/".repeat(8) + "tooldetailbody.tsx";
+const GREP_LONG = "    const retryBudget = computeRetryBudget(attempts, " + "options.backoff, ".repeat(14) + "jitter);";
+const READ_LONG = "// " + "the retry budget counts every attempt, the first one included, ".repeat(5);
+const GREP_TARGET = "retryBudget src/";
+const PANEL_ENTRIES = [
+    { kind: "user", text: "check the retry budget" },
+    {
+        kind: "action",
+        verb: "edited",
+        target: DEEP_PATH,
+        outcome: "ok",
+        detail: {
+            kind: "edit",
+            files: [{ path: DEEP_PATH, badge: "M", adds: 1, dels: 1, lines: [{ sign: "-", text: "a" }, { sign: "+", text: "b" }] }],
+        },
+    },
+    {
+        kind: "action",
+        verb: "grep",
+        target: GREP_TARGET,
+        outcome: "ok",
+        summary: "3 matches",
+        detail: {
+            kind: "grep",
+            pattern: "retryBudget",
+            matches: [
+                { loc: "src/retry.ts:12", code: GREP_LONG },
+                { loc: "src/retry.ts:40", code: "return retryBudget > 0;" },
+                { loc: "src/client.ts:7", code: "import { retryBudget } from './retry';" },
+            ],
+        },
+    },
+    {
+        kind: "action",
+        verb: "read",
+        target: "src/retry.ts",
+        outcome: "ok",
+        detail: {
+            kind: "read",
+            path: "src/retry.ts",
+            snippet: `     1\timport { backoff } from './backoff';\n     2\t${READ_LONG}\n     3\texport const max = 3;`,
+        },
+    },
+    {
+        kind: "action",
+        verb: "wrote",
+        target: "src/jitter.ts",
+        outcome: "ok",
+        detail: {
+            kind: "edit",
+            files: [
+                {
+                    path: "src/jitter.ts",
+                    badge: "A",
+                    adds: 3,
+                    dels: 0,
+                    lines: [
+                        { sign: "+", text: "export function jitter(ms: number) {" },
+                        { sign: "+", text: "    return ms * Math.random();" },
+                        { sign: "+", text: "}" },
+                    ],
+                },
+            ],
+        },
+    },
+    {
+        kind: "action",
+        verb: "edited",
+        target: "src/missing.ts",
+        outcome: "fail",
+        error: "File has not been read yet. Read it first before writing to it.",
+        detail: {
+            kind: "edit",
+            files: [{ path: "src/missing.ts", badge: "M", adds: 1, dels: 1, lines: [{ sign: "-", text: "x" }, { sign: "+", text: "y" }] }],
+        },
+    },
+    { kind: "message", text: "The budget counts the first attempt." },
+];
+
+// opens the step row whose text includes `text`
+const openStep = (text) => `(() => {
+    const step = [...${ROOT}.querySelectorAll('[data-step]')].find((s) => s.textContent.includes(${JSON.stringify(text)}));
+    const btn = step?.querySelector('button[aria-expanded]');
+    if (!btn) return false;
+    if (btn.getAttribute('aria-expanded') !== 'true') btn.click();
+    return true;
+})()`;
+// the open panel whose text includes `text`, as a JS expression
+const panelWith = (text) => `[...${ROOT}.querySelectorAll('[data-tool-panel]')].find((p) => p.textContent.includes(${JSON.stringify(text)}))`;
+// the feed scrolls inside its modal, so a later panel is out of frame until brought in
+async function shotPanel(h, text, file) {
+    await h.ev(`${panelWith(text)}?.scrollIntoView({ block: "center" })`);
+    await sleep(200);
+    await h.shot(file);
+}
+// the open tool detail modal: the one whose head is not inside the fixture
+const MODAL_HEAD = `document.querySelector('[data-tool-modal-head]')`;
+
+async function panelSteps(h) {
+    const steps = [];
+    await show(h, 360, PANEL_ENTRIES);
+    await h.ev(OPEN_FOLDS);
+    await sleep(600);
+    const openedEdit = await h.ev(openStep(DEEP_PATH));
+    await sleep(600);
+    const edit = await h.ev(`(() => {
+        const span = ${panelWith(DEEP_PATH)}?.querySelector('[data-panel-path]');
+        const bdi = span?.querySelector('bdi');
+        if (!span || !bdi) return null;
+        const r = document.createRange();
+        r.setStart(bdi.firstChild, bdi.textContent.length - 1);
+        r.setEnd(bdi.firstChild, bdi.textContent.length);
+        const last = r.getBoundingClientRect();
+        const first = (() => { r.setStart(bdi.firstChild, 0); r.setEnd(bdi.firstChild, 1); return r.getBoundingClientRect(); })();
+        const box = span.getBoundingClientRect();
+        return { cut: bdi.getBoundingClientRect().width > box.width, lastIn: last.right <= box.right + 1 && last.left >= box.left - 1, firstOut: first.right <= box.left + 1 };
+    })()`);
+    steps.push({
+        step: "[360] an Edit panel header cut from the left ends with the file name",
+        ok: openedEdit === true && edit?.cut === true && edit.lastIn === true && edit.firstOut === true,
+        detail: JSON.stringify(edit),
+    });
+    await h.shot("cdp-shots/narration-feed-panel-path.png");
+
+    await show(h, 640, PANEL_ENTRIES);
+    await h.ev(OPEN_FOLDS);
+    await sleep(600);
+    const openedGrep = await h.ev(openStep(GREP_TARGET));
+    await sleep(600);
+    const grep = await h.ev(`(() => {
+        const p = ${panelWith("src/client.ts")};
+        if (!p) return null;
+        return {
+            files: [...p.querySelectorAll('[data-grep-file]')].map((f) => f.textContent),
+            lines: [...p.querySelectorAll('[data-grep-group]')].map((g) => g.querySelectorAll('[data-file-line]').length),
+            hits: [...p.querySelectorAll('[data-grep-hit]')].map((m) => m.textContent),
+            locs: /src\\/retry\\.ts:\\d/.test(p.textContent),
+        };
+    })()`);
+    steps.push({
+        step: "[640] a grep panel shows one header per file over its lines, each match marked",
+        ok:
+            openedGrep === true &&
+            JSON.stringify(grep?.files) === JSON.stringify(["src/retry.ts", "src/client.ts"]) &&
+            JSON.stringify(grep.lines) === JSON.stringify([2, 1]) &&
+            grep.hits.length === 3 &&
+            grep.hits.every((t) => t === "retryBudget") &&
+            grep.locs === false,
+        detail: JSON.stringify(grep),
+    });
+    await shotPanel(h, "src/client.ts", "cdp-shots/narration-feed-grep.png");
+
+    const openedRead = await h.ev(openStep("Read src/retry.ts"));
+    await sleep(600);
+    const read = await h.ev(`(() => {
+        const p = ${panelWith("export const max")};
+        if (!p) return null;
+        const rows = [...p.querySelectorAll('[data-file-line]')];
+        const long = rows[1];
+        const no = long?.querySelector('[data-line-no]');
+        const text = long?.querySelector('[data-line-text]');
+        if (!no || !text) return { rows: rows.length };
+        const lh = parseFloat(getComputedStyle(text).lineHeight);
+        return {
+            rows: rows.length,
+            numbers: rows.map((r) => r.querySelector('[data-line-no]')?.textContent),
+            firstText: rows[0].querySelector('[data-line-text]').textContent,
+            wrapped: text.getBoundingClientRect().height > lh * 1.5,
+            hangs: text.getBoundingClientRect().left >= no.getBoundingClientRect().right,
+            muted: getComputedStyle(no).color !== getComputedStyle(text.querySelector('span') ?? text).color,
+        };
+    })()`);
+    steps.push({
+        step: "[640] a Read panel's numbers sit in a muted gutter and a wrapped line hangs under its own text",
+        ok:
+            openedRead === true &&
+            read?.rows === 3 &&
+            JSON.stringify(read.numbers) === JSON.stringify(["1", "2", "3"]) &&
+            read.firstText === "import { backoff } from './backoff';" &&
+            read.wrapped === true &&
+            read.hangs === true &&
+            read.muted === true,
+        detail: JSON.stringify(read),
+    });
+    await shotPanel(h, "export const max", "cdp-shots/narration-feed-read.png");
+
+    const openedWrite = await h.ev(openStep("Wrote src/jitter.ts"));
+    await sleep(600);
+    const write = await h.ev(`(() => {
+        const p = ${panelWith("src/jitter.ts")};
+        if (!p) return null;
+        return {
+            preview: p.querySelector('[data-file-preview]') != null,
+            isNew: [...p.querySelectorAll('[data-diff-file] span')].some((s) => s.textContent === 'new'),
+            plusRows: p.querySelectorAll('[data-diff-line]').length,
+            numbers: [...p.querySelectorAll('[data-line-no]')].map((n) => n.textContent),
+        };
+    })()`);
+    steps.push({
+        step: '[640] a Write of a new file shows the file preview with "new" and no + rows',
+        ok:
+            openedWrite === true &&
+            write?.preview === true &&
+            write.isNew === true &&
+            write.plusRows === 0 &&
+            JSON.stringify(write.numbers) === JSON.stringify(["1", "2", "3"]),
+        detail: JSON.stringify(write),
+    });
+    await shotPanel(h, "src/jitter.ts", "cdp-shots/narration-feed-new-file.png");
+
+    // the grep row's Open full view
+    const inlineWidth = await h.ev(`${panelWith("src/client.ts")}?.getBoundingClientRect().width ?? null`);
+    await h.ev(`${panelWith("src/client.ts")}?.querySelector('button[aria-label="Open full view"]')?.click()`);
+    await sleep(700);
+    const full = await h.ev(`(() => {
+        const head = ${MODAL_HEAD};
+        const body = document.querySelector('[data-tool-modal-body]');
+        if (!head || !body) return null;
+        const line = [...body.querySelectorAll('[data-line-text]')].find((t) => t.textContent.includes('computeRetryBudget'));
+        return {
+            width: body.getBoundingClientRect().width,
+            square: head.querySelector('[role="img"]') != null,
+            whole: line != null && line.textContent === ${JSON.stringify(GREP_LONG)} && getComputedStyle(line).whiteSpace === 'pre',
+            lineHeight: line ? Math.round(line.getBoundingClientRect().height) : null,
+        };
+    })()`);
+    steps.push({
+        step: "[640] Open full view is wider than the inline panel, shows a grep line whole on one line, and has no status square for a successful call",
+        ok:
+            inlineWidth != null &&
+            full != null &&
+            full.width > inlineWidth + 100 &&
+            full.square === false &&
+            full.whole === true &&
+            full.lineHeight < 24,
+        detail: JSON.stringify({ inlineWidth, ...full }),
+    });
+    await h.shot("cdp-shots/narration-feed-full-view.png");
+    await h.ev(`${MODAL_HEAD}?.querySelector('button[aria-label="Close"]')?.click()`);
+    await sleep(700);
+
+    // a failed call's full view leads with its error, its mark a word
+    const openedFail = await h.ev(openStep("Edited src/missing.ts"));
+    await sleep(600);
+    await h.ev(`${panelWith("src/missing.ts")}?.querySelector('button[aria-label="Open full view"]')?.click()`);
+    await sleep(700);
+    const failed = await h.ev(`(() => {
+        const head = ${MODAL_HEAD};
+        const body = document.querySelector('[data-tool-modal-body]');
+        if (!head || !body) return null;
+        return {
+            lead: body.firstElementChild?.hasAttribute('data-tool-error') ? body.firstElementChild.textContent : null,
+            failedWord: [...head.querySelectorAll('span')].some((s) => s.textContent === 'failed'),
+            square: head.querySelector('[role="img"]') != null,
+        };
+    })()`);
+    steps.push({
+        step: '[640] a failed call\'s full view leads with its error and marks it with a "failed" word, not a square',
+        ok:
+            openedFail === true &&
+            failed?.lead === "File has not been read yet. Read it first before writing to it." &&
+            failed.failedWord === true &&
+            failed.square === false,
+        detail: JSON.stringify(failed),
+    });
+    await h.shot("cdp-shots/narration-feed-full-view-error.png");
+    await h.ev(`${MODAL_HEAD}?.querySelector('button[aria-label="Close"]')?.click()`);
+    await sleep(700);
+    return steps;
+}
+
+async function show(h, width, entries = ENTRIES) {
     await h.ev(`window.__narrationFeedFixture.clear()`);
     // the modal's key is stable, so a show during the exit motion revives the old feed with its panels still open
     for (let i = 0; i < 25 && (await h.ev(`${ROOT} != null`)); i++) await sleep(100);
-    await h.ev(`window.__narrationFeedFixture.show(${JSON.stringify(ENTRIES)}, ${width})`);
+    await h.ev(`window.__narrationFeedFixture.show(${JSON.stringify(entries)}, ${width})`);
     await sleep(900); // the modal's open motion and the rows' fade-in settle before styles are read
 }
 
@@ -289,6 +561,7 @@ export const narrationFeed = {
                 reopened.expanded === "true",
             detail: JSON.stringify({ expanded, closed, reopened }),
         });
+        steps.push(...(await panelSteps(h)));
         return steps;
     },
     async teardown(h) {
