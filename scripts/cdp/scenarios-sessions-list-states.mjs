@@ -14,6 +14,11 @@ const IDLE_MS = 10_000;
 const LONG_TASK_BUDGET_MS = 1_000;
 // measured: the real archive (~3100 sessions) took 95 s and 128 s to finish indexing; 200 s is the larger plus margin
 const ARCHIVE_WAIT_MS = 200_000;
+// opening Sessions refetches an archive that already reads complete, and its re-derive must land before the idle
+// window opens: measured 11-17 on 3807 sessions, it landed 150-510 ms after the surface opened
+const ARCHIVE_QUIET_MS = 1_500;
+// inside one evaluate, so well under attach.mjs's 30 s bound on a CDP command
+const ARCHIVE_QUIET_WAIT_MS = 15_000;
 const WAIT_MS = 5_000;
 const POLL_MS = 200;
 const SEARCH_STUB = "__sessionsListStatesSearchStub";
@@ -178,9 +183,26 @@ export default function (kit) {
                     archive = await readArchive();
                 }
                 archive.waitedMs = Date.now() - t0;
+                if (archive.complete) {
+                    archive.quiet = await withModel(
+                        h,
+                        `
+                        const store = await mod("app/view/agents/sessionsarchivestore.ts");
+                        let last = Date.now();
+                        const unsub = globalStore.sub(store.sessionsArchiveAtom, () => (last = Date.now()));
+                        const t0 = Date.now();
+                        while (Date.now() - last < ${ARCHIVE_QUIET_MS} && Date.now() - t0 < ${ARCHIVE_QUIET_WAIT_MS}) {
+                            await new Promise((r) => setTimeout(r, ${POLL_MS}));
+                        }
+                        unsub();
+                        return Date.now() - last >= ${ARCHIVE_QUIET_MS};
+                    `
+                    );
+                }
                 rec(`the real archive finished loading within ${ARCHIVE_WAIT_MS / 1000} s`, archive.complete, {
                     waitedMs: archive.waitedMs,
                     sessions: archive.sessions,
+                    quiet: archive.quiet,
                 });
                 // an unloaded archive makes the idle cost meaningless: fail the step without measuring it
                 const idle = !archive.complete

@@ -695,7 +695,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     initial={entering("m" + item.index) && shouldFadeEntry("message") ? "initial" : false}
                     animate="animate"
                 >
-                    <MarkdownMessage text={item.text} />
+                    <MarkdownMessage text={item.text} breaks />
                 </motion.div>
             );
         }

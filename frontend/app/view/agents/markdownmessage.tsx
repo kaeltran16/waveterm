@@ -11,6 +11,7 @@ import { CodeBlock } from "./codeblock";
 import { splitInsightBlocks } from "./insightblocks";
 import { FILE_LINE_PROP, FILE_PATH_PROP, remarkFileLinks, type ReplyFileLink } from "./replyfilelinks";
 import { blockRendererFor } from "./renderregistry";
+import { remarkSoftBreaks } from "./softbreaks";
 
 // Lightweight inline markdown for narration lines. Deliberately NOT the full element/markdown.tsx
 // (which wraps every render in OverlayScrollbars + a TOC + rehypeRaw); raw HTML is not enabled here,
@@ -92,39 +93,50 @@ const MD_COMPONENTS: Components = {
     },
 };
 
-const REMARK_PLUGINS = [remarkGfm];
-const LINKED_REMARK_PLUGINS = [remarkGfm, remarkFileLinks];
+// soft breaks before file links, so a path is matched within its own line
+function remarkPlugins(fileLinks: boolean, breaks: boolean) {
+    return [remarkGfm, ...(breaks ? [remarkSoftBreaks] : []), ...(fileLinks ? [remarkFileLinks] : [])];
+}
 
-function renderMd(text: string, fileLinks: boolean) {
+function renderMd(text: string, fileLinks: boolean, breaks: boolean) {
     return (
-        <ReactMarkdown remarkPlugins={fileLinks ? LINKED_REMARK_PLUGINS : REMARK_PLUGINS} components={MD_COMPONENTS}>
+        <ReactMarkdown remarkPlugins={remarkPlugins(fileLinks, breaks)} components={MD_COMPONENTS}>
             {text}
         </ReactMarkdown>
     );
 }
 
-function InsightCallout({ text, fileLinks }: { text: string; fileLinks: boolean }) {
+function InsightCallout({ text, fileLinks, breaks }: { text: string; fileLinks: boolean; breaks: boolean }) {
     return (
         <div data-insight className="my-2.5 rounded-[8px] border border-accent/25 bg-accent/[0.05] px-3 py-2">
             <div className="mb-1 flex items-center gap-1.5 font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-accent-soft">
                 <Lightbulb size={11} strokeWidth={2.2} aria-hidden />
                 Insight
             </div>
-            {renderMd(text, fileLinks)}
+            {renderMd(text, fileLinks, breaks)}
         </div>
     );
 }
 
-export const MarkdownMessage = memo(function MarkdownMessage({ text, className }: { text: string; className?: string }) {
+// breaks: a single newline draws as a line break, as in an agent's terminal; off for hard-wrapped documents
+export const MarkdownMessage = memo(function MarkdownMessage({
+    text,
+    className,
+    breaks = false,
+}: {
+    text: string;
+    className?: string;
+    breaks?: boolean;
+}) {
     const segments = splitInsightBlocks(text);
     const fileLinks = useContext(FileLinkContext) != null;
     return (
         <div className={cn("agent-md", className)}>
             {segments.map((seg, i) =>
                 seg.kind === "insight" ? (
-                    <InsightCallout key={i} text={seg.text} fileLinks={fileLinks} />
+                    <InsightCallout key={i} text={seg.text} fileLinks={fileLinks} breaks={breaks} />
                 ) : (
-                    <Fragment key={i}>{renderMd(seg.text, fileLinks)}</Fragment>
+                    <Fragment key={i}>{renderMd(seg.text, fileLinks, breaks)}</Fragment>
                 )
             )}
         </div>

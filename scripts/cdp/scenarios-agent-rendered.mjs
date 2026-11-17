@@ -107,6 +107,10 @@ const SHELL_LONG_OUT = Array.from({ length: 12 }, (_, i) => String(i + 1));
 const SHELL_CLAMP = 8;
 // a reply holding a markdown table whose last column is a long sentence, appended to A: its cells must wrap
 const TABLE_PROMPT = "List the renderer's panels.";
+// a reply of one path per line, then a code block: markdown would join the lines, the terminal shows one per line
+const BREAK_PROMPT = "List the files, one per line.";
+const BREAK_LINES = ["first.txt", "second.txt", "third.txt"];
+const BREAK_CODE = ["x = 1", "y = 2"];
 const TABLE_HEAD = ["Panel", "Owner", "Description"];
 const TABLE_DESC =
     "Draws every turn of the transcript as a column of rows and cards, keeps the tail pinned while the agent works, folds finished turns under a Worked line, and shows a long reply in full without letting the table spill past the edge of the reading column.";
@@ -1902,6 +1906,34 @@ export default function (_kit) {
                         seen.outside === 0 &&
                         seen.inColumn &&
                         seen.longLines > 1;
+                    return [ok, { landed, ...seen }];
+                });
+
+                await step("rendered: line breaks — a reply's single newlines draw as line breaks, one line each as in the terminal, while its code block keeps its own lines", async () => {
+                    const t = Date.now();
+                    const fence = "```";
+                    const text = `${BREAK_LINES.join("\n")}\n\n${fence}\n${BREAK_CODE.join("\n")}\n${fence}\n`;
+                    appendA([userText(BREAK_PROMPT, { ts: iso(t) }), assistantText(text, { ts: iso(t + 1000) })]);
+                    const para = `[...(${RV}?.querySelectorAll("[data-find-turn] p") ?? [])].find((p) => (p.textContent ?? "").startsWith(${J(BREAK_LINES[0])}))`;
+                    const landed = await wait(`${para} != null`);
+                    await agentPage(h, `${para}?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                    const seen = await h.ev(`(() => {
+                        const p = ${para};
+                        if (!p) return null;
+                        const lines = p.innerText.split("\\n").map((l) => l.trim()).filter(Boolean);
+                        // the code block's own rows (codeblock.tsx draws one per line, its text after the gutter)
+                        const block = p.closest("[data-find-turn]")?.querySelector("[data-code-head]")?.parentElement;
+                        const codeLines = [...(block?.querySelectorAll(".whitespace-pre") ?? [])].map((r) => r.lastElementChild?.textContent ?? "");
+                        return { lines, breaks: p.querySelectorAll("br").length, codeLines, codeBreaks: block?.querySelectorAll("br").length ?? null };
+                    })()`);
+                    await h.shot(SHOT(28, "line-breaks"));
+                    const ok =
+                        landed &&
+                        seen != null &&
+                        seen.breaks === BREAK_LINES.length - 1 &&
+                        JSON.stringify(seen.lines) === JSON.stringify(BREAK_LINES) &&
+                        JSON.stringify(seen.codeLines) === JSON.stringify(BREAK_CODE) &&
+                        seen.codeBreaks === 0;
                     return [ok, { landed, ...seen }];
                 });
 
