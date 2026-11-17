@@ -74,7 +74,7 @@ export function composerBox(agent: AgentVM, hasTranscript: boolean, bash = false
     return { kind, placeholder, askBlocks, live: working || askBlocks, sendLabel };
 }
 
-// the round button: Stop while a turn is live and the box is empty, else Send (a steer while working)
+// the box's button: Stop while a turn is live and the box is empty, else Send (a steer while working)
 export function boxButton(box: ComposerBox, filled: boolean): "send" | "stop" {
     return box.live && !filled ? "stop" : "send";
 }

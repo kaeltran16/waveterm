@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Rendered mode's message box (the boards' pill): the text, then attach, the model and permission-mode chips, the
-// context ring and one round button, Send or (while a turn is live and the box is empty) Stop. Attachments sit above
+// context ring and one button, Send or (while a turn is live and the box is empty) Stop. Attachments sit above
 // the text and reach the agent as paths appended to the prompt, as an agent picked with @ (filemention.tsx) does.
 // While Claude's question is shown Send is held, since typing into the pty would land in its picker. In ! bash mode the text runs in the agent's shell instead, and the
 // tray's attachments wait for the next message.
@@ -187,9 +187,9 @@ export const RenderedComposer = forwardRef<
                         aria-label="Interrupt (Esc)"
                         title="Interrupt (Esc)"
                         onClick={onInterrupt}
-                        className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded bg-foreground hover:opacity-85"
+                        className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded border border-edge-strong bg-surface-hover hover:bg-edge-mid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
-                        <span aria-hidden className="h-2.5 w-2.5 rounded-[2px] bg-background" />
+                        <span aria-hidden className="h-2.5 w-2.5 rounded-[2px] bg-foreground" />
                     </button>
                 ) : (
                     <button
@@ -199,7 +199,7 @@ export const RenderedComposer = forwardRef<
                         title={box.sendLabel}
                         onClick={send}
                         disabled={!canSend}
-                        className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded bg-accent text-background hover:bg-accenthover disabled:cursor-default disabled:opacity-40 disabled:hover:bg-accent"
+                        className="inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded bg-accent text-background shadow-inset-highlight hover:bg-accenthover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-default disabled:border disabled:border-edge-strong disabled:bg-surface-hover disabled:text-muted disabled:shadow-none"
                     >
                         <ArrowUp size={15} strokeWidth={2.6} aria-hidden />
                     </button>
