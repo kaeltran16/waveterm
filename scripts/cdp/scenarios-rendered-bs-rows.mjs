@@ -1,7 +1,8 @@
 // Scenario rendered-bs-rows: the Rendered transcript's own brainstorm rows. Answers Arc sent fold to their question and
 // pick with where they were picked (the answer records seeded in the page, as sendBrainstorm writes them), an answer
 // only the file's history knows reads "You answered question N", a canvas mark line is a bubble with its crop, and
-// the pane-action lines read "You ...". kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
+// the pane-action lines read "You ...", and the pinned bar draws the last prompt, a mark, as its row reads. kit is
+// scenarios-rendered-brainstorm.mjs's RBS_KIT.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -238,6 +239,51 @@ export default (kit) => {
                         board &&
                         back,
                     { ...bubble, board, back },
+                ];
+            });
+
+            await step("the pinned bar: scrolled past the mark, the bar draws it as the mark row does (its crop, the note, marked on Main · the canvas), not the raw look at line; a click brings the mark back", async () => {
+                // room under the transcript, so the mark can scroll wholly above the top whatever the window's height
+                const SCROLL = `${RV}?.querySelector("[data-rendered-scroll]")`;
+                const MARK_ROW = `${FEED}?.querySelector("[data-rbs-row='mark']")?.closest("[data-entry-row]")`;
+                const PINNED = `${RV}?.querySelector("[data-pinned-prompt]")`;
+                await h.ev(`(() => {
+                    const s = ${SCROLL};
+                    const col = s?.querySelector("[data-rendered-column]");
+                    const row = ${MARK_ROW};
+                    if (!s || !col || !row) return false;
+                    col.style.paddingBottom = "2000px";
+                    s.scrollTop += row.getBoundingClientRect().bottom - s.getBoundingClientRect().top + 8;
+                    s.dispatchEvent(new Event("scroll"));
+                    return true;
+                })()`);
+                const shown = await polishWaitFor(h, `!!${PINNED}?.querySelector("[data-pinned-row='mark'] img")`, WAIT_MS);
+                await polishNap(300);
+                const bar = await h.ev(`(() => {
+                    const bar = ${PINNED};
+                    return {
+                        text: (bar?.innerText ?? "").replace(/\\s+/g, " ").trim(),
+                        row: bar?.querySelector("[data-pinned-row]")?.getAttribute("data-pinned-row") ?? null,
+                        img: !!bar?.querySelector("img"),
+                    };
+                })()`);
+                await h.shot(SHOT(7, "pinned-mark"));
+                await h.ev(`(${PINNED}?.click(), true)`);
+                const back = await polishWaitFor(
+                    h,
+                    `(() => { const r = ${MARK_ROW}?.getBoundingClientRect(); const s = ${SCROLL}?.getBoundingClientRect(); return !!r && !!s && r.bottom > s.top && r.top < s.bottom; })()`,
+                    WAIT_MS
+                );
+                await h.ev(`(() => { const col = ${SCROLL}?.querySelector("[data-rendered-column]"); if (col) col.style.paddingBottom = ""; return true; })()`);
+                return [
+                    shown &&
+                        bar.row === "mark" &&
+                        bar.img &&
+                        bar.text.includes(NOTE) &&
+                        bar.text.includes(`marked on Main · ${TOPIC}`) &&
+                        !bar.text.includes("look at") &&
+                        back,
+                    { ...bar, shown, back },
                 ];
             });
 

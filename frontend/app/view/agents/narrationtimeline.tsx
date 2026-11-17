@@ -1430,6 +1430,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                 <motion.div
                     key={(item.kind === "arc" ? "a" : "") + at}
                     data-entry-row
+                    data-entry-index={at}
                     variants={viewFade}
                     initial={shouldFadeEntry("user") ? "initial" : false}
                     animate="animate"
@@ -1443,6 +1444,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                 <motion.div
                     key={item.index}
                     data-user-bubble
+                    data-entry-index={item.index}
                     className={cn("flex justify-end", isCompact ? "my-3.5 ml-7" : "my-6")}
                     onContextMenu={copyMenu(item.text)}
                     variants={viewFade}

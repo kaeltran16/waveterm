@@ -118,7 +118,8 @@ describe("designView with every decision yours", () => {
     });
 
     it("counts the decisions yours and the guesses confirmed rather than answered", () => {
-        expect(designView(yours, null).line).toBe("The design · 5 of 5 yours · you confirmed 2 guesses");
+        expect(designView(yours, null).line).toBe("The design · 5 of 5 yours");
+        expect(designView(yours, null).confirmed).toBe("you confirmed 2 guesses");
     });
 
     it("leaves the confirmed count out when every decision was answered", () => {
@@ -127,11 +128,12 @@ describe("designView with every decision yours", () => {
             history: [...yours.history, answered(4, ["queue"]), answered(5, ["banner"])],
         };
         expect(designView(all, null).line).toBe("The design · 5 of 5 yours");
+        expect(designView(all, null).confirmed).toBeNull();
     });
 
     it("a question that answered several parts counts them all as answered", () => {
         const f = { ...yours, history: [answered(1, ["what", "who", "approach", "queue"])] };
-        expect(designView(f, null).line).toBe("The design · 5 of 5 yours · you confirmed 1 guess");
+        expect(designView(f, null).confirmed).toBe("you confirmed 1 guess");
     });
 
     it("says nothing of a check already pending", () => {

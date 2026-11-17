@@ -3,8 +3,8 @@
 //
 // The builder check card in the Rendered transcript: the builder reading (its clock against how long checks here
 // usually take), the agent taking in its questions, a check that did not finish, the questions back with the one for
-// the user, and the approve bar once they are settled. Each state is the pane's own view of it: checkClock, handoffView,
-// checkAsk and approveBlocker.
+// the user, and the approve bar once they are settled. Each state is the pane's own view of it: checkClock (in the
+// boards' words), handoffView, checkAsk and approveBlocker.
 
 import { openFileInCode } from "@/app/cockpit/openfilestore";
 import { barFillClass, composerReveal } from "@/app/element/motiontokens";
@@ -22,7 +22,6 @@ import {
     approveBlocker,
     builderCheckView,
     checkAsk,
-    checkClock,
     checkSpan,
     handoffView,
     runPrefill,
@@ -37,7 +36,7 @@ import { CHIP, ErrorLine, SMALL_DOT, useAction } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN } from "./canvaspane";
 import { CardFrame } from "./renderedbrainstorm";
 import type { CardProps } from "./renderedbrainstormmodel";
-import { builderHead, checkCardState, clockBar, settledLine } from "./renderedbscheckmodel";
+import { builderHead, cardClock, checkCardState, clockBar, settledLine } from "./renderedbscheckmodel";
 import { OptionRows } from "./renderedbsquestion";
 import { picksHint } from "./renderedbsquestionmodel";
 
@@ -64,7 +63,7 @@ function ClockBox({
     const run = useAtomValue(record?.runId ? WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", record.runId)) : NO_RUN);
     const now = useAtomValue(model.nowAtom);
     const times = useCheckTimes(record?.runId);
-    const clock = checkClock(check, checkSpan(record, run ?? null), times, now);
+    const clock = cardClock(check, checkSpan(record, run ?? null), times, now);
     const bar = clockBar(clock.bar, clock.over);
     return (
         <div
@@ -282,6 +281,7 @@ function BuilderQuestion({
             s={s}
             f={f}
             asking={true}
+            lead={false}
             status=""
             compact={compact}
             attr="data-rendered-bs-builder-question"

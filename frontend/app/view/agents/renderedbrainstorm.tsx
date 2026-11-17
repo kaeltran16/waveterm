@@ -60,6 +60,8 @@ export function CardFrame(p: {
     f: BrainstormFile | null;
     asking: boolean;
     head: ReactNode;
+    // the "Brainstorm ·" lead; the builder question's board heads with the question alone
+    lead?: boolean;
     status?: string;
     // replaces the head's "Open brainstorm" link: the run card opens its run instead
     open?: ReactNode;
@@ -87,7 +89,9 @@ export function CardFrame(p: {
                         p.asking ? "text-warning" : "text-ink-mid"
                     )}
                 >
-                    <span className="whitespace-nowrap font-mono font-semibold">Brainstorm ·</span>
+                    {p.lead === false ? null : (
+                        <span className="whitespace-nowrap font-mono font-semibold">Brainstorm ·</span>
+                    )}
                     {p.head}
                     <span className="flex-1" />
                     {status ? (
