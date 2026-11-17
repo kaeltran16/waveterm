@@ -1204,6 +1204,46 @@ export default function (_kit) {
                     return [once && keys.ok && twice && asked && cancelled && ctrlCs === 2, { keys: keys.lines, asked, cancelled, ctrlCs }];
                 });
 
+                await step("rendered: ctrl+c on the transcript — a click on P's reply text leaves focus on the surface, and Ctrl+C there types ^C into the pty; with that text selected it stays a copy", async () => {
+                    await sleep(CTRL_C_PAIR_GAP_MS);
+                    // a real click: the focus it leaves is the point, and a scripted focus() would choose it instead
+                    const at = await h.ev(`(() => {
+                        const p = [...(${RV}?.querySelectorAll("p") ?? [])].filter((x) => !x.closest("button, a, [data-steps], [data-rendered-composer]")).pop();
+                        if (!p) return null;
+                        const b = p.getBoundingClientRect();
+                        return { x: b.left + 10, y: b.top + b.height / 2 };
+                    })()`);
+                    if (at == null) return [false, "no reply paragraph in P's rendered view"];
+                    for (const type of ["mousePressed", "mouseReleased"]) {
+                        await h.cdp("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
+                    }
+                    const press = `document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", ctrlKey: true, bubbles: true, cancelable: true }));`;
+                    const from = probeLines(ctx).length;
+                    const onSurface = await h.ev(`(() => {
+                        const onSurface = document.activeElement?.hasAttribute("data-cockpit-surface-wrap") === true;
+                        window.getSelection()?.removeAllRanges();
+                        ${press}
+                        return onSurface;
+                    })()`);
+                    const keys = await waitProbe(ctx, from, [CTRL_C]);
+                    await sleep(CTRL_C_PAIR_GAP_MS);
+                    const copyFrom = probeLines(ctx).length;
+                    const selected = await h.ev(`(() => {
+                        const p = [...(${RV}?.querySelectorAll("p") ?? [])].filter((x) => !x.closest("button, a, [data-steps], [data-rendered-composer]")).pop();
+                        const r = document.createRange();
+                        r.selectNodeContents(p);
+                        window.getSelection().removeAllRanges();
+                        window.getSelection().addRange(r);
+                        ${press}
+                        const ok = !window.getSelection().isCollapsed;
+                        window.getSelection().removeAllRanges();
+                        return ok;
+                    })()`);
+                    await sleep(CTRL_C_PAIR_GAP_MS);
+                    const copyCtrlCs = probeLines(ctx).slice(copyFrom).filter((l) => l === CTRL_C).length;
+                    return [onSurface && keys.ok && selected && copyCtrlCs === 0, { onSurface, keys: keys.lines, selected, copyCtrlCs }];
+                });
+
                 await step("rendered: box shape — A's box is the rounded pill: the Reply placeholder on its first line, the control row under it, a round Send disabled, no key-hint footer", async () => {
                     await focus(ctx.aId);
                     const ready = await ensureRendered();

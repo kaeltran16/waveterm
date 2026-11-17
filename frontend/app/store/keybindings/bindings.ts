@@ -292,16 +292,16 @@ export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | u
     return agents.find((x) => x.id === focusId) ?? null;
 }
 
-// a brainstorm or canvas pane hides the terminal and pulls focus to the surface, so the press counts anywhere on
-// the surface there; with the terminal showing it counts only inside it, so ^C elsewhere stays a plain key. The
-// Rendered view stands in for the terminal, so a press inside it counts as one in the terminal.
+// a brainstorm or canvas pane, or the Rendered view, hides the terminal, so the press counts anywhere on the surface
+// there: a click on the Rendered transcript's text leaves focus on the surface, not in the view. With the terminal
+// showing it counts only inside it, so ^C elsewhere stays a plain key.
 export function ctrlCReachesSession(
     inTerm: boolean,
     inSurface: boolean,
     paneShown: boolean,
-    inRendered = false
+    renderedShown = false
 ): boolean {
-    return inTerm || inRendered || (paneShown && inSurface);
+    return inTerm || ((paneShown || renderedShown) && inSurface);
 }
 
 // selected text makes ^C a copy: in the message box (a textarea's selection is not the document's) or the page
@@ -469,12 +469,13 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             run: () => {
                 const active = document.activeElement as HTMLElement | null;
                 const inTerm = active?.closest?.(".cockpit-focus-pane") != null;
-                const inSurface = active?.closest?.("[data-cockpit-surface-wrap]") != null;
-                const inRendered = active?.closest?.("[data-rendered-view]") != null;
-                if (!ctrlCReachesSession(inTerm, inSurface, focusedPaneShown(model), inRendered)) {
+                const surface = active?.closest?.("[data-cockpit-surface-wrap]");
+                const inSurface = surface != null;
+                const renderedShown = surface?.querySelector("[data-rendered-view]") != null;
+                if (!ctrlCReachesSession(inTerm, inSurface, focusedPaneShown(model), renderedShown)) {
                     return false;
                 }
-                if (inRendered && hasTextSelection(active)) {
+                if (renderedShown && hasTextSelection(active)) {
                     return false;
                 }
                 const now = performance.now();
@@ -490,7 +491,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                     return false;
                 }
                 lastCtrlC = now;
-                if (inRendered) {
+                if (renderedShown) {
                     // the Rendered view's message box is not the PTY, so the first press goes to Claude as the
                     // terminal's would: it stops a running turn
                     const fid = globalStore.get(model.focusIdAtom);
