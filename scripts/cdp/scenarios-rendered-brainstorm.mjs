@@ -171,8 +171,16 @@ const readHost = (h) =>
         };
     })()`);
 
+// the host's kind turns "none" at once while the leaving card is still in the DOM through its exit fade,
+// so no card waits for that card to go too
 const waitCard = (h, kind, ms = BS_POLL_WAIT_MS) =>
-    polishWaitFor(h, `${HOST}?.getAttribute("data-rendered-bs-card") === ${JSON.stringify(kind)}`, ms);
+    polishWaitFor(
+        h,
+        kind === "none"
+            ? `(() => { ${FLAT} const host = ${HOST}; return host?.getAttribute("data-rendered-bs-card") === "none" && flat(host) === ""; })()`
+            : `${HOST}?.getAttribute("data-rendered-bs-card") === ${JSON.stringify(kind)}`,
+        ms
+    );
 
 // a card's flat text: the host's, or the element a selector names inside it
 const cardText = (h, sel) =>
