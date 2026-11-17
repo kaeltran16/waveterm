@@ -6,7 +6,7 @@
 
 import { launchAgentOrToast } from "@/app/cockpit/cockpit-actions";
 import { CrossFade } from "@/app/element/crossfade";
-import { composerReveal, viewFade } from "@/app/element/motiontokens";
+import { composerReveal } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -17,7 +17,6 @@ import { landOn } from "@/app/view/jarvis/returnsurface";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { Check, ChevronDown, ChevronUp, Search } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
@@ -25,6 +24,7 @@ import { formatAge, formatAgeShort, formatTokens } from "./agentsviewmodel";
 import { docTextOf, rangeOf } from "./docreviewnotesview";
 import { NarrationTimeline } from "./narrationtimeline";
 import { runtimeMeta } from "./runtimemeta";
+import { ShowEarlier } from "./showearlier";
 import { transcriptContextFor } from "./transcriptcontext";
 import { layoutTranscript } from "./transcriptlayout";
 import type { LiveSession } from "./sessionsarchivestore";
@@ -537,22 +537,7 @@ function SessionBody({
     } else {
         body = (
             <>
-                <AnimatePresence initial={false}>
-                    {earlier ? (
-                        <motion.button
-                            key="earlier"
-                            type="button"
-                            data-sessions-earlier=""
-                            onClick={showEarlier}
-                            variants={viewFade}
-                            initial="initial"
-                            animate="animate"
-                            className="w-full cursor-pointer rounded-[6px] py-2 text-center text-[12px] font-semibold text-muted hover:bg-surface-hover hover:text-primary"
-                        >
-                            Show earlier turns
-                        </motion.button>
-                    ) : null}
-                </AnimatePresence>
+                <ShowEarlier show={earlier} marker="data-sessions-earlier" onClick={showEarlier} />
                 <NarrationTimeline entries={entries} active={session.live} renderAll={full} unfold={find != null} ctx={ctx} />
             </>
         );
