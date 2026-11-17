@@ -55,6 +55,7 @@ import { DEFAULT_RAIL_VISIBLE, railVisibleAtom } from "./railstore";
 import { forgetRateLimit } from "./ratelimitstore";
 import { remoteSetupPatch, remoteStatusLines, remoteSwitch, type RemoteSetupField } from "./remotemodel";
 import { remoteStatusAtom, saveRemoteSetup, setRemoteOn } from "./remotestore";
+import { DEFAULT_VIEW_MODE, defaultViewModeAtom, type ViewMode } from "./renderedmode";
 import { RoutePicker } from "./routepicker";
 import {
     changedCount,
@@ -126,6 +127,7 @@ function useRowBindings(sections: SettingSectionDef[]) {
     const [mono, setMono] = useAtom(fontMonoAtom);
     const [startup, setStartup] = useAtom(startupSurfaceAtom);
     const [rail, setRail] = useAtom(railVisibleAtom);
+    const [viewDefault, setViewDefault] = useAtom(defaultViewModeAtom);
     const [flags, setFlags] = useAtom(naFlagsAtom);
     const [remember, setRemember] = useAtom(naRememberFlagsAtom);
 
@@ -141,6 +143,10 @@ function useRowBindings(sections: SettingSectionDef[]) {
             revert: () => setStartup(DEFAULT_STARTUP_SURFACE),
         },
         "general.rail": { changed: rail !== DEFAULT_RAIL_VISIBLE, revert: () => setRail(DEFAULT_RAIL_VISIBLE) },
+        "general.view": {
+            changed: viewDefault !== DEFAULT_VIEW_MODE,
+            revert: () => setViewDefault(DEFAULT_VIEW_MODE),
+        },
         "newagent.remember": {
             changed: remember !== DEFAULT_REMEMBER_FLAGS,
             revert: () => setRemember(DEFAULT_REMEMBER_FLAGS),
@@ -915,6 +921,7 @@ function FontsSection() {
 function GeneralSection() {
     const [startup, setStartup] = useAtom(startupSurfaceAtom);
     const [railVisible, setRailVisible] = useAtom(railVisibleAtom);
+    const [viewDefault, setViewDefault] = useAtom(defaultViewModeAtom);
     const options = startupSurfaceOptions();
     return (
         <div>
@@ -948,9 +955,17 @@ function GeneralSection() {
                     label="Show details rail by default"
                 />
             </SettingRow>
+            <SettingRow id="general.view">
+                <Segmented<ViewMode> options={VIEW_MODE_OPTIONS} value={viewDefault} onChange={setViewDefault} />
+            </SettingRow>
         </div>
     );
 }
+
+const VIEW_MODE_OPTIONS: { id: ViewMode; label: string }[] = [
+    { id: "rendered", label: "Rendered" },
+    { id: "terminal", label: "Terminal" },
+];
 
 // the status comes from the app bar's remote:status subscription; a switch change lands there too
 function RemoteSection() {

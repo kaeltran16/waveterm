@@ -39,10 +39,9 @@ import { SurfaceEmptyState } from "./surfacescaffold";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
 
-const headerBtn =
-    "flex h-[28px] flex-none items-center gap-[6px] rounded-[8px] border border-edge-mid px-[10px] text-[11.5px] font-semibold";
-const navBtn =
-    "flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[6px] text-muted hover:text-ink-hi";
+const headerBtn = "flex h-[28px] flex-none items-center gap-[6px] rounded-[8px] px-[10px] text-[11.5px] font-semibold";
+const boxedBtn = cn(headerBtn, "border border-edge-mid");
+const navBtn = "flex h-full w-[28px] flex-none items-center justify-center text-muted hover:text-ink-hi";
 
 function PaneSkeleton() {
     return (
@@ -245,7 +244,12 @@ export function DiffPane({
                 ) : null}
                 <div className="flex-1" />
                 {navPos != null && navPos.total > 0 ? (
-                    <div data-diff-nav className="flex flex-none items-center gap-[2px]">
+                    <div
+                        data-diff-nav
+                        role="group"
+                        aria-label="Changes"
+                        className="flex h-[28px] flex-none items-center overflow-hidden rounded-[8px] border border-edge-mid"
+                    >
                         <button
                             onClick={() => gotoChange("previous")}
                             title="Previous change (⇧P)"
@@ -254,7 +258,7 @@ export function DiffPane({
                         >
                             <ChevronUp size={14} />
                         </button>
-                        <span className="text-center font-mono text-[11px] text-muted">
+                        <span className="px-[6px] text-center font-mono text-[11px] text-muted">
                             {layout.labelled ? "change " : ""}
                             {navPos.index}/{navPos.total}
                         </span>
@@ -295,33 +299,16 @@ export function DiffPane({
                     aria-label="Hide whitespace (⇧W)"
                     aria-pressed={ignoreWs}
                     className={cn(
-                        headerBtn,
+                        boxedBtn,
                         ignoreWs ? "border-accent/30 bg-accentbg text-ink-hi" : "text-ink-mid hover:text-ink-hi"
                     )}
                 >
                     <Pilcrow size={13} />
                     {layout.labelled ? "Hide whitespace" : null}
                 </button>
-                {openChange != null ? (
-                    <button
-                        onClick={() => toggleOpenFile()}
-                        title={reviewTitle}
-                        aria-label={reviewTitle}
-                        aria-pressed={reviewed}
-                        data-review-open
-                        className={cn(
-                            headerBtn,
-                            reviewed ? "border-accent/30 bg-accentbg text-ink-hi" : "text-ink-mid hover:text-ink-hi"
-                        )}
-                    >
-                        <Check size={13} />
-                        {layout.labelled ? (
-                            <>
-                                {reviewed ? "Reviewed" : "Mark reviewed"}
-                                <kbd className="font-mono text-[10.5px] text-ink-faint">v</kbd>
-                            </>
-                        ) : null}
-                    </button>
+                {/* separates the view toggles from the file actions, each of which is conditional */}
+                {repoCwd || openChange != null ? (
+                    <span data-diff-header-divider className="h-[16px] w-px flex-none bg-edge-mid" />
                 ) : null}
                 {repoCwd && (
                     <button
@@ -342,6 +329,22 @@ export function DiffPane({
                         {layout.labelled ? "Open in Code" : null}
                     </button>
                 )}
+                {openChange != null ? (
+                    <button
+                        onClick={() => toggleOpenFile()}
+                        title={reviewTitle}
+                        aria-label={reviewTitle}
+                        aria-pressed={reviewed}
+                        data-review-open
+                        className={cn(
+                            boxedBtn,
+                            reviewed ? "border-accent/30 bg-accentbg text-ink-hi" : "text-ink-mid hover:text-ink-hi"
+                        )}
+                    >
+                        <Check size={13} className={reviewed ? "text-accent" : undefined} />
+                        {layout.labelled ? (reviewed ? "Reviewed" : "Mark reviewed") : null}
+                    </button>
+                ) : null}
             </div>
         );
     };

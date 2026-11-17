@@ -20,6 +20,8 @@ import {
     closeTabs,
     focusAgent,
     makeTab,
+    pinDefaultView,
+    restoreDefaultView,
     restoreRoster,
     setRoster,
     toolResult,
@@ -263,7 +265,9 @@ const viewOf = (id) => `(() => {
     return {
         rendered: s?.querySelector("[data-rendered-view]") != null,
         termInDom: term != null,
-        termShown: term != null && getComputedStyle(term).display !== "none",
+        // under Rendered the terminal stays laid out but invisible, so its controller starts
+        termShown: term != null && term.checkVisibility({ visibilityProperty: true }),
+        termLaidOut: term != null && term.clientWidth > 0,
     };
 })()`;
 
@@ -411,6 +415,8 @@ export default function (_kit) {
                 const ctx = { tabIds: [], tempFiles: [], dir: mkdtempSync(join(tmpdir(), "verify-agent-rendered-")) };
                 // a throw past this point still returns ctx, so teardown removes whatever was already made
                 try {
+                    // the shipped default, whatever this dev app's Settings hold
+                    await pinDefaultView(h, "rendered");
                     ctx.probe = join(ctx.dir, "keyprobe.log");
                     const aPath = writeTranscript(ctx.dir, `rendered-a-${tag}`, [
                         userText(PROMPT),
@@ -529,15 +535,28 @@ export default function (_kit) {
                 await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
                 ctx.focusEmulated = true;
 
-                await step("rendered: toggle — clicking Rendered on A shows the rendered view, the terminal stays mounted and hidden", async () => {
-                    const before = await h.ev(viewOf(ctx.aId));
-                    const clicked = await clickToggle(h, "Rendered");
+                await step("rendered: toggle — A opens Rendered by default with its terminal laid out and invisible; Terminal shows the terminal, Rendered brings the view back", async () => {
+                    await wait(`${RV} != null`);
+                    const opened = await h.ev(viewOf(ctx.aId));
+                    const toTerm = await clickToggle(h, "Terminal");
+                    await wait(`${RV} == null`);
+                    const term = await h.ev(viewOf(ctx.aId));
+                    const toRendered = await clickToggle(h, "Rendered");
                     await wait(`${RV} != null`);
                     const after = await h.ev(viewOf(ctx.aId));
                     await h.shot(SHOT(1, "toggle"));
                     return [
-                        clicked && !before.rendered && before.termShown && after.rendered && after.termInDom && !after.termShown,
-                        { clicked, before, after },
+                        opened.rendered &&
+                            opened.termLaidOut &&
+                            !opened.termShown &&
+                            toTerm &&
+                            !term.rendered &&
+                            term.termShown &&
+                            toRendered &&
+                            after.rendered &&
+                            after.termInDom &&
+                            !after.termShown,
+                        { opened, term, after },
                     ];
                 });
 
@@ -1204,6 +1223,46 @@ export default function (_kit) {
                     return [once && keys.ok && twice && asked && cancelled && ctrlCs === 2, { keys: keys.lines, asked, cancelled, ctrlCs }];
                 });
 
+                await step("rendered: ctrl+c on the transcript — a click on P's reply text leaves focus on the surface, and Ctrl+C there types ^C into the pty; with that text selected it stays a copy", async () => {
+                    await sleep(CTRL_C_PAIR_GAP_MS);
+                    // a real click: the focus it leaves is the point, and a scripted focus() would choose it instead
+                    const at = await h.ev(`(() => {
+                        const p = [...(${RV}?.querySelectorAll("p") ?? [])].filter((x) => !x.closest("button, a, [data-steps], [data-rendered-composer]")).pop();
+                        if (!p) return null;
+                        const b = p.getBoundingClientRect();
+                        return { x: b.left + 10, y: b.top + b.height / 2 };
+                    })()`);
+                    if (at == null) return [false, "no reply paragraph in P's rendered view"];
+                    for (const type of ["mousePressed", "mouseReleased"]) {
+                        await h.cdp("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
+                    }
+                    const press = `document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC", ctrlKey: true, bubbles: true, cancelable: true }));`;
+                    const from = probeLines(ctx).length;
+                    const onSurface = await h.ev(`(() => {
+                        const onSurface = document.activeElement?.hasAttribute("data-cockpit-surface-wrap") === true;
+                        window.getSelection()?.removeAllRanges();
+                        ${press}
+                        return onSurface;
+                    })()`);
+                    const keys = await waitProbe(ctx, from, [CTRL_C]);
+                    await sleep(CTRL_C_PAIR_GAP_MS);
+                    const copyFrom = probeLines(ctx).length;
+                    const selected = await h.ev(`(() => {
+                        const p = [...(${RV}?.querySelectorAll("p") ?? [])].filter((x) => !x.closest("button, a, [data-steps], [data-rendered-composer]")).pop();
+                        const r = document.createRange();
+                        r.selectNodeContents(p);
+                        window.getSelection().removeAllRanges();
+                        window.getSelection().addRange(r);
+                        ${press}
+                        const ok = !window.getSelection().isCollapsed;
+                        window.getSelection().removeAllRanges();
+                        return ok;
+                    })()`);
+                    await sleep(CTRL_C_PAIR_GAP_MS);
+                    const copyCtrlCs = probeLines(ctx).slice(copyFrom).filter((l) => l === CTRL_C).length;
+                    return [onSurface && keys.ok && selected && copyCtrlCs === 0, { onSurface, keys: keys.lines, selected, copyCtrlCs }];
+                });
+
                 await step("rendered: box shape — A's box is the rounded pill: the Reply placeholder on its first line, the control row under it, a round Send disabled, no key-hint footer", async () => {
                     await focus(ctx.aId);
                     const ready = await ensureRendered();
@@ -1633,7 +1692,7 @@ export default function (_kit) {
                             thought: true,
                             inStretch: thought.closest("[data-steps]") != null,
                             beforeStep: next?.matches("[data-step]") === true && flat(next).includes(${JSON.stringify(THINK_STEP)}),
-                            muted: md?.classList.contains("text-muted") === true && getComputedStyle(md).color !== getComputedStyle(reply).color,
+                            muted: md?.classList.contains("text-ink-mid") === true && getComputedStyle(md).color !== getComputedStyle(reply).color,
                             hiddenShown: (rv.textContent ?? "").includes(${JSON.stringify(HIDDEN_THOUGHT)}),
                         };
                     })()`);
@@ -2104,6 +2163,7 @@ export default function (_kit) {
                 if (ctx.focusEmulated) {
                     await step("turn focus emulation off", () => h.cdp("Emulation.setFocusEmulationEnabled", { enabled: false }));
                 }
+                await step("restore the default view", () => restoreDefaultView(h));
                 // a Stop retires every request still pending on the block
                 for (const blockId of ctx.blocks ?? []) {
                     await step(`publish a Stop for ${blockId}`, () => publishStatus(h, ctx, blockId, { state: "idle", hook: "Stop" }));

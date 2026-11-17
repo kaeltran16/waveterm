@@ -1,5 +1,5 @@
-import { execFile, spawn } from "node:child_process";
-import { copyFileSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { copyFileSync, existsSync, fstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
@@ -19,9 +19,12 @@ import {
     parseFinalArgs,
     pickPort,
     pickVitePort,
+    prebuiltExe,
     releaseDevApp,
     sweepStaleStores,
+    tauriSourceKey,
     unlinkBuildJunctions,
+    writeExeStamp,
     writeFinalManifest,
 } from "./final-verify.mjs";
 
@@ -465,6 +468,84 @@ describe("unlinkBuildJunctions", () => {
         writeFileSync(join(dir, "dist", "bin", "wavesrv.x64.exe"), "x");
         unlinkBuildJunctions(dir);
         expect(existsSync(join(dir, "dist", "bin", "wavesrv.x64.exe"))).toBe(true);
+    });
+});
+
+// a worker's tree reuses the exe its slot built in another tree only when nothing that exe is built from differs
+describe("tauriSourceKey", () => {
+    let dir;
+    afterEach(() => {
+        if (dir) rmSync(dir, { recursive: true, force: true });
+        dir = undefined;
+    });
+
+    function makeTree(name) {
+        const tree = join(dir, name);
+        mkdirSync(join(tree, "src-tauri", "src"), { recursive: true });
+        writeFileSync(join(tree, "src-tauri", "src", "main.rs"), "fn main() {}");
+        writeFileSync(join(tree, "README.md"), "readme");
+        execFileSync("git", ["init", "-q"], { cwd: tree });
+        execFileSync("git", ["add", "."], { cwd: tree });
+        return tree;
+    }
+
+    it("is the same for two trees at different paths with the same src-tauri and config", () => {
+        dir = mkdtempSync(join(tmpdir(), "final-key-"));
+        expect(tauriSourceKey(makeTree("a"), "{}")).toBe(tauriSourceKey(makeTree("b"), "{}"));
+    });
+
+    it("changes with a src-tauri edit, a new untracked src-tauri file or the config, and not with files outside", () => {
+        dir = mkdtempSync(join(tmpdir(), "final-key-"));
+        const tree = makeTree("a");
+        const base = tauriSourceKey(tree, "{}");
+        expect(tauriSourceKey(tree, '{"port":1}')).not.toBe(base);
+        writeFileSync(join(tree, "README.md"), "changed");
+        expect(tauriSourceKey(tree, "{}")).toBe(base);
+        writeFileSync(join(tree, "src-tauri", "src", "extra.rs"), "");
+        const withUntracked = tauriSourceKey(tree, "{}");
+        expect(withUntracked).not.toBe(base);
+        writeFileSync(join(tree, "src-tauri", "src", "main.rs"), "fn main() { }");
+        expect(tauriSourceKey(tree, "{}")).not.toBe(withUntracked);
+    });
+});
+
+describe("prebuiltExe", () => {
+    let dir;
+    afterEach(() => {
+        if (dir) rmSync(dir, { recursive: true, force: true });
+        dir = undefined;
+    });
+
+    function makeSlot() {
+        dir = mkdtempSync(join(tmpdir(), "final-slot-"));
+        const exe = join(dir, "debug", "wave-tauri.exe");
+        mkdirSync(dirname(exe), { recursive: true });
+        writeFileSync(exe, "exe");
+        return exe;
+    }
+
+    it("is the exe only for the key its stamp records", () => {
+        const exe = makeSlot();
+        expect(prebuiltExe(dir, "k1")).toBeNull();
+        writeExeStamp(dir, "k1");
+        expect(prebuiltExe(dir, "k1")).toBe(exe);
+        expect(prebuiltExe(dir, "k2")).toBeNull();
+    });
+
+    // an older copy of final-verify rebuilds slot 0's exe without knowing about the stamp
+    it("is null once the exe was rebuilt after its stamp", () => {
+        const exe = makeSlot();
+        writeExeStamp(dir, "k1");
+        const later = new Date(statSync(exe).mtimeMs + 60_000);
+        utimesSync(exe, later, later);
+        expect(prebuiltExe(dir, "k1")).toBeNull();
+    });
+
+    it("is null when the exe is gone", () => {
+        const exe = makeSlot();
+        writeExeStamp(dir, "k1");
+        rmSync(exe);
+        expect(prebuiltExe(dir, "k1")).toBeNull();
     });
 });
 

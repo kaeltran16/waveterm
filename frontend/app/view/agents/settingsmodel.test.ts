@@ -388,6 +388,7 @@ describe("settingsSections static rows", () => {
         expect(rowsOf("general").map((r) => [r.id, r.title, r.key, r.scope])).toEqual([
             ["general.startup", "Startup surface", "cockpit.startup.surface", "local"],
             ["general.rail", "Show details rail by default", "agent.rail.visible", "local"],
+            ["general.view", "Claude agents open in", "agent.view.default", "local"],
         ]);
     });
 

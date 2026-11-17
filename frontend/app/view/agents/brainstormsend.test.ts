@@ -12,6 +12,7 @@ import { brainstormLine, runPrefill, type BrainstormAction, type BrainstormFile 
 import { approveAndOpenRun, openRunLauncher, pickPart, reportSendFailure, sendBrainstorm } from "./brainstormsend";
 import {
     attachBrainstorm,
+    brainstormAnswersAtom,
     brainstormsAtom,
     getBrainstorm,
     shownPicks,
@@ -95,6 +96,7 @@ beforeEach(() => {
 afterEach(() => {
     globalStore.set(newRunPrefillAtom, null);
     globalStore.set(brainstormsAtom, {});
+    globalStore.set(brainstormAnswersAtom, {});
     globalStore.set(toastsAtom, []);
 });
 
@@ -287,6 +289,104 @@ describe("sendBrainstorm", () => {
         const io = fakeIO();
         await sendBrainstorm(AGENT, { kind: "answer", text: "yes" }, io);
         expect(io.calls).toEqual(["prompt blk-1"]);
+    });
+});
+
+describe("the answer record", () => {
+    const PATH = "/p/.superpowers/brainstorm/lag/brainstorm.json";
+    const records = () => globalStore.get(brainstormAnswersAtom)[PATH] ?? [];
+    const ASKING: BrainstormFile = {
+        ...REVIEW,
+        done: false,
+        question: { n: 4, text: "When should on-call get paged?", part: "page" },
+    };
+    const BUILDER_Q = "Should a page hold the autoscaler?";
+    const BUILDER: BrainstormFile = { ...FILE, check: { yours: [{ q: BUILDER_Q }], calls: [], answered: [] } };
+
+    it("an answer sent from the pane sends the same line as before and records origin pane", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: ASKING }));
+        const io = fakeIO();
+        await sendBrainstorm(AGENT, { kind: "answer", text: "After 15\nminutes" }, io, 1000);
+        expect(io.sent).toEqual([["blk-1", "After 15 minutes"]]);
+        expect(records()).toEqual([
+            {
+                line: "After 15 minutes",
+                question: 4,
+                builder: null,
+                answer: "After 15 minutes",
+                origin: "pane",
+                at: 1000,
+            },
+        ]);
+    });
+
+    it("one sent from the transcript records that origin and the exact line, carried picks included", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: ASKING, picks: { grain: "keep" } }));
+        const io = fakeIO();
+        await sendBrainstorm(AGENT, { kind: "answer", text: "After 15 minutes" }, io, 2000, "transcript");
+        const line = "brainstorm: settle keep grain; then: After 15 minutes";
+        expect(io.sent).toEqual([["blk-1", line]]);
+        expect(records()).toEqual([
+            { line, question: 4, builder: null, answer: "After 15 minutes", origin: "transcript", at: 2000 },
+        ]);
+    });
+
+    it("an answer to the builder's open question records that question's text", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: BUILDER }));
+        await sendBrainstorm(AGENT, { kind: "builder-answer", text: "Only report." }, fakeIO(), 3000, "transcript");
+        expect(records()).toEqual([
+            {
+                line: "brainstorm: builder answer: Only report.",
+                question: null,
+                builder: BUILDER_Q,
+                answer: "Only report.",
+                origin: "transcript",
+                at: 3000,
+            },
+        ]);
+    });
+
+    it("keeps every answer in send order", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: ASKING }));
+        await sendBrainstorm(AGENT, { kind: "answer", text: "one" }, fakeIO(), 1000, "transcript");
+        updateBrainstorm(AGENT.id, (s) => ({
+            ...s,
+            sent: null,
+            file: { ...ASKING, question: { ...ASKING.question!, n: 5 } },
+        }));
+        await sendBrainstorm(AGENT, { kind: "answer", text: "two" }, fakeIO(), 2000);
+        expect(records().map((r) => [r.question, r.answer, r.origin])).toEqual([
+            [4, "one", "transcript"],
+            [5, "two", "pane"],
+        ]);
+    });
+
+    it("a line with no question open, or that answers nothing, records nothing", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: FILE }));
+        await sendBrainstorm(AGENT, { kind: "answer", text: "why daily?" }, fakeIO(), 1000, "transcript");
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, sent: null, file: ASKING }));
+        await sendBrainstorm(AGENT, { kind: "guess" }, fakeIO(), 2000, "transcript");
+        expect(records()).toEqual([]);
+    });
+
+    it("a refused or failed send records nothing", async () => {
+        updateBrainstorm(AGENT.id, (s) => ({ ...s, file: ASKING }));
+        await expect(
+            sendBrainstorm(AGENT, { kind: "answer", text: "x" }, fakeIO(true), 1000, "transcript")
+        ).rejects.toThrow("Couldn't send");
+        await expect(
+            sendBrainstorm(AGENT, { kind: "answer", text: " " }, fakeIO(), 1000, "transcript")
+        ).rejects.toThrow("Nothing to send");
+        await expect(
+            sendBrainstorm(
+                { ...AGENT, blockId: undefined },
+                { kind: "answer", text: "x" },
+                fakeIO(),
+                1000,
+                "transcript"
+            )
+        ).rejects.toThrow("no terminal");
+        expect(records()).toEqual([]);
     });
 });
 

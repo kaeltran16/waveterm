@@ -352,7 +352,7 @@ function useEdgeFade() {
 }
 
 // a fresh iframe paints only once its page loads, long after a view fade ends: fading on load is what shows
-function BoardIframe({ src, title, style }: { src: string; title: string; style: CSSProperties }) {
+export function BoardIframe({ src, title, style }: { src: string; title: string; style: CSSProperties }) {
     const [loaded, setLoaded] = useState(false);
     return (
         <motion.iframe
@@ -612,17 +612,21 @@ export function EdgeState({ children }: { children: ReactNode }) {
 
 export const EXPLAINER = "max-w-[440px] text-[13px] leading-[1.5] text-secondary";
 
-// wavesrv serves the canvas itself, so this is a refusal or a dropped request, and the poller's next tick retries
+// wavesrv serves the canvas itself, so this is a refusal or a dropped request, and the poller's next tick retries.
+// The Rendered transcript's Mockup card words it the same
+export const SERVER_DOWN = {
+    title: "Arc could not serve this canvas",
+    explainer: "The canvas files are on disk, but Arc got no answer serving them. It tries again every few seconds.",
+};
+
 function ServerDown() {
     return (
         <EdgeState>
             <span className="flex items-center gap-[8px] text-[14px] font-semibold text-primary">
                 <span className="h-[7px] w-[7px] rounded-full bg-error" />
-                Arc could not serve this canvas
+                {SERVER_DOWN.title}
             </span>
-            <span className={EXPLAINER}>
-                The canvas files are on disk, but Arc got no answer serving them. It tries again every few seconds.
-            </span>
+            <span className={EXPLAINER}>{SERVER_DOWN.explainer}</span>
         </EdgeState>
     );
 }

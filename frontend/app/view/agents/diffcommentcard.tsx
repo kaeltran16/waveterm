@@ -96,19 +96,21 @@ function CommentEditor({ draft }: { draft: CommentDraft }) {
                 <span className="flex-1" />
                 <button
                     onClick={closeDraft}
+                    title="Cancel (Esc)"
                     className={cn(
                         footBtn,
                         "border border-edge-mid bg-surface-raised font-semibold text-ink-mid hover:text-ink-hi"
                     )}
                 >
-                    Cancel <kbd className="font-mono text-[10.5px] text-ink-faint">Esc</kbd>
+                    Cancel
                 </button>
                 <button
                     onClick={saveDraft}
                     disabled={draft.note.trim() === ""}
+                    title={`${editing ? "Save" : "Add comment"} (Ctrl+↵)`}
                     className={cn(footBtn, "bg-accent font-bold text-background disabled:opacity-50")}
                 >
-                    {editing ? "Save" : "Add comment"} <kbd className="font-mono text-[10.5px] font-normal">Ctrl+↵</kbd>
+                    {editing ? "Save" : "Add comment"}
                 </button>
             </div>
         </div>

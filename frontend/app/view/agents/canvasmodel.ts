@@ -158,6 +158,17 @@ export function isUnseen(s: CanvasState): boolean {
     return s.mode === "terminal" && s.lastModifiedMs != null && s.lastModifiedMs > s.lastViewedMs;
 }
 
+// the boards whose file the server answered for, in canvas order: canvas.json can name boards not written yet
+export function servedBoards(s: CanvasState): string[] {
+    return s.boards.filter((b) => s.boardModifiedMs?.[b.name] != null).map((b) => b.name);
+}
+
+// a board never on screen counts from when the canvas itself was last viewed
+export function boardUnseen(s: CanvasState, board: string): boolean {
+    const modified = s.boardModifiedMs?.[board];
+    return modified != null && modified > (s.boardViewedMs?.[board] ?? s.lastViewedMs);
+}
+
 export function updatedAgo(nowMs: number, ms: number | null): string {
     if (ms == null) {
         return "";

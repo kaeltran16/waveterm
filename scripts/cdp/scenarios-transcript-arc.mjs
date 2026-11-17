@@ -512,9 +512,10 @@ export const transcriptArc = {
             ok:
                 pane.length === 3 &&
                 JSON.stringify(confirm.pane) === JSON.stringify(["confirm-all"]) &&
-                hasAll(confirm.text, ["In the brainstorm pane, you", "confirmed every guess"]) &&
+                hasAll(confirm.text, ["You confirmed every guess"]) &&
+                !confirm.text.includes("In the brainstorm pane") &&
                 JSON.stringify(settle.pane) === JSON.stringify(["settle", "check"]) &&
-                hasAll(settle.text, ["3 parts", "asked for the builder check"]) &&
+                hasAll(settle.text, ["3 parts", "You asked for the builder check"]) &&
                 builder.line === "builder" &&
                 hasAll(builder.text, ["Builder check", "3 questions back", brainstormFile.spec]) &&
                 hasAll(builder.counts ?? "", ["1 answered already", "1 minor, my call", "1 for you"]),

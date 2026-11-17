@@ -8,7 +8,9 @@ import {
     closeTabs,
     focusAgent,
     makeTab,
+    pinDefaultView,
     quietUntil,
+    restoreDefaultView,
     restoreRoster,
     setRoster,
 } from "./agent-page-fixtures.mjs";
@@ -113,6 +115,8 @@ export default function (_kit) {
                 const tag = randomUUID().slice(0, 8);
                 const ctx = { tabIds: [] };
                 await h.goto("agent");
+                // the header checks are of the terminal view's header; Rendered moves the model pill into its box
+                await pinDefaultView(h, "terminal");
                 try {
                     const noController = { view: "term", controller: null };
                     const working = await makeTab(h, ctx, { label: `header-working-${tag}`, blockMeta: noController });
@@ -253,6 +257,7 @@ export default function (_kit) {
                     }
                 };
                 await step("clear the viewport override", () => h.cdp("Emulation.clearDeviceMetricsOverride"));
+                await step("restore the default view", () => restoreDefaultView(h));
                 await step("put the rail back", () =>
                     agentPage(
                         h,

@@ -706,7 +706,7 @@ function ImageReadsRow({
 function ThoughtText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
     return (
         <ClampedText lines="thought" clamp={clamp}>
-            <MarkdownMessage text={text} className={cn("text-muted", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />
+            <MarkdownMessage text={text} className={cn("text-ink-mid", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />
         </ClampedText>
     );
 }
@@ -1282,6 +1282,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     ctx,
     compact,
     unfold,
+    entryRow,
 }: {
     entries: AgentEntry[];
     accentLatest?: boolean;
@@ -1306,6 +1307,8 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     // a find is active: every finished turn's fold draws open and no bubble or thought is clamped, so a match never
     // sits in hidden text
     unfold?: boolean;
+    // consulted for each user prompt and Arc message: a row returned replaces the one the timeline would draw
+    entryRow?: (entry: AgentEntry, index: number) => React.ReactNode | null;
 }) {
     // ctx feeds the layout only through its role (a run brief), so a host's fresh ctx object does not relayout; a host's
     // fresh marks array relayouts only when a mark moves
@@ -1387,6 +1390,22 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     animate="animate"
                 >
                     <ThoughtText text={item.text} clamp={!unfold} compact={isCompact} />
+                </motion.div>
+            );
+        }
+        // a host's own row for a prompt or an Arc message (the Rendered view's brainstorm answers) stands in its place
+        const at = item.kind === "user" || item.kind === "arc" ? item.index : null;
+        const own = at != null ? (entryRow?.(entries[at], at) ?? null) : null;
+        if (own != null) {
+            return (
+                <motion.div
+                    key={(item.kind === "arc" ? "a" : "") + at}
+                    data-entry-row
+                    variants={viewFade}
+                    initial={shouldFadeEntry("user") ? "initial" : false}
+                    animate="animate"
+                >
+                    {own}
                 </motion.div>
             );
         }

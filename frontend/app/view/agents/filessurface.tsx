@@ -6,10 +6,12 @@
 // gutter (historypane), the selected commit's metadata + files (commitpane), and that file's diff
 // (diffpane). Uncommitted work is row zero of the history, not a separate mode. Read-only.
 
+import { TickNumber } from "@/app/element/ticknumber";
+import { Tooltip } from "@/app/element/tooltip";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { RefreshCw, RotateCcw } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, CircleAlert, LoaderCircle, RotateCcw } from "lucide-react";
 import { MotionConfig } from "motion/react";
 import { buildFilesBindings } from "@/app/store/keybindings/bindings";
 import { useSurfaceListNav, type ListNavController } from "@/app/store/keybindings/listnav";
@@ -18,7 +20,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useSyncMonacoTheme } from "@/app/monaco/monacotheme";
 import { openInCode } from "@/app/view/code/codestore";
 import type { AgentsViewModel } from "./agents";
-import { formatAgo } from "./agentsviewmodel";
 import { CommentSendBar } from "./commentsendbar";
 import { DiffPane } from "./diffpane";
 import { firstDifferingLine, type CompareForm, type DiffSelection } from "./diffcontent";
@@ -71,19 +72,14 @@ import {
     compareCommitFailureAtom,
     compareCwd,
     compareErrorAtom,
-    compareHasRemoteAtom,
     compareOnAtom,
     compareRefsAtom,
     compareSelectedFileAtom,
     compareSelectionAtom,
     compareSidesAtom,
-    dismissFetchFailure,
     enterCompare,
-    fetchStateOf,
-    fetchStatesAtom,
     leaveCompare,
     retryCompareRow,
-    runFetch,
     selectCompareFile,
     selectCompareRow,
     setCompareForm,
@@ -128,6 +124,16 @@ import {
     SurfaceBanner,
     clearRetryPending,
 } from "./gitstatepanels";
+import {
+    fetchButton,
+    pushButton,
+    remoteButtonsShown,
+    remoteFailureBanner,
+    type FetchButton,
+    type PushButton,
+    type RemoteIcon,
+} from "./gitremotemodel";
+import { dismissRemoteFailure, gitRemoteStateOf, gitRemoteStatesAtom, runFetch, runPush } from "./gitremotestore";
 import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
 import { WORKING_TREE, commitCount, worktreeCaption } from "./historyrows";
@@ -144,8 +150,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const historyFailure = useAtomValue(historyFailureAtom);
     // a fresh array per landed read, null while one is in flight; a failed read lands with its failure set
     const historyCommits = useAtomValue(historyCommitsAtom);
-    const fetchStates = useAtomValue(fetchStatesAtom);
-    const fetchState = fetchStateOf(fetchStates, state?.cwd);
+    const remoteState = gitRemoteStateOf(useAtomValue(gitRemoteStatesAtom), state?.cwd);
     const historyFiltered = useAtomValue(historyFilteredAtom);
     const historyFilters = useAtomValue(historyFiltersAtom);
     const historyScroll = useAtomValue(historyScrollAtom);
@@ -165,7 +170,6 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const compareError = useAtomValue(compareErrorAtom);
     const compareBranches = useAtomValue(compareBranchesAtom);
     const compareChanges = useAtomValue(compareActiveChangesAtom);
-    const compareHasRemote = useAtomValue(compareHasRemoteAtom);
     const compareCommitFailure = useAtomValue(compareCommitFailureAtom);
     const commitFailure = useAtomValue(commitChangesFailureAtom);
     const refreshFailed = useAtomValue(filesRefreshFailedAtom);
@@ -509,6 +513,19 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
     const body = diffBody(historyFailure != null, state);
     // compare reads no history, so a history failure has nothing to replace there
     const historyFailedInColumn = body === "history-failure-in-column" && !compareOn;
+    const summary = scope
+        ? summaryLine({
+              range: scope.range,
+              branch: state?.branch ?? "",
+              ref: state?.ref ?? "",
+              mergeBase: compareSides?.mergeBase ?? "",
+              commit: shownCommit,
+              changes: shownChanges,
+              lineCounts,
+          })
+        : "";
+    const remoteShown = remoteButtonsShown(state, compareOn);
+    const remoteBanner = state ? remoteFailureBanner(state, remoteState) : null;
 
     const notReady = () =>
         subject === "pick" ? (
@@ -658,13 +675,15 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
         <MotionConfig reducedMotion="user">
             <div ref={setSurfaceEl} data-files-surface className="absolute inset-0 flex min-h-0 flex-col">
                 {/* subject bar: which repository, and which range within it. The toolbar wraps because
-                    compare adds two controls to it: at the shipped 1000x700 the ref picker's editing form
-                    plus Fetch need more than one row, and a nowrap row pays for that by squeezing the
-                    source picker from its 210px and pushing Fetch off the window edge. Wrapping costs a
-                    second line only at the width that cannot hold one. The negative margins let these
-                    33-38px controls overhang the toolbar's padding, so a single row stays 52px. */}
+                    compare adds the ref picker to it: at the shipped 1000x700 its editing form plus the
+                    remote group need more than one row, and a nowrap row pays for that by squeezing the
+                    source picker from its 210px and pushing the group off the window edge. Wrapping costs a
+                    second line only at the width that cannot hold one; the summary truncates first. The
+                    negative margins let these 33-38px controls overhang the toolbar's padding, so a single
+                    row stays 52px. */}
                 <SurfaceToolbar
                     title="Diff"
+                    fillActions
                     actions={
                         scope && ready ? (
                             <>
@@ -673,19 +692,20 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                                         <span data-files-refresh-failed>couldn’t refresh · showing the last read</span>
                                     </ToolbarFact>
                                 ) : null}
-                                <ToolbarFact>
-                                    <span data-files-range-summary className="truncate">
-                                        {summaryLine({
-                                            range: scope.range,
-                                            branch: state?.branch ?? "",
-                                            ref: state?.ref ?? "",
-                                            mergeBase: compareSides?.mergeBase ?? "",
-                                            commit: shownCommit,
-                                            changes: shownChanges,
-                                            lineCounts,
-                                        })}
+                                <ToolbarFact className="w-0 flex-1 justify-end">
+                                    <span data-files-range-summary className="truncate" title={summary}>
+                                        {summary}
                                     </span>
                                 </ToolbarFact>
+                                {/* a change list still loading has no folder to act in, and says nothing of a remote */}
+                                {remoteShown.push && state?.cwd ? (
+                                    <RemoteGroup
+                                        fetch={remoteShown.fetch ? fetchButton(remoteState, Date.now()) : null}
+                                        push={pushButton(state, remoteState, Date.now())}
+                                        onFetch={() => fireAndForget(() => runFetch(state.cwd!))}
+                                        onPush={() => fireAndForget(() => runPush(state.cwd!))}
+                                    />
+                                ) : null}
                             </>
                         ) : null
                     }
@@ -744,35 +764,6 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             />
                         </div>
                     ) : null}
-                    {/* a repository with no remote has nothing to fetch, and a change list still loading has
-                        no folder to fetch in yet */}
-                    {compareOn && ready && compareHasRemote && state?.cwd ? (
-                        <div className="flex items-center gap-[7px]">
-                            <button
-                                data-files-fetch
-                                onClick={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
-                                disabled={fetchState.running}
-                                title="Update remote-tracking refs"
-                                className={cn(
-                                    "flex flex-none items-center gap-[6px] rounded-[7px] border border-edge-mid px-[9px] py-[5px] text-[11.5px] font-semibold",
-                                    fetchState.running
-                                        ? "text-ink-faint opacity-50"
-                                        : "text-ink-mid hover:border-edge-strong hover:text-foreground"
-                                )}
-                            >
-                                <RefreshCw size={13} className={cn(fetchState.running && "animate-spin")} />
-                                {fetchState.running ? "Fetching…" : "Fetch"}
-                            </button>
-                            {/* A remote-tracking ref is only as fresh as the last fetch, so the
-                                clock is part of reading the comparison. Absent until one has
-                                happened — "just now" on an unfetched session would be a lie. */}
-                            {fetchState.at > 0 ? (
-                                <span data-files-fetched className="font-mono text-[10.5px] text-muted">
-                                    fetched {formatAgo(Date.now() - fetchState.at * 1000)}
-                                </span>
-                            ) : null}
-                        </div>
-                    ) : null}
                 </SurfaceToolbar>
 
                 {!ready ? (
@@ -795,13 +786,17 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                             </SurfaceBanner>
                         ) : null}
 
-                        {fetchState.failure ? (
+                        {remoteBanner && state?.cwd ? (
                             <GitFailureNotice
-                                title="Fetch failed"
-                                note="showing refs as of the last fetch"
-                                failure={fetchState.failure}
-                                onRetry={() => state?.cwd && fireAndForget(() => runFetch(state.cwd!))}
-                                onDismiss={() => state?.cwd && dismissFetchFailure(state.cwd)}
+                                title={remoteBanner.title}
+                                note={remoteBanner.note}
+                                failure={remoteBanner.failure}
+                                onRetry={() =>
+                                    fireAndForget(() =>
+                                        remoteBanner.action === "push" ? runPush(state.cwd!) : runFetch(state.cwd!)
+                                    )
+                                }
+                                onDismiss={() => dismissRemoteFailure(state.cwd!)}
                             />
                         ) : null}
 
@@ -918,5 +913,110 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
                 )}
             </div>
         </MotionConfig>
+    );
+}
+
+const REMOTE_ICON_PX = 13;
+
+function RemoteGlyph({ icon }: { icon: RemoteIcon }) {
+    switch (icon) {
+        case "running":
+            return <LoaderCircle size={REMOTE_ICON_PX} className="animate-spin" />;
+        case "failed":
+            return <CircleAlert size={REMOTE_ICON_PX} className="text-error" />;
+        case "fetch":
+            return <ArrowDownToLine size={REMOTE_ICON_PX} />;
+        case "push":
+            return <ArrowUpFromLine size={REMOTE_ICON_PX} />;
+    }
+}
+
+// a running action reads quiet rather than faded; one held by the other action, or a detached Push, fades
+function remoteButtonClass(b: { icon: RemoteIcon; disabled: boolean }, bright = false): string {
+    const running = b.icon === "running";
+    return cn(
+        "flex items-center gap-[6px] whitespace-nowrap px-[11px] py-[6px] text-[11.5px] font-semibold disabled:pointer-events-none",
+        running ? "text-muted" : bright ? "text-ink-hi" : "text-ink-mid",
+        b.disabled ? !running && "opacity-40" : "hover:text-foreground"
+    );
+}
+
+// Fetch | Push as one joined control at the toolbar's right end. Push's reason is a styled tooltip so it shows
+// on a disabled Push too: the disabled button takes no pointer events, so the hover lands on the wrapper.
+function RemoteGroup({
+    fetch,
+    push,
+    onFetch,
+    onPush,
+}: {
+    fetch: FetchButton | null;
+    push: PushButton;
+    onFetch: () => void;
+    onPush: () => void;
+}) {
+    const detail = push.detail;
+    return (
+        <>
+            <span aria-hidden data-files-remote-divider className="h-[18px] w-px flex-none bg-edge-mid" />
+            <div
+                data-files-remote
+                role="group"
+                aria-label="Remote"
+                className="-my-[2px] flex flex-none items-stretch overflow-hidden rounded-[9px] border border-edge-mid bg-surface"
+            >
+                {fetch ? (
+                    <button
+                        type="button"
+                        data-files-fetch
+                        onClick={onFetch}
+                        disabled={fetch.disabled}
+                        title={fetch.title}
+                        className={remoteButtonClass(fetch)}
+                    >
+                        <RemoteGlyph icon={fetch.icon} />
+                        {fetch.label}
+                        {/* a remote-tracking ref is only as fresh as the last fetch, so the clock is part of
+                            reading the comparison; absent until one has happened */}
+                        {fetch.detail ? (
+                            <span data-files-fetched className="font-mono text-[10.5px] font-normal text-muted">
+                                {fetch.detail}
+                            </span>
+                        ) : null}
+                    </button>
+                ) : null}
+                <Tooltip
+                    content={push.title}
+                    placement="bottom"
+                    divClassName={cn("flex", fetch && "border-l border-edge-mid")}
+                >
+                    <button
+                        type="button"
+                        data-files-push
+                        onClick={onPush}
+                        disabled={push.disabled}
+                        className={remoteButtonClass(push, push.publish)}
+                    >
+                        <RemoteGlyph icon={push.icon} />
+                        {push.label}
+                        {detail?.kind === "time" ? (
+                            <span data-files-push-detail className="font-mono text-[10.5px] font-normal text-muted">
+                                {detail.text}
+                            </span>
+                        ) : detail?.kind === "ahead" ? (
+                            <span
+                                data-files-push-detail
+                                className={cn(
+                                    "font-mono text-[10.5px] font-normal",
+                                    detail.behind > 0 ? "text-warning" : "text-ink-mid"
+                                )}
+                            >
+                                ↑<TickNumber value={detail.ahead} />
+                                {detail.behind > 0 ? ` ↓${detail.behind}` : null}
+                            </span>
+                        ) : null}
+                    </button>
+                </Tooltip>
+            </div>
+        </>
     );
 }

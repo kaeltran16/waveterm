@@ -10,7 +10,7 @@
 
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useState } from "react";
 import { historyFiltersAtom, setHistoryFilter } from "./githistorystore";
 
@@ -31,10 +31,8 @@ function FilterChip({
     const on = value.trim() !== "";
     if (editing) {
         return (
-            <span className="flex items-center gap-[7px] rounded-[7px] border border-accent/30 bg-accentbg px-[9px] py-[4px]">
-                <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">
-                    {label}
-                </span>
+            <span className="flex h-[28px] flex-none items-center gap-[7px] rounded-[7px] border border-accent/30 bg-accentbg px-[9px]">
+                <span className="text-[11.5px] font-semibold text-muted">{label}</span>
                 <input
                     autoFocus
                     value={value}
@@ -46,7 +44,7 @@ function FilterChip({
                             setEditing(false);
                         }
                     }}
-                    className="w-[150px] bg-transparent font-mono text-[11.5px] text-ink-hi outline-none placeholder:text-muted"
+                    className="w-[110px] bg-transparent font-mono text-[11.5px] text-ink-hi outline-none placeholder:text-muted"
                 />
             </span>
         );
@@ -54,15 +52,13 @@ function FilterChip({
     return (
         <span
             className={cn(
-                "flex items-center gap-[7px] rounded-[7px] border px-[9px] py-[4px] text-[11.5px] font-semibold",
+                "flex h-[28px] flex-none items-center gap-[7px] rounded-[7px] border px-[9px] text-[11.5px] font-semibold",
                 on ? "border-accent/30 bg-accentbg text-ink-hi" : "border-edge-mid bg-surface text-muted"
             )}
         >
-            <button onClick={() => setEditing(true)} className="flex items-center gap-[7px]">
-                <span className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted">
-                    {label}
-                </span>
-                <span className="max-w-[170px] truncate font-mono text-[11.5px]">{on ? value : placeholder}</span>
+            <button onClick={() => setEditing(true)} className="flex min-w-0 items-center gap-[7px]">
+                <span className="text-[11.5px] font-semibold text-muted">{label}</span>
+                <span className="max-w-[80px] truncate font-mono text-[11.5px]">{on ? value : placeholder}</span>
             </button>
             {on ? (
                 <button
@@ -81,11 +77,12 @@ export function HistoryFilterRow() {
     const filters = useAtomValue(historyFiltersAtom);
     return (
         <div className="flex flex-none items-center gap-[8px] px-[12px] pb-[10px]">
-            <div className="flex min-w-0 flex-1 items-center gap-[8px] rounded-[8px] border border-edge-mid bg-surface px-[10px] py-[5px] focus-within:border-accent/30">
-                <span className="flex-none font-mono text-[11px] font-semibold text-muted">/</span>
+            <div className="flex h-[28px] min-w-0 flex-1 items-center gap-[8px] rounded-[7px] border border-edge-mid bg-surface px-[10px] focus-within:border-accent/30">
+                <Search size={13} className="flex-none text-muted" />
                 <input
                     data-history-filter
                     value={filters.text}
+                    title="Filter by message (/)"
                     placeholder="Filter by message"
                     onChange={(e) => setHistoryFilter({ text: e.target.value })}
                     onKeyDown={(e) => {
@@ -99,13 +96,13 @@ export function HistoryFilterRow() {
                 />
             </div>
             <FilterChip
-                label="author"
+                label="Author"
                 value={filters.author}
                 placeholder="anyone"
                 onChange={(v) => setHistoryFilter({ author: v })}
             />
             <FilterChip
-                label="path"
+                label="Path"
                 value={filters.path}
                 placeholder="any"
                 onChange={(v) => setHistoryFilter({ path: v })}

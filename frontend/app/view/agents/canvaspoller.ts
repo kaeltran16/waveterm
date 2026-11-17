@@ -19,6 +19,7 @@ import {
     CANVAS_POLL_MS,
     canvasDesignDir,
     canvasProjectDir,
+    shownBoards,
     type CanvasBoard,
 } from "./canvasmodel";
 import { canvasStateAtom, updateCanvas, type CanvasState } from "./canvasstore";
@@ -36,7 +37,7 @@ export type CanvasIO = {
     head(url: string): Promise<{ status: HttpStatus; lastModified: number | null }>;
 };
 
-type ServerRead = { boards: CanvasBoard[]; lastModifiedMs: number | null };
+type ServerRead = { boards: CanvasBoard[]; lastModifiedMs: number | null; boardModifiedMs: Record<string, number> };
 
 function newest(a: number | null, b: number | null): number | null {
     return a == null ? b : b == null ? a : Math.max(a, b);
@@ -54,7 +55,20 @@ async function readServer(s: CanvasState, io: CanvasIO, base: string): Promise<S
         return null;
     }
     const lastModifiedMs = heads.reduce((m, h) => newest(m, h.lastModified), res.lastModified);
-    return { boards, lastModifiedMs };
+    // a board canvas.json names but whose file is not there yet is left out
+    const boardModifiedMs: Record<string, number> = {};
+    heads.forEach((h, i) => {
+        if (h.status === HTTP_OK) {
+            boardModifiedMs[boards[i].name] = h.lastModified ?? 0;
+        }
+    });
+    return { boards, lastModifiedMs, boardModifiedMs };
+}
+
+// the boards on screen: the pane's shown ones (every one under All), and a Rendered card's inline board
+function boardsOnScreen(s: CanvasState, boards: CanvasBoard[], onScreen: boolean): string[] {
+    const pane = onScreen ? shownBoards({ ...s, boards }).map((b) => b.name) : [];
+    return s.inlineBoard != null ? [...pane, s.inlineBoard] : pane;
 }
 
 // whether the agent surface is drawing the canvas's boards: its own pane, or a brainstorm's full-size board, which
@@ -86,13 +100,23 @@ export async function pollCanvasOnce(
         status: "ready",
         boards: read.boards,
         lastModifiedMs: read.lastModifiedMs,
+        boardModifiedMs: read.boardModifiedMs,
     };
+    const seen = boardsOnScreen(s, read.boards, onScreen);
+    if (seen.length > 0) {
+        patch.boardViewedMs = { ...s.boardViewedMs, ...Object.fromEntries(seen.map((b) => [b, now])) };
+    }
     if (onScreen) {
         patch.lastViewedMs = now;
-        // every board is on screen, so any file passing the previous newest reloads them
-        if (read.lastModifiedMs != null && s.lastModifiedMs != null && read.lastModifiedMs > s.lastModifiedMs) {
-            patch.reloadKey = s.reloadKey + 1;
-        }
+    }
+    // the pane shows every board, so any file passing the previous newest reloads them; a card reloads only for
+    // its own board's file
+    const was = s.inlineBoard != null ? s.boardModifiedMs?.[s.inlineBoard] : undefined;
+    const is = s.inlineBoard != null ? read.boardModifiedMs[s.inlineBoard] : undefined;
+    const inlineMoved = was != null && is != null && is > was;
+    const paneMoved = read.lastModifiedMs != null && s.lastModifiedMs != null && read.lastModifiedMs > s.lastModifiedMs;
+    if (inlineMoved || (onScreen && paneMoved)) {
+        patch.reloadKey = s.reloadKey + 1;
     }
     return patch;
 }
@@ -152,7 +176,24 @@ export async function pollAndMerge(agentId: string, io: CanvasIO = tauriCanvasIO
         return;
     }
     const patch = await pollCanvasOnce(s, io, Date.now(), canvasOnScreen(s, getBrainstorm(agentId)));
-    updateCanvas(agentId, (cur) => (cur.topic === s.topic && cur.dir === s.dir ? { ...cur, ...patch } : cur));
+    updateCanvas(agentId, (cur) => (cur.topic === s.topic && cur.dir === s.dir ? mergePoll(cur, patch) : cur));
+}
+
+// the patch's viewed times come from the poll's snapshot, so a show or mode switch that landed while it was reading
+// is newer: viewed times only move forward
+function mergePoll(cur: CanvasState, patch: Partial<CanvasState>): CanvasState {
+    const next = { ...cur, ...patch };
+    if (patch.lastViewedMs != null) {
+        next.lastViewedMs = Math.max(cur.lastViewedMs, patch.lastViewedMs);
+    }
+    if (patch.boardViewedMs != null) {
+        const viewed = { ...cur.boardViewedMs };
+        for (const [board, ms] of Object.entries(patch.boardViewedMs)) {
+            viewed[board] = Math.max(viewed[board] ?? ms, ms);
+        }
+        next.boardViewedMs = viewed;
+    }
+    return next;
 }
 
 export function useCanvasPoller(model: AgentsViewModel, agent: AgentVM | undefined): void {

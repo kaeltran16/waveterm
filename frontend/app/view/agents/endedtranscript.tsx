@@ -14,6 +14,7 @@ import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
 import { railVisibleAtom } from "./railstore";
+import { TRANSCRIPT_COLUMN } from "./renderedview";
 import { leadAgentOf } from "./runlineage";
 import { loadRunTranscriptPath, runTranscriptPathsAtom } from "./runlineagestore";
 import { endedLine } from "./runrail";
@@ -79,15 +80,17 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
             </div>
             <div className="relative min-h-0 flex-1">
                 <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-[22px] py-[12px]">
-                    {entries.length > 0 ? (
-                        <NarrationTimeline entries={entries} active={false} ctx={ctx} />
-                    ) : missing ? (
-                        <div className="flex h-full items-center justify-center text-[12px] text-muted">
-                            No transcript found for this session.
-                        </div>
-                    ) : (
-                        <TranscriptSkeleton />
-                    )}
+                    <div className={TRANSCRIPT_COLUMN}>
+                        {entries.length > 0 ? (
+                            <NarrationTimeline entries={entries} active={false} ctx={ctx} />
+                        ) : missing ? (
+                            <div className="flex flex-1 items-center justify-center text-[12px] text-muted">
+                                No transcript found for this session.
+                            </div>
+                        ) : (
+                            <TranscriptSkeleton />
+                        )}
+                    </div>
                 </div>
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>

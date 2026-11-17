@@ -13,16 +13,21 @@ import type { ReactNode } from "react";
 // no overflow-hidden: Code's project picker opens out of this header.
 // when the controls do not fit one row it wraps rather than clipping them; py-1.5 lands a single
 // row of controls up to 39px at exactly 52px. actions takes min-w-0 so a truncating fact placed there
-// (Diff's range summary) can shrink instead of wrapping.
+// can shrink instead of wrapping.
+// fillActions makes actions take the spacer's place, right-aligned: a flex-wrap row breaks on each item's
+// base size, so with a zero basis the actions wrap only once their fit-content minimum (whatever does not
+// truncate) cannot fit, and a truncating fact sized w-0 flex-1 in them (Diff's range summary) gives way first.
 export function SurfaceToolbar({
     title,
     children,
     actions,
+    fillActions = false,
     className,
 }: {
     title: string;
     children?: ReactNode;
     actions?: ReactNode;
+    fillActions?: boolean;
     className?: string;
 }) {
     return (
@@ -35,8 +40,17 @@ export function SurfaceToolbar({
         >
             <h1 className="text-[15px] font-semibold text-primary">{title}</h1>
             {children}
-            <span className="flex-1" />
-            {actions != null ? <div className="flex min-w-0 items-center gap-2">{actions}</div> : null}
+            {fillActions ? null : <span className="flex-1" />}
+            {actions != null ? (
+                <div
+                    className={cn(
+                        "flex items-center",
+                        fillActions ? "min-w-fit flex-1 basis-0 justify-end gap-3" : "min-w-0 gap-2"
+                    )}
+                >
+                    {actions}
+                </div>
+            ) : null}
         </header>
     );
 }

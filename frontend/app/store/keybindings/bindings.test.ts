@@ -207,8 +207,12 @@ describe("ctrlCReachesSession", () => {
         expect(ctrlCReachesSession(false, false, true)).toBe(false);
     });
 
-    it("counts in the Rendered view, which stands in for the terminal", () => {
+    it("counts anywhere on the surface while the Rendered view hides the terminal", () => {
         expect(ctrlCReachesSession(false, true, false, true)).toBe(true);
+    });
+
+    it("leaves focus outside the surface alone while the Rendered view shows", () => {
+        expect(ctrlCReachesSession(false, false, false, true)).toBe(false);
     });
 });
 

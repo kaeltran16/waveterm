@@ -48,6 +48,7 @@ import { canHandToPhone, isHandedOver } from "./handtophone";
 import { HeaderControls } from "./headercontrols";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { remoteStatusAtom, toggleHandToPhone } from "./remotestore";
+import { brainstormSwitchShown } from "./renderedbsrunmodel";
 import { canRender, effectiveViewMode, pickerFlipAtom, toggleViewMode, viewModeAtom } from "./renderedmode";
 import { agentProject, isEndedWorkerId, leadAgentOf, leadDisplayName } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
@@ -370,7 +371,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         <ChevronLeft size={12} strokeWidth={2} aria-hidden />
                     </button>
                 ) : null}
-                {brainstorm != null ? (
+                {brainstorm != null && brainstormSwitchShown(brainstorm, rendered) ? (
                     <Segmented
                         role="group"
                         ariaLabel="Show terminal or brainstorm"
@@ -395,7 +396,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         ]}
                         onChange={(m) => setBrainstormMode(agent.id, m, Date.now())}
                     />
-                ) : canvas != null ? (
+                ) : brainstorm == null && canvas != null ? (
                     <Segmented
                         role="group"
                         ariaLabel="Show terminal or canvas"

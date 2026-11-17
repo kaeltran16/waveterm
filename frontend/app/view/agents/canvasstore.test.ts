@@ -11,11 +11,13 @@ import {
     focusedCanvas,
     focusedCanvasMode,
     getCanvas,
+    markFromTranscript,
     selectCanvasBoard,
     selectCanvasTab,
     setCanvasMode,
     setMark,
     setMarking,
+    showInlineBoard,
     stepCanvasBoard,
     updateCanvas,
 } from "./canvasstore";
@@ -213,6 +215,43 @@ describe("marking", () => {
         setMark("a1", null);
         expect(getCanvas("a1").marking).toBe(true);
         expect(getCanvas("a1").mark).toBeNull();
+    });
+});
+
+describe("inline board", () => {
+    it("showing a board in a card puts it on screen and clears its unseen mark at once", () => {
+        attachCanvas("a1", A, 0);
+        updateCanvas("a1", (s) => ({ ...s, boards: BOARDS, boardModifiedMs: { "States.dc.html": 50 } }));
+        showInlineBoard("a1", "States.dc.html", 80);
+        expect(getCanvas("a1")!.inlineBoard).toBe("States.dc.html");
+        expect(getCanvas("a1")!.boardViewedMs).toEqual({ "States.dc.html": 80 });
+    });
+
+    it("a card going away takes its board off screen and keeps when each was seen", () => {
+        attachCanvas("a1", A, 0);
+        showInlineBoard("a1", "Main.dc.html", 80);
+        showInlineBoard("a1", null, 90);
+        expect(getCanvas("a1")!.inlineBoard).toBeNull();
+        expect(getCanvas("a1")!.boardViewedMs).toEqual({ "Main.dc.html": 80 });
+    });
+});
+
+describe("a mark from the transcript", () => {
+    it("turns marking on and remembers where it started", () => {
+        attachCanvas("a1", A, 0);
+        markFromTranscript("a1");
+        expect(getCanvas("a1")!.marking).toBe(true);
+        expect(getCanvas("a1")!.markFrom).toBe("transcript");
+    });
+
+    it("forgets where it started once marking ends or the canvas closes", () => {
+        attachCanvas("a1", A, 0);
+        markFromTranscript("a1");
+        setMarking("a1", false);
+        expect(getCanvas("a1")!.markFrom).toBeNull();
+        markFromTranscript("a1");
+        setCanvasMode("a1", "terminal", 5);
+        expect(getCanvas("a1")!.markFrom).toBeNull();
     });
 });
 

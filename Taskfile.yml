@@ -17,6 +17,16 @@ tasks:
         aliases:
             - dev
         deps:
+            - dev:prep
+        env:
+            WAVETERM_ENVFILE: "{{.ROOT_DIR}}/.env"
+            WAVETERM_NOCONFIRMQUIT: "1"
+
+    # scripts/cdp/final-verify.mjs runs this alone, then starts the app itself: through cargo, or the exe its build slot
+    # already holds for the same src-tauri
+    dev:prep:
+        desc: Build and sync everything `task dev` needs before it starts the app.
+        deps:
             - npm:install
             - sync:piartifacts
             - sync:remoteweb
@@ -24,9 +34,6 @@ tasks:
             - tauri:sync-version
             - build:backend:devhost
             - build:backend:devhost:full
-        env:
-            WAVETERM_ENVFILE: "{{.ROOT_DIR}}/.env"
-            WAVETERM_NOCONFIRMQUIT: "1"
 
     tauri:sync-version:
         desc: Write package.json's version into every file that carries a copy (src-tauri/tauri.conf.json, src-tauri/Cargo.toml) so the installer, the crate, and app.getVersion() agree (package.json stays the single source of truth).

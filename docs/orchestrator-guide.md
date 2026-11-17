@@ -1163,19 +1163,22 @@ final tree, runs the named `verify:ui` scenarios (all of them with none named) a
 `cdp-shots/` (with `index.html` as the contact sheet), `shots.json` (the manifest above, one entry per
 scenario with its screenshots and steps), `dev-app.log`, `waveapp.log` (the app's own log)
 and `tauri.final.json`. A dev app from the main checkout is usually running, so the final one
-shares nothing with it: its own CDP port, a Vite port from 5175 up (passed as `task dev -- --config
+shares nothing with it: its own CDP port, a Vite port from 5175 up (passed as `cargo tauri dev --config
 tauri.final.json`), a fresh store under `%LOCALAPPDATA%\arc-final\stores\` (a short path, since wavesrv's
 `wave.sock` must stay under Windows' 108-byte socket path limit; dropped after the run with the WebView2
 profile inside it),
 a cargo target dir under `%LOCALAPPDATA%\arc-final\` (`target`, `target-1`, `target-2`: one per build slot,
 each paying one cold build), and its own `dist/bin`: it unlinks the tree's `dist/bin` and `src-tauri/target`
-junctions first. It sets `ARC_DEV_NO_GLOBAL_INSTALL`, so the run's branch installs no agent hooks or
+junctions first. It builds with `task dev:prep`, then starts the app through `npm run dev` (`cargo tauri dev`), unless
+the slot's `wave-tauri.exe` was built from the same `src-tauri` files and `tauri.final.json` (a stamp beside the exe
+records which): then it starts Vite and that exe directly, with `ARC_DEV_APP_PATH` pointing the exe at this tree's
+`dist`, and skips the cargo build a new tree path otherwise forces. It sets `ARC_DEV_NO_GLOBAL_INSTALL`, so the run's branch installs no agent hooks or
 `~/.arc/bin/wsh`. Three final stages run at once, one per build slot (`BUILD_SLOTS`), since a stage runs the
 `wave-tauri.exe` it builds in its slot's target dir; a fourth waits for a slot (`ARC_FINAL_LOCK_WAIT_MS`, default
 10 minutes) and then exits 3. It stops only the processes it started. It exits 3 with a reason when the app does not
 come up within its boot budget (`ARC_FINAL_BOOT_MS`, default 10 minutes). Otherwise it exits with verify.mjs's
-own code: 0 pass, 1 a scenario failed, 2 an unknown scenario name. `ARC_FINAL_DEV_CMD` overrides the start
-command (default `task dev -- --config <ARC_FINAL_OUT>/tauri.final.json`).
+own code: 0 pass, 1 a scenario failed, 2 an unknown scenario name. `ARC_FINAL_DEV_CMD` replaces the build and
+the start with one command.
 
 ---
 

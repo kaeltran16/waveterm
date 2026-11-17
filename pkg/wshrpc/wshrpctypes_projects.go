@@ -46,8 +46,6 @@ type CommandListBranchesRtnData struct {
 	// command for its worktree-branch suggestions and ignores it.
 	// "" when the repo publishes no origin/HEAD and has neither main nor master.
 	Default string `json:"default,omitempty"`
-	// HasRemote is true when the repo has at least one remote.
-	HasRemote bool `json:"hasremote,omitempty"`
 }
 
 type CommandGitChangesData struct {
@@ -60,6 +58,9 @@ type CommandGitChangesData struct {
 	SessionStartTs int64 `json:"sessionstartts,omitempty"`
 	// End, with Ref, lists only the commits in Ref..End. Branch and Head stay the checkout's.
 	End string `json:"end,omitempty"`
+	// Remote asks for the upstream facts in the return. Only the Diff surface sends it: the read is
+	// polled by the cards, rail and peek too, which would pay three more git processes a tick for nothing.
+	Remote bool `json:"remote,omitempty"`
 }
 
 type CommandGitChangesRtnData struct {
@@ -78,4 +79,10 @@ type CommandGitChangesRtnData struct {
 	// NumstatError is set when the read listed the files but `diff --numstat` failed (one
 	// unreadable file fails it for all): the list is valid, its line counts are not.
 	NumstatError string `json:"numstaterror,omitempty"`
+	// Set only when the request carried Remote, and left empty when that read failed. Upstream is
+	// "" when the branch has none or HEAD is detached; Behind is as fresh as the last fetch.
+	HasRemote bool   `json:"hasremote,omitempty"`
+	Upstream  string `json:"upstream,omitempty"`
+	Ahead     int    `json:"ahead,omitempty"`
+	Behind    int    `json:"behind,omitempty"`
 }

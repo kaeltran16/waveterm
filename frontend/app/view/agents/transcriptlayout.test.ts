@@ -186,6 +186,18 @@ describe("layoutTranscript folds", () => {
         expect(phrase([user("go"), skill("a"), skill("b"), prose("ok")])).toBe("used 2 skills");
     });
 
+    it("names a canvas reveal in the phrase, apart from the commands", () => {
+        const phrase = (entries: AgentEntry[]) => turns(layoutTranscript(entries, { active: false }))[0].fold.phrase;
+        expect(phrase([user("go"), edit("a.ts", 1, 0), bash("wsh ui reveal canvas:final-queue"), prose("ok")])).toBe(
+            "edited a.ts, revealed a canvas"
+        );
+        expect(phrase([user("go"), bash("npm test"), bash("wsh ui reveal canvas:x"), prose("ok")])).toBe(
+            "ran 1 command, revealed a canvas"
+        );
+        // a reveal of anything else is still a command
+        expect(phrase([user("go"), bash("wsh ui reveal effort:abc"), prose("ok")])).toBe("ran 1 command");
+    });
+
     it("folds a stretch with no times or commands, its duration unknown", () => {
         // a Codex projection: no ts, no command
         const codex: AgentEntry[] = [

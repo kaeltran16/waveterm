@@ -50,6 +50,7 @@ import agentRail from "./scenarios-agent-rail.mjs";
 import agentTree from "./scenarios-agent-tree.mjs";
 import agentRendered from "./scenarios-agent-rendered.mjs";
 import agentQueued from "./scenarios-agent-queued.mjs";
+import { RENDERED_BS_SCENARIOS } from "./scenarios-rendered-brainstorm.mjs";
 import {
     diffComments,
     diffCompare,
@@ -59,6 +60,7 @@ import {
     diffSourceRow,
     gitHistory,
 } from "./scenarios-files.mjs";
+import { diffPush } from "./scenarios-files-push.mjs";
 import { diffScope } from "./scenarios-files-scope.mjs";
 import { diffStates } from "./scenarios-files-states.mjs";
 import {
@@ -267,6 +269,7 @@ export const SCENARIOS = [
     diffRename,
     diffScope,
     diffStates,
+    diffPush,
     surfaceSmoke,
     surfaceHeaders,
     codeSearch,
@@ -412,6 +415,7 @@ export const SCENARIOS = [
     ...agentTree(SESSIONS_KIT),
     ...agentRendered(SESSIONS_KIT),
     ...agentQueued(SESSIONS_KIT),
+    ...RENDERED_BS_SCENARIOS,
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,

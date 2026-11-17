@@ -60,7 +60,7 @@ describe("loadFilesForScope, run range", () => {
         // let the fire-and-forget selectFile settle
         await new Promise((r) => setTimeout(r, 0));
 
-        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/repo", ref: "abc123" });
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/repo", ref: "abc123", remote: true });
         // the anchor the pane diffs against is this ref, so list and pane cannot disagree
         expect(globalStore.get(filesStateAtom)?.ref).toBe("abc123");
     });
@@ -82,7 +82,7 @@ describe("loadFilesForScope, session range", () => {
         await loadFilesForScope(agentScopeVal("a1"), { transcriptPath: "/t.jsonl" });
         await new Promise((r) => setTimeout(r, 0));
 
-        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", sessionstartts: 1719000000 });
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", sessionstartts: 1719000000, remote: true });
         // the pane diffs against the SAME base the list did, not "" — else pill/list/diff disagree
         expect(globalStore.get(filesStateAtom)?.ref).toBe("base9");
     });
@@ -101,7 +101,7 @@ describe("loadFilesForScope, session range", () => {
         await loadFilesForScope(agentScopeVal("a2"), { transcriptPath: "/t.jsonl" });
         await new Promise((r) => setTimeout(r, 0));
 
-        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt" });
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", remote: true });
         expect(globalStore.get(filesStateAtom)?.ref).toBe("");
     });
 });
@@ -135,7 +135,7 @@ describe("reloadChanges, session range whose start did not resolve at load", () 
         await reloadChanges("/wt");
 
         expect(ensureSessionStart).toHaveBeenCalledWith("/a-late.jsonl");
-        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", sessionstartts: 1700000000 });
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", sessionstartts: 1700000000, remote: true });
         expect(globalStore.get(filesStateAtom)?.ref).toBe("base9");
         expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
     });
@@ -145,7 +145,7 @@ describe("reloadChanges, session range whose start did not resolve at load", () 
 
         await reloadChanges("/wt");
 
-        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt" });
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", remote: true });
         expect(globalStore.get(filesStateAtom)?.ref).toBe("");
         expect(globalStore.get(filesSelectedPathAtom)).toBe("b.ts");
         expect(globalStore.get(filesErrorAtom)).toBe(false);
@@ -162,7 +162,7 @@ describe("reloadChanges, session range whose start did not resolve at load", () 
         await reloadChanges("/wt");
 
         expect(ensureSessionStart).not.toHaveBeenCalled();
-        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", ref: "base9" });
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", ref: "base9", remote: true });
     });
 });
 
@@ -198,7 +198,7 @@ describe("loadFilesForScope, working range on an agent", () => {
         await loadFilesForScope({ ...agentScopeVal("a3"), range: { kind: "working" } }, { transcriptPath: "/t.jsonl" });
         await new Promise((r) => setTimeout(r, 0));
 
-        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt" });
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/wt", remote: true });
         expect(ensureSessionStart).not.toHaveBeenCalled();
     });
 });
@@ -355,7 +355,7 @@ describe("loadFilesForScope, bounded run range", () => {
 
         await loadFilesForScope(scope);
 
-        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/repo", ref: "abc123", end: "tip999" });
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/repo", ref: "abc123", end: "tip999", remote: true });
         expect(globalStore.get(filesStateAtom)?.end).toBe("tip999");
     });
 
@@ -368,7 +368,34 @@ describe("loadFilesForScope, bounded run range", () => {
 
         await reloadChanges("/repo");
 
-        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/repo", ref: "abc123", end: "tip999" });
+        expect(gitChanges).toHaveBeenCalledWith({}, { cwd: "/repo", ref: "abc123", end: "tip999", remote: true });
+    });
+
+    // Push reads where the branch stands from the change list, on every range
+    it("keeps the read's remote facts on the state", async () => {
+        gitChanges.mockResolvedValue({
+            isrepo: true,
+            branch: "feat",
+            statusz: "",
+            numstat: "",
+            hasremote: true,
+            upstream: "origin/feat",
+            ahead: 2,
+            behind: 1,
+        });
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesStateAtom)).toMatchObject({
+            hasRemote: true,
+            upstream: "origin/feat",
+            ahead: 2,
+            behind: 1,
+        });
+    });
+
+    it("reads no remote and no upstream when the read carries no facts", async () => {
+        gitChanges.mockResolvedValue({ isrepo: true, branch: "main", statusz: "", numstat: "" });
+        await loadFilesForScope(projectScopeVal("proj"));
+        expect(globalStore.get(filesStateAtom)).toMatchObject({ hasRemote: false, upstream: "", ahead: 0, behind: 0 });
     });
 
     it("records an empty end for a live read", async () => {

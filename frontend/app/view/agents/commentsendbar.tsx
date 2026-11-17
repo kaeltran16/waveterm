@@ -212,7 +212,7 @@ export function CommentSendBar({ model }: { model: AgentsViewModel }) {
                         data-comment-send
                         onClick={send}
                         disabled={waiting || sending}
-                        title={waiting ? t.detail : undefined}
+                        title={waiting ? t.detail : `${t.action} (⇧↵)`}
                         className={cn(
                             btn,
                             "font-bold",
@@ -224,7 +224,6 @@ export function CommentSendBar({ model }: { model: AgentsViewModel }) {
                         <CrossFade swapKey={sending ? "sending" : error != null ? "again" : "send"}>
                             {sending ? "Sending…" : error != null ? "Send again" : t.action}
                         </CrossFade>
-                        {waiting ? null : <kbd className="font-mono text-[10.5px] font-normal">⇧↵</kbd>}
                     </button>
                 </div>
             ) : null}

@@ -1,11 +1,14 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentVM } from "./agentsviewmodel";
+import { attachBrainstorm, detachBrainstorm, getBrainstorm, openBrainstormBoard } from "./brainstormstore";
 import { canvasHandoffLine, type Mark } from "./canvasmarks";
 import { sendCanvasMark, type SendIO } from "./canvassend";
-import { attachCanvas, detachCanvas, getCanvas, setCanvasMode, updateCanvas } from "./canvasstore";
+import { attachCanvas, detachCanvas, getCanvas, markFromTranscript, setCanvasMode, updateCanvas } from "./canvasstore";
+import { viewModeAtom } from "./renderedmode";
 
 const AGENT = { id: "a1", name: "Arc", blockId: "blk-1" } as AgentVM;
 const DIR = "/p/.superpowers/design/t";
@@ -57,6 +60,8 @@ beforeEach(() => {
 
 afterEach(() => {
     detachCanvas("a1");
+    detachBrainstorm("a1");
+    globalStore.set(viewModeAtom("a1"), "terminal");
 });
 
 describe("sendCanvasMark", () => {
@@ -72,6 +77,40 @@ describe("sendCanvasMark", () => {
         expect(s.mode).toBe("terminal");
         expect(s.marking).toBe(false);
         expect(s.mark).toBeNull();
+    });
+
+    it("a mark started from the transcript ends, once sent, with the agent back in Rendered", async () => {
+        markFromTranscript("a1");
+        await sendCanvasMark(AGENT, fakeIO());
+        expect(getCanvas("a1")!.mode).toBe("terminal");
+        expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
+    });
+
+    it("a mark on a brainstorm's board started from the transcript leaves the brainstorm pane for Rendered", async () => {
+        // the brainstorm's board view, which draws the canvas while the canvas itself stays in terminal mode
+        attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0, "brainstorm");
+        openBrainstormBoard("a1", "States.dc.html");
+        setCanvasMode("a1", "terminal", 1);
+        updateCanvas("a1", (s) => ({ ...s, marking: true, mark: MARK }));
+        markFromTranscript("a1");
+        await sendCanvasMark(AGENT, fakeIO());
+        expect(getBrainstorm("a1")!.mode).toBe("terminal");
+        expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
+    });
+
+    it("a mark started in the pane ends where it does today", async () => {
+        attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0, "brainstorm");
+        await sendCanvasMark(AGENT, fakeIO());
+        expect(getBrainstorm("a1")!.mode).toBe("brainstorm");
+        expect(globalStore.get(viewModeAtom("a1"))).toBe("terminal");
+    });
+
+    it("a failed send from the transcript stays in the pane with the mark", async () => {
+        markFromTranscript("a1");
+        await expect(sendCanvasMark(AGENT, fakeIO({ prompt: fail }))).rejects.toThrow();
+        expect(getCanvas("a1")!.mode).toBe("canvas");
+        expect(getCanvas("a1")!.markFrom).toBe("transcript");
+        expect(globalStore.get(viewModeAtom("a1"))).toBe("terminal");
     });
 
     it("writes the cropped picture's bytes", async () => {

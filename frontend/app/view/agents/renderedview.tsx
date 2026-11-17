@@ -37,6 +37,8 @@ import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
 import { pinnedPrompt, type PinnedPrompt } from "./pinnedprompt";
 import { footList, type Foot } from "./queuedprompts";
+import { NeedsInputPill, RenderedBrainstorm } from "./renderedbrainstorm";
+import { useRenderedEntryRow } from "./renderedbsrows";
 import { RenderedComposer } from "./renderedcomposer";
 import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
 import type { ReplyFileLink } from "./replyfilelinks";
@@ -47,6 +49,9 @@ import { TranscriptSkeleton } from "./transcriptskeleton";
 
 // the transcript column's measure, and the pinned bar's (the Working board)
 const COLUMN = "mx-auto w-full max-w-[736px]";
+// the transcript column, shared with an ended worker's read-back. Only a markdown message's top-level text blocks keep
+// a reading measure; cards, code and diffs use the width
+export const TRANSCRIPT_COLUMN = `${COLUMN} flex min-h-full flex-col [&_.agent-md>:is(p,ul,ol,h1,h2,h3,h4,h5,h6,blockquote)]:max-w-[75ch]`;
 const BUBBLE = "[data-user-bubble]";
 // the docked peek's share of the view at most, so the transcript keeps the rest
 const PEEK_MAX_HEIGHT = "50%";
@@ -124,13 +129,7 @@ function AskCard({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const sent = useAtomValue(model.sentIdsAtom).has(askSentKey(agent) ?? "");
     return (
         <div data-rendered-ask className="mt-1 flex flex-col pb-2">
-            <div className="mb-3 inline-flex items-center gap-[7px] self-start rounded-full bg-warning/12 py-[3px] pl-1.5 pr-2.5 text-[12.5px] font-semibold text-warning">
-                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
-                    <circle cx="7" cy="7" r="5.5" fill="none" strokeWidth="1.5" className="stroke-warning" />
-                    <circle cx="7" cy="7" r="2.6" className="fill-warning" />
-                </svg>
-                Needs your input
-            </div>
+            <NeedsInputPill />
             <AnswerBar
                 agent={agent}
                 variant="card"
@@ -307,6 +306,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     const composerRef = useRef<AgentComposerHandle>(null);
     const askShown = askDocked(agent);
     const replyPeek = useReplyPeek(model, agent);
+    const entryRow = useRenderedEntryRow(model, agent);
     // the picker only exists in the TUI, so the flip lands before the command is typed
     const onSubmitText = (text: string) => {
         if (isPickerCommand(text)) {
@@ -326,12 +326,8 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                     className="h-full overflow-y-auto px-6 py-[18px]"
                 >
                     {/* min-h, not h: the stick-to-bottom observer watches this box, so it must grow with the
-                        timeline (an image or chart that lays out late) for the tail to stay pinned. Only a markdown
-                        message's top-level text blocks keep a reading measure; cards, code and diffs use the width */}
-                    <div
-                        data-rendered-column
-                        className={`${COLUMN} flex min-h-full flex-col [&_.agent-md>:is(p,ul,ol,h1,h2,h3,h4,h5,h6,blockquote)]:max-w-[75ch]`}
-                    >
+                        timeline (an image or chart that lays out late) for the tail to stay pinned */}
+                    <div data-rendered-column className={TRANSCRIPT_COLUMN}>
                         {entries.length > 0 ? (
                             <>
                                 <AnimatePresence initial={false}>
@@ -363,6 +359,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                                             active={agent.state === "working"}
                                             ctx={ctx}
                                             tail={tail}
+                                            entryRow={entryRow}
                                         />
                                     </FileLinkContext.Provider>
                                 </div>
@@ -381,6 +378,8 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                         )}
                         {/* after the timeline, whose working line hides while the agent asks */}
                         {askShown ? <AskCard model={model} agent={agent} /> : null}
+                        {/* the brainstorm's live card is always the transcript's last item */}
+                        <RenderedBrainstorm model={model} agent={agent} />
                     </div>
                 </div>
                 <PinnedPromptBar prompt={pin.prompt} onJump={pin.jump} />

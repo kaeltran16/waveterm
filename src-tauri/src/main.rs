@@ -44,7 +44,7 @@ fn spawn_wavesrv(
     data_base: PathBuf,
     state: tauri::State<InitState>,
 ) -> Result<Child, String> {
-    // Packaged: app_path = resource_dir(); dev: app_path = src-tauri/../dist (paths::resolve_app_path).
+    // Packaged: app_path = resource_dir(); dev: app_path = src-tauri/../dist or ARC_DEV_APP_PATH (paths::resolve_app_path).
     // wavesrv + wsh both live under {app_path}/bin; wavesrv discovers wsh via WAVETERM_APP_PATH.
     let exe = app_path.join("bin").join("wavesrv.x64.exe");
     let (data_home, config_home) = paths::data_home_dirs(&data_base);
@@ -283,7 +283,12 @@ fn main() {
             let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
             // resource_dir() only matters when packaged; avoid calling it in dev.
             let resource_dir = if is_dev { PathBuf::new() } else { app.path().resource_dir()? };
-            let app_path = paths::resolve_app_path(is_dev, manifest_dir, &resource_dir);
+            let app_path = paths::resolve_app_path(
+                is_dev,
+                manifest_dir,
+                &resource_dir,
+                std::env::var_os(paths::DEV_APP_PATH_ENV),
+            );
             // main() derived it unless LOCALAPPDATA is unset; then fall back to tauri's resolver
             let data_base = match data_base {
                 Some(dir) => dir,

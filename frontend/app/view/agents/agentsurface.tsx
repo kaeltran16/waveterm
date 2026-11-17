@@ -190,7 +190,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             return;
         }
         const term = wrap.querySelector<HTMLElement>(`[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`);
-        (term?.checkVisibility() ? term : wrap).focus({ preventScroll: true });
+        (term?.checkVisibility({ visibilityProperty: true }) ? term : wrap).focus({ preventScroll: true });
     }, [surface]);
 
     // Agent-surface keys live in the registry (bindings.ts). Stable array — run() reads live atoms.
@@ -227,46 +227,48 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                 </span>
                             </div>
                         ) : null}
-                        {mountable
-                            .filter((a) => a.blockId != null)
-                            .map((a) => (
-                                <div
-                                    key={a.id}
-                                    data-agent-terminal={a.id}
-                                    className={cn(
-                                        "min-h-0 flex-1",
-                                        a.id === agent.id && !paneMode && !showRendered ? "flex flex-col" : "hidden"
-                                    )}
+                        <div className="relative flex min-h-0 flex-1 flex-col">
+                            {mountable
+                                .filter((a) => a.blockId != null)
+                                .map((a) => (
+                                    <div
+                                        key={a.id}
+                                        data-agent-terminal={a.id}
+                                        className={cn(
+                                            "min-h-0 flex-1",
+                                            terminalClass(a.id === agent.id, paneMode, showRendered)
+                                        )}
+                                    >
+                                        <CodePeekContext.Provider value={{ model, transcriptPath: a.transcriptPath }}>
+                                            <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
+                                        </CodePeekContext.Provider>
+                                    </div>
+                                ))}
+                            {isEndedWorkerId(agent.id) ? (
+                                <EndedTranscript model={model} agent={agent} />
+                            ) : stage != null && agent.id === stage.agent.id ? (
+                                <FinalStagePane model={model} run={stage.run} />
+                            ) : brainstormMode ? (
+                                <BrainstormPane model={model} agent={agent} />
+                            ) : canvasMode ? (
+                                // keyed like the brainstorm pane, so opening the canvas or another agent's fades in
+                                <motion.div
+                                    key={agent.id}
+                                    variants={viewFade}
+                                    initial="initial"
+                                    animate="animate"
+                                    className="flex min-h-0 flex-1 flex-col"
                                 >
-                                    <CodePeekContext.Provider value={{ model, transcriptPath: a.transcriptPath }}>
-                                        <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
-                                    </CodePeekContext.Provider>
+                                    <CanvasPane model={model} agent={agent} />
+                                </motion.div>
+                            ) : agent.blockId == null ? (
+                                <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
+                                    No live terminal for this agent.
                                 </div>
-                            ))}
-                        {isEndedWorkerId(agent.id) ? (
-                            <EndedTranscript model={model} agent={agent} />
-                        ) : stage != null && agent.id === stage.agent.id ? (
-                            <FinalStagePane model={model} run={stage.run} />
-                        ) : brainstormMode ? (
-                            <BrainstormPane model={model} agent={agent} />
-                        ) : canvasMode ? (
-                            // keyed like the brainstorm pane, so opening the canvas or another agent's fades in
-                            <motion.div
-                                key={agent.id}
-                                variants={viewFade}
-                                initial="initial"
-                                animate="animate"
-                                className="flex min-h-0 flex-1 flex-col"
-                            >
-                                <CanvasPane model={model} agent={agent} />
-                            </motion.div>
-                        ) : agent.blockId == null ? (
-                            <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
-                                No live terminal for this agent.
-                            </div>
-                        ) : showRendered ? (
-                            <RenderedView key={agent.id} model={model} agent={agent} />
-                        ) : null}
+                            ) : showRendered ? (
+                                <RenderedView key={agent.id} model={model} agent={agent} />
+                            ) : null}
+                        </div>
                     </div>
                     {showSub ? <SubagentInterior model={model} sub={focusSub!} parentName={agent.name} /> : null}
                 </div>
@@ -279,6 +281,15 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
 }
 
 // the tree column and the terminal pane, so the first agent lands where the skeleton was
+// the focused agent's terminal stays laid out, invisible, under Rendered: a terminal starts its controller on its first
+// sized fit (termwrap handleResize), so a display:none one would leave a tab that opens Rendered never started
+function terminalClass(focused: boolean, paneMode: boolean, showRendered: boolean): string {
+    if (!focused || paneMode) {
+        return "hidden";
+    }
+    return showRendered ? "invisible absolute inset-0 flex flex-col" : "flex flex-col";
+}
+
 function AgentSurfaceSkeleton() {
     return (
         <div aria-hidden="true" className="flex h-full w-full bg-background">
