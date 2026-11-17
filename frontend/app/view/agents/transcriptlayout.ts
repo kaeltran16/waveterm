@@ -52,8 +52,10 @@ export type LayoutItem =
     // thoughts: the stretch's own, set only when it has some
     | { kind: "steps"; startIndex: number; steps: Step[]; thoughts?: Thought[] }
     | { kind: "card"; index: number; step: Step }
-    // a finished turn's work, folded: its items in order. open: it starts open (a tool output card in the rendered view)
-    | { kind: "turn"; startIndex: number; items: LayoutItem[]; fold: FoldSummary; open: boolean };
+    // a finished turn's work, folded: its items in order. open: it starts open (a tool output card in the rendered view).
+    // live: the working turn's work, laid out the same way but drawn open, so finishing folds the rows already drawn
+    // instead of redrawing them inside a fold
+    | { kind: "turn"; startIndex: number; items: LayoutItem[]; fold: FoldSummary; open: boolean; live?: boolean };
 
 // the entry's own time: a record's ts, or an action's tool_use time
 function entryTime(e: AgentEntry | undefined): number | undefined {
@@ -232,7 +234,7 @@ function lastIndexOf(items: LayoutItem[], pred: (item: LayoutItem) => boolean): 
     return -1;
 }
 
-function turnItem(entries: AgentEntry[], items: LayoutItem[], opts: LayoutOpts): LayoutItem {
+function turnItem(entries: AgentEntry[], items: LayoutItem[], opts: LayoutOpts, live: boolean): LayoutItem {
     const steps = items.flatMap((i) => (i.kind === "steps" ? i.steps : i.kind === "card" ? [i.step] : []));
     const first = itemStart(items[0]);
     const toolCard = items.some((i) => i.kind === "steps" && i.steps.some((s) => toolRendererKey(s.action) != null));
@@ -242,6 +244,7 @@ function turnItem(entries: AgentEntry[], items: LayoutItem[], opts: LayoutOpts):
         items,
         fold: foldSummary(entries, steps, first, itemEnd(items[items.length - 1])),
         open: !!opts.renderers && toolCard,
+        ...(live ? { live } : {}),
     };
 }
 
@@ -253,7 +256,8 @@ function foldTurn(
     from: number,
     to: number,
     splitAfter: Set<number>,
-    opts: LayoutOpts
+    opts: LayoutOpts,
+    live: boolean
 ): LayoutItem[] {
     const range = flat.slice(from, to);
     const lastWork = lastIndexOf(range, isWork);
@@ -264,7 +268,7 @@ function foldTurn(
     const close = () => {
         // a part of prose and thoughts only draws as it is
         if (part.some(isWork)) {
-            out.push(turnItem(entries, part, opts));
+            out.push(turnItem(entries, part, opts, live));
         } else {
             out.push(...part);
         }
@@ -286,22 +290,21 @@ function foldTurn(
     return out;
 }
 
-// folds every finished turn; while active, the last turn is live and stays as it is
+// folds every finished turn; while active, the last turn is live: split the same way, its turn items marked live
 function foldTurns(entries: AgentEntry[], flat: LayoutItem[], opts: LayoutOpts): LayoutItem[] {
     const starts = flat.flatMap((item, p) => (startsTurn(entries, item) ? [p] : []));
     const liveFrom = opts.active ? (starts[starts.length - 1] ?? 0) : flat.length;
     // a mark draws after the item holding the entry before it, so the turn splits there
     const splitAfter = new Set(placeMarks(flat, opts.marks ?? []).after.keys());
     const out: LayoutItem[] = [];
-    for (let from = 0; from < liveFrom; ) {
+    for (let from = 0; from < flat.length; ) {
         let to = from + 1;
-        while (to < liveFrom && !startsTurn(entries, flat[to])) {
+        while (to < flat.length && !startsTurn(entries, flat[to])) {
             to++;
         }
-        out.push(...foldTurn(entries, flat, from, to, splitAfter, opts));
+        out.push(...foldTurn(entries, flat, from, to, splitAfter, opts, from >= liveFrom));
         from = to;
     }
-    out.push(...flat.slice(liveFrom));
     return out;
 }
 
