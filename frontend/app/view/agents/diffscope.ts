@@ -238,13 +238,12 @@ export function summaryLine(i: SummaryInput): string {
         return `${shortSha(i.commit)} · ${counts}`;
     }
     switch (i.range.kind) {
+        // the ref picker beside this names both refs, so naming them again only crowds the toolbar
         case "compare":
             if (i.range.form === "tips") {
-                return `${i.range.base} .. ${i.range.head} tip to tip · ${counts}`;
+                return `tip to tip · ${counts}`;
             }
-            return i.mergeBase
-                ? `${i.range.head} since ${shortSha(i.mergeBase)} · ${counts}`
-                : `${i.range.base} … ${i.range.head} · ${counts}`;
+            return i.mergeBase ? `since ${shortSha(i.mergeBase)} · ${counts}` : counts;
         case "run":
             return `${shortSha(i.range.baseCommit)} … ${shortSha(i.range.headCommit ?? "") || "HEAD"} · ${counts}`;
         case "session":

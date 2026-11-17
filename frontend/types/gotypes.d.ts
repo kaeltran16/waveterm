@@ -1406,6 +1406,7 @@ declare global {
         ref?: string;
         sessionstartts?: number;
         end?: string;
+        remote?: boolean;
     };
 
     // wshrpc.CommandGitChangesRtnData
@@ -1417,6 +1418,10 @@ declare global {
         ref?: string;
         head?: string;
         numstaterror?: string;
+        hasremote?: boolean;
+        upstream?: string;
+        ahead?: number;
+        behind?: number;
     };
 
     // wshrpc.CommandGitCommitChangesData
@@ -1556,6 +1561,18 @@ declare global {
     // wshrpc.CommandGitListWorktreesRtnData
     type CommandGitListWorktreesRtnData = {
         worktrees: GitWorktree[];
+    };
+
+    // wshrpc.CommandGitPushData
+    type CommandGitPushData = {
+        cwd: string;
+    };
+
+    // wshrpc.CommandGitPushRtnData
+    type CommandGitPushRtnData = {
+        pushedat: number;
+        failure?: GitFailure;
+        isrepo: boolean;
     };
 
     // wshrpc.CommandJarvisCtxData
@@ -1716,7 +1733,6 @@ declare global {
     type CommandListBranchesRtnData = {
         branches: BranchInfo[];
         default?: string;
-        hasremote?: boolean;
     };
 
     // wshrpc.CommandListDetachedEdgesData

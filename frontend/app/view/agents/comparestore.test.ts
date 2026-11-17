@@ -7,14 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const divergence = vi.fn();
 const compareChanges = vi.fn();
 const listBranches = vi.fn();
-const gitFetch = vi.fn();
 const commitChanges = vi.fn();
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GitDivergenceCommand: (...a: any[]) => divergence(...a),
         GitCompareChangesCommand: (...a: any[]) => compareChanges(...a),
         ListBranchesCommand: (...a: any[]) => listBranches(...a),
-        GitFetchCommand: (...a: any[]) => gitFetch(...a),
         GitCommitChangesCommand: (...a: any[]) => commitChanges(...a),
     },
 }));
@@ -27,7 +25,6 @@ import {
     compareCommitFailureAtom,
     compareCwd,
     compareErrorAtom,
-    compareHasRemoteAtom,
     compareOnAtom,
     compareRefsAtom,
     compareSelectedFileAtom,
@@ -35,12 +32,9 @@ import {
     compareSidesAtom,
     defaultComparePair,
     enterCompare,
-    fetchStateOf,
-    fetchStatesAtom,
     leaveCompare,
     refreshCompare,
     retryCompareRow,
-    runFetch,
     selectCompareRow,
     setCompareForm,
     setCompareRefs,
@@ -59,11 +53,9 @@ afterEach(() => {
     divergence.mockReset();
     compareChanges.mockReset();
     listBranches.mockReset();
-    gitFetch.mockReset();
     commitChanges.mockReset();
     globalStore.set(treeModeAtom, true);
     globalStore.set(compareSelectionAtom, AGGREGATE);
-    globalStore.set(fetchStatesAtom, {});
     globalStore.set(diffScopeAtom, null);
 });
 
@@ -251,68 +243,6 @@ describe("remote refs, swap and fetch", () => {
         await swapCompareRefs("/repo");
         expect(divergence).not.toHaveBeenCalled();
     });
-
-    // The refs moved, so what the comparison means moved with them — re-reading is the point.
-    it("re-reads the comparison after a successful fetch", async () => {
-        await entered();
-        const before = divergence.mock.calls.length;
-        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 1_700_000_000 });
-
-        await runFetch("/repo");
-
-        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo")).toEqual({
-            running: false,
-            at: 1_700_000_000,
-            failure: null,
-        });
-        expect(divergence.mock.calls.length).toBeGreaterThan(before);
-    });
-
-    // git's own words, and the comparison on screen is still valid — it is merely not freshened.
-    it("keeps the failure as data, the old clock, and does not re-read", async () => {
-        await entered();
-        globalStore.set(fetchStatesAtom, { "/repo": { running: false, at: 1_699_000_000, failure: null } });
-        const before = divergence.mock.calls.length;
-        const failure = { command: "git fetch --prune origin", exitcode: 128, stderr: "no such remote" };
-        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 0, failure });
-
-        await runFetch("/repo");
-
-        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo")).toEqual({
-            running: false,
-            at: 1_699_000_000,
-            failure,
-        });
-        expect(divergence.mock.calls.length).toBe(before);
-    });
-
-    // A rejected RPC has no stderr to show; the button must still stop spinning.
-    it("stops running and keeps the previous clock when the call itself fails", async () => {
-        globalStore.set(fetchStatesAtom, { "/repo": { running: false, at: 42, failure: null } });
-        gitFetch.mockRejectedValue(new Error("socket closed"));
-
-        await runFetch("/repo");
-
-        const st = fetchStateOf(globalStore.get(fetchStatesAtom), "/repo");
-        expect(st.running).toBe(false);
-        expect(st.at).toBe(42);
-        expect(st.failure?.exitcode).toBe(-1);
-    });
-
-    // the banner and the clock are about one remote; picking another source must not carry them over
-    it("keeps a fetch's failure and clock with the repository it ran in", async () => {
-        const failure = { command: "git fetch --prune origin", exitcode: 128, stderr: "no such remote" };
-        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 0, failure });
-
-        await runFetch("/repo");
-
-        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo").failure).toEqual(failure);
-        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/other")).toEqual({
-            running: false,
-            at: 0,
-            failure: null,
-        });
-    });
 });
 
 describe("setCompareRefs", () => {
@@ -440,26 +370,6 @@ describe("setCompareRefs", () => {
 });
 
 describe("a slow read the surface moved on from", () => {
-    it("a fetch that returns after compare moved to another repository re-reads nothing", async () => {
-        globalStore.set(diffScopeAtom, base);
-        listBranches.mockResolvedValue({ branches: [], default: "main" });
-        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
-        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
-        await enterCompare("/A", "feat");
-        let fetched!: (v: unknown) => void;
-        gitFetch.mockImplementation(() => new Promise((r) => (fetched = r)));
-        const fetching = runFetch("/A");
-        await enterCompare("/B", "feat");
-        listBranches.mockClear();
-        divergence.mockClear();
-
-        fetched({ isrepo: true, fetchedat: 1 });
-        await fetching;
-
-        expect(listBranches).not.toHaveBeenCalled();
-        expect(divergence).not.toHaveBeenCalled();
-    });
-
     it("entering compare stands down when the scope changed while the branch list loaded", async () => {
         globalStore.set(diffScopeAtom, base);
         let listed!: (v: unknown) => void;
@@ -486,50 +396,6 @@ describe("a slow read the surface moved on from", () => {
         await entering;
 
         expect(globalStore.get(diffScopeAtom)).toBe(base);
-        expect(divergence).not.toHaveBeenCalled();
-    });
-});
-
-describe("runFetch while and after it runs", () => {
-    it("shows the fetch running with the last failure cleared and the clock kept", async () => {
-        const old = { command: "git fetch", exitcode: 1, stderr: "old" };
-        globalStore.set(fetchStatesAtom, { "/repo": { running: false, at: 7, failure: old } });
-        globalStore.set(compareRefsAtom, null);
-        let release: (v: any) => void = () => {};
-        gitFetch.mockImplementation(() => new Promise((res) => (release = res)));
-
-        const pending = runFetch("/repo");
-        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo")).toStrictEqual({
-            running: true,
-            at: 7,
-            failure: null,
-        });
-
-        release({ isrepo: true, fetchedat: 9 });
-        await pending;
-    });
-
-    // the client's timeout binds the server's context, so the default would cancel a slow fetch under git
-    it("fetches this repository with the raised budget", async () => {
-        globalStore.set(compareRefsAtom, null);
-        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 1 });
-
-        await runFetch("/repo");
-
-        expect(gitFetch).toHaveBeenCalledWith({}, { cwd: "/repo" }, { timeout: 60000 });
-    });
-
-    it("has no comparison to re-read when no pair was ever picked", async () => {
-        globalStore.set(compareRefsAtom, null);
-        gitFetch.mockResolvedValue({ isrepo: true, fetchedat: 5 });
-
-        await runFetch("/repo");
-
-        expect(fetchStateOf(globalStore.get(fetchStatesAtom), "/repo")).toEqual({
-            running: false,
-            at: 5,
-            failure: null,
-        });
         expect(divergence).not.toHaveBeenCalled();
     });
 });
@@ -599,26 +465,6 @@ describe("refreshCompare", () => {
         globalStore.set(compareRefsAtom, null);
         await refreshCompare("/repo");
         expect(divergence).not.toHaveBeenCalled();
-    });
-});
-
-describe("remote presence", () => {
-    async function enter(rtn: object) {
-        globalStore.set(diffScopeAtom, base);
-        listBranches.mockResolvedValue({ branches: [], default: "main", ...rtn });
-        divergence.mockResolvedValue({ isrepo: true, ahead: [], behind: [], mergebase: "m1" });
-        compareChanges.mockResolvedValue({ isrepo: true, statusz: "", numstat: "" });
-        await enterCompare("/repo", "feat");
-    }
-
-    it("reaches the atom from the branch listing", async () => {
-        await enter({ hasremote: true });
-        expect(globalStore.get(compareHasRemoteAtom)).toBe(true);
-        await enter({ hasremote: false });
-        expect(globalStore.get(compareHasRemoteAtom)).toBe(false);
-        await enter({ hasremote: true });
-        await enter({});
-        expect(globalStore.get(compareHasRemoteAtom)).toBe(false);
     });
 });
 

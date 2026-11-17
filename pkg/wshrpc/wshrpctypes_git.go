@@ -22,6 +22,7 @@ type GitCommands interface {
 	GitGrepCommand(ctx context.Context, data CommandGitGrepData) (*CommandGitGrepRtnData, error)
 	GitFileAtRefCommand(ctx context.Context, data CommandGitFileAtRefData) (*CommandGitFileAtRefRtnData, error)
 	GitFetchCommand(ctx context.Context, data CommandGitFetchData) (*CommandGitFetchRtnData, error)
+	GitPushCommand(ctx context.Context, data CommandGitPushData) (*CommandGitPushRtnData, error)
 	GitBlameCommand(ctx context.Context, data CommandGitBlameData) (*CommandGitBlameRtnData, error)
 }
 
@@ -188,6 +189,17 @@ type CommandGitFetchRtnData struct {
 	// shipped GitFailure panel renders git's own stderr out of this.
 	Failure *gitinfo.GitFailure `json:"failure,omitempty"`
 	IsRepo  bool                `json:"isrepo"`
+}
+
+type CommandGitPushData struct {
+	Cwd string `json:"cwd"`
+}
+
+// Like a fetch, a push needs the caller to raise opts.timeout past gitinfo's pushTimeout.
+type CommandGitPushRtnData struct {
+	PushedAt int64               `json:"pushedat"` // unix seconds; 0 on failure
+	Failure  *gitinfo.GitFailure `json:"failure,omitempty"`
+	IsRepo   bool                `json:"isrepo"`
 }
 
 type CommandGitBlameData struct {

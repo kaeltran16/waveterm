@@ -31,6 +31,13 @@ export interface FilesState {
     end: string;
     // git's error when the files listed but `diff --numstat` failed: the list is valid, its counts are not
     numstatError?: string;
+    // where the checked-out branch stands against its upstream, for Push. upstream is "" with none or on a
+    // detached HEAD (branch tells them apart); behind is as fresh as the last fetch. Absent on a state no
+    // read filled, and false/""/0 when the read could not get them.
+    hasRemote?: boolean;
+    upstream?: string;
+    ahead?: number;
+    behind?: number;
 }
 
 // A registered project the Diff surface can scope to, resolved from the config registry (name -> path).
@@ -93,6 +100,8 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
             ...(opts.ref ? { ref: opts.ref } : {}),
             ...(opts.sessionStartTs ? { sessionstartts: opts.sessionStartTs } : {}),
             ...(opts.end ? { end: opts.end } : {}),
+            // only this surface asks: the cards, rail and peek poll the same read and have no Push
+            remote: true,
         });
         if (current.token !== token) {
             return;
@@ -110,6 +119,10 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
             head: ch.head ?? "",
             end: opts.end ?? "",
             ...(ch.numstaterror ? { numstatError: ch.numstaterror } : {}),
+            hasRemote: ch.hasremote ?? false,
+            upstream: ch.upstream ?? "",
+            ahead: ch.ahead ?? 0,
+            behind: ch.behind ?? 0,
         });
         globalStore.set(filesErrorAtom, false);
         globalStore.set(filesRefreshFailedAtom, false);

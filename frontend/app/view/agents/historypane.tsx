@@ -95,14 +95,14 @@ function SlowNotice({ loading }: { loading: boolean }) {
     );
 }
 
-function ClearFiltersButton({ kbd }: { kbd?: boolean }) {
+function ClearFiltersButton() {
     return (
         <button
             onClick={() => clearHistoryFilters()}
-            className="flex flex-none items-center gap-[7px] rounded-[7px] border border-edge-mid bg-surface px-[10px] py-[4px] text-[11.5px] font-semibold text-ink-hi hover:border-edge-strong"
+            title="Clear filters (esc)"
+            className="flex h-[26px] flex-none items-center rounded-[7px] border border-edge-mid bg-surface px-[10px] text-[11.5px] font-semibold text-ink-hi hover:border-edge-strong"
         >
             Clear filters
-            {kbd ? <span className="font-mono text-[10.5px] text-muted">esc</span> : null}
         </button>
     );
 }
@@ -325,17 +325,18 @@ export function HistoryPane({
                     </span>
                 ) : null}
                 <div className="flex-1" />
-                {filtered ? <ClearFiltersButton kbd /> : null}
+                {filtered ? <ClearFiltersButton /> : null}
                 <button
                     onClick={() => globalStore.set(graphOnAtom, !graphPref)}
+                    aria-pressed={graphPref}
+                    title="Graph (⇧G)"
                     className={cn(
-                        "flex flex-none items-center gap-[6px] rounded-[7px] border px-[9px] py-[4px] text-[11.5px] font-semibold",
+                        "flex h-[26px] flex-none items-center gap-[6px] rounded-[7px] border px-[9px] text-[11.5px] font-semibold",
                         graphPref ? "border-accent/30 bg-accentbg text-ink-hi" : "border-edge-mid bg-surface text-muted"
                     )}
                 >
                     <GitGraph size={13} />
                     Graph
-                    <span className="font-mono text-[10.5px] text-muted">⇧G</span>
                 </button>
                 {onCollapse ? (
                     <button

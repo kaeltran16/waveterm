@@ -30,7 +30,7 @@ export function RangeStrip({
                         // which chip is active is otherwise only colour, which a screen reader cannot see
                         aria-pressed={selected}
                         disabled={!o.available}
-                        title={o.reason}
+                        title={o.range.kind === "compare" && o.available ? "Compare (c)" : o.reason}
                         onClick={() => onPick(o.range)}
                         className={cn(
                             "flex items-center gap-[6px] border-r border-edge-faint px-[11px] py-[6px] text-[11.5px] font-semibold last:border-r-0",
@@ -48,9 +48,6 @@ export function RangeStrip({
                             >
                                 {o.detail}
                             </span>
-                        ) : null}
-                        {o.range.kind === "compare" ? (
-                            <kbd className="font-mono text-[10.5px] text-ink-faint">c</kbd>
                         ) : null}
                     </button>
                 );

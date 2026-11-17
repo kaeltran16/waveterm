@@ -127,6 +127,14 @@ func (ws *WshServer) GitFetchCommand(ctx context.Context, data wshrpc.CommandGit
 	return &wshrpc.CommandGitFetchRtnData{FetchedAt: r.FetchedAt, Failure: r.Failure, IsRepo: r.IsRepo}, nil
 }
 
+func (ws *WshServer) GitPushCommand(ctx context.Context, data wshrpc.CommandGitPushData) (*wshrpc.CommandGitPushRtnData, error) {
+	r, err := gitinfo.Push(ctx, data.Cwd)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitPushRtnData{PushedAt: r.PushedAt, Failure: r.Failure, IsRepo: r.IsRepo}, nil
+}
+
 func (ws *WshServer) GitBlameCommand(ctx context.Context, data wshrpc.CommandGitBlameData) (*wshrpc.CommandGitBlameRtnData, error) {
 	b, err := gitinfo.Blame(ctx, data.Cwd, data.Path)
 	if err != nil {

@@ -28,6 +28,10 @@ const BIG_LOG_BYTES = 3 * 1024 * 1024;
 const SPLIT_MIN_PX = 900;
 const NARROW_HINT = "Removed lines: collapse history (⇧H) or widen the window to use split view and comment on them";
 const PANE = "[data-diff-pane]";
+const HEADER = `${PANE} [data-diff-header]`;
+const HEADER_CONTROL_PX = 28;
+// a pane of diffoptions.LABELLED_MIN_PX (1100) beside the open history column, which 1600 wide does not leave
+const LABELLED = { width: 2000, height: 950 };
 // the widths the visual revisit found the pane broken at (F1, F7)
 const NARROW = { width: 1000, height: 700 };
 const WIDE = { width: 1600, height: 950 };
@@ -491,6 +495,137 @@ export const diffStates = {
             })()`);
             rec(s1f, !!got.thumb && /background:\s*var\(--color-edge-strong\)/.test(got.thumb) && got.corner != null, JSON.stringify(got));
         });
+        // the pane header board: a modified file, so monaco draws the change counter
+        const reviewBtn = `${PANE} [data-review-open]`;
+        const notesNavUp = async () => {
+            const picked = await pickFile(h, STATES.notes);
+            const counted = picked && (await until(h, `!!document.querySelector("${PANE} [data-diff-nav]") && !!document.querySelector(${JSON.stringify(reviewBtn)})`));
+            await sleep(LAYOUT_SETTLE_MS);
+            return picked && counted;
+        };
+        const reviewPressed = (on) => until(h, `document.querySelector(${JSON.stringify(reviewBtn)})?.getAttribute("aria-pressed") === "${on}"`);
+        // marking the open file opens the next one, so the marked file is opened again; unmarking stays on it
+        const markNotes = async () => {
+            await h.ev(`document.querySelector(${JSON.stringify(reviewBtn)})?.click()`);
+            const marked = await until(h, `document.querySelector(${JSON.stringify(fileRowSel(STATES.notes))})?.dataset.reviewState === "ok"`);
+            return marked && (await notesNavUp()) && (await reviewPressed(true));
+        };
+        const unmarkNotes = async () => {
+            await h.ev(`document.querySelector(${JSON.stringify(reviewBtn)})?.click()`);
+            return reviewPressed(false);
+        };
+        // the header's controls, read the way the board draws them
+        const headerFacts = () =>
+            h.ev(`(() => {
+                const hdr = document.querySelector(${JSON.stringify(HEADER)});
+                if (!hdr) return null;
+                const nav = hdr.querySelector("[data-diff-nav]");
+                const open = hdr.querySelector('[aria-label^="Open in Code"]');
+                const review = hdr.querySelector("[data-review-open]");
+                const whitespace = hdr.querySelector('[aria-label^="Hide whitespace"]');
+                const divider = hdr.querySelector("[data-diff-header-divider]");
+                const probe = document.createElement("span");
+                probe.style.color = "var(--color-accent)";
+                document.body.appendChild(probe);
+                const accent = getComputedStyle(probe).color;
+                probe.remove();
+                const openStyle = open ? getComputedStyle(open) : null;
+                return {
+                    nav: nav && {
+                        role: nav.getAttribute("role"),
+                        label: nav.getAttribute("aria-label"),
+                        buttons: nav.querySelectorAll("button").length,
+                        counter: nav.querySelector("span")?.textContent.trim() ?? null,
+                    },
+                    heights: [...hdr.children]
+                        .filter((e) => e.matches("button, [role=group]"))
+                        .map((e) => Math.round(e.getBoundingClientRect().height)),
+                    split: !!hdr.querySelector('[role=group][title^="Unified"]'),
+                    openBorderPx: openStyle ? parseFloat(openStyle.borderTopWidth) : null,
+                    dividerBeforeOpen: !!divider && open?.previousElementSibling === divider,
+                    reviewLast: !!review && hdr.lastElementChild === review,
+                    checkAccent: review ? getComputedStyle(review.querySelector("svg")).stroke === accent : null,
+                    kbds: hdr.querySelectorAll("button kbd").length,
+                    labels: [whitespace, open, review].map((b) => b?.textContent.trim() ?? null),
+                };
+            })()`);
+        const headerProblems = (f, { labelled, reviewed }) => {
+            if (f == null) return ["no header"];
+            const bad = [];
+            if (f.nav?.role !== "group" || f.nav.label !== "Changes" || f.nav.buttons !== 2) bad.push("nav is not one group of both chevrons");
+            if (!(labelled ? /^change \d+\/\d+$/ : /^\d+\/\d+$/).test(f.nav?.counter ?? "")) bad.push(`counter reads ${f.nav?.counter}`);
+            if (f.heights.length < 4 || f.heights.some((px) => px !== HEADER_CONTROL_PX)) bad.push(`control heights ${f.heights}`);
+            if (f.openBorderPx !== 0) bad.push(`Open in Code border ${f.openBorderPx}px`);
+            if (!f.dividerBeforeOpen) bad.push("divider is not directly before Open in Code");
+            if (!f.reviewLast) bad.push("Mark reviewed is not last");
+            if (f.checkAccent !== reviewed) bad.push(`check accent ${f.checkAccent}, reviewed ${reviewed}`);
+            if (f.kbds !== 0) bad.push(`${f.kbds} kbd in header buttons`);
+            if (f.labels.some((l) => (l !== "") !== labelled)) bad.push(`labels ${JSON.stringify(f.labels)}`);
+            if (f.split !== labelled) bad.push(`split toggle ${f.split}`);
+            return bad;
+        };
+
+        const s1g = "1g. pane header at 2000x950, unmarked: one changes group, 28px controls, borderless Open in Code after the divider, Mark reviewed last, no kbd";
+        await guard(s1g, async () => {
+            await setViewport(h, LABELLED);
+            const up = await notesNavUp();
+            const facts = await headerFacts();
+            const bad = headerProblems(facts, { labelled: true, reviewed: false });
+            rec(s1g, up && bad.length === 0, JSON.stringify({ up, bad, facts }));
+            await h.shot("cdp-shots/diff-states-header-wide.png");
+        });
+
+        const s1h = "1h. pane header at 2000x950, marked: the same header with the check's stroke in the accent colour";
+        await guard(s1h, async () => {
+            const marked = await markNotes();
+            const facts = await headerFacts();
+            const bad = headerProblems(facts, { labelled: true, reviewed: true });
+            rec(s1h, marked && bad.length === 0, JSON.stringify({ marked, bad, facts }));
+            await h.shot("cdp-shots/diff-states-header-wide-reviewed.png");
+        });
+
+        const s1i = "1i. pane header with toggles on: Split, Hide whitespace and Mark reviewed are all pressed in one wide header";
+        await guard(s1i, async () => {
+            const pressedOf = (sel) => h.ev(`document.querySelector(${JSON.stringify(sel)})?.getAttribute("aria-pressed")`);
+            const splitBtn = `${HEADER} [role=group][title^="Unified"] button[aria-pressed]:nth-child(2)`;
+            const whitespaceBtn = `${HEADER} [aria-label^="Hide whitespace"]`;
+            try {
+                await h.ev(`document.querySelector(${JSON.stringify(splitBtn)})?.click()`);
+                await h.ev(`document.querySelector(${JSON.stringify(whitespaceBtn)})?.click()`);
+                await until(h, `document.querySelector(${JSON.stringify(whitespaceBtn)})?.getAttribute("aria-pressed") === "true"`);
+                await sleep(LAYOUT_SETTLE_MS);
+                const pressed = { split: await pressedOf(splitBtn), whitespace: await pressedOf(whitespaceBtn), reviewed: await pressedOf(reviewBtn) };
+                const wide = await h.ev(`document.querySelector(${JSON.stringify(PANE)})?.clientWidth ?? 0`);
+                await h.shot("cdp-shots/diff-states-header-toggles-on.png");
+                rec(s1i, Object.values(pressed).every((p) => p === "true"), JSON.stringify({ pressed, wide }));
+            } finally {
+                // the later steps are written for unified, whitespace shown
+                await h.ev(`document.querySelector(${JSON.stringify(splitBtn.replace(":nth-child(2)", ":nth-child(1)"))})?.click()`);
+                if ((await pressedOf(whitespaceBtn)) === "true") await h.ev(`document.querySelector(${JSON.stringify(whitespaceBtn)})?.click()`);
+            }
+        });
+
+        const s1j = "1j. pane header at 1000x700: icon-only controls, the counter reads i/n, marked then unmarked";
+        await guard(s1j, async () => {
+            await setViewport(h, NARROW);
+            await sleep(LAYOUT_SETTLE_MS);
+            const up = await until(h, `!!document.querySelector("${PANE} [data-diff-nav]")`);
+            const marked = headerProblems(await headerFacts(), { labelled: false, reviewed: true });
+            await h.shot("cdp-shots/diff-states-header-narrow-reviewed.png");
+            const unmarkedOk = await unmarkNotes();
+            await sleep(LAYOUT_SETTLE_MS);
+            const unmarked = headerProblems(await headerFacts(), { labelled: false, reviewed: false });
+            await h.shot("cdp-shots/diff-states-header-narrow.png");
+            rec(s1j, up && unmarkedOk && marked.length === 0 && unmarked.length === 0, JSON.stringify({ up, unmarkedOk, marked, unmarked }));
+        });
+
+        const s1k = "1k. compare chip: no kbd inside it, and its title carries the shortcut";
+        await guard(s1k, async () => {
+            const chip = await h.ev(`(() => { const c = document.querySelector('[data-range-chip="compare"]');
+                return c ? { kbds: c.querySelectorAll("kbd").length, title: c.getAttribute("title") } : null; })()`);
+            rec(s1k, chip != null && chip.kbds === 0 && chip.title === "Compare (c)", JSON.stringify(chip));
+        });
+
         // the steps below were written for the scenario's own viewport, whichever step above stopped short
         await setViewport(h, WIDE).catch(() => {});
 
