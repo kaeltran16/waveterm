@@ -4,7 +4,7 @@
 // sheet's face swap and launch states.
 // The data is brief-peek's arrange (a project with one deferred run, reloaded into the Brief) and the briefing
 // fixtures; brief-peek's teardown removes it.
-import { briefPeek } from "./scenarios-brief.mjs";
+import { briefPeek } from "./scenarios-brief-peek.mjs";
 import { failRpc, holdRpc, lookEval, polishNap, polishWaitFor, releaseRpc, setInputExpr, setPageRoster } from "./scenarios-shared.mjs";
 
 const BEHIND = `document.querySelector('[data-jarvis-brief-region="behind"]')`;

@@ -5,7 +5,7 @@
 // it is added (mid-flight), then the node is read again once it settled.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { finalStageScenario } from "./scenarios-runs.mjs";
+import { finalStageScenario } from "./scenarios-final.mjs";
 import { FINAL_SHOTS_UICTX, FST_DETAIL, fstShow, polishNap, polishWaitFor, seedFinalShots, waveService } from "./scenarios-shared.mjs";
 
 const PANE = `document.querySelector("[data-final-pane]")`;

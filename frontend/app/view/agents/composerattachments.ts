@@ -4,7 +4,7 @@
 // Attachments on the New run goal and the Rendered composer: a pasted file is persisted to a wavesrv temp file via
 // WriteTempFileCommand, a file picked in the native dialog is referenced where it is, and either reaches the run or
 // the agent as a path in its goal or prompt text. Pure helpers below are unit-tested (composerattachments.test.ts); the useComposerAttachments hook
-// (impure: RPC + object URLs) is verified over CDP by the new-run-attachments scenario.
+// is impure (RPC + object URLs).
 
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";

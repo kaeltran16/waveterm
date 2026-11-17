@@ -466,8 +466,7 @@ not-a-repo panel — registers them as projects, and drives the surface through 
 the history store and the compare store both read zero and agree by accident — every compare-vs-
 working-tree defect is invisible to it, and so is anything needing a second ref. Checking that class
 of behaviour by hand needs a fixture with two diverging branches *and* a dirty tree, so the two
-stores hold visibly different numbers. Renames have their own fixture, `diff-rename` (a pure rename and
-an edited one, each its own commit), and `diff-source-row` checks which row a source opens on.
+stores hold visibly different numbers. `diff-source-row` checks which row a source opens on.
 
 Pure logic is unit-tested beside its module: `diffscope.test.ts`, `gitdiff.test.ts`,
 `githistorystore.test.ts`, `comparestore.test.ts`, `filesstore.test.ts`, `agentdiffnav.test.ts`.

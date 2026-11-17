@@ -11,12 +11,12 @@ import {
     dagPeekClickNode,
     dagPeekOpen,
     dagPeekPublish,
-    dagPeekScenario,
     dagPeekTaskSel,
     injectPageDag,
     rvOpenDag,
     undoPageDag,
 } from "./scenarios-runs.mjs";
+import { dagPeekScenario } from "./scenarios-dag.mjs";
 import { failRpc, lookEval, polishNap, polishWaitFor, releaseRpc } from "./scenarios-shared.mjs";
 
 const REFUSAL = "motion-dag-peek refused this retry on the page";

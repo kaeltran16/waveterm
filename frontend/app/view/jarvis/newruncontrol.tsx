@@ -586,19 +586,6 @@ function NewRunModal({ model, onClose }: { model: AgentsViewModel; onClose: () =
             }
         });
 
-    // DEV-only: the new-run-attachments scenario's seam into the dialog's handler, since CDP cannot drive the
-    // native dialog
-    useEffect(() => {
-        if (!import.meta.env.DEV) {
-            return;
-        }
-        const w = window as unknown as { __newRunAttachPaths?: (paths: string[]) => void };
-        w.__newRunAttachPaths = addPaths;
-        return () => {
-            delete w.__newRunAttachPaths;
-        };
-    }, [addPaths]);
-
     const start = () => {
         if (picked == null || blocker != null || starting) {
             return;

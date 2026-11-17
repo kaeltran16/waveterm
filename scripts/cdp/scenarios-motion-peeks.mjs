@@ -2,7 +2,7 @@
 // The data is peek-item-views' (its fixture lead, deferred run and initiative) plus one held run whose task graph
 // the scenario seeds. Each moment is sampled in-page: an observer reads the opacity a node mounts with, and a frame
 // sampler reads a value every animation frame, because a CDP round trip per sample is slower than the motion.
-import { peekItemViews } from "./scenarios-brief.mjs";
+import { peekItemViews } from "./scenarios-brief-peek.mjs";
 import {
     TREE_RAIL_LEAD_ID,
     arrangeHeldRun,
