@@ -27,6 +27,7 @@ import {
     type DagAnswerCard,
     type DagForwardCard,
 } from "./dagactioncards";
+import { LoadFailure } from "./recordedoutput";
 import { useRunEventsState } from "./runeventstore";
 import type { WshCardKey } from "./wshcall";
 import { CallFacts } from "./wshchangerow";
@@ -324,9 +325,12 @@ function DagActionView({
     return (
         <div>
             {card}
-            <div className={cn("mt-1 text-muted", compact ? "text-[11.5px]" : "text-[12px]")}>
-                The run's events did not load, so this card shows only what the call passed.
-            </div>
+            <LoadFailure
+                message="The run's events did not load, so this card shows only what the call passed."
+                action={action}
+                compact={compact}
+                className="mt-1"
+            />
         </div>
     );
 }

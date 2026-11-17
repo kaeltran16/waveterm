@@ -12,6 +12,7 @@ import { ArrowUpRight, Check, MessageSquare } from "lucide-react";
 import type { ReactNode } from "react";
 import { openTarget } from "../jarvis/openref";
 import type { AgentActionEntry } from "./agentsviewmodel";
+import { LoadFailure } from "./recordedoutput";
 import {
     attentionModel,
     attentionStepSummary,
@@ -112,9 +113,19 @@ function OpenRun({
     );
 }
 
-function LoadNote({ state, what }: { state: { status: string; error?: string }; what: string }) {
+function LoadNote({
+    state,
+    what,
+    action,
+    compact,
+}: {
+    state: { status: string; error?: string };
+    what: string;
+    action: AgentActionEntry;
+    compact: boolean;
+}) {
     if (state.error) {
-        return <div className="text-[12px] text-muted">{`Could not load ${what}: ${state.error}`}</div>;
+        return <LoadFailure message={`Could not load ${what}: ${state.error}`} action={action} compact={compact} />;
     }
     return state.status === "loading" ? <div className="text-[12px] text-muted">{`Loading ${what}…`}</div> : null;
 }
@@ -166,7 +177,7 @@ function RunsShowView({ call, action, ctx, compact }: WshRendererProps) {
     const state = useWshData<RunShowSource>(json || !runId ? null : `runs-show:${runId}`, () => fetchRunShow(runId));
     const src = json ?? state.data;
     if (src == null) {
-        return <LoadNote state={state} what="the run" />;
+        return <LoadNote state={state} what="the run" action={action} compact={compact} />;
     }
     const m = runShowModel(src, Date.now());
     const pad = compact ? "px-2.5 py-2" : "px-3 py-2.5";
@@ -298,7 +309,7 @@ function RunsAttentionView({ action, ctx, compact }: WshRendererProps) {
     });
     const items = json ?? state.data;
     if (items == null) {
-        return <LoadNote state={state} what="what is waiting" />;
+        return <LoadNote state={state} what="what is waiting" action={action} compact={compact} />;
     }
     const m = attentionModel(items, Date.now());
     const text = compact ? "text-[12px]" : "text-[12.5px]";
@@ -429,7 +440,12 @@ function RunStartedCard({ call, action, ctx, compact }: WshRendererProps) {
                 ) : null}
             </div>
             {loadError ? (
-                <div className="border-t border-edge-faint px-3.5 py-2 text-[12px] text-muted">{`Could not load the run's details: ${loadError}`}</div>
+                <LoadFailure
+                    message={`Could not load the run's details: ${loadError}`}
+                    action={action}
+                    compact={compact}
+                    className="border-t border-edge-faint px-3.5 py-2"
+                />
             ) : null}
         </CardShell>
     );
@@ -499,7 +515,12 @@ function RunAnsweredCard({ call, action, ctx, compact }: WshRendererProps) {
                 </div>
             ))}
             {asks.error ? (
-                <div className="border-t border-edge-faint px-3.5 py-2 text-[12px] text-muted">{`Could not read the question: ${asks.error}`}</div>
+                <LoadFailure
+                    message={`Could not read the question: ${asks.error}`}
+                    action={action}
+                    compact={compact}
+                    className="border-t border-edge-faint px-3.5 py-2"
+                />
             ) : null}
         </CardShell>
     );

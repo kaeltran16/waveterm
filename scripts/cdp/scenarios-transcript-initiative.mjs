@@ -103,6 +103,11 @@ const JSON_EFFORT = effort({
     chunks: JSON_CHUNKS.map((l, i) => chunk(l, i === 0 ? "done" : "pending")),
 });
 
+// an effort nothing seeds, shown without --json: its fetch fails, so the view falls back to what the call printed
+const UNSEEDED_EID = "u5eed001";
+const UNSEEDED_LINES = ["Effort u5eed001: Initiative nothing seeds", " 1/3 done", "  1. First chunk  done"];
+const UNSEEDED_OUTPUT = `\u001b[1m${UNSEEDED_LINES[0]}\u001b[0m\n${UNSEEDED_LINES[1]}\n\u001b[32m${UNSEEDED_LINES[2]}\u001b[0m\n`;
+
 const cmd = (rest) => `wsh effort ${rest}`;
 
 // the named inputs the boards scenario composes: { entries, seed?, runEvents?, ctx? }
@@ -125,6 +130,13 @@ export const fixtures = {
                 ts: T0 + 2 * S,
                 durationMs: 300,
             }),
+            prose("One of three is done.", T0 + 4 * S),
+        ],
+    },
+    "effort-show-unseeded": {
+        entries: [
+            user("where is that initiative", T0),
+            bash({ description: "Show the initiative", command: cmd(`show ${UNSEEDED_EID}`), output: UNSEEDED_OUTPUT, ts: T0 + 2 * S, durationMs: 300 }),
             prose("One of three is done.", T0 + 4 * S),
         ],
     },
@@ -430,6 +442,40 @@ async function stepShowJson(h) {
     ];
 }
 
+async function stepShowFailed(h) {
+    await show(h, "effort-show-unseeded", 736);
+    await openStep(h);
+    const read = probe(`
+        const v = root.querySelector('[data-wsh-view="effort-show"]');
+        if (!v) return null;
+        const error = v.querySelector('[data-wsh-load-error]');
+        const output = v.querySelector('[data-recorded-output]');
+        return {
+            error: error?.textContent ?? null,
+            output: output?.textContent ?? null,
+            errorFirst: !!error && !!output && !!(error.compareDocumentPosition(output) & Node.DOCUMENT_POSITION_FOLLOWING),
+        };
+    `);
+    let view = null;
+    for (let i = 0; i < LOAD_POLLS; i++) {
+        view = await h.ev(read);
+        if (view?.error) break;
+        await sleep(LOAD_POLL_MS);
+    }
+    await h.shot("cdp-shots/transcript-initiative-show-failed.png");
+    return [
+        {
+            step: "effort show of an unseeded effort whose fetch fails opens to its recorded output, ANSI stripped, under one muted error line",
+            ok:
+                view != null &&
+                view.error?.startsWith("Couldn't load the initiative") === true &&
+                view.output === UNSEEDED_LINES.join("\n") &&
+                view.errorFirst === true,
+            detail: JSON.stringify(view),
+        },
+    ];
+}
+
 // the fixture host is a dialog too, so the tool detail modal is the dialog that does not hold the fixture root
 const TOOL_DIALOG = `[...document.querySelectorAll('[role="dialog"]')].filter((d) => !d.querySelector(${JSON.stringify(ROOT)})).pop()`;
 const DIALOG = `(${TOOL_DIALOG})?.textContent ?? null`;
@@ -531,6 +577,7 @@ export const transcriptInitiative = {
         steps.push(...(await steps736(h)));
         steps.push(...(await stepsCompact(h)));
         steps.push(...(await stepShowJson(h)));
+        steps.push(...(await stepShowFailed(h)));
         steps.push(...(await stepShowCommand(h)));
         steps.push(...(await stepUnknown(h)));
         steps.push(...(await stepShellVariable(h)));
