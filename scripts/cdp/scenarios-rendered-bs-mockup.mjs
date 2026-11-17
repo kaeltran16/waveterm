@@ -124,7 +124,8 @@ export default (kit) => {
             await h.ev(`${TAB("Main.dc.html")}?.click()`);
             await polishWaitFor(h, `${TAB("Main.dc.html")}?.getAttribute("aria-selected") === "true" && !!${FRAME}`, WAIT_MS);
             const before = await h.ev(`(() => { const f = ${FRAME}; if (f) f.__mockupOld = true; return !!f; })()`);
-            const noDot = await h.ev(`!${TAB("States.dc.html")}?.querySelector("[data-live-board-unseen]")`);
+            // the dot leaves through its exit fade when States is shown, so under load it can still be in the DOM here
+            const noDot = await polishWaitFor(h, `!${TAB("States.dc.html")}?.querySelector("[data-live-board-unseen]")`, WAIT_MS);
             await polishNap(PAST_A_SECOND_MS);
             writeBoard(ctx, "Main.dc.html", "Main, rewritten");
             writeBoard(ctx, "States.dc.html", "States, rewritten");
