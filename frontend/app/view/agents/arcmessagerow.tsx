@@ -16,11 +16,13 @@ import {
     ChevronDown,
     ChevronRight,
     FileText,
-    MousePointerClick,
+    GitBranch,
+    Lightbulb,
     Scale,
     X,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { shortId } from "./agentscards";
 import type { ArcMessage } from "./arcmessage";
 import {
     brainstormFileFor,
@@ -654,54 +656,113 @@ function BriefRow({ message, ctx, compact }: ArcMessageRowProps & { message: Ext
     );
 }
 
-// a pane action as "In the brainstorm pane, you <phrase>", its count or detail after it
+// a pane action as "You <phrase>", its count or detail after it: it may come from the pane or the Rendered transcript's
+// card, so the row names no place (decision 6)
 function paneWords(a: PaneAction): { phrase: string; meta?: string } {
     switch (a.kind) {
         case "confirm-all":
-            return { phrase: "confirmed every guess" };
+            return { phrase: "You confirmed every guess" };
         case "keep-all":
-            return { phrase: "kept every change" };
+            return { phrase: "You kept every change" };
         case "guess":
-            return { phrase: "asked the agent to guess" };
+            return { phrase: "You asked the agent to guess" };
         case "skip":
-            return { phrase: "skipped the questions" };
+            return { phrase: "You skipped the questions" };
         case "check":
-            return { phrase: "asked for the builder check" };
+            return { phrase: "You asked for the builder check" };
         case "approved":
-            return { phrase: "approved the design" };
+            return { phrase: "You approved the design" };
         case "keep-talking":
-            return { phrase: "kept talking" };
+            return { phrase: "You chose to keep talking" };
         case "settle":
-            return { phrase: "settled your picks", meta: plural(a.count ?? 0, "part") };
+            return { phrase: "You settled your picks", meta: plural(a.count ?? 0, "part") };
         case "edit":
-            return { phrase: `edited ${a.part}`, meta: a.text };
+            return { phrase: `You edited ${a.part}`, meta: a.text };
         case "builder-answer":
-            return { phrase: "answered the builder", meta: a.text };
+            return { phrase: "You answered the builder", meta: a.text };
         case "builder-decide":
-            return { phrase: "left the builder's questions to the agent" };
+            return { phrase: "You left the builder's questions to the agent" };
         case "run":
-            return { phrase: "started run", meta: a.text };
+            return { phrase: "Started run" };
     }
 }
 
+// "Started run <short id> from the spec": the run's own row, not a centered note
+function RunStartedRow({ runId, compact }: { runId: string; compact: boolean }) {
+    return (
+        <div
+            data-pane-action="run"
+            className={cn(
+                "flex items-center px-0.5 py-0.5 font-sans text-ink-mid",
+                compact ? "gap-2 text-[12.5px]" : "gap-2.5 text-[13.5px]"
+            )}
+        >
+            <GitBranch size={14} strokeWidth={2} className="shrink-0" aria-hidden />
+            <span>Started run</span>
+            <span className={cn("font-mono text-foreground", compact ? "text-[11.5px]" : "text-[12px]")}>
+                {shortId(runId)}
+            </span>
+            <span>from the spec</span>
+        </div>
+    );
+}
+
 function PaneRow({ action, compact }: { action: PaneAction; compact: boolean }) {
+    if (action.kind === "run") {
+        return <RunStartedRow runId={action.text ?? ""} compact={compact} />;
+    }
     const { phrase, meta } = paneWords(action);
+    const approved = action.kind === "approved";
+    const Icon = approved ? Check : Lightbulb;
     return (
         <div
             data-pane-action={action.kind}
             className={cn(
-                "flex items-center font-sans text-ink-mid",
-                compact ? "gap-[7px] py-0.5 text-[12.5px]" : "gap-2.5 px-0.5 py-1 text-[13.5px]"
+                "flex min-w-0 items-center justify-center gap-2 py-0.5 font-sans text-muted",
+                compact ? "text-[12px]" : "text-[12.5px]"
             )}
         >
-            {compact ? null : <MousePointerClick size={14} strokeWidth={2} className="shrink-0" aria-hidden />}
-            <span className="shrink-0">In the brainstorm pane, you</span>
-            <span className="shrink-0 text-foreground">{phrase}</span>
-            {meta ? (
-                <span className={cn("min-w-0 truncate text-muted", compact ? "text-[11.5px]" : "text-[12px]")}>
-                    {meta}
+            <Icon size={13} strokeWidth={approved ? 2.8 : 2} className="shrink-0" aria-hidden />
+            <span className="shrink-0">{phrase}</span>
+            {meta ? <span className="min-w-0 truncate text-ink-mid">· {meta}</span> : null}
+        </div>
+    );
+}
+
+function SpecLink({ ctx, compact }: { ctx: TranscriptContext; compact: boolean }) {
+    const topic = ctx.brainstormFile ? parseBrainstormPath(ctx.brainstormFile)?.topic : undefined;
+    return ctx.model && topic ? (
+        <LinkButton
+            label="Spec"
+            compact={compact}
+            onClick={() => fireAndForget(() => openTarget(ctx.model!, { kind: "brainstorm", topic }))}
+        />
+    ) : null;
+}
+
+// the builder check folded to one row above "You chose to keep talking": what the check settled, and the spec
+function CheckFoldRow({ ctx, compact }: { ctx: TranscriptContext; compact: boolean }) {
+    const state = useBrainstormFile(ctx.brainstormFile);
+    const counts = state.data ? builderCountsOf(state.data) : null;
+    return (
+        <div
+            data-check-fold
+            className={cn(
+                "flex min-w-0 items-center border border-edge-mid bg-surface font-sans",
+                compact ? "gap-2 rounded-[8px] px-2.5 py-2" : "gap-3 rounded-[10px] px-3.5 py-[11px]"
+            )}
+        >
+            <Check size={12} strokeWidth={2.8} className="shrink-0 text-success" aria-hidden />
+            <span className={cn("shrink-0 font-semibold text-foreground", compact ? "text-[12.5px]" : "text-[13.5px]")}>
+                A builder read the design
+            </span>
+            {counts ? (
+                <span className={cn("min-w-0 truncate text-muted", compact ? "text-[11.5px]" : "text-[12.5px]")}>
+                    {plural(counts.total, "question")} settled
                 </span>
             ) : null}
+            <span className="flex-1" />
+            <SpecLink ctx={ctx} compact={compact} />
         </div>
     );
 }
@@ -766,15 +827,6 @@ function JudgedRow({ path, ctx, compact }: { path: string; ctx: TranscriptContex
 function BuilderRow({ ctx, compact }: { ctx: TranscriptContext; compact: boolean }) {
     const state = useBrainstormFile(ctx.brainstormFile);
     const counts = state.data ? builderCountsOf(state.data) : null;
-    const topic = ctx.brainstormFile ? parseBrainstormPath(ctx.brainstormFile)?.topic : undefined;
-    const spec =
-        ctx.model && topic ? (
-            <LinkButton
-                label="Spec"
-                compact={compact}
-                onClick={() => fireAndForget(() => openTarget(ctx.model!, { kind: "brainstorm", topic }))}
-            />
-        ) : null;
     const pad = compact ? "px-2.5" : "px-3.5";
     return (
         <div
@@ -795,7 +847,7 @@ function BuilderRow({ ctx, compact }: { ctx: TranscriptContext; compact: boolean
                     <span className="font-semibold text-foreground">{plural(counts.total, "question")} back</span>
                 ) : null}
                 <span className="flex-1" />
-                {spec}
+                <SpecLink ctx={ctx} compact={compact} />
             </div>
             {state.data?.spec ? (
                 <div
@@ -853,7 +905,16 @@ function BrainstormRow({ message, ctx, compact }: ArcMessageRowProps) {
             inner = <BuilderRow ctx={ctx} compact={compact} />;
             break;
         case "pane":
-            inner = view.actions.map((a, i) => <PaneRow key={i} action={a} compact={compact} />);
+            inner = view.actions.map((a, i) =>
+                a.kind === "keep-talking" ? (
+                    <Fragment key={i}>
+                        <CheckFoldRow ctx={ctx} compact={compact} />
+                        <PaneRow action={a} compact={compact} />
+                    </Fragment>
+                ) : (
+                    <PaneRow key={i} action={a} compact={compact} />
+                )
+            );
             break;
         case "unknown":
             inner = (
@@ -863,7 +924,11 @@ function BrainstormRow({ message, ctx, compact }: ArcMessageRowProps) {
             );
     }
     return (
-        <div data-arc-message="brainstorm" data-brainstorm-line={view.kind} className={compact ? "my-2" : "mt-1 mb-4"}>
+        <div
+            data-arc-message="brainstorm"
+            data-brainstorm-line={view.kind}
+            className={cn("flex flex-col", compact ? "my-2 gap-2" : "mt-1 mb-4 gap-3")}
+        >
             {inner}
         </div>
     );
