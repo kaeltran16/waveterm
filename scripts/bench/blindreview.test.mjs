@@ -51,7 +51,7 @@ describe("armDiff", () => {
         expect(diff).not.toContain("docs/superpowers/plans/");
         expect(diff).not.toContain(".superpowers/design");
         expect(diff).not.toContain("plan form");
-    }, 30_000);
+    });
 });
 
 describe("parseVerdict", () => {
@@ -177,7 +177,7 @@ describe("reviewBench", () => {
             expect(planDiff).toContain(`src/${pick}-plan.go`);
             expect(planDiff).not.toContain("docs/superpowers/plans/");
         }
-    }, 30_000);
+    });
 
     it("puts the arms on both sides across picks according to the random source", async () => {
         const bench = benchWith(["pwa"]);
@@ -187,7 +187,7 @@ describe("reviewBench", () => {
         await reviewBench({ bench, run, rng: () => 0.9 });
         const high = sealed(bench).pwa;
         expect(low.X).not.toBe(high.X);
-    }, 30_000);
+    });
 
     it("is a tie when a judge that always answers the first diff shown flips with the order", async () => {
         const bench = benchWith(["pwa"]);
@@ -195,12 +195,12 @@ describe("reviewBench", () => {
         const run = async () => `{"winner": "${++calls === 1 ? "X" : "Y"}", "why": "first listed"}`;
         const result = await reviewBench({ bench, run, rng: () => 0.9 });
         expect(result.pwa).toEqual({ first: "X", second: "Y", winner: "tie" });
-    }, 30_000);
+    });
 
     it("refuses a pick with only one arm", async () => {
         const bench = benchWith(["pwa"]);
         const runs = JSON.parse(readFileSync(join(bench, "runs.json"), "utf8")).filter((r) => r.arm === "plan");
         writeFileSync(join(bench, "runs.json"), JSON.stringify(runs));
         await expect(reviewBench({ bench, run: async () => "", rng: () => 0.5 })).rejects.toThrow(/pwa/);
-    }, 30_000);
+    });
 });

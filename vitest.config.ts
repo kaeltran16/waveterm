@@ -37,6 +37,9 @@ export default defineConfig({
         // the suite is bound by starting workers and loading modules, not by the tests; a thread starts faster than
         // a forked process on windows: ~27 s against ~35 s for the whole suite
         pool: "threads",
+        // under the full suite's load, tests that spawn git or node run ~5x slower than alone; the 5 s default
+        // failed the final stage twice
+        testTimeout: 30_000,
         reporters: ["verbose", "junit"],
         outputFile: {
             junit: "test-results.xml",
