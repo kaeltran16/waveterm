@@ -220,6 +220,59 @@ export const gitHistory = {
         );
         const historyFloor = await floorStep(h, `11. no visible text on the Diff surface's history is under ${MIN_FONT_PX}px`, SURFACE_ROOT);
 
+        // the header and filter row at the column's default 380px: the controls share heights and radii, the
+        // search icon replaces the "/" glyph, and no hint text sits inside a button
+        const header = JSON.parse(
+            await h.ev(`(() => {
+                const col = document.querySelector('[data-history-scroll]')?.parentElement;
+                if (!col) return "null";
+                const r = (el) => { const b = el?.getBoundingClientRect(); return b ? { top: b.top, h: b.height, w: b.width, right: b.right } : null; };
+                const radius = (el) => (el ? parseFloat(getComputedStyle(el).borderTopLeftRadius) : null);
+                const graph = col.querySelector('button[title="Graph (⇧G)"]');
+                const collapse = col.querySelector('button[title="Collapse history"]');
+                const input = col.querySelector('[data-history-filter]');
+                const field = input?.parentElement;
+                const chips = [...col.querySelectorAll('button')].filter((b) => /^(Author|Path)/.test(b.textContent)).map((b) => b.parentElement);
+                const row = field?.parentElement;
+                const g = r(graph), c = r(collapse);
+                return JSON.stringify({
+                    colW: r(col).w, colRight: r(col).right,
+                    graph: { h: g?.h, radius: radius(graph), text: graph?.textContent, title: graph?.title, pressed: graph?.getAttribute("aria-pressed") },
+                    collapse: { h: c?.h, w: c?.w },
+                    centres: g && c ? [g.top + g.h / 2, c.top + c.h / 2] : null,
+                    field: { h: r(field)?.h, radius: radius(field), icon: !!field?.querySelector("svg"), slash: field?.textContent.includes("/"), title: input?.title },
+                    chips: chips.map((el) => ({ text: el.textContent, h: r(el).h, radius: radius(el) })),
+                    overflow: [...row.children].filter((el) => r(el).right > r(col).right + 0.5).length,
+                });
+            })()`)
+        );
+        const near = (a, b) => a != null && b != null && Math.abs(a - b) < 0.5;
+        rec(
+            "12. at a 380px history column Graph and collapse are 26px tall and centred together, the filter field and Author/Path chips are 28px with 7px radius, a search icon replaces the /, and nothing clips",
+            header != null &&
+                Math.abs(header.colW - 380) <= 1 &&
+                near(header.graph.h, 26) &&
+                near(header.graph.radius, 7) &&
+                header.graph.text.trim() === "Graph" &&
+                header.graph.title === "Graph (⇧G)" &&
+                header.graph.pressed != null &&
+                near(header.collapse.h, 26) &&
+                near(header.collapse.w, 26) &&
+                near(header.centres[0], header.centres[1]) &&
+                near(header.field.h, 28) &&
+                near(header.field.radius, 7) &&
+                header.field.icon &&
+                !header.field.slash &&
+                header.field.title === "Filter by message (/)" &&
+                header.chips.length === 2 &&
+                header.chips.every((c) => near(c.h, 28) && near(c.radius, 7)) &&
+                header.chips[0].text.startsWith("Author") &&
+                header.chips[1].text.startsWith("Path") &&
+                header.overflow === 0,
+            JSON.stringify(header)
+        );
+        await h.shot("cdp-shots/git-history-header.png");
+
         await pick(ctx.names.notRepo);
         const calm = await present("[data-not-a-repo]");
         const noFailure = await present("[data-git-failure]");
@@ -1389,6 +1442,22 @@ export const diffComments = {
             );
             await h.shot("cdp-shots/diff-comments-composer.png");
 
+            // the draft's buttons hold their label alone; the key hints live in the titles
+            const draftButtons = JSON.parse(
+                await h.ev(`JSON.stringify([...document.querySelectorAll(${JSON.stringify(`${DRAFT} button`)})].map((b) => ({
+                    text: b.textContent.trim(), title: b.title, kbd: b.querySelectorAll("kbd").length })))`)
+            );
+            rec(
+                "2b. the draft card's Cancel and Add comment buttons hold no <kbd> and carry titles Cancel (Esc) and Add comment (Ctrl+↵)",
+                draftButtons.length === 2 &&
+                    draftButtons[0].text === "Cancel" &&
+                    draftButtons[0].title === "Cancel (Esc)" &&
+                    draftButtons[1].text === "Add comment" &&
+                    draftButtons[1].title === "Add comment (Ctrl+↵)" &&
+                    draftButtons.every((b) => b.kbd === 0),
+                JSON.stringify(draftButtons)
+            );
+
             const NOTE = "A floor of 1 means a zero budget can never be configured. Return 0 here and let Budget enforce the minimu";
             const focused = await h.ev(`document.activeElement === ${q(TEXTAREA)}`);
             await h.cdp("Input.insertText", { text: NOTE });
@@ -1412,6 +1481,20 @@ export const diffComments = {
             const EDITED = "Return 0 here and let Budget enforce the minimum.";
             await click(`[data-diff-comment-card=${JSON.stringify(first?.id ?? "")}] [data-diff-comment-edit]`);
             const editing = await until(`document.activeElement === ${q(TEXTAREA)}`, 3000);
+            const editButtons = JSON.parse(
+                await h.ev(`JSON.stringify([...document.querySelectorAll(${JSON.stringify(`${DRAFT} button`)})].map((b) => ({
+                    text: b.textContent.trim(), title: b.title, kbd: b.querySelectorAll("kbd").length })))`)
+            );
+            rec(
+                "4a. the edit card's Cancel and Save buttons hold no <kbd> and carry titles Cancel (Esc) and Save (Ctrl+↵)",
+                editButtons.length === 2 &&
+                    editButtons[0].text === "Cancel" &&
+                    editButtons[0].title === "Cancel (Esc)" &&
+                    editButtons[1].text === "Save" &&
+                    editButtons[1].title === "Save (Ctrl+↵)" &&
+                    editButtons.every((b) => b.kbd === 0),
+                JSON.stringify(editButtons)
+            );
             await h.ev(`${q(TEXTAREA)}?.select()`);
             await h.cdp("Input.insertText", { text: EDITED });
             await ctrlEnter();
@@ -1506,7 +1589,7 @@ export const diffComments = {
                     projectBar.text.includes("in 2 files · to") &&
                     projectBar.recipient === "a new agent" &&
                     projectBar.detail === `in ${folder}` &&
-                    projectBar.send === "Start agent with 3 comments⇧↵",
+                    projectBar.send === "Start agent with 3 comments",
                 JSON.stringify({ third, badges, bar: projectBar })
             );
             await h.shot("cdp-shots/diff-comments-badges.png");
@@ -1600,7 +1683,7 @@ export const diffComments = {
                     working.text.includes("in 2 files · to") &&
                     working.recipient === name &&
                     working.detail === "working, joins its turn" &&
-                    working.send === "Send 3 comments⇧↵",
+                    working.send === "Send 3 comments",
                 JSON.stringify({ listed, agentOpened, name, onAgent, bar: working, scope })
             );
             await h.shot("cdp-shots/diff-comments-live-working.png");
@@ -1632,14 +1715,14 @@ export const diffComments = {
             })()`);
             await click("[data-comment-send]");
             // the button's label cross-fades from Sending…, so the read waits for it to settle
-            const errored = await until(`!!${q("[data-comment-error]")} && ${q("[data-comment-send]")}?.textContent === "Send again⇧↵"`, 5000);
+            const errored = await until(`!!${q("[data-comment-error]")} && ${q("[data-comment-send]")}?.textContent === "Send again"`, 5000);
             const failed = await bar();
             const kept = await h.ev(`document.querySelectorAll("[data-diff-comment-card]").length`);
             rec(
                 `9c. a refused send shows Couldn't send to ${name}: … with Send again, and the cards and count stay`,
                 errored &&
                     (failed?.error ?? "").startsWith(`Couldn't send to ${name}: `) &&
-                    failed.send === "Send again⇧↵" &&
+                    failed.send === "Send again" &&
                     failed.count === "3 comments" &&
                     kept === 1,
                 JSON.stringify({ bar: failed, cardsOnLegacy: kept })
