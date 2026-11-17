@@ -9,9 +9,11 @@
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { cn, fireAndForget } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { ArrowUp } from "lucide-react";
 import { forwardRef, useState, type KeyboardEvent } from "react";
 import { canSendComposer, useAgentComposer, useComposerHandle, type AgentComposerHandle } from "./agentcomposer";
+import { getAgentQueueAtom } from "./agentqueuestore";
 import { sendAgentBash } from "./agentsend";
 import type { AgentVM } from "./agentsviewmodel";
 import { AttachButton, AttachmentTray } from "./attachmenttray";
@@ -63,7 +65,8 @@ export const RenderedComposer = forwardRef<
 >(function RenderedComposer({ agent, hasTranscript, onInterrupt, onSubmitText }, ref) {
     const blockId = agent.blockId;
     const [bash, setBash] = useState(false);
-    const box = composerBox(agent, hasTranscript, bash);
+    const queue = useAtomValue(getAgentQueueAtom(blockId != null ? `block:${blockId}` : ""));
+    const box = composerBox(agent, hasTranscript, bash, (queue?.held.length ?? 0) > 0);
     const { attachments, addPaths, remove, retry, onPaste, clear } = useComposerAttachments();
     // bash mode sends the bare command (no attachment paths, no picker flip) and keeps the tray for the next message
     const { text, setText, taRef, send, onKeyDown } = useAgentComposer({

@@ -14,7 +14,7 @@ import {
     type RefObject,
     type SetStateAction,
 } from "react";
-import { sendAgentText, toastSendFailure } from "./agentsend";
+import { sendTypedText, toastSendFailure } from "./agentsend";
 import { attachmentBlocker, type Attachment } from "./composerattachments";
 
 // one line at 12px (rows={1}: the default two rows would set the floor instead); it grows as text wraps
@@ -38,7 +38,7 @@ export async function submitComposer(
     text: string,
     blockId: string,
     clear: (sent: string) => void,
-    send: (blockId: string, text: string) => Promise<void> = sendAgentText,
+    send: (blockId: string, text: string) => Promise<void> = sendTypedText,
     onStart?: (text: string) => void
 ): Promise<void> {
     onStart?.(text);
@@ -66,7 +66,7 @@ export interface UseAgentComposerOpts {
     compose?: (text: string) => string;
     onSent?: () => void;
     attachments?: Attachment[];
-    // how the text goes out (bash mode runs it in the shell); default sendAgentText
+    // how the text goes out (bash mode runs it in the shell); default sendTypedText
     send?: (blockId: string, text: string) => Promise<void>;
 }
 
@@ -88,7 +88,7 @@ export function useAgentComposer({
     compose,
     onSent,
     attachments,
-    send: deliver = sendAgentText,
+    send: deliver = sendTypedText,
 }: UseAgentComposerOpts): UseAgentComposer {
     const [text, setText] = useState("");
     const taRef = useRef<HTMLTextAreaElement>(null);
@@ -157,7 +157,7 @@ export function useComposerHandle(
     );
 }
 
-// Sends free text to an agent's terminal block through sendAgentText.
+// Sends free text to an agent's terminal block through sendTypedText.
 export const AgentComposer = forwardRef<
     AgentComposerHandle,
     {

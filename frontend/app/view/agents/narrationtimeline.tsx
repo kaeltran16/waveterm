@@ -843,8 +843,8 @@ function WshCardItem({ step, ctx, compact }: { step: Step; ctx: TranscriptContex
     );
 }
 
-// a typed slash command, or a skill (✦), as a right-aligned chip
-function CommandChip({
+// a typed slash command, or a skill (✦), as a right-aligned chip; the Rendered view's queued foot draws one too
+export function CommandChip({
     name,
     args,
     isSkill,
@@ -1123,6 +1123,31 @@ function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean
     );
 }
 
+// the person's bubble; the Rendered view's queued foot draws one too
+export function PersonBubble({
+    text,
+    clamp,
+    compact,
+    children,
+}: {
+    text: string;
+    clamp: boolean;
+    compact: boolean;
+    children?: React.ReactNode;
+}) {
+    return (
+        <div
+            className={cn(
+                "max-w-[82%] bg-surface-hover",
+                compact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
+            )}
+        >
+            {text ? <UserBubbleText text={text} clamp={clamp} compact={compact} /> : null}
+            {children}
+        </div>
+    );
+}
+
 // path -> a blob url, or null once it failed; a path still loading is absent
 type LocalImages = Record<string, string | null>;
 
@@ -1376,17 +1401,11 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     initial={shouldFadeEntry("user") ? "initial" : false}
                     animate="animate"
                 >
-                    <div
-                        className={cn(
-                            "max-w-[82%] bg-surface-hover",
-                            isCompact ? "rounded-[10px] px-[11px] py-2" : "rounded-[12px] px-[15px] py-[11px]"
-                        )}
-                    >
-                        {item.text ? <UserBubbleText text={item.text} clamp={!unfold} compact={isCompact} /> : null}
+                    <PersonBubble text={item.text} clamp={!unfold} compact={isCompact}>
                         {item.images || item.imagePaths || item.filePaths ? (
                             <BubbleAttachments item={item} compact={isCompact} />
                         ) : null}
-                    </div>
+                    </PersonBubble>
                 </motion.div>
             );
         }

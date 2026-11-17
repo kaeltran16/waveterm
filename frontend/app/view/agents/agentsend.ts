@@ -9,12 +9,22 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 // backend pastes it bracketed, pauses, then submits (or hands it to the mod's stream), so a long or
 // multi-line message arrives whole and submits once
 export async function sendAgentText(blockId: string, text: string): Promise<void> {
+    return sendPrompt(blockId, text, false);
+}
+
+// text the person typed into an agent's box: while the agent works the mod holds it as queued, takeable with ↑; every
+// other sender is Arc's own message, which is never queued
+export async function sendTypedText(blockId: string, text: string): Promise<void> {
+    return sendPrompt(blockId, text, true);
+}
+
+async function sendPrompt(blockId: string, text: string, queue: boolean): Promise<void> {
     const trimmed = text.trim();
     if (trimmed === "") {
         throw new Error(`send to block ${blockId}: empty text`);
     }
     try {
-        await RpcApi.AgentPromptCommand(TabRpcClient, { blockid: blockId, text: trimmed });
+        await RpcApi.AgentPromptCommand(TabRpcClient, { blockid: blockId, text: trimmed, ...(queue ? { queue } : {}) });
     } catch (e) {
         throw new Error(`send to block ${blockId}: ${e instanceof Error ? e.message : String(e)}`);
     }

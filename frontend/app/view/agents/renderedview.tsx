@@ -3,10 +3,11 @@
 //
 // The Agent surface center's Rendered mode: the focused claude agent's live transcript as a readable timeline,
 // with a message box that drives the same pty the terminal shows. The terminal block stays mounted beside it.
-// The working line is the timeline's tail; once your last prompt has scrolled out of view, a bar pinned at the top
-// holds it. A file path in a reply opens the Code peek docked under the transcript, beside the agent.
+// The working line is the timeline's tail, under the messages still waiting on the agent; once your last prompt has
+// scrolled out of view, a bar pinned at the top holds it. A file path in a reply opens the Code peek docked under the
+// transcript, beside the agent.
 
-import { microFade, viewFade } from "@/app/element/motiontokens";
+import { cardVariants, composerReveal, microFade, viewFade } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -15,25 +16,27 @@ import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUp } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { CodePeekCard } from "../code/codepeekcard";
 import { PEEK_PREFERRED_PX } from "../code/codepeekmodel";
 import { closePeek, codePeekAtom, togglePeek } from "../code/codepeekstore";
 import { interruptAgent } from "./agentactions";
 import type { AgentComposerHandle } from "./agentcomposer";
 import { resolveCwd } from "./agentcwdresolve";
+import { dropModItems, getModItemsAtom } from "./agentqueuestore";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { showEarlierTranscript } from "./livetranscript";
-import { earlierAtomFor, entriesAtomFor } from "./livetranscriptatoms";
+import { earlierAtomFor, entriesAtomFor, waitingAtomFor } from "./livetranscriptatoms";
 import { FileLinkContext } from "./markdownmessage";
-import { NarrationTimeline } from "./narrationtimeline";
+import { CommandChip, NarrationTimeline, PersonBubble } from "./narrationtimeline";
 import { useWorkingTail } from "./nowlineview";
 import { PermissionBand } from "./permissionband";
 import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
 import { pinnedPrompt, type PinnedPrompt } from "./pinnedprompt";
+import { footList, type Foot } from "./queuedprompts";
 import { RenderedComposer } from "./renderedcomposer";
 import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
 import type { ReplyFileLink } from "./replyfilelinks";
@@ -205,6 +208,74 @@ function PinnedPromptBar({ prompt, onJump }: { prompt: PinnedPrompt | null; onJu
     );
 }
 
+// the line under the last waiting message, counting the mod's and Claude Code's together
+function QueuedLine({ count }: { count: number }) {
+    return (
+        <div data-queued-line className="mt-1.5 flex items-center gap-1.5 text-[12px] text-muted">
+            {`${count === 1 ? "Queued" : `${count} queued`} · `}
+            <kbd className="rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10.5px] text-ink-mid">
+                Esc
+            </kbd>
+            {" to stop and send now"}
+        </div>
+    );
+}
+
+// The messages waiting on the agent, after the timeline and above the working line. A message enters as an item
+// (moment 1); it has no exit, since the transcript row that shows it read takes its place in the same frame. The
+// Queued line reveals and leaves in place (moment 6).
+function QueuedFoot({ foot }: { foot: Foot }) {
+    const last = foot.items.length - 1;
+    return (
+        <div data-queued-foot>
+            {foot.items.map((item, i) => (
+                <motion.div
+                    key={item.key}
+                    data-queued-item={item.queued ? "queued" : "taken"}
+                    variants={cardVariants}
+                    initial="initial"
+                    animate="animate"
+                    className={item.command != null ? "flex flex-col" : "my-6 flex flex-col items-end"}
+                >
+                    {item.command != null ? (
+                        <CommandChip name={item.command.name} args={item.command.args} compact={false} />
+                    ) : (
+                        <PersonBubble text={item.text} clamp compact={false} />
+                    )}
+                    <AnimatePresence initial={false}>
+                        {i === last && foot.queued > 0 ? (
+                            <motion.div
+                                key="line"
+                                variants={composerReveal}
+                                initial="initial"
+                                animate="animate"
+                                exit="exit"
+                                className="flex justify-end overflow-hidden"
+                            >
+                                <QueuedLine count={foot.queued} />
+                            </motion.div>
+                        ) : null}
+                    </AnimatePresence>
+                </motion.div>
+            ))}
+        </div>
+    );
+}
+
+// the foot's list for the agent; items the transcript now shows read are forgotten
+function useQueuedFoot(agent: AgentVM, entries: AgentEntry[]): Foot {
+    const oref = agent.blockId != null ? `block:${agent.blockId}` : "";
+    const mod = useAtomValue(getModItemsAtom(oref));
+    const waiting = useAtomValue(waitingAtomFor(agent.id));
+    const foot = useMemo(() => footList(mod, waiting, entries), [mod, waiting, entries]);
+    useEffect(() => {
+        if (foot.retired.length > 0) {
+            dropModItems(oref, foot.retired);
+        }
+    }, [foot, oref]);
+    return foot;
+}
+
 export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const entries = useAtomValue(entriesAtomFor(agent.id));
     const marks = useAtomValue(permissionLogAtom(agent.id));
@@ -217,7 +288,18 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
         mount: whole,
     });
     const ctx = useTranscriptContext(model, agent);
-    const tail = useWorkingTail(model.nowAtom, agent, entries);
+    const working = useWorkingTail(model.nowAtom, agent, entries);
+    const foot = useQueuedFoot(agent, entries);
+    // one node per change of either, so the memoized timeline does not re-render on every view render
+    const tail = useMemo(
+        () => (
+            <>
+                <QueuedFoot foot={foot} />
+                {working}
+            </>
+        ),
+        [foot, working]
+    );
     const pin = usePinnedPrompt(scrollRef, entries, ctx);
     const composerRef = useRef<AgentComposerHandle>(null);
     const askShown = askDocked(agent);

@@ -17,8 +17,10 @@ import {
     lastActivityByIdAtom,
     liveEntriesByIdAtom,
     tasksByIdAtom,
+    waitingByIdAtom,
     type EarlierTurns,
 } from "./livetranscriptatoms";
+import { waitingPrompts } from "./queuedprompts";
 import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 import { projectorFor } from "./transcriptregistry";
 
@@ -116,6 +118,12 @@ export function startTranscriptStream(id: string, path: string, agent?: string, 
             const tasks = projector.extractTasks?.(records);
             if (tasks != null) {
                 globalStore.set(tasksByIdAtom, { ...globalStore.get(tasksByIdAtom), [id]: tasks });
+            }
+            // an unchanged empty queue keeps its slot, so a chunk does not wake the foot's readers
+            const waiting = waitingPrompts(records);
+            const waitingById = globalStore.get(waitingByIdAtom);
+            if (waiting.length > 0 || (waitingById[id]?.length ?? 0) > 0) {
+                globalStore.set(waitingByIdAtom, { ...waitingById, [id]: waiting });
             }
         },
     };

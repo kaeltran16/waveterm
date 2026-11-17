@@ -252,8 +252,30 @@ describe("stream chunks", () => {
             live: () => get(atoms.liveEntriesByIdAtom),
             activity: () => get(atoms.lastActivityByIdAtom),
             tasks: () => get(atoms.tasksByIdAtom),
+            waiting: () => get(atoms.waitingByIdAtom),
         };
     };
+
+    it("keeps the agent's waiting queue from its queue-operation records, and drops it with the stream", async () => {
+        const feed = makeFeedGen();
+        genFactory = () => feed.gen;
+        const { startTranscriptStream, stopTranscriptStream } = await import("./livetranscript");
+        const s = await readStore();
+        const op = (operation: string, extra: object) =>
+            JSON.stringify({ type: "queue-operation", operation, timestamp: "2026-11-17T09:00:00.000Z", ...extra });
+        startTranscriptStream("chunk-queue", "/p/q.jsonl", "claude");
+        feed.push(["{}"]);
+        await settle();
+        expect(Object.keys(s.waiting())).not.toContain("chunk-queue");
+        feed.push([op("enqueue", { content: "typed in the terminal" })]);
+        await settle();
+        expect(s.waiting()["chunk-queue"]?.map((w: { text: string }) => w.text)).toEqual(["typed in the terminal"]);
+        feed.push([op("remove", { content: "typed in the terminal", reason: "absorbed_mid_turn" })]);
+        await settle();
+        expect(s.waiting()["chunk-queue"]).toEqual([]);
+        stopTranscriptStream("chunk-queue");
+        expect(Object.keys(s.waiting())).not.toContain("chunk-queue");
+    });
 
     it("stops projecting once the stream is stopped, even for a chunk already in flight", async () => {
         const feed = makeFeedGen();
