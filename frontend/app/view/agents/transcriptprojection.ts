@@ -110,6 +110,17 @@ function parseTaskNotification(content: string): Extract<AgentEntry, { kind: "no
     return { kind: "notification", summary: grab("summary") ?? "", status: grab("status"), ...(result ? { result } : {}) };
 }
 
+// the tools that spawn a subagent
+const SUBAGENT_TOOLS = new Set(["Task", "Agent"]);
+
+// A background shell or Monitor finishing sends a <task-notification> too. It is a subagent's when it names a Task/Agent
+// call, or, when that call is not in view, carries the child's <result>.
+function isSubagentFinish(content: string, actionById: Map<string, ActionEntry>): boolean {
+    const id = /<tool-use-id>([^<]*)<\/tool-use-id>/.exec(content)?.[1].trim();
+    const tool = id != null ? ((actionById.get(id) as any)?._tool as string | undefined) : undefined;
+    return tool != null ? SUBAGENT_TOOLS.has(tool) : content.includes("<result>");
+}
+
 // a `!` command's two user records in Claude Code's bash mode: the input, then its output
 const BASH_INPUT_RE = /^<bash-input>([^]*)<\/bash-input>$/;
 const BASH_OUTPUT_RE = /^<bash-stdout>([^]*?)<\/bash-stdout>\s*<bash-stderr>([^]*?)<\/bash-stderr>$/;
@@ -383,7 +394,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 }
                 const note = parseTaskNotification(content);
                 if (note != null) {
-                    entries.push(note);
+                    entries.push(isSubagentFinish(content, actionById) ? note : { ...note, notice: true });
                 } else if (applyCommandOutput(entries, content)) {
                     // handled: the output sits under its command, or draws nothing. Never a user bubble.
                 } else if (content.includes("<local-command-stdout>")) {
@@ -639,11 +650,7 @@ export function extractSubagentSpawns(lines: string[]): SubagentSpawn[] {
             continue;
         }
         for (const block of content) {
-            if (
-                block?.type === "tool_use" &&
-                (block.name === "Task" || block.name === "Agent") &&
-                typeof block.id === "string"
-            ) {
+            if (block?.type === "tool_use" && SUBAGENT_TOOLS.has(block.name) && typeof block.id === "string") {
                 const input = block.input ?? {};
                 spawns.set(block.id, {
                     toolUseId: block.id,

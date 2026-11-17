@@ -356,8 +356,34 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
         const content =
             "<task-notification>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>";
         expect(projectTranscript([L({ type: "user", message: { content } })])).toEqual([
-            { kind: "notification", summary: "done", status: "completed" },
+            { kind: "notification", summary: "done", status: "completed", notice: true },
         ]);
+    });
+
+    describe("subagent finish vs background notice", () => {
+        const call = (id: string, name: string) =>
+            L({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input: {} }] } });
+        const finish = (id: string, status: string, summary: string) =>
+            L({
+                type: "user",
+                message: {
+                    content: `<task-notification>\n<task-id>t1</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>${status}</status>\n<summary>${summary}</summary>\n</task-notification>`,
+                },
+            });
+        const notes = (lines: string[]) => projectTranscript(lines).filter((e) => e.kind === "notification");
+
+        it("draws a background shell's finish as a notice", () => {
+            const summary = "Background shell command didn't finish before the previous session ended";
+            expect(notes([call("toolu_b", "Bash"), finish("toolu_b", "stopped", summary)])).toEqual([
+                { kind: "notification", summary, status: "stopped", notice: true },
+            ]);
+        });
+
+        it("keeps a killed subagent, which carries no result, a subagent finish", () => {
+            expect(notes([call("toolu_a", "Agent"), finish("toolu_a", "killed", 'Agent "x" was stopped')])).toEqual([
+                { kind: "notification", summary: 'Agent "x" was stopped', status: "killed" },
+            ]);
+        });
     });
 
     it("skips a user-string <local-command-stdout> record (with ANSI) rather than leaking the raw tag", () => {
