@@ -40,6 +40,8 @@ const PROBE_SETTLE_MS = 1_000;
 const PROBE_WAIT_MS = 5_000;
 // a status that must not unflip the view is given this long to do it anyway
 const HOLD_MS = 800;
+// a turn fold's reveal settles before a step reads what it opened
+const FOLD_MOTION_MS = 600;
 // the scroll area's px-6 on each side, the column's measure, and the slack a rounded layout box gets
 const SCROLL_PAD_PX = 48;
 const COLUMN_MAX_PX = 736;
@@ -103,6 +105,15 @@ const SHELL_RUNNING = "sleep 30";
 const SHELL_LONG = "seq 12";
 const SHELL_LONG_OUT = Array.from({ length: 12 }, (_, i) => String(i + 1));
 const SHELL_CLAMP = 8;
+// a reply holding a markdown table whose last column is a long sentence, appended to A: its cells must wrap
+const TABLE_PROMPT = "List the renderer's panels.";
+const TABLE_HEAD = ["Panel", "Owner", "Description"];
+const TABLE_DESC =
+    "Draws every turn of the transcript as a column of rows and cards, keeps the tail pinned while the agent works, folds finished turns under a Worked line, and shows a long reply in full without letting the table spill past the edge of the reading column.";
+const TABLE_ROWS = [
+    ["Timeline", "Narration", TABLE_DESC],
+    ["Composer", "Box", "Sends the prompt."],
+];
 // the folder the @ mention step points P's cwd at, under the temp dir, and the files in it
 const MENTION_DIR = "mention";
 const MENTION_FILES = ["src/widget-alpha.ts", "README.md", "notes.txt"];
@@ -531,6 +542,9 @@ export default function (_kit) {
                 const aOref = `block:${ctx.aBlock}`;
                 // the view sticks to the latest entry, so a card is scrolled in before its shot
                 const showCard = (sel) => agentPage(h, `${RV}?.querySelector(${JSON.stringify(sel)})?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                // a finished turn starts folded, its cards inside, and a remount (focusing another agent) folds it again
+                const openTurnFolds = () =>
+                    agentPage(h, `${RV}?.querySelectorAll('[data-fold][aria-expanded="false"]').forEach((b) => b.click()); await nap(${FOLD_MOTION_MS}); return true;`);
 
                 // a page without OS focus fires no focus events and keeps no activeElement change visible
                 await h.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
@@ -562,6 +576,8 @@ export default function (_kit) {
                 });
 
                 await step("rendered: timeline fills — at narrow and wide widths the column spans the scroll area up to its measure, prose keeps its reading measure, the diff card fills its opened step", async () => {
+                    await wait(`(${RV}?.textContent ?? "").includes(${JSON.stringify(PROMPT)})`);
+                    await openTurnFolds();
                     await wait(`(${RV}?.textContent ?? "").includes(${JSON.stringify(PROMPT)}) && ${RV}?.querySelector('[data-tool-card="git-diff"]') != null`);
                     const measure = `(() => {
                         ${flatJs}
@@ -651,6 +667,8 @@ export default function (_kit) {
 
                 await focus(ctx.aId);
                 await step("rendered: test card — counts read pass / fail / skip, one failure row, and raw shows the output", async () => {
+                    await wait(`${RV}?.querySelector("[data-fold]") != null`);
+                    await openTurnFolds();
                     await wait(`${RV}?.querySelector('[data-tool-card="test"]') != null`);
                     const card = await h.ev(`(() => {
                         ${flatJs}
@@ -702,7 +720,7 @@ export default function (_kit) {
                     return [loaded, { naturalWidth: width }];
                 });
 
-                await step("rendered: cards in a turn — A's finished turn holds tool output cards, so its fold starts open, every card visible", async () => {
+                await step("rendered: cards in a turn — A's finished turn, its fold opened, shows every tool output card", async () => {
                     const state = await h.ev(`(() => {
                         const rv = ${RV};
                         const shown = (sel) => {
@@ -721,28 +739,33 @@ export default function (_kit) {
                     return [state.folds === 0 && state.test && state.diff && state.image, state];
                 });
 
-                // the open turn keeps its Worked fold line as a header: a click folds it, a second click opens it again
-                await step("rendered: turn header — a click on the open card turn's Worked line folds it, a second click opens it", async () => {
+                // a finished turn starts folded even when it holds tool output cards: a click on its Worked line opens it to
+                // the cards, a second click folds it again
+                await step("rendered: turn header — the card turn mounts folded with its cards hidden; a click on its Worked line opens it, a second folds it", async () => {
                     const BURST = `${RV}?.querySelector("[data-fold]")`;
                     const read = `(() => {
                         const b = ${BURST};
                         const card = ${RV}?.querySelector('[data-tool-card="git-diff"]');
                         return { expanded: b?.getAttribute("aria-expanded") ?? null, card: !!card && card.checkVisibility() };
                     })()`;
+                    // focusing another agent and back remounts A's view, so its folds start as a fresh mount draws them
+                    await focus(ctx.eId);
+                    await focus(ctx.aId);
+                    await wait(`${BURST} != null`);
                     const before = await h.ev(read);
+                    await h.shot(SHOT(6, "burst-folded"));
+                    await h.ev(`${BURST}?.click()`);
+                    await wait(`${BURST}?.getAttribute("aria-expanded") === "true" && ${read}.card`);
+                    const opened = await h.ev(read);
                     await h.ev(`${BURST}?.click()`);
                     // the fold collapses its body with an exit, so the card leaves after the line flips
                     await wait(`${BURST}?.getAttribute("aria-expanded") === "false" && !${read}.card`);
-                    const folded = await h.ev(read);
-                    await h.shot(SHOT(6, "burst-folded"));
-                    await h.ev(`${BURST}?.click()`);
-                    await wait(`${BURST}?.getAttribute("aria-expanded") === "true"`);
-                    const reopened = await h.ev(read);
+                    const refolded = await h.ev(read);
                     const ok =
-                        before.expanded === "true" && before.card &&
-                        folded.expanded === "false" && !folded.card &&
-                        reopened.expanded === "true" && reopened.card;
-                    return [ok, { before, folded, reopened }];
+                        before.expanded === "false" && !before.card &&
+                        opened.expanded === "true" && opened.card &&
+                        refolded.expanded === "false" && !refolded.card;
+                    return [ok, { before, opened, refolded }];
                 });
 
                 const BAR = `${RV}?.querySelector('[data-chart-card][data-chart-type="bar"]')`;
@@ -1837,6 +1860,49 @@ export default function (_kit) {
                         !seen.runningOutput &&
                         !seen.rawBubble;
                     return [ok, { landed, ...seen, longLanded, clamped, clicked, opened, all }];
+                });
+
+                await step("rendered: table — a reply's table with a long description column wraps its cells: every cell's text sits inside the table's box, which holds within the column, and the long cell takes more than one line", async () => {
+                    const row = (cells) => `| ${cells.join(" | ")} |`;
+                    const table = [row(TABLE_HEAD), row(TABLE_HEAD.map(() => "---")), ...TABLE_ROWS.map(row)].join("\n");
+                    const t = Date.now();
+                    appendA([userText(TABLE_PROMPT, { ts: iso(t) }), assistantText(`The panels:\n\n${table}\n`, { ts: iso(t + 1000) })]);
+                    const landed = await wait(`${RV}?.querySelector(".agent-table-wrap") != null && (${RV}.textContent ?? "").includes(${J(TABLE_DESC.slice(0, 40))})`);
+                    await agentPage(h, `${RV}?.querySelector(".agent-table-wrap")?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+                    const seen = await h.ev(`(() => {
+                        const rv = ${RV};
+                        const wrap = rv?.querySelector(".agent-table-wrap");
+                        const column = rv?.querySelector("[data-rendered-column]");
+                        if (!wrap || !column) return null;
+                        const w = wrap.getBoundingClientRect();
+                        const cells = [...wrap.querySelectorAll("th, td")];
+                        const long = cells.find((c) => (c.textContent ?? "").startsWith(${J(TABLE_DESC.slice(0, 40))}));
+                        // a wrapped cell's text spans more than one line box
+                        const lines = (c) => {
+                            const r = document.createRange();
+                            r.selectNodeContents(c);
+                            return new Set([...r.getClientRects()].map((q) => Math.round(q.top))).size;
+                        };
+                        return {
+                            cells: cells.length,
+                            overflowPx: wrap.scrollWidth - wrap.clientWidth,
+                            outside: cells.filter((c) => c.getBoundingClientRect().right > w.right + 0.5).length,
+                            inColumn: w.right <= column.getBoundingClientRect().right + 0.5,
+                            tableWidth: wrap.querySelector("table").getBoundingClientRect().width,
+                            wrapWidth: w.width,
+                            longLines: long ? lines(long) : 0,
+                        };
+                    })()`);
+                    await h.shot(SHOT(28, "table"));
+                    const ok =
+                        landed &&
+                        seen != null &&
+                        seen.cells === TABLE_HEAD.length * (TABLE_ROWS.length + 1) &&
+                        seen.overflowPx <= 1 &&
+                        seen.outside === 0 &&
+                        seen.inColumn &&
+                        seen.longLines > 1;
+                    return [ok, { landed, ...seen }];
                 });
 
                 await step("rendered: @ mention — in P's box @ and part of a name lists the file, Enter writes @<path> and a pill draws over it, Backspace removes it whole; Esc closes the panel without typing ESC, it stays closed in that word, and a new @ opens it again", async () => {

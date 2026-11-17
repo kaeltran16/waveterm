@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capDiffLines, parseUnifiedDiff } from "./unifieddiff";
+import { capDiffLines, hiddenLinesLabel, parseUnifiedDiff } from "./unifieddiff";
 
 const TWO_FILES = [
     "diff --git a/pkg/a.go b/pkg/a.go",
@@ -170,5 +170,25 @@ describe("capDiffLines", () => {
         ]);
         expect(hidden).toBe(5);
         expect(capDiffLines(files, 100)).toEqual({ files, hidden: 0 });
+    });
+});
+
+describe("hiddenLinesLabel", () => {
+    it("is singular for one hidden line and plural otherwise", () => {
+        expect(hiddenLinesLabel(1)).toBe("1 more line in raw");
+        expect(hiddenLinesLabel(5)).toBe("5 more lines in raw");
+    });
+
+    it("labels a 401-line diff capped at 400 as one hidden line", () => {
+        // the hunk header counts as a drawn line, so 400 added lines make 401
+        const added = Array.from({ length: 400 }, (_, i) => `+line ${i}`);
+        const diff = ["diff --git a/x.txt b/x.txt", "--- a/x.txt", "+++ b/x.txt", "@@ -0,0 +1,400 @@", ...added].join(
+            "\n"
+        );
+        const files = parseUnifiedDiff(diff);
+        expect(files?.[0].lines).toHaveLength(401);
+        const { hidden } = capDiffLines(files, 400);
+        expect(hidden).toBe(1);
+        expect(hiddenLinesLabel(hidden)).toBe("1 more line in raw");
     });
 });

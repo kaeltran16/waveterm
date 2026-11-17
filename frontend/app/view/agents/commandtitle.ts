@@ -40,7 +40,24 @@ const SUBCOMMAND_TOOLS: ReadonlySet<string> = new Set([
     "kubectl",
     "pnpm",
     "yarn",
+    "claude",
 ]);
+// a subcommand worth naming is a plain word, never a quoted prompt or a path
+const SUBCOMMAND_WORD = /^[a-z][a-z0-9-]*$/i;
+
+// programs that run the command after them: the title names that one. Each maps to its flags that take a value as the
+// next word
+const WRAPPERS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+    ["timeout", new Set(["-s", "-k", "--signal", "--kill-after"])],
+    ["env", new Set(["-u", "-C", "-S", "--unset", "--chdir", "--split-string"])],
+    ["nohup", new Set<string>()],
+    ["time", new Set(["-f", "-o", "--format", "--output"])],
+    ["command", new Set<string>()],
+]);
+const DURATION = /^\d+(\.\d+)?[smhd]?$/;
+
+// a leading cd into a directory, then && or ;
+const LEADING_CD = /^\s*cd\s+(?:"[^"]*"|'[^']*'|[^\s;&|]+)\s*(?:&&|;)\s*/;
 
 interface SimpleCommand {
     words: string[];
@@ -72,13 +89,68 @@ function simpleCommands(tokens: Token[]): SimpleCommand[] {
     return out;
 }
 
-// the command's words from its program on: leading assignments and export dropped
+// the command's words from its program on: leading assignments, export and wrappers (with their flags and a timeout's
+// duration) dropped
 function programWords(words: string[]): string[] {
     let k = 0;
-    while (k < words.length && (ASSIGNMENT.test(words[k]) || words[k] === "export")) {
+    while (k < words.length) {
+        if (ASSIGNMENT.test(words[k]) || words[k] === "export") {
+            k++;
+            continue;
+        }
+        const wrapper = programName(words[k]);
+        const valued = WRAPPERS.get(wrapper);
+        if (!valued) {
+            break;
+        }
         k++;
+        while (k < words.length && words[k].startsWith("-")) {
+            k += valued.has(words[k]) ? 2 : 1;
+        }
+        if (wrapper === "timeout" && DURATION.test(words[k] ?? "")) {
+            k++;
+        }
     }
     return words.slice(k);
+}
+
+function closingParen(src: string, from: number): number {
+    let depth = 1;
+    for (let j = from; j < src.length; j++) {
+        if (src[j] === "(") depth++;
+        if (src[j] === ")" && --depth === 0) return j + 1;
+    }
+    return src.length;
+}
+
+// the command with every $( ) and backtick substitution removed, so a command inside one never names the title; a
+// single-quoted span stays as it is, since the shell does not expand it
+function withoutSubstitutions(src: string): string {
+    let out = "";
+    let inDouble = false;
+    let i = 0;
+    while (i < src.length) {
+        const c = src[i];
+        let next = i + 1;
+        if (c === "\\") {
+            next = i + 2;
+            out += src.slice(i, next);
+        } else if (c === "'" && !inDouble) {
+            const end = src.indexOf("'", i + 1);
+            next = end < 0 ? src.length : end + 1;
+            out += src.slice(i, next);
+        } else if (c === "`") {
+            const end = src.indexOf("`", i + 1);
+            next = end < 0 ? src.length : end + 1;
+        } else if (c === "$" && src[i + 1] === "(") {
+            next = closingParen(src, i + 2);
+        } else {
+            if (c === '"') inDouble = !inDouble;
+            out += c;
+        }
+        i = next;
+    }
+    return out;
 }
 
 function firstNonFlag(words: string[]): string | undefined {
@@ -105,18 +177,22 @@ function titleOf({ words, redirs }: SimpleCommand): string | undefined {
         }
     }
     const sub = firstNonFlag(args);
-    if (sub && (SUBCOMMAND_TOOLS.has(program) || (lang && /\.\w+$/.test(sub)))) {
-        return `Ran ${program} ${lang ? basename(sub) : sub}`;
+    if (sub && SUBCOMMAND_TOOLS.has(program) && SUBCOMMAND_WORD.test(sub)) {
+        return `Ran ${program} ${sub}`;
     }
-    return `Ran ${program}`;
+    if (sub && lang && /\.\w+$/.test(sub)) {
+        return `Ran ${program} ${basename(sub)}`;
+    }
+    // "Ran grep" only repeats the command's first word beside it
+    return undefined;
 }
 
-// the first simple command, past assignments and a leading cd, decides the title; a short one-liner gets none
+// the first simple command, past assignments, wrappers and a leading cd, decides the title; a short one-liner gets none
 export function commandTitle(command: string): string | undefined {
     if (!isHardToRead(command)) {
         return undefined;
     }
-    for (const cmd of simpleCommands(tokenize(command))) {
+    for (const cmd of simpleCommands(tokenize(withoutSubstitutions(command)))) {
         const words = programWords(cmd.words);
         if (words.length === 0 || programName(words[0]) === "cd") {
             continue;
@@ -124,4 +200,9 @@ export function commandTitle(command: string): string | undefined {
         return titleOf({ words, redirs: cmd.redirs });
     }
     return undefined;
+}
+
+// the command as a step row previews it: a leading cd dropped, so the width goes to the command itself
+export function commandPreview(command: string): string {
+    return command.replace(LEADING_CD, "") || command;
 }

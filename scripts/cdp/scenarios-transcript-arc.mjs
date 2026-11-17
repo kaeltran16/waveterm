@@ -51,6 +51,9 @@ const FINAL_SHA_LAST = "59c03d0";
 const CONFLICT_FILE = "frontend/app/view/boards/boards.tsx";
 const FAIL_LINE = "FAIL frontend/app/view/boards/boardsdraw.test.ts";
 const UNKNOWN_WAKE = "wake: the human reran the final stage of round 1; its failure was outside the code. Drop any fix plan for it.";
+const WAKE_ITEM_LINES = 3;
+// ~12 lines at the 736 px feed width
+const LONG_ITEM = Array.from({ length: 14 }, (_, i) => `t-${i + 2} landed on the lane and its suite passed after a retry of the flaky hit test.`).join(" ");
 const PANE_PICK = "One Final at a time";
 const AGENT_SENDER = "cache_fixer";
 const AGENT_BODY = "The cache fix landed on main; rebase before you touch store.ts.";
@@ -259,6 +262,17 @@ export const fixtures = {
             prose("Suite and lint pass; t-3 is retried.", T0 + 35 * S),
         ],
     },
+    // the latest wake's "Since your last wake" items: one long enough to wrap past 3 lines, one short
+    quietWake: {
+        ctx: LEAD,
+        entries: [
+            user(
+                ["wake: task t-5 never started: no worker process 5m after spawn. wsh jarvis dag retry t-5", "Since your last wake:", LONG_ITEM, "t-1 landed"].join("\n"),
+                T0
+            ),
+            prose("Retrying t-5.", T0 + 5 * S),
+        ],
+    },
     compactWakes: {
         ctx: LEAD,
         compact: true,
@@ -310,6 +324,21 @@ const ORDER = probe(`return [...root.querySelectorAll("[data-fold], [data-arc-me
     el.hasAttribute("data-fold") ? "fold" : el.hasAttribute("data-arc-message") ? el.getAttribute("data-arc-message") : "bubble");`);
 
 const BUBBLES = probe(`return [...root.querySelectorAll('[data-user-bubble]')].map((el) => (el.innerText || '').trim());`);
+
+// each "Since your last wake" item: its text's drawn lines, whether it is cut, and its Show more / Show less toggle
+const WAKE_ITEMS = probe(`
+    return [...root.querySelectorAll('[data-wake-part="quiet"] [data-wake-item]')].map((el) => {
+        const text = el.firstElementChild;
+        const lineHeight = parseFloat(getComputedStyle(text).lineHeight);
+        const toggle = el.querySelector('[data-clamp-more]');
+        return {
+            text: (text.innerText || '').trim(),
+            lines: Math.round(text.clientHeight / lineHeight),
+            cut: text.scrollHeight > text.clientHeight + 1,
+            toggle: toggle ? toggle.innerText.trim() : null,
+        };
+    });
+`);
 
 // clicks the first toggle of the nth Arc message matching sel
 const click = (n, sel) =>
@@ -541,6 +570,33 @@ export const transcriptArc = {
                 hasAll(unknown.text, ["Arc woke the lead", "the human reran the final stage of round 1"]) &&
                 !unknown.inBubble,
             detail: JSON.stringify(unknown),
+        });
+
+        await show(h, "quietWake");
+        const quietBefore = (await h.ev(WAKE_ITEMS)) ?? [];
+        await h.shot("cdp-shots/transcript-arc-wake-items.png");
+        const moreClicked = await h.ev(probe(`const b = root.querySelector('[data-wake-part="quiet"] [data-clamp-more]'); if (!b) return false; b.click(); return true;`));
+        await sleep(CLICK_SETTLE_MS);
+        const quietAfter = (await h.ev(WAKE_ITEMS)) ?? [];
+        await h.shot("cdp-shots/transcript-arc-wake-items-opened.png");
+        const [longBefore, shortBefore] = quietBefore;
+        const [longAfter, shortAfter] = quietAfter;
+        steps.push({
+            step: "the latest wake's long Since-your-last-wake item draws at 3 lines with Show more, a short item has none, and a click shows the whole item",
+            ok:
+                quietBefore.length === 2 &&
+                longBefore.lines === WAKE_ITEM_LINES &&
+                longBefore.cut &&
+                longBefore.toggle === "Show more" &&
+                shortBefore.toggle == null &&
+                !shortBefore.cut &&
+                moreClicked === true &&
+                longAfter.lines > WAKE_ITEM_LINES &&
+                !longAfter.cut &&
+                longAfter.toggle === "Show less" &&
+                longAfter.text === LONG_ITEM &&
+                shortAfter.toggle == null,
+            detail: JSON.stringify({ quietBefore, quietAfter }),
         });
 
         const compact = await showOpen(h, "compactWakes");

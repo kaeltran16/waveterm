@@ -14,6 +14,7 @@ import type { OpenTarget } from "../jarvis/address";
 import { shotRounds, stageHasShots } from "../jarvis/finalshotsmodel";
 import { FinalShotsViewer } from "../jarvis/finalshotsviewer";
 import { openTarget } from "../jarvis/openref";
+import type { AgentActionEntry } from "./agentsviewmodel";
 import { plural } from "./cockpitsurfacemodel";
 import {
     completeModel,
@@ -33,6 +34,7 @@ import {
     type RunStats,
     type TaskPill,
 } from "./dagcards";
+import { LoadFailure } from "./recordedoutput";
 import type { TranscriptContext } from "./transcriptcontext";
 import { CallFacts } from "./wshchangerow";
 import { useWshData, type WshDataState } from "./wshdata";
@@ -182,16 +184,25 @@ function CardLink({
     );
 }
 
-// a fetch that failed and left nothing to show: the card stays, from argv, and says what it could not load
-function LoadError({ state, what, compact }: { state: WshDataState<unknown>; what: string; compact: boolean }) {
+// a fetch that failed and left nothing to show: the card stays, from argv, says what it could not load and shows what
+// the call printed
+function LoadError({
+    state,
+    what,
+    action,
+    compact,
+}: {
+    state: WshDataState<unknown>;
+    what: string;
+    action?: AgentActionEntry;
+    compact: boolean;
+}) {
     if (state.status !== "error" || state.data !== undefined) {
         return null;
     }
     return (
-        <Section compact={compact} className="text-muted">
-            <span data-wsh-load-error>
-                Couldn't load {what}: {state.error}
-            </span>
+        <Section compact={compact}>
+            <LoadFailure message={`Couldn't load ${what}: ${state.error}`} action={action} compact={compact} />
         </Section>
     );
 }
@@ -274,7 +285,7 @@ function DagSubmitCard({ call, action, ctx, compact }: WshRendererProps) {
                         ))}
                     </div>
                 ) : null}
-                <LoadError state={state} what="the dag" compact={compact} />
+                <LoadError state={state} what="the dag" action={action} compact={compact} />
             </Shell>
         );
     }
@@ -324,7 +335,7 @@ function DagSubmitCard({ call, action, ctx, compact }: WshRendererProps) {
                 </div>
             ) : null}
             {m.review ? <ReviewStatus review={m.review} compact={compact} /> : null}
-            <LoadError state={state} what="the dag" compact={compact} />
+            <LoadError state={state} what="the dag" action={action} compact={compact} />
         </Shell>
     );
 }
@@ -416,7 +427,11 @@ export interface FinalVerdictCardProps {
     compact: boolean;
 }
 
-function FinalCard({ facts, ...props }: FinalVerdictCardProps & { facts?: ReactNode }) {
+function FinalCard({
+    facts,
+    action,
+    ...props
+}: FinalVerdictCardProps & { facts?: ReactNode; action?: AgentActionEntry }) {
     const { runId, ctx, compact } = props;
     const state = useDagStatus(runId, ctx.channelId);
     const group = state.data?.group;
@@ -459,7 +474,7 @@ function FinalCard({ facts, ...props }: FinalVerdictCardProps & { facts?: ReactN
                     ))}
                 </Section>
             ) : null}
-            {props.runId ? <LoadError state={state} what="the dag" compact={compact} /> : null}
+            {props.runId ? <LoadError state={state} what="the dag" action={action} compact={compact} /> : null}
         </Shell>
     );
 }
@@ -479,6 +494,7 @@ function DagFinalCard({ call, action, ctx, compact }: WshRendererProps) {
             ctx={{ ...ctx, channelId: dagChannelId(call, ctx) }}
             compact={compact}
             facts={<CallFacts action={action} compact={compact} />}
+            action={action}
         />
     );
 }
@@ -536,7 +552,7 @@ function CompleteCard({ call, action, ctx, compact }: WshRendererProps) {
         );
     }
     const report: OpenTarget | undefined = m.runId ? { kind: "run", runId: m.runId } : undefined;
-    const loadError = <LoadError state={runState} what="the run" compact={compact} />;
+    const loadError = <LoadError state={runState} what="the run" action={action} compact={compact} />;
     if (m.land === "held") {
         return (
             <Shell tone="warn" compact={compact}>
@@ -690,22 +706,15 @@ function StatusRowCompact({ row }: { row: DagStatusRow }) {
     );
 }
 
-function DagStatusView({ call, ctx, compact }: WshRendererProps) {
+function DagStatusView({ call, action, ctx, compact }: WshRendererProps) {
     const runId = dagRunId(call, ctx);
     const state = useDagStatus(runId, dagChannelId(call, ctx));
     const muted = cn("text-muted", compact ? "text-[12px]" : "text-[12.5px]");
     if (state.data == null) {
-        const text =
-            runId == null
-                ? "No run to read the dag of."
-                : state.status === "error"
-                  ? `Couldn't load the dag: ${state.error}`
-                  : "Loading the dag…";
-        return (
-            <div data-wsh-load-error={state.status === "error" ? true : undefined} className={muted}>
-                {text}
-            </div>
-        );
+        if (runId != null && state.status === "error") {
+            return <LoadFailure message={`Couldn't load the dag: ${state.error}`} action={action} compact={compact} />;
+        }
+        return <div className={muted}>{runId == null ? "No run to read the dag of." : "Loading the dag…"}</div>;
     }
     const m = dagStatusModel(state.data, call.args[0], Date.now(), fmtElapsed);
     if (compact) {

@@ -7,7 +7,7 @@
 // scrolled out of view, a bar pinned at the top holds it. A file path in a reply opens the Code peek docked under the
 // transcript, beside the agent.
 
-import { cardVariants, composerReveal, microFade, viewFade } from "@/app/element/motiontokens";
+import { cardVariants, composerReveal, microFade } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -42,6 +42,7 @@ import { RenderedComposer } from "./renderedcomposer";
 import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
 import type { ReplyFileLink } from "./replyfilelinks";
 import { getLastHookAtom } from "./session-models/agentstatusstore";
+import { ShowEarlier } from "./showearlier";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { useTranscriptContext, type TranscriptContext } from "./transcriptcontext";
 import { TranscriptSkeleton } from "./transcriptskeleton";
@@ -344,22 +345,11 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                     <div data-rendered-column className={TRANSCRIPT_COLUMN}>
                         {entries.length > 0 ? (
                             <>
-                                <AnimatePresence initial={false}>
-                                    {earlier === "hidden" || earlier === "loading" ? (
-                                        <motion.button
-                                            key="earlier"
-                                            type="button"
-                                            data-rendered-earlier=""
-                                            onClick={() => fireAndForget(() => showEarlierTranscript(agent.id))}
-                                            variants={viewFade}
-                                            initial="initial"
-                                            animate="animate"
-                                            className="w-full cursor-pointer rounded-[6px] py-2 text-center text-[12px] font-semibold text-muted hover:bg-surface-hover hover:text-primary"
-                                        >
-                                            Show earlier turns
-                                        </motion.button>
-                                    ) : null}
-                                </AnimatePresence>
+                                <ShowEarlier
+                                    show={earlier === "hidden" || earlier === "loading"}
+                                    marker="data-rendered-earlier"
+                                    onClick={() => fireAndForget(() => showEarlierTranscript(agent.id))}
+                                />
                                 <div data-rendered-feed ref={feedRef}>
                                     <FileLinkContext.Provider value={replyPeek.open}>
                                         <NarrationTimeline

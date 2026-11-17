@@ -30,6 +30,7 @@ import {
     type NoteCard,
     type NoteSpan,
 } from "./notescards";
+import { LoadFailure } from "./recordedoutput";
 import { fmtDuration } from "./runcompletion";
 import { CallFacts } from "./wshchangerow";
 import { useWshData } from "./wshdata";
@@ -101,7 +102,12 @@ function NoteCardView({ card, props, loadFailed }: { card: NoteCard; props: WshR
         </div>
     );
     const failed = loadFailed ? (
-        <LoadNote compact={compact}>The note did not load, so this card shows only what the call passed.</LoadNote>
+        <LoadFailure
+            message="The note did not load, so this card shows only what the call passed."
+            action={action}
+            compact={compact}
+            className="mt-1"
+        />
     ) : null;
     if (compact) {
         return (
@@ -260,11 +266,10 @@ function JiraShowView(props: WshRendererProps) {
     if (data != null) {
         return <TicketView card={jiraTicketOf(data)} compact={compact} asOfNow={own == null} />;
     }
-    const text =
-        state.status === "error"
-            ? `${key} did not load: ${state.error}. The raw output below is what the call printed.`
-            : `Reading ${key}…`;
-    return <LoadNote compact={compact}>{text}</LoadNote>;
+    if (state.status === "error") {
+        return <LoadFailure message={`${key} did not load: ${state.error}`} action={action} compact={compact} />;
+    }
+    return <LoadNote compact={compact}>{`Reading ${key}…`}</LoadNote>;
 }
 
 // ---- brainstorm-judge ----

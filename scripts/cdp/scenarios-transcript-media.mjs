@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
+import { clearTranscript, openFolds, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T0 = Date.UTC(2026, 10, 16, 9, 0, 0);
@@ -15,6 +15,10 @@ const S = 1000;
 const WIDE = 736;
 // ImageThumbs' THUMB_MAX_HEIGHT_PX, with a pixel of border slack
 const THUMB_BOUND = 96;
+// THUMB_MAX_HEIGHT_COMPACT_PX, the closed row's strip
+const THUMB_BOUND_COMPACT = 64;
+// the image card's p-2 on both sides and its 1px border, with a pixel of slack
+const CARD_PAD_PX = 16 + 2 + 1;
 // the generated image is well past the bound, so a card at full size would fail the check
 const SOURCE_W = 600;
 const SOURCE_H = 500;
@@ -90,6 +94,8 @@ export const transcriptMedia = {
             width: WIDE,
             renderers: true,
         });
+        // the finished turn starts folded, its image card inside
+        await openFolds(h);
         const opened = await poll(h, `!!${R}?.querySelector('[data-tool-card="image"]')`);
         const state = await h.ev(THUMBS_STATE);
         await h.shot("cdp-shots/transcript-media-thumbs.png");
@@ -117,6 +123,94 @@ export const transcriptMedia = {
         await h.ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))`);
         const closed = await poll(h, `!document.querySelector('[data-image-zoom]')`);
         steps.push({ step: "zoom: Escape closes the zoom view", ok: closed, detail: `closed=${closed}` });
+
+        // four consecutive image reads draw as one closed "Read 4 images" row with a thumbnail strip under it
+        await showTranscript(h, {
+            entries: [
+                user("Look at all four.", T0),
+                ...[1, 2, 3, 4].map((n) => tool("read", `shot${n}.png`, { ts: T0 + (n + 1) * S, images: [image] })),
+                prose("All four are the same.", T0 + 7 * S),
+            ],
+            width: WIDE,
+            renderers: true,
+        });
+        await openFolds(h);
+        const STRIP_STATE = `(() => {
+            const row = ${R}?.querySelector('[data-step-group="images"]');
+            if (!row) return null;
+            const imgs = [...row.querySelectorAll('[data-image-strip] [data-image-thumb] img')];
+            return {
+                title: row.querySelector('button[aria-expanded]')?.innerText.trim(),
+                expanded: row.querySelector('button[aria-expanded]')?.getAttribute('aria-expanded'),
+                count: imgs.length,
+                loaded: imgs.every((i) => i.naturalHeight > 0),
+                heights: imgs.map((i) => Math.round(i.getBoundingClientRect().height)),
+            };
+        })()`;
+        await poll(h, `(() => { const s = ${STRIP_STATE}; return s != null && s.count === 4 && s.loaded; })()`);
+        const strip = await h.ev(STRIP_STATE);
+        await h.shot("cdp-shots/transcript-media-strip.png");
+        steps.push({
+            step: "strip: a closed 'Read 4 images' row shows four thumbnails no taller than the compact bound",
+            ok:
+                strip != null &&
+                strip.title === "Read 4 images" &&
+                strip.expanded === "false" &&
+                strip.count === 4 &&
+                strip.heights.every((px) => px > 0 && px <= THUMB_BOUND_COMPACT + 1),
+            detail: JSON.stringify(strip),
+        });
+
+        await h.ev(`${R}.querySelector('[data-step-group="images"] [data-image-strip] [data-image-thumb]').click()`);
+        const stripZoomed = await poll(h, `!!document.querySelector('[data-image-zoom]')`);
+        await h.ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }))`);
+        const stripZoomClosed = await poll(h, `!document.querySelector('[data-image-zoom]')`);
+        steps.push({
+            step: "strip zoom: a strip thumbnail opens the zoom view, and the row stays closed",
+            ok:
+                stripZoomed &&
+                stripZoomClosed &&
+                (await h.ev(`${R}.querySelector('[data-step-group="images"] button[aria-expanded]').getAttribute('aria-expanded')`)) === "false",
+            detail: `zoomed=${stripZoomed} closed=${stripZoomClosed}`,
+        });
+
+        // opening the row swaps the strip for each read's own card
+        await h.ev(`${R}.querySelector('[data-step-group="images"] button[aria-expanded]').click()`);
+        const swapped = await poll(
+            h,
+            `(() => { const r = ${R}?.querySelector('[data-step-group="images"]'); return !!r && !r.querySelector('[data-image-strip]') && r.querySelectorAll('[data-tool-card="image"]').length === 4; })()`
+        );
+        steps.push({ step: "strip: opening the row replaces the strip with each read's card", ok: swapped, detail: `swapped=${swapped}` });
+
+        // one small image: the card's frame is its thumbnail plus padding, not the column
+        await showTranscript(h, {
+            entries: [
+                user("Look at the screenshot.", T0),
+                tool("read", "shot.png", { ts: T0 + 2 * S, images: [image] }),
+                prose("Blue.", T0 + 3 * S),
+            ],
+            width: WIDE,
+            renderers: true,
+        });
+        await openFolds(h);
+        const FRAME_STATE = `(() => {
+            const card = ${R}?.querySelector('[data-tool-card="image"]');
+            if (!card) return null;
+            const thumbs = [...card.querySelectorAll('[data-image-thumb]')].map((t) => t.getBoundingClientRect().width);
+            return {
+                card: Math.round(card.getBoundingClientRect().width),
+                thumbs: thumbs.map(Math.round),
+                loaded: [...card.querySelectorAll('img')].every((i) => i.naturalHeight > 0),
+            };
+        })()`;
+        await poll(h, `(() => { const s = ${FRAME_STATE}; return s != null && s.loaded && s.thumbs.length === 1; })()`);
+        const frame = await h.ev(FRAME_STATE);
+        await h.shot("cdp-shots/transcript-media-frame.png");
+        steps.push({
+            step: "frame: a single image read's card is no wider than its thumbnail plus padding",
+            ok: frame != null && frame.thumbs.length === 1 && frame.thumbs[0] > 0 && frame.card <= frame.thumbs[0] + CARD_PAD_PX,
+            detail: JSON.stringify(frame),
+        });
 
         const attachText = ["Review these.", "", ATTACHMENTS_HEADER, `- ${ctx.png}`, `- ${ctx.txt}`, `- ${ctx.missing}`].join("\n");
         await showTranscript(h, {

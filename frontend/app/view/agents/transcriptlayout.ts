@@ -5,22 +5,25 @@
 // user entries, events and change cards; a wsh change call that succeeded leaves the stretch as a standalone card; Arc's
 // own messages become arc items. A thought (a thinking-only message), when the host draws them, sits inside the stretch
 // around it, or alone where no step is beside it; thoughts with nothing between them merge into one. A finished turn's work, everything between its prompt and its final
-// reply, folds into one "Worked for N" turn item; a human-originated row or a turn-boundary event splits it. No React.
+// reply, folds into one "Worked for N" turn item; a human-originated row or a turn-boundary event splits it.
+// Consecutive finished edits to one file merge into one step. No React.
 
 import type { AgentActionEntry, AgentEntry, ToolImage } from "./agentsviewmodel";
 import { arcMessageOf, type ArcMessage } from "./arcmessage";
-import { commandTitle } from "./commandtitle";
+import { commandPreview, commandTitle } from "./commandtitle";
 import { classifyKind, splitAttachments } from "./composerattachments";
 import { placeMarks, type TimelineMark } from "./permissionmodel";
-import { toolRendererKey } from "./renderregistry";
 import type { TranscriptContext } from "./transcriptcontext";
 import { firstWshCall, isCardKey, type WshCall, type WshKey } from "./wshcall";
 
 export interface Step {
+    // the first entry's index; a merged step spans `edits` consecutive entries from it
     index: number;
     action: AgentActionEntry;
     wsh: { call: WshCall; key: WshKey } | null;
     status: "ok" | "fail" | "blocked" | "running" | "stopped";
+    // set when two or more consecutive edits to one file merged into this step: how many
+    edits?: number;
 }
 
 export interface FoldSummary {
@@ -44,7 +47,15 @@ export type LayoutItem =
     | { kind: "user"; text: string; index: number; images?: ToolImage[]; imagePaths?: string[]; filePaths?: string[] }
     | { kind: "command"; name: string; args?: string; isSkill?: boolean; output?: string; index: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string; index: number }
-    | { kind: "notification"; summary: string; status?: string; result?: string; notice?: true; index: number }
+    | {
+          kind: "notification";
+          summary: string;
+          status?: string;
+          result?: string;
+          notice?: true;
+          source?: "command" | "monitor" | "subagent";
+          index: number;
+      }
     | { kind: "interrupted"; index: number }
     | { kind: "shell"; command: string; stdout?: string; stderr?: string; ts?: number; index: number }
     // latest: the feed's last wake, the only one that draws its sections open
@@ -52,10 +63,10 @@ export type LayoutItem =
     // thoughts: the stretch's own, set only when it has some
     | { kind: "steps"; startIndex: number; steps: Step[]; thoughts?: Thought[] }
     | { kind: "card"; index: number; step: Step }
-    // a finished turn's work, folded: its items in order. open: it starts open (a tool output card in the rendered view).
-    // live: the working turn's work, laid out the same way but drawn open, so finishing folds the rows already drawn
-    // instead of redrawing them inside a fold
-    | { kind: "turn"; startIndex: number; items: LayoutItem[]; fold: FoldSummary; open: boolean; live?: boolean };
+    // a turn's work, folded: its items in order. latest: part of the last finished turn while the agent is not
+    // working, whose cards draw open. live: the working turn's work, laid out the same way but drawn open, so
+    // finishing folds the rows already drawn instead of redrawing them inside a fold
+    | { kind: "turn"; startIndex: number; items: LayoutItem[]; fold: FoldSummary; latest: boolean; live?: boolean };
 
 // the entry's own time: a record's ts, or an action's tool_use time
 function entryTime(e: AgentEntry | undefined): number | undefined {
@@ -73,9 +84,11 @@ export function actionCommand(a: AgentActionEntry): string | undefined {
     return a.command ?? (a.detail?.kind === "bash" ? a.detail.command : undefined);
 }
 
-function stepStatus(a: AgentActionEntry, interruptedLater: boolean): Step["status"] {
+// a pending call still runs only while the agent works (it may wait on a permission prompt); in an ended session or
+// before an interruption it never got its result
+function stepStatus(a: AgentActionEntry, interruptedLater: boolean, active: boolean): Step["status"] {
     if (a.pending) {
-        return interruptedLater ? "stopped" : "running";
+        return active && !interruptedLater ? "running" : "stopped";
     }
     if (a.outcome === "blocked") {
         return "blocked";
@@ -84,6 +97,40 @@ function stepStatus(a: AgentActionEntry, interruptedLater: boolean): Step["statu
         return "fail";
     }
     return "ok";
+}
+
+// the last entry a step covers
+function stepEnd(step: Step): number {
+    return step.index + (step.edits ?? 1) - 1;
+}
+
+// the one path a finished edit touched, else undefined
+function editPath(step: Step): string | undefined {
+    const { detail, verb } = step.action;
+    if (verb !== "edited" || step.status !== "ok" || detail?.kind !== "edit" || detail.files.length === 0) {
+        return undefined;
+    }
+    const path = detail.files[0].path;
+    return detail.files.every((f) => f.path === path) ? path : undefined;
+}
+
+function mergeableEdits(prev: Step, next: Step): boolean {
+    const path = editPath(prev);
+    return path != null && path === editPath(next);
+}
+
+// one step for consecutive edits to one file: each edit's file block in order, so the counts sum
+function mergeEdits(prev: Step, next: Step): Step {
+    const files = (s: Step) => (s.action.detail?.kind === "edit" ? s.action.detail.files : []);
+    const durationMs =
+        prev.action.durationMs == null && next.action.durationMs == null
+            ? undefined
+            : (prev.action.durationMs ?? 0) + (next.action.durationMs ?? 0);
+    return {
+        ...prev,
+        action: { ...prev.action, detail: { kind: "edit", files: [...files(prev), ...files(next)] }, durationMs },
+        edits: (prev.edits ?? 1) + 1,
+    };
 }
 
 // article: one reads "a <one>" rather than "1 <one>"
@@ -186,8 +233,6 @@ export interface LayoutOpts {
     ctx?: TranscriptContext;
     // draw thought entries (the rendered view); without it they are skipped and break nothing
     thoughts?: boolean;
-    // the rendered view: a turn holding a tool output card starts open
-    renderers?: boolean;
     // the permission marks the host draws: each splits the finished turn it falls in
     marks?: TimelineMark[];
 }
@@ -196,17 +241,22 @@ export function layoutTranscript(entries: AgentEntry[], opts: LayoutOpts): Layou
     return foldTurns(entries, layoutItems(entries, opts), opts);
 }
 
-// the items of a turn's work; every other kind is a prompt or a turn-boundary event, which stays outside and splits it
-const FOLDED_KINDS = new Set<LayoutItem["kind"]>(["message", "thought", "steps", "card", "notification"]);
+// the items of a turn's work, a queued notice included; every other kind is a prompt or a turn-boundary event, which
+// stays outside and splits it
+const FOLDED_KINDS = new Set<LayoutItem["kind"]>(["message", "thought", "steps", "card"]);
+
+function isFolded(item: LayoutItem): boolean {
+    return FOLDED_KINDS.has(item.kind) || (item.kind === "notification" && !!item.notice);
+}
 
 function isWork(item: LayoutItem): boolean {
     return item.kind === "steps" || item.kind === "card";
 }
 
-// a typed prompt, an Arc message or a typed slash command starts a turn, unless it was queued while the agent worked; a
-// model's own Skill call is an action
+// a typed prompt, an Arc message, a typed slash command or a notification of its own record starts a turn, unless it
+// was queued while the agent worked; a model's own Skill call is an action
 function startsTurn(entries: AgentEntry[], item: LayoutItem): boolean {
-    if (item.kind === "command") {
+    if (item.kind === "command" || (item.kind === "notification" && !item.notice)) {
         return true;
     }
     const e = item.kind === "user" || item.kind === "arc" ? entries[item.index] : undefined;
@@ -220,7 +270,7 @@ function itemStart(item: LayoutItem): number {
 function itemEnd(item: LayoutItem): number {
     if (item.kind === "steps") {
         const lastThought = item.thoughts?.[item.thoughts.length - 1]?.index ?? -1;
-        return Math.max(item.steps[item.steps.length - 1].index, lastThought);
+        return Math.max(stepEnd(item.steps[item.steps.length - 1]), lastThought);
     }
     return itemStart(item);
 }
@@ -234,16 +284,15 @@ function lastIndexOf(items: LayoutItem[], pred: (item: LayoutItem) => boolean): 
     return -1;
 }
 
-function turnItem(entries: AgentEntry[], items: LayoutItem[], opts: LayoutOpts, live: boolean): LayoutItem {
+function turnItem(entries: AgentEntry[], items: LayoutItem[], latest: boolean, live: boolean): LayoutItem {
     const steps = items.flatMap((i) => (i.kind === "steps" ? i.steps : i.kind === "card" ? [i.step] : []));
     const first = itemStart(items[0]);
-    const toolCard = items.some((i) => i.kind === "steps" && i.steps.some((s) => toolRendererKey(s.action) != null));
     return {
         kind: "turn",
         startIndex: first,
         items,
         fold: foldSummary(entries, steps, first, itemEnd(items[items.length - 1])),
-        open: !!opts.renderers && toolCard,
+        latest,
         ...(live ? { live } : {}),
     };
 }
@@ -256,7 +305,7 @@ function foldTurn(
     from: number,
     to: number,
     splitAfter: Set<number>,
-    opts: LayoutOpts,
+    latest: boolean,
     live: boolean
 ): LayoutItem[] {
     const range = flat.slice(from, to);
@@ -268,14 +317,14 @@ function foldTurn(
     const close = () => {
         // a part of prose and thoughts only draws as it is
         if (part.some(isWork)) {
-            out.push(turnItem(entries, part, opts, live));
+            out.push(turnItem(entries, part, latest, live));
         } else {
             out.push(...part);
         }
         part = [];
     };
     for (let p = from; p < stop; p++) {
-        if (!FOLDED_KINDS.has(flat[p].kind)) {
+        if (!isFolded(flat[p])) {
             close();
             out.push(flat[p]);
             continue;
@@ -290,7 +339,8 @@ function foldTurn(
     return out;
 }
 
-// folds every finished turn; while active, the last turn is live: split the same way, its turn items marked live
+// folds every finished turn; while active, the last turn is live: split the same way, its turn items marked live.
+// Not active, the last turn is the latest
 function foldTurns(entries: AgentEntry[], flat: LayoutItem[], opts: LayoutOpts): LayoutItem[] {
     const starts = flat.flatMap((item, p) => (startsTurn(entries, item) ? [p] : []));
     const liveFrom = opts.active ? (starts[starts.length - 1] ?? 0) : flat.length;
@@ -302,7 +352,7 @@ function foldTurns(entries: AgentEntry[], flat: LayoutItem[], opts: LayoutOpts):
         while (to < flat.length && !startsTurn(entries, flat[to])) {
             to++;
         }
-        out.push(...foldTurn(entries, flat, from, to, splitAfter, opts, from >= liveFrom));
+        out.push(...foldTurn(entries, flat, from, to, splitAfter, !opts.active && to === flat.length, from >= liveFrom));
         from = to;
     }
     return out;
@@ -377,10 +427,13 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
         if (time != null) prevTime = time;
         if (e.kind === "action") {
             const wsh = firstWshCall(actionCommand(e));
-            const step: Step = { index: i, action: e, wsh, status: stepStatus(e, lastInterrupted > i) };
+            const step: Step = { index: i, action: e, wsh, status: stepStatus(e, lastInterrupted > i, opts.active) };
+            const prev = run[run.length - 1];
             if (wsh && isCardKey(wsh.key) && step.status === "ok") {
                 flush();
                 items.push({ kind: "card", index: i, step });
+            } else if (prev && stepEnd(prev) === i - 1 && mergeableEdits(prev, step)) {
+                run[run.length - 1] = mergeEdits(prev, step);
             } else {
                 runThoughts.push(...thoughts);
                 thoughts = [];
@@ -423,6 +476,7 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                     status: e.status,
                     result: e.result,
                     notice: e.notice,
+                    source: e.source,
                     index: i,
                 });
                 return;
@@ -498,8 +552,8 @@ export function stepTitle(action: AgentActionEntry): { title: string; mono?: str
             }
             // the projection puts the description in target when there is one, else the command
             return target && target !== command
-                ? { title: target, mono: command }
-                : { title: commandTitle(command) ?? "", mono: command };
+                ? { title: target, mono: commandPreview(command) }
+                : { title: commandTitle(command) ?? "", mono: commandPreview(command) };
         }
         case "read":
         case "edited":

@@ -130,8 +130,37 @@ describe("shell variable ids", () => {
         expect(firstWshCall("wsh jarvis complete --commit $SHA --report C:/tmp/r.md")?.key).toBe("jarvis-complete");
     });
 
-    it("an unresolved flag value is unresolved too", () => {
-        expect(firstWshCall("wsh effort chunk note e1 3 --note $N")?.key).toBe("other-change");
+    it("an unresolved fetch flag value is unresolved too", () => {
+        expect(firstWshCall("wsh jarvis dag status --runid $R")).toBeNull();
+        expect(firstWshCall("wsh jarvis dag review t-1 pass --channel=$C")?.key).toBe("other-change");
+    });
+
+    it("a single-quoted $ stays literal and resolved", () => {
+        const first = firstWshCall("wsh effort chunk add '$E' x");
+        expect(first?.key).toBe("chunk-add");
+        expect(first?.call.args).toEqual(["$E", "x"]);
+        expect(firstWshCall("E=abc && wsh effort chunk add 'a$E'\"$E\" x")?.call.args).toEqual(["a$Eabc", "x"]);
+        expect(firstWshCall("wsh effort show '`id`'")?.key).toBe("effort-show");
+    });
+
+    it("a double-quoted $ still expands", () => {
+        const first = firstWshCall('E=abc && wsh effort chunk add "$E" x');
+        expect(first?.key).toBe("chunk-add");
+        expect(first?.call.args).toEqual(["abc", "x"]);
+    });
+
+    it.each([
+        ['wsh effort chunk note abc 3 --note "costs $5"', "chunk-note"],
+        ["wsh effort chunk status abc 3 done --note=$N", "chunk-status"],
+        ['wsh effort advance abc --note "$(date)"', "effort-advance"],
+        ['wsh note add --body "see $HOME"', "note-add"],
+    ])("a display-only flag holding $ leaves the call resolved (case %#)", (cmd, key) => {
+        expect(keyOf(cmd)).toBe(key);
+    });
+
+    it("an id positional holding an unexpanded $X is unresolved", () => {
+        expect(keyOf('wsh effort chunk note $X 3 --note "costs $5"')).toBe("other-change");
+        expect(keyOf("wsh effort chunk add a$X x")).toBe("other-change");
     });
 });
 

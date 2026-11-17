@@ -33,10 +33,39 @@ describe("commandTitle", () => {
         ).toBe("Ran node final-verify.mjs");
     });
 
-    it("names a plain program on a long line", () => {
+    it("drops a title that would only name the program", () => {
         expect(
             commandTitle("ls -la C:/Users/someone/AppData/Local/arc-wt/d71b0df7-t-7/frontend/app/view/agents/x")
-        ).toBe("Ran ls");
+        ).toBeUndefined();
+        expect(
+            commandTitle("grep -n retry C:/Users/someone/AppData/Local/arc-wt/d71b0df7-t-7/frontend/a.ts")
+        ).toBeUndefined();
+    });
+
+    const LONG_PATH = "C:/Users/someone/.claude/plugins/marketplaces/arc/plugins/arc-mod";
+
+    it("skips wrappers when picking the program", () => {
+        expect(commandTitle(`timeout 120 claude plugin validate ${LONG_PATH}`)).toBe("Ran claude plugin");
+        expect(commandTitle(`timeout -k 5 2m git status --short -- ${LONG_PATH}`)).toBe("Ran git status");
+        expect(commandTitle(`env -u HOME FOO=1 git log --oneline -- ${LONG_PATH}`)).toBe("Ran git log");
+        expect(commandTitle(`nohup time command node scripts/cdp/final-verify.mjs ${LONG_PATH}`)).toBe(
+            "Ran node final-verify.mjs"
+        );
+    });
+
+    it("takes a bare env as no program and titles from the command after it", () => {
+        expect(commandTitle(`env | git grep -n FOO -- ${LONG_PATH}`)).toBe("Ran git grep");
+        expect(commandTitle(`env | grep FOO | sort | uniq -c | sort -rn | head -40 > ${LONG_PATH}/x`)).toBeUndefined();
+    });
+
+    it("skips the commands inside a substitution", () => {
+        const script = "const fs = require('fs'); console.log(fs.readFileSync(process.env.F, 'utf8').length)";
+        expect(commandTitle(`cd ~/p && F=$(ls -t | head -1); node -e "${script}"`)).toBe("Ran a Node script");
+        expect(commandTitle(`F=\`ls -t | head -1\` && python3 -c "${script}"`)).toBe("Ran a Python script");
+    });
+
+    it("names a subcommand only when it reads as a word", () => {
+        expect(commandTitle(`claude -p "review the diff under ${LONG_PATH} and report"`)).toBeUndefined();
     });
 
     it("leaves a short one-liner untitled", () => {

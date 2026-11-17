@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 import { openTarget } from "../jarvis/openref";
 import { listRows, readModel, revealModel, sendModel, type CallResult } from "./agentscards";
 import type { AgentActionEntry } from "./agentsviewmodel";
+import { LoadFailure } from "./recordedoutput";
 import { StatusDot } from "./statusdot";
 import type { TranscriptContext } from "./transcriptcontext";
 import { wshJsonOutput } from "./wshcall";
@@ -37,9 +38,22 @@ function resultOf(action: AgentActionEntry): CallResult {
 }
 
 // a failed roster fetch leaves the card on argv alone, and says so
-function LoadError({ error }: { error: string | undefined }) {
+function LoadError({
+    error,
+    action,
+    compact,
+}: {
+    error: string | undefined;
+    action: AgentActionEntry;
+    compact: boolean;
+}) {
     return error ? (
-        <div className="px-3.5 pb-2 text-[11.5px] text-muted">Could not load the agent list: {error}</div>
+        <LoadFailure
+            message={`Could not load the agent list: ${error}`}
+            action={action}
+            compact={compact}
+            className="px-3.5 pb-2"
+        />
     ) : null;
 }
 
@@ -119,7 +133,7 @@ function AgentsSendCard({ call, action, compact }: WshRendererProps) {
                     text from {m.file}
                 </CardBody>
             ) : null}
-            <LoadError error={m.tabid ? undefined : roster.error} />
+            <LoadError error={m.tabid ? undefined : roster.error} action={action} compact={compact} />
         </div>
     );
 }
@@ -148,7 +162,7 @@ function AgentsReadCard({ call, action, ctx, compact }: WshRendererProps) {
                     {m.answer}
                 </CardBody>
             ) : null}
-            <LoadError error={m.tabid ? undefined : roster.error} />
+            <LoadError error={m.tabid ? undefined : roster.error} action={action} compact={compact} />
         </div>
     );
 }
@@ -182,10 +196,10 @@ function AgentsListView({ action, compact }: WshRendererProps) {
     );
     const agents = printed ?? state.data?.agents;
     if (!agents) {
-        return (
-            <div className="text-[12px] text-muted">
-                {state.status === "error" ? `Could not load the agent list: ${state.error}` : "Loading agents"}
-            </div>
+        return state.status === "error" ? (
+            <LoadFailure message={`Could not load the agent list: ${state.error}`} action={action} compact={compact} />
+        ) : (
+            <div className="text-[12px] text-muted">Loading agents</div>
         );
     }
     const rows = listRows(agents);

@@ -7,14 +7,16 @@ import { cn } from "@/util/util";
 import { AnimatePresence, motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import type { AgentActionEntry, EditFile, ToolImage } from "./agentsviewmodel";
-import { ImageThumbs } from "./imagethumbs";
-import { ToolDetailBody } from "./narrationtimeline";
+import { ImageThumbs, toolZoomImages } from "./imagethumbs";
+import { RecordedOutput } from "./recordedoutput";
+import { ToolDetailBody } from "./tooldetailbody";
 import { bashCard, toolRendererKey } from "./renderregistry";
-import { failureLabel, stripAnsi, type TestSummary } from "./testoutput";
-import { capDiffLines } from "./unifieddiff";
+import { failureLabel, type TestSummary } from "./testoutput";
+import { capDiffLines, hiddenLinesLabel } from "./unifieddiff";
 
 // Tool output cards: a test or diff card is its step's opened body (StepsOpen.dc.html test card), open from the start in
-// the rendered view; an image card sits under its row there.
+// the rendered view; an image card sits under its row there. A collapsed card (one in a finished turn that is not the
+// latest) draws its header only, so history never holds a wall of diff; a click on the header opens it.
 // Each Bash card keeps its raw output one toggle away, since a parse can miss what the agent saw.
 
 const CARD = "overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code";
@@ -44,41 +46,62 @@ function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
     );
 }
 
-function RawOutput({ output }: { output: string }) {
-    return (
-        <pre className="m-0 whitespace-pre-wrap px-[11px] py-[9px] font-mono text-[11.5px] leading-[1.7] text-ink-mid [overflow-wrap:anywhere]">
-            {stripAnsi(output)}
-        </pre>
-    );
-}
-
 // header (label, counts, raw toggle) over a body that swaps to the raw output. A card whose header says it all (a
-// passing run) has no body until raw is on.
+// passing run) has no body until raw is on. counts gets whether the body shows, for counts the body otherwise carries.
 function BashCardShell({
     kind,
     label,
     runner,
     counts,
     output,
+    collapsed,
     children,
 }: {
     kind: "test" | "git-diff";
     label: string;
     runner?: string;
-    counts: ReactNode;
+    counts: (open: boolean) => ReactNode;
     output: string;
+    collapsed?: boolean;
     children?: ReactNode;
 }) {
     const [raw, setRaw] = useState(false);
-    const body = raw ? <RawOutput output={output} /> : children;
+    const [open, setOpen] = useState(!collapsed);
+    const body = !open ? null : raw ? <RecordedOutput output={output} /> : children;
+    const head = (
+        <>
+            <span className="font-semibold text-secondary">{label}</span>
+            {runner ? <span className={cn(MONO_LABEL, "text-muted")}>{runner}</span> : null}
+            <span className="flex-1" />
+            {counts(open)}
+        </>
+    );
     return (
         <div data-tool-card={kind} className={CARD}>
             <div className={cn(CARD_HEADER, body == null && "border-b-0")}>
-                <span className="font-semibold text-secondary">{label}</span>
-                {runner ? <span className={cn(MONO_LABEL, "text-muted")}>{runner}</span> : null}
-                <span className="flex-1" />
-                {counts}
-                <RawToggle raw={raw} onToggle={() => setRaw((r) => !r)} />
+                {children != null ? (
+                    <button
+                        type="button"
+                        data-card-head
+                        aria-expanded={open}
+                        onClick={() => setOpen((v) => !v)}
+                        className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left"
+                    >
+                        {head}
+                    </button>
+                ) : (
+                    <div data-card-head className="flex min-w-0 flex-1 items-center gap-2.5">
+                        {head}
+                    </div>
+                )}
+                {/* raw on a collapsed card opens it to the output */}
+                <RawToggle
+                    raw={raw}
+                    onToggle={() => {
+                        setRaw((r) => !r);
+                        setOpen(true);
+                    }}
+                />
             </div>
             {/* a card with no parsed body grows one for raw; one that has a body trades it in place */}
             <PaneReveal open={body != null}>
@@ -104,7 +127,7 @@ function Count({ n, word, tone }: { n: number; word: string; tone: string }) {
     return <span className={n > 0 ? tone : "text-muted"}>{`${n} ${word}`}</span>;
 }
 
-function TestCard({ summary, output }: { summary: TestSummary; output: string }) {
+function TestCard({ summary, output, collapsed }: { summary: TestSummary; output: string; collapsed?: boolean }) {
     const shown = summary.failures.slice(0, FAILURES_SHOWN_MAX);
     const more = summary.failures.length - shown.length;
     const counts = (
@@ -143,8 +166,9 @@ function TestCard({ summary, output }: { summary: TestSummary; output: string })
             kind="test"
             label="Tests"
             runner={summary.runner === "go" ? "go test" : "vitest"}
-            counts={counts}
+            counts={() => counts}
             output={output}
+            collapsed={collapsed}
         >
             {rows.length > 0 ? (
                 <>
@@ -158,17 +182,17 @@ function TestCard({ summary, output }: { summary: TestSummary; output: string })
     );
 }
 
-function DiffCard({ files, output }: { files: EditFile[]; output: string }) {
+function DiffCard({ files, output, collapsed }: { files: EditFile[]; output: string; collapsed?: boolean }) {
     const { files: shown, hidden } = capDiffLines(files, DIFF_LINES_SHOWN_MAX);
     const adds = files.reduce((n, f) => n + f.adds, 0);
     const dels = files.reduce((n, f) => n + f.dels, 0);
-    // one file's row already carries its counts
-    const counts = (
+    // an open card's one file row already carries its counts
+    const counts = (open: boolean) => (
         <span className="flex items-center gap-2">
             <span
                 className={cn(MONO_LABEL, "text-muted")}
             >{`${files.length} file${files.length === 1 ? "" : "s"}`}</span>
-            {files.length > 1 ? (
+            {files.length > 1 || !open ? (
                 <>
                     <span className={cn(MONO_LABEL, adds > 0 ? "font-bold text-diff-added" : "text-muted")}>
                         +{adds}
@@ -181,10 +205,10 @@ function DiffCard({ files, output }: { files: EditFile[]; output: string }) {
         </span>
     );
     return (
-        <BashCardShell kind="git-diff" label="git diff" counts={counts} output={output}>
+        <BashCardShell kind="git-diff" label="git diff" counts={counts} output={output} collapsed={collapsed}>
             <ToolDetailBody detail={{ kind: "edit", files: shown }} variant="inline" />
             {hidden > 0 ? (
-                <div className="px-[11px] py-[7px] text-[12px] text-muted">{`${hidden} more lines in raw`}</div>
+                <div className="px-[11px] py-[7px] text-[12px] text-muted">{hiddenLinesLabel(hidden)}</div>
             ) : null}
         </BashCardShell>
     );
@@ -192,18 +216,15 @@ function DiffCard({ files, output }: { files: EditFile[]; output: string }) {
 
 function ImageCard({ images }: { images: ToolImage[] }) {
     return (
-        <div data-tool-card="image" className={cn(CARD, "flex flex-col gap-2 p-2")}>
-            <ImageThumbs
-                images={images.map((img, i) => ({
-                    src: `data:${img.mediaType};base64,${img.data}`,
-                    alt: `image output ${i + 1}`,
-                }))}
-            />
+        // fits its thumbnails: a column-wide frame around one small image is mostly empty
+        <div data-tool-card="image" className={cn(CARD, "flex w-fit max-w-full flex-col gap-2 p-2")}>
+            <ImageThumbs images={toolZoomImages(images)} />
         </div>
     );
 }
 
-export function ToolOutputRenderer({ action }: { action: AgentActionEntry }) {
+// collapsed: a test or diff card draws its header only until clicked; an image card is already small, so it ignores it
+export function ToolOutputRenderer({ action, collapsed }: { action: AgentActionEntry; collapsed?: boolean }) {
     const key = toolRendererKey(action);
     if (key === "image") {
         return <ImageCard images={action.images} />;
@@ -211,10 +232,10 @@ export function ToolOutputRenderer({ action }: { action: AgentActionEntry }) {
     const card = bashCard(action.detail);
     const output = action.detail?.kind === "bash" ? action.detail.output : "";
     if (card?.key === "test") {
-        return <TestCard summary={card.summary} output={output} />;
+        return <TestCard summary={card.summary} output={output} collapsed={collapsed} />;
     }
     if (card?.key === "git-diff") {
-        return <DiffCard files={card.files} output={output} />;
+        return <DiffCard files={card.files} output={output} collapsed={collapsed} />;
     }
     return null;
 }

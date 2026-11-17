@@ -24,6 +24,7 @@ import {
     type InitiativeCard,
     type Progress,
 } from "./initiativecards";
+import { LoadFailure } from "./recordedoutput";
 import type { TranscriptContext } from "./transcriptcontext";
 import { actionCommand } from "./transcriptlayout";
 import { wshJsonOutput } from "./wshcall";
@@ -147,11 +148,14 @@ function OpenLink({ ctx, effortId, compact }: { ctx: TranscriptContext; effortId
     );
 }
 
-function LoadError({ error, compact }: { error?: string; compact: boolean }) {
+function LoadError({ error, action, compact }: { error?: string; action: AgentActionEntry; compact: boolean }) {
     return error ? (
-        <div className={cn("text-muted", compact ? "ml-[22px] mt-1.5 text-[11px]" : "ml-[26px] mt-2 text-[12px]")}>
-            Couldn't load the initiative: {error}
-        </div>
+        <LoadFailure
+            message={`Couldn't load the initiative: ${error}`}
+            action={action}
+            compact={compact}
+            className={compact ? "ml-[22px] mt-1.5" : "ml-[26px] mt-2"}
+        />
     ) : null;
 }
 
@@ -231,7 +235,7 @@ function ChunkDone({ card, ctx, action, compact }: CardProps<"chunk-done">) {
                 </div>
             ) : null}
             {card.progress ? <ProgressLine progress={card.progress} title={card.title} compact={compact} /> : null}
-            <LoadError error={card.error} compact={compact} />
+            <LoadError error={card.error} action={action} compact={compact} />
         </Shell>
     );
 }
@@ -271,7 +275,7 @@ function ChunkBlocked({ card, ctx, action, compact }: CardProps<"chunk-blocked">
                     Shows in the briefing's attention banner until it moves
                 </div>
             )}
-            <LoadError error={card.error} compact={compact} />
+            <LoadError error={card.error} action={action} compact={compact} />
         </Shell>
     );
 }
@@ -346,7 +350,7 @@ function ChunkCard({ call, wshKey, action, ctx, compact }: WshRendererProps) {
                     subject={card.chunk.number != null ? card.chunk.label : undefined}
                     action={action}
                     compact={compact}
-                    below={<LoadError error={card.error} compact={compact} />}
+                    below={<LoadError error={card.error} action={action} compact={compact} />}
                 />
             );
         case "chunk-added":
@@ -358,7 +362,7 @@ function ChunkCard({ call, wshKey, action, ctx, compact }: WshRendererProps) {
                     trailing={card.initiative}
                     action={action}
                     compact={compact}
-                    below={<LoadError error={card.error} compact={compact} />}
+                    below={<LoadError error={card.error} action={action} compact={compact} />}
                 />
             );
         case "chunk-noted":
@@ -369,7 +373,7 @@ function ChunkCard({ call, wshKey, action, ctx, compact }: WshRendererProps) {
                     subject={card.note}
                     action={action}
                     compact={compact}
-                    below={<LoadError error={card.error} compact={compact} />}
+                    below={<LoadError error={card.error} action={action} compact={compact} />}
                 />
             );
     }
@@ -416,7 +420,7 @@ function InitiativeCreated({ call, action, ctx, compact }: WshRendererProps) {
                         </>
                     }
                 />
-                <LoadError error={card.error} compact={compact} />
+                <LoadError error={card.error} action={action} compact={compact} />
             </div>
             {shown.length > 0 ? (
                 <div className="flex flex-col border-t border-edge-faint py-1.5">
@@ -494,10 +498,10 @@ function EffortShowView({ call, action, ctx, compact }: WshRendererProps) {
     const [all, setAll] = useState(false);
     const effort = fromCall ?? state.data;
     if (!effort) {
-        return (
-            <ViewMessage>
-                {state.error ? `Couldn't load the initiative: ${state.error}` : "Loading the initiative…"}
-            </ViewMessage>
+        return state.error ? (
+            <LoadFailure message={`Couldn't load the initiative: ${state.error}`} action={action} compact={compact} />
+        ) : (
+            <ViewMessage>Loading the initiative…</ViewMessage>
         );
     }
     const m = effortShowModel(effort);
@@ -563,10 +567,10 @@ function EffortListView({ call, action, compact }: WshRendererProps) {
     const [all, setAll] = useState(false);
     const efforts = fromCall ?? state.data;
     if (!efforts) {
-        return (
-            <ViewMessage>
-                {state.error ? `Couldn't load the initiatives: ${state.error}` : "Loading the initiatives…"}
-            </ViewMessage>
+        return state.error ? (
+            <LoadFailure message={`Couldn't load the initiatives: ${state.error}`} action={action} compact={compact} />
+        ) : (
+            <ViewMessage>Loading the initiatives…</ViewMessage>
         );
     }
     const m = effortListModel(efforts);

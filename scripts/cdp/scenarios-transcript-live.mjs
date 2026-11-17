@@ -12,7 +12,7 @@ import { connectFakeJira, startFakeJira } from "./jira-fixtures.mjs";
 import { runWsh, vaultRemote, vaultRoot } from "./notes-wsh.mjs";
 import { APP_MOD, skipStep } from "./scenarios-shared.mjs";
 import { fixtures as notesFixtures } from "./scenarios-transcript-notes.mjs";
-import { bash, clearTranscript, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
+import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T0 = Date.UTC(2026, 10, 16, 9, 0, 0);
@@ -180,7 +180,11 @@ async function waitPage(h, body, ms) {
     return last;
 }
 
-const showLive = (h, entries, opts = {}) => showTranscript(h, { entries, width: WIDE, active: false, renderers: true, ...opts });
+// every turn here is finished, so it starts folded: open it, so its step rows mount
+const showLive = async (h, entries, opts = {}) => {
+    await showTranscript(h, { entries, width: WIDE, active: false, renderers: true, ...opts });
+    await openFolds(h);
+};
 
 const jiraEntries = (jsonOut, plainOut) => [
     user(`read ${KEY}`, T0),
@@ -361,6 +365,34 @@ async function judgeStep(h, ctx, steps) {
     });
 }
 
+// an ended session whose last call never got its result (the engine closed it): the row reads stopped, with no spinner
+// and no clock counting from the call to now
+const STOPPED_ROW = "Mark the final verify passed";
+async function stoppedStep(h) {
+    const entries = [
+        user("Run the final verify.", T0),
+        prose("It passed; marking it.", T0 + S),
+        bash({ description: STOPPED_ROW, command: "wsh jarvis dag final pass", ts: T0 + 2 * S, pending: true }),
+    ];
+    await showLive(h, entries);
+    const s = await h.ev(`(() => {
+        const step = [...(document.querySelector(${JSON.stringify(ROOT)})?.querySelectorAll('[data-step]') ?? [])].find((e) => e.textContent.includes(${JSON.stringify(STOPPED_ROW)}));
+        if (!step) return null;
+        return {
+            status: step.getAttribute('data-step-status'),
+            spinner: !!step.querySelector('[aria-label="Running"]'),
+            elapsed: step.querySelector('[data-step-elapsed]')?.textContent ?? null,
+            text: step.textContent,
+        };
+    })()`);
+    await h.shot("cdp-shots/transcript-live-stopped.png");
+    return {
+        step: "an inactive transcript's last pending step draws stopped, with no spinner and no elapsed clock",
+        ok: s?.status === "stopped" && s.spinner === false && s.elapsed === null && s.text.includes("stopped"),
+        detail: show(s),
+    };
+}
+
 export const transcriptLive = {
     name: "transcript-live",
     surface: "cockpit",
@@ -394,6 +426,7 @@ export const transcriptLive = {
         const seam = await waitSeam(h);
         const steps = [{ step: "dev fixture seam present", ok: seam === true, detail: `seam=${seam}` }];
         if (!seam) return steps;
+        steps.push(await stoppedStep(h));
         await jiraSteps(h, ctx, steps);
         await noteStep(h, ctx, steps);
         await agentStep(h, ctx, steps);

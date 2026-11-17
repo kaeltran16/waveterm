@@ -12,7 +12,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
 import { MarkdownMessage } from "./markdownmessage";
-import { ToolDetailBody } from "./narrationtimeline";
+import { ToolDetailBody } from "./tooldetailbody";
 import {
     bandRequests,
     permissionLogText,

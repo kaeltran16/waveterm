@@ -46,6 +46,7 @@ import {
 } from "./arcmessagemodel";
 import { parseBrainstorm, parseBrainstormPath, type BrainstormFile } from "./brainstormmodel";
 import { tauriBrainstormIO } from "./brainstormpoller";
+import { ClampedText } from "./clampedtext";
 import { MarkdownMessage } from "./markdownmessage";
 import { fmtDuration } from "./runcompletion";
 import { ensureRunEvents, runEventsAtom } from "./runeventstore";
@@ -218,12 +219,14 @@ function EventBody({ children, mono, compact }: { children: ReactNode; mono?: bo
     );
 }
 
-function Rows({ items, compact }: { items: string[]; compact: boolean }) {
+function Rows({ items, compact, clamp }: { items: string[]; compact: boolean; clamp?: boolean }) {
     return (
         <>
             {items.map((t, i) => (
-                <div key={i} className={cn("[overflow-wrap:anywhere]", i > 0 && (compact ? "mt-1" : "mt-1.5"))}>
-                    {t}
+                <div key={i} data-wake-item={clamp || undefined} className={cn(i > 0 && (compact ? "mt-1" : "mt-1.5"))}>
+                    <ClampedText lines="wakeItem" clamp={clamp === true} className="[overflow-wrap:anywhere]">
+                        {t}
+                    </ClampedText>
                 </div>
             ))}
         </>
@@ -369,11 +372,13 @@ function PartBody({
     part,
     words,
     ev,
+    clampItems,
     compact,
 }: {
     part: WakePart;
     words: PartWords;
     ev: WakeEvents;
+    clampItems: boolean;
     compact: boolean;
 }) {
     if (words.body === "findings") return part.findings?.length ? <FindingsBody part={part} compact={compact} /> : null;
@@ -407,7 +412,7 @@ function PartBody({
     }
     return (
         <EventBody mono={words.body === "mono"} compact={compact}>
-            <Rows items={items} compact={compact} />
+            <Rows items={items} compact={compact} clamp={clampItems && part.kind === "quiet"} />
         </EventBody>
     );
 }
@@ -420,7 +425,7 @@ function WakePartRow({
     events,
     ts,
     run,
-    startsOpen,
+    latest,
     ctx,
     compact,
 }: {
@@ -429,11 +434,11 @@ function WakePartRow({
     events: RunEvent[];
     ts?: number;
     run: BriefRun | undefined;
-    startsOpen: boolean;
+    latest: boolean;
     ctx: TranscriptContext;
     compact: boolean;
 }) {
-    const [open, setOpen] = useState(startsOpen);
+    const [open, setOpen] = useState(latest);
     const ev = wakeEvents(part, events, ts);
     const words = partWords(part, ev, run);
     const runId = ctx.role ? roleRunId(ctx.role) : undefined;
@@ -461,7 +466,7 @@ function WakePartRow({
             </div>
         );
     }
-    const body = <PartBody part={part} words={words} ev={ev} compact={compact} />;
+    const body = <PartBody part={part} words={words} ev={ev} clampItems={latest} compact={compact} />;
     const hasBody = words.body != null && hasPartBody(part, ev);
     return (
         <div data-wake-part={part.kind}>
@@ -584,7 +589,7 @@ function WakeRow({ message, ts, idleMs, latest, ctx, compact }: ArcMessageRowPro
                         events={events}
                         ts={ts}
                         run={runState.data}
-                        startsOpen={!!latest}
+                        latest={!!latest}
                         ctx={ctx}
                         compact={compact}
                     />

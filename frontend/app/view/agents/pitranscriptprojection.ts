@@ -230,7 +230,8 @@ function applyToolResult(rec: PiRecord, actionById: Map<string, ActionEntry>): v
     if (tool === "read" && body) {
         const { snippet, truncated } = sliceRead(body, READ_MODAL_MAX_LINES);
         action.detail = { kind: "read", snippet, truncated };
-        action.summary = `${body.split("\n").length} lines`;
+        const lineCount = body.split("\n").length;
+        action.summary = `${lineCount} line${lineCount === 1 ? "" : "s"}`;
     } else if (tool === "grep" && body) {
         const matches = parseGrep(body);
         action.detail = { kind: "grep", matches };

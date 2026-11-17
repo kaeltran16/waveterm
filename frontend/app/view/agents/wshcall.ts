@@ -8,6 +8,7 @@ export interface WshCall {
     path: string[]; // the subcommand chain: ["effort","chunk","status"]
     args: string[]; // positionals after it
     flags: Record<string, string | true>; // long flags (--note x, --note=x); a short flag is true
+    unresolved?: true; // a positional or a fetch flag still holds a variable or a command substitution
 }
 
 // every Bool flag of the wsh commands this file keys: one never takes the next word as its value
@@ -151,17 +152,18 @@ const GROUPS: ReadonlySet<string> = new Set(
 
 // a word that still holds a variable or a command substitution after expansion: the call's real id is unknown
 const UNRESOLVED = /[$`]/;
-// flags whose value a card shows but never fetches by (jarvis complete's sha), so a substitution there is harmless
-const SHOWN_FLAGS: ReadonlySet<string> = new Set(["commit"]);
-
-function isUnresolved(call: WshCall): boolean {
-    return (
-        call.args.some((a) => UNRESOLVED.test(a)) ||
-        Object.entries(call.flags).some(
-            ([name, v]) => !SHOWN_FLAGS.has(name) && typeof v === "string" && UNRESOLVED.test(v)
-        )
-    );
-}
+// flags whose value a card shows but never fetches by (jarvis complete's sha, a note's text), so a substitution there
+// is harmless
+const DISPLAY_FLAGS: ReadonlySet<string> = new Set([
+    "body",
+    "commit",
+    "detail",
+    "message",
+    "note",
+    "reason",
+    "summary",
+    "title",
+]);
 
 // an unresolved card call is the generic change row (argv, timing, output; no fetch); an unresolved view call has no key
 export function wshKey(call: WshCall): WshKey | null {
@@ -170,7 +172,7 @@ export function wshKey(call: WshCall): WshKey | null {
         return null;
     }
     const key = KEYS[chain];
-    if (!isUnresolved(call)) {
+    if (!call.unresolved) {
         return key;
     }
     return isCardKey(key) ? OTHER : null;
@@ -180,8 +182,12 @@ export function isCardKey(key: WshKey): key is WshCardKey {
     return !VIEW_KEYS.has(key);
 }
 
+// literal: the [start, end) ranges of text that were single-quoted, where the shell expands nothing.
 // redir: a redirection's operator and its target word; a heredoc's target is its delimiter
-export type Token = { kind: "word"; text: string } | { kind: "sep" } | { kind: "redir"; op: string; target: string };
+export type Token =
+    | { kind: "word"; text: string; literal?: [number, number][] }
+    | { kind: "sep" }
+    | { kind: "redir"; op: string; target: string };
 
 const SEP_CHARS = new Set([";", "&", "|", "\n", "(", ")"]);
 const SPACE = /[ \t\r]/;
@@ -206,13 +212,15 @@ export function tokenize(src: string): Token[] {
     const out: Token[] = [];
     const heredocs: { delim: string; strip: boolean }[] = [];
     let word = "";
+    let literal: [number, number][] = [];
     let inWord = false;
     let i = 0;
     const flush = () => {
         if (inWord) {
-            out.push({ kind: "word", text: word });
+            out.push(literal.length > 0 ? { kind: "word", text: word, literal } : { kind: "word", text: word });
         }
         word = "";
+        literal = [];
         inWord = false;
     };
     // reads one word starting at i (used for redirect targets and heredoc delimiters)
@@ -259,7 +267,9 @@ export function tokenize(src: string): Token[] {
             while (i < src.length && src[i] !== "\n") i++;
         } else if (c === "'") {
             const end = src.indexOf("'", i + 1);
-            word += src.slice(i + 1, end < 0 ? src.length : end);
+            const quoted = src.slice(i + 1, end < 0 ? src.length : end);
+            if (quoted) literal.push([word.length, word.length + quoted.length]);
+            word += quoted;
             inWord = true;
             i = end < 0 ? src.length : end + 1;
         } else if (c === '"') {
@@ -325,26 +335,37 @@ function isSubcommand(path: string[], w: string): boolean {
     return GROUPS.has(path.join(" ")) && (GROUPS.has(chain) || Object.prototype.hasOwnProperty.call(KEYS, chain));
 }
 
+// a word after expansion; unresolved when its unquoted part still holds a variable or a command substitution
+interface Word {
+    text: string;
+    unresolved: boolean;
+}
+
 // one wsh invocation's words after the command word
-function parseArgv(words: string[]): WshCall {
+function parseArgv(words: Word[]): WshCall {
     const path: string[] = [];
     const args: string[] = [];
     const flags: Record<string, string | true> = {};
+    let unresolved = false;
+    const setFlag = (name: string, value: string, wordUnresolved: boolean) => {
+        flags[name] = value;
+        unresolved ||= wordUnresolved && !DISPLAY_FLAGS.has(name);
+    };
     let flagsDone = false;
     for (let k = 0; k < words.length; k++) {
-        const w = words[k];
+        const { text: w, unresolved: wu } = words[k];
         if (!flagsDone && w === "--") {
             flagsDone = true;
         } else if (!flagsDone && w.startsWith("--")) {
             const eq = w.indexOf("=");
             if (eq > 0) {
-                flags[w.slice(2, eq)] = w.slice(eq + 1);
+                setFlag(w.slice(2, eq), w.slice(eq + 1), wu);
                 continue;
             }
             const name = w.slice(2);
             const next = words[k + 1];
-            if (!WSH_BOOL_FLAGS.has(name) && next != null && !next.startsWith("--")) {
-                flags[name] = next;
+            if (!WSH_BOOL_FLAGS.has(name) && next != null && !next.text.startsWith("--")) {
+                setFlag(name, next.text, next.unresolved);
                 k++;
             } else {
                 flags[name] = true;
@@ -353,24 +374,40 @@ function parseArgv(words: string[]): WshCall {
             for (const letter of w.slice(1)) flags[letter] = true;
         } else if (path.length === 0 || (args.length === 0 && isSubcommand(path, w))) {
             path.push(w);
+            unresolved ||= wu;
         } else {
             args.push(w);
+            unresolved ||= wu;
         }
     }
-    return { path, args, flags };
+    return unresolved ? { path, args, flags, unresolved: true } : { path, args, flags };
 }
 
 const VAR_REF = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;
 
-// $NAME and ${NAME} for every assigned NAME, in one pass so a value is never expanded again
-function expandVars(word: string, vars: ReadonlyMap<string, string>): string {
-    return word.replace(VAR_REF, (ref, braced, bare) => vars.get(braced ?? bare) ?? ref);
+// $NAME and ${NAME} for every assigned NAME outside single quotes, in one pass so a value is never expanded again
+function expandWord(token: { text: string; literal?: [number, number][] }, vars: ReadonlyMap<string, string>): Word {
+    let text = "";
+    let unresolved = false;
+    const expand = (part: string) => {
+        const out = part.replace(VAR_REF, (ref, braced, bare) => vars.get(braced ?? bare) ?? ref);
+        unresolved ||= UNRESOLVED.test(out);
+        text += out;
+    };
+    let at = 0;
+    for (const [start, end] of token.literal ?? []) {
+        expand(token.text.slice(at, start));
+        text += token.text.slice(start, end);
+        at = end;
+    }
+    expand(token.text.slice(at));
+    return { text, unresolved };
 }
 
 export function parseWshCalls(command: string): WshCall[] {
     const calls: WshCall[] = [];
     const vars = new Map<string, string>();
-    let commandWords: string[] | null = null; // the current simple command's words once its command word is wsh
+    let commandWords: Word[] | null = null; // the current simple command's words once its command word is wsh
     let atCommand = true;
     const end = () => {
         if (commandWords) calls.push(parseArgv(commandWords));
@@ -383,11 +420,13 @@ export function parseWshCalls(command: string): WshCall[] {
         } else if (t.kind === "redir") {
             continue;
         } else if (commandWords) {
-            commandWords.push(expandVars(t.text, vars));
+            commandWords.push(expandWord(t, vars));
         } else if (atCommand) {
             if (ASSIGNMENT.test(t.text)) {
-                const eq = t.text.indexOf("=");
-                vars.set(t.text.slice(0, eq), expandVars(t.text.slice(eq + 1), vars));
+                // the name holds no $, so the expanded word's first = is still the assignment's
+                const assigned = expandWord(t, vars).text;
+                const eq = assigned.indexOf("=");
+                vars.set(assigned.slice(0, eq), assigned.slice(eq + 1));
                 continue;
             }
             if (COMMAND_PREFIXES.has(t.text) || t.text === "export") {

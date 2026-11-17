@@ -175,13 +175,29 @@ describe("layoutTranscript folds", () => {
         expect(kinds(layoutTranscript(entries, { active: false }))).toEqual(["user", "turn", "arc", "turn", "message"]);
     });
 
-    it("starts a turn with a tool output card open in the rendered view, never one of only wsh cards", () => {
-        const image: AgentActionEntry = { ...read("shot.png"), images: [{ mediaType: "image/png", data: "iVBOR" }] };
-        const withImage = [user("go"), image, prose("ok")];
-        const cardsOnly = [user("go"), bash(CHUNK_DONE), prose("ok")];
-        expect(turns(layoutTranscript(withImage, { active: false, renderers: true }))[0].open).toBe(true);
-        expect(turns(layoutTranscript(withImage, { active: false }))[0].open).toBe(false);
-        expect(turns(layoutTranscript(cardsOnly, { active: false, renderers: true }))[0].open).toBe(false);
+    it("flags every turn item of the last finished turn latest when not active, a mark's split included", () => {
+        const entries: AgentEntry[] = [
+            user("go"),
+            read("a"),
+            prose("ok"),
+            user("again"),
+            read("b"),
+            prose("mid"),
+            bash("npm test"),
+            prose("done"),
+        ];
+        const items = layoutTranscript(entries, { active: false, marks: [{ afterEntry: 6, text: "Yes: npm test" }] });
+        expect(turns(items).map((t) => t.latest)).toEqual([false, true, true]);
+    });
+
+    it("flags no turn item latest while active", () => {
+        const entries: AgentEntry[] = [user("go"), read("a"), prose("ok"), user("again"), read("b"), prose("ok")];
+        const items = layoutTranscript(entries, { active: true });
+        // the working turn is a turn item too, marked live, not latest
+        expect(turns(items).map((t) => [t.latest, !!t.live])).toEqual([
+            [false, false],
+            [false, true],
+        ]);
     });
 
     it("names Skill calls in the phrase", () => {
@@ -322,6 +338,85 @@ describe("layoutTranscript statuses and Arc messages", () => {
         expect(stepsItems(items)[0].steps[0].status).toBe("stopped");
     });
 
+    it("lays out a pending step stopped when the agent is not working, running while it is", () => {
+        const entries = [user("go"), bash("wsh jarvis dag final pass", { pending: true, ts: T0 })];
+        expect(stepsItems(layoutTranscript(entries, { active: false }))[0].steps[0].status).toBe("stopped");
+        expect(stepsItems(layoutTranscript(entries, { active: true }))[0].steps[0].status).toBe("running");
+    });
+
+    it("starts a turn at a notification that arrived as its own record, keeping it and the reply outside the fold", () => {
+        const entries: AgentEntry[] = [];
+        for (let k = 0; k < 6; k++) {
+            const ts = T0 + k * 100 * S;
+            entries.push(
+                { kind: "notification", summary: `Background command ${k} completed`, status: "completed", ts },
+                read(`f${k}.ts`, ts + S),
+                prose(`reply ${k}`, ts + 5 * S)
+            );
+        }
+        const items = layoutTranscript(entries, { active: false });
+        expect(kinds(items)).toEqual(Array.from({ length: 6 }, () => ["notification", "turn", "message"]).flat());
+        // the turn runs from its notification's record time to its reply
+        expect(turns(items).map((t) => t.fold.durationMs)).toEqual(Array(6).fill(5 * S));
+    });
+
+    it("keeps a queued notice inside the running turn", () => {
+        const entries: AgentEntry[] = [
+            user("go"),
+            read("a"),
+            { kind: "notification", summary: "shell finished", notice: true },
+            read("b"),
+            prose("done"),
+        ];
+        const items = layoutTranscript(entries, { active: false });
+        expect(kinds(items)).toEqual(["user", "turn", "message"]);
+        expect(kinds(turns(items)[0].items)).toEqual(["steps", "notification", "steps"]);
+    });
+
+    it("merges consecutive edits to one file into one step with summed counts", () => {
+        const entries: AgentEntry[] = [
+            user("go"),
+            edit("queue-core.ts", 3, 3),
+            edit("queue-core.ts", 2, 1),
+            edit("queue-core.ts", 4, 2),
+            edit("queue-core.ts", 11, 0),
+            prose("done"),
+        ];
+        const items = layoutTranscript(entries, { active: false });
+        const steps = stepsItems(items)[0].steps;
+        expect(steps).toHaveLength(1);
+        expect(steps[0].edits).toBe(4);
+        const detail = steps[0].action.detail;
+        expect(detail?.kind === "edit" ? detail.files.map((f) => [f.adds, f.dels]) : []).toEqual([
+            [3, 3],
+            [2, 1],
+            [4, 2],
+            [11, 0],
+        ]);
+        expect(turns(items)[0].fold).toMatchObject({ adds: 20, dels: 6 });
+    });
+
+    it("never merges across a failed edit, another file or a thought", () => {
+        const failed: AgentActionEntry = { ...edit("a.ts", 1, 0), outcome: "fail" };
+        const run = (entries: AgentEntry[]) =>
+            stepsItems(layoutTranscript([user("go"), ...entries, prose("done")], { active: false, thoughts: true }))
+                .flatMap((s) => s.steps)
+                .map((s) => [s.status, s.edits]);
+        expect(run([edit("a.ts", 1, 0), edit("a.ts", 1, 0), failed, edit("a.ts", 1, 0), edit("a.ts", 1, 0)])).toEqual([
+            ["ok", 2],
+            ["fail", undefined],
+            ["ok", 2],
+        ]);
+        expect(run([edit("a.ts", 1, 0), edit("b.ts", 1, 0)])).toEqual([
+            ["ok", undefined],
+            ["ok", undefined],
+        ]);
+        expect(run([edit("a.ts", 1, 0), { kind: "thought", text: "hm" }, edit("a.ts", 1, 0)])).toEqual([
+            ["ok", undefined],
+            ["ok", undefined],
+        ]);
+    });
+
     it("turns a wake into an arc item with the idle gap before it", () => {
         const entries = [
             prose("waiting", T0),
@@ -354,7 +449,8 @@ describe("layoutTranscript statuses and Arc messages", () => {
             read("a"),
             { kind: "compaction", trigger: "manual", preTokens: 415334, postTokens: 22859, summary: "kept" },
             read("b"),
-            { kind: "notification", summary: "worker finished", status: "completed", result: "report" },
+            // a queued notice: a notification of its own record would start a turn
+            { kind: "notification", summary: "worker finished", status: "completed", result: "report", notice: true },
             { kind: "interrupted" },
         ];
         // the live turn, so nothing folds them
@@ -374,6 +470,7 @@ describe("layoutTranscript statuses and Arc messages", () => {
             summary: "worker finished",
             status: "completed",
             result: "report",
+            notice: true,
             index: 4,
         });
         expect(items[5]).toEqual({ kind: "interrupted", index: 5 });
@@ -565,6 +662,12 @@ describe("stepTitle", () => {
         const script = "python - <<'EOF'\nprint(1)\nEOF";
         expect(stepTitle(bash(script))).toMatchObject({ title: "Ran a Python script", mono: script });
         expect(stepTitle(bash("ls -la"))).toMatchObject({ title: "", mono: "ls -la" });
+    });
+
+    it("drops a leading cd from the mono preview", () => {
+        expect(stepTitle(bash("cd C:/x && npm test")).mono).toBe("npm test");
+        expect(stepTitle(bash('cd "C:/a b"; npm test', { description: "Run tests" })).mono).toBe("npm test");
+        expect(stepTitle(bash("cd C:/x")).mono).toBe("cd C:/x");
     });
 
     it("keeps the verb and target for a call with no command", () => {

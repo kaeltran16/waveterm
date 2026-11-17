@@ -11,9 +11,11 @@ import {
     buildEditDiff,
     editFromPatch,
     parseGrep,
+    relativePath,
     sliceRead,
     toolResultImages,
     toolResultText,
+    unwrapToolError,
 } from "./tooldetail";
 import { stripAnsi } from "./testoutput";
 import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
@@ -96,10 +98,29 @@ function isInterrupted(text: string): boolean {
     return text.trimStart().startsWith("[Request interrupted by user");
 }
 
+type NotificationEntry = Extract<AgentEntry, { kind: "notification" }>;
+
+// claude code writes a notification's summary in a fixed shape whose leading words name what finished
+const NOTIFICATION_SOURCES: [RegExp, NonNullable<NotificationEntry["source"]>][] = [
+    [/^Background (command|shell)\b/, "command"],
+    [/^Monitor\b/, "monitor"],
+    [/^Agent\b/, "subagent"],
+];
+
+function notificationSource(summary: string): Pick<NotificationEntry, "source"> {
+    const hit = NOTIFICATION_SOURCES.find(([re]) => re.test(summary));
+    return hit ? { source: hit[1] } : {};
+}
+
+// a record is a notification or a command's output only when it opens with the tag: a prompt may quote one later
+function opensWith(content: string, tag: string): boolean {
+    return content.trimStart().startsWith(tag);
+}
+
 // A finished background Task/subagent arrives as a user-role record whose string content is a
 // <task-notification> XML block. Parse the human-facing fields; the full <result> is the child's report.
-function parseTaskNotification(content: string): Extract<AgentEntry, { kind: "notification" }> | null {
-    if (!content.includes("<task-notification>")) {
+function parseTaskNotification(content: string): NotificationEntry | null {
+    if (!opensWith(content, "<task-notification>")) {
         return null;
     }
     const grab = (tag: string): string | undefined => {
@@ -107,7 +128,14 @@ function parseTaskNotification(content: string): Extract<AgentEntry, { kind: "no
         return m ? m[1].trim() : undefined;
     };
     const result = grab("result");
-    return { kind: "notification", summary: grab("summary") ?? "", status: grab("status"), ...(result ? { result } : {}) };
+    const summary = grab("summary") ?? "";
+    return {
+        kind: "notification",
+        summary,
+        status: grab("status"),
+        ...(result ? { result } : {}),
+        ...notificationSource(summary),
+    };
 }
 
 // the tools that spawn a subagent
@@ -170,14 +198,14 @@ function applyCommandOutput(entries: AgentEntry[], content: string): boolean {
 
 // A background-task notice delivered mid-turn. A structured prompt reads like a finished subagent's notification; a
 // free-text one is just the text inside the tag.
-function parseNotice(prompt: string): Extract<AgentEntry, { kind: "notification" }> | null {
+function parseNotice(prompt: string): NotificationEntry | null {
     const structured = prompt.includes("<summary>") ? parseTaskNotification(prompt) : null;
     if (structured != null) {
         return { ...structured, notice: true };
     }
     const m = /<task-notification>([^]*?)<\/task-notification>/.exec(prompt);
     const summary = (m ? m[1] : prompt).trim();
-    return summary !== "" ? { kind: "notification", summary, notice: true } : null;
+    return summary !== "" ? { kind: "notification", summary, notice: true, ...notificationSource(summary) } : null;
 }
 
 // the tag claude code wraps a long typed or pasted message in; pastedContentRe in pkg/agentsessions/humanprompts.go
@@ -337,15 +365,19 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     if (block.name === "Bash" && typeof block.input?.command === "string") {
                         action.command = block.input.command;
                     }
+                    const cwd = typeof rec.cwd === "string" ? rec.cwd : undefined;
+                    const filePath = relativePath(String(block.input?.file_path ?? ""), cwd);
                     if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
                         action.detail = {
                             kind: "edit",
-                            files: [buildEditDiff(String(block.input.file_path ?? ""), block.input.old_string, String(block.input.new_string ?? ""))],
+                            files: [
+                                buildEditDiff(filePath, block.input.old_string, String(block.input.new_string ?? "")),
+                            ],
                         };
                     } else if (block.name === "Write" && block.input && typeof block.input.content === "string") {
                         action.detail = {
                             kind: "edit",
-                            files: [buildEditDiff(String(block.input.file_path ?? ""), "", block.input.content)],
+                            files: [buildEditDiff(filePath, "", block.input.content)],
                         };
                     } else if (block.name === "Skill" && block.input && typeof block.input.skill === "string") {
                         const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
@@ -357,6 +389,9 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     // routing
                     (action as any)._useTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
                     (action as any)._tool = block.name;
+                    // the call's input and cwd, for the panel data its result fills
+                    (action as any)._input = block.input;
+                    (action as any)._cwd = cwd;
                     entries.push(action);
                     if (typeof block.id === "string") {
                         // same object lives in entries and the map; a later tool_result mutates
@@ -394,10 +429,16 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 }
                 const note = parseTaskNotification(content);
                 if (note != null) {
-                    entries.push(isSubagentFinish(content, actionById) ? note : { ...note, notice: true });
+                    // its own record starts a turn, so the turn's time starts at it. The call it names, when in view,
+                    // says whether a subagent finished, which its summary alone may not
+                    entries.push({
+                        ...note,
+                        ...recTs(rec),
+                        ...(isSubagentFinish(content, actionById) ? { source: "subagent" as const } : {}),
+                    });
                 } else if (applyCommandOutput(entries, content)) {
                     // handled: the output sits under its command, or draws nothing. Never a user bubble.
-                } else if (content.includes("<local-command-stdout>")) {
+                } else if (opensWith(content, "<local-command-stdout>")) {
                     // slash-command stdout mixed with other text: not shown
                 } else if (isInterrupted(content)) {
                     entries.push({ kind: "interrupted" });
@@ -438,21 +479,43 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     action.images = images;
                 }
                 const tool = (action as any)._tool as string | undefined;
-                const blocked = tool === "Bash" && block.is_error === true && bashNeverRan(body);
-                if (tool === "Grep" && body) {
-                    const matches = parseGrep(body);
-                    action.detail = { kind: "grep", matches };
+                const input = (action as any)._input;
+                const cwd = (action as any)._cwd as string | undefined;
+                const failed = block.is_error === true;
+                const blocked = tool === "Bash" && failed && bashNeverRan(body);
+                // a Bash call that ran and failed tells why in its output, so only one that never ran carries an error
+                const error = failed && (tool !== "Bash" || blocked) ? unwrapToolError(body) : "";
+                if (error !== "") {
+                    action.error = error;
+                }
+                if (tool === "Grep" && body && !failed) {
+                    const matches = parseGrep(body).map((m) => (m.loc ? { ...m, loc: relativePath(m.loc, cwd) } : m));
+                    action.detail = {
+                        kind: "grep",
+                        matches,
+                        ...(typeof input?.pattern === "string" ? { pattern: input.pattern } : {}),
+                        ...(input?.["-i"] === true ? { ignoreCase: true } : {}),
+                    };
                     action.summary = `${matches.length} match${matches.length === 1 ? "" : "es"}`;
-                } else if ((tool === "Read" || tool === "Glob") && body) {
+                } else if ((tool === "Read" || tool === "Glob") && body && !failed) {
                     const { snippet, truncated } = sliceRead(body, READ_MODAL_MAX_LINES);
-                    action.detail = { kind: "read", snippet, truncated };
-                    action.summary = `${body.split("\n").length} lines`;
+                    action.detail = {
+                        kind: "read",
+                        snippet,
+                        truncated,
+                        ...(tool === "Read" && typeof input?.file_path === "string"
+                            ? { path: relativePath(input.file_path, cwd) }
+                            : {}),
+                    };
+                    const lineCount = body.split("\n").length;
+                    action.summary = `${lineCount} line${lineCount === 1 ? "" : "s"}`;
                 } else if (tool === "Bash" && body) {
                     action.detail = {
                         kind: "bash",
                         command: action.command,
-                        output: body,
-                        exit: blocked ? null : block.is_error === true ? 1 : 0,
+                        // a call that never ran has no output; its reason is the error
+                        output: blocked ? "" : stripAnsi(body),
+                        exit: blocked ? null : failed ? 1 : 0,
                     };
                 } else if (action.detail?.kind === "edit") {
                     // the file's own hunks, numbered; the tool_use's old/new strings stay when the result has none
@@ -477,13 +540,15 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     action.outcome = "ok";
                 }
             }
-            // pasted images ride on the record's user entry; a record of images alone gets an empty-text one
+            // pasted images ride on the record's user entry; a record of images alone gets an empty-text one, but one that
+            // holds an interruption marker gets none
             const images = toolResultImages(content);
             if (images.length > 0) {
-                const own = entries.slice(firstEntry).find((e) => e.kind === "user");
-                if (own != null && own.kind === "user") {
-                    own.images = images;
-                } else {
+                const own = entries.slice(firstEntry);
+                const user = own.find((e) => e.kind === "user");
+                if (user != null && user.kind === "user") {
+                    user.images = images;
+                } else if (!own.some((e) => e.kind === "interrupted")) {
                     entries.push({ kind: "user", text: "", images, ...recTs(rec) });
                 }
             }
@@ -532,6 +597,8 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
             delete (e as any)._done;
             delete (e as any)._useTs;
             delete (e as any)._tool;
+            delete (e as any)._input;
+            delete (e as any)._cwd;
         }
     }
     return entries;
