@@ -92,17 +92,25 @@ const COUNTED: Record<string, { one: string; many: string; verb: string; article
     spawned: { verb: "spawned", one: "agent", many: "agents" },
     asked: { verb: "asked", one: "question", many: "questions" },
     skill: { verb: "used", one: "skill", many: "skills", article: true },
+    // no action has this verb: a canvas reveal is a Bash step, counted apart from the commands
+    "canvas-reveal": { verb: "revealed", one: "canvas", many: "canvases", article: true },
 };
 // the verbs whose phrase names the one file they touched
 const FILE_VERBS = new Set(["read", "edited", "wrote"]);
+
+function isCanvasReveal(step: Step): boolean {
+    return step.wsh?.key === "ui-reveal" && (step.wsh.call.args[0] ?? "").startsWith("canvas:");
+}
 
 // "ran 2 commands, read retry.js, edited retry.js": kinds in first-appearance order, one file named, more counted
 function foldPhrase(steps: Step[]): string {
     const order: string[] = [];
     const counts = new Map<string, number>();
     const files = new Map<string, Set<string>>();
-    for (const { action } of steps) {
-        const kind = COUNTED[action.verb]?.verb ?? (FILE_VERBS.has(action.verb) ? action.verb : "other");
+    for (const step of steps) {
+        const { action } = step;
+        const verb = isCanvasReveal(step) ? "canvas-reveal" : action.verb;
+        const kind = COUNTED[verb]?.verb ?? (FILE_VERBS.has(verb) ? verb : "other");
         if (!counts.has(kind)) {
             order.push(kind);
             files.set(kind, new Set());

@@ -101,7 +101,9 @@ describe("pollCanvasOnce", () => {
             status: "ready",
             boards: BOARDS_TWO,
             lastModifiedMs: 3000,
+            boardModifiedMs: { "Main.dc.html": 1000, "States.dc.html": 3000 },
             lastViewedMs: NOW,
+            boardViewedMs: { "Main.dc.html": NOW },
         });
         expect(io.serves).toEqual(["/p/.superpowers/design"]);
     });
@@ -122,7 +124,9 @@ describe("pollCanvasOnce", () => {
             status: "ready",
             boards: [{ name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 }],
             lastModifiedMs: 1000,
+            boardModifiedMs: { "Main.dc.html": 1000 },
             lastViewedMs: NOW,
+            boardViewedMs: { "Main.dc.html": NOW },
         });
     });
 
@@ -188,6 +192,68 @@ describe("pollCanvasOnce", () => {
         const patch = await pollCanvasOnce({ ...stale, base: null }, io, NOW);
         expect(patch.base).toBe(BASE);
         expect(patch.status).toBe("ready");
+    });
+
+    it("carries each served board's Last-Modified, leaving out a board whose file is not there", async () => {
+        const io = fakeIO({ files: { "Main.dc.html": 1000, "canvas.json": 500 }, json: JSON_TWO });
+        const patch = await pollCanvasOnce(state({ base: BASE, mode: "terminal" }), io, NOW);
+        expect(patch.boardModifiedMs).toEqual({ "Main.dc.html": 1000 });
+        expect(patch.boardViewedMs).toBeUndefined();
+    });
+
+    it("marks only the boards on screen as viewed: the pane's shown board, or every one under All", async () => {
+        const io = fakeIO({
+            files: { "Main.dc.html": 1000, "States.dc.html": 3000, "canvas.json": 500 },
+            json: JSON_TWO,
+        });
+        const viewed = { "States.dc.html": 7 };
+        const one = await pollCanvasOnce(
+            state({ base: BASE, board: "States.dc.html", boardViewedMs: viewed }),
+            io,
+            NOW
+        );
+        expect(one.boardViewedMs).toEqual({ "States.dc.html": NOW });
+        const all = await pollCanvasOnce(state({ base: BASE, all: true }), io, NOW);
+        expect(all.boardViewedMs).toEqual({ "Main.dc.html": NOW, "States.dc.html": NOW });
+    });
+
+    it("counts a Rendered card's inline board as on screen, apart from the canvas pane", async () => {
+        const io = fakeIO({
+            files: { "Main.dc.html": 1000, "States.dc.html": 3000, "canvas.json": 500 },
+            json: JSON_TWO,
+        });
+        const inline = state({
+            base: BASE,
+            mode: "terminal",
+            inlineBoard: "States.dc.html",
+            boardViewedMs: { "Main.dc.html": 9 },
+        });
+        const patch = await pollCanvasOnce(inline, io, NOW);
+        expect(patch.boardViewedMs).toEqual({ "Main.dc.html": 9, "States.dc.html": NOW });
+        // the canvas-wide stamp is the pane's: the header's unseen dot is not cleared by a card
+        expect(patch.lastViewedMs).toBeUndefined();
+    });
+
+    it("reloads when the inline board's own file changes, and not for another board's", async () => {
+        const io = fakeIO({
+            files: { "Main.dc.html": 1000, "States.dc.html": 5000, "canvas.json": 500 },
+            json: JSON_TWO,
+        });
+        const was = { "Main.dc.html": 1000, "States.dc.html": 3000 };
+        const base = {
+            base: BASE,
+            mode: "terminal" as const,
+            lastModifiedMs: 3000,
+            boardModifiedMs: was,
+            reloadKey: 2,
+        };
+        expect((await pollCanvasOnce(state({ ...base, inlineBoard: "States.dc.html" }), io, NOW)).reloadKey).toBe(3);
+        expect(
+            (await pollCanvasOnce(state({ ...base, inlineBoard: "Main.dc.html" }), io, NOW)).reloadKey
+        ).toBeUndefined();
+        // a board seen for the first time is not a change
+        const first = state({ ...base, boardModifiedMs: undefined, inlineBoard: "States.dc.html" });
+        expect((await pollCanvasOnce(first, io, NOW)).reloadKey).toBeUndefined();
     });
 
     it("keeps a known base and does not ask wavesrv again while it answers", async () => {
