@@ -52,6 +52,19 @@ export function edgeLabel(tag: AmbientTag): string {
     return `guessed · ${GUESS_WORD[tag.bucket] ?? GUESS_WORD.weak}`;
 }
 
+// records on one ticket often share a long objective prefix and differ at the end, which the server's label cut
+// keeps (ambientLabelTail, wshserver_jarvis.go); the chip shows this many end runes whole, so its css cut lands
+// in the middle rather than on them.
+export const LABEL_END_RUNES = 14;
+
+export function labelEnds(label: string): [head: string, tail: string] {
+    const runes = Array.from(label);
+    if (runes.length <= LABEL_END_RUNES * 2) {
+        return [label, ""];
+    }
+    return [runes.slice(0, -LABEL_END_RUNES).join(""), runes.slice(-LABEL_END_RUNES).join("")];
+}
+
 // the collapsed row marks only a guess: a confirmed edge has nothing left for you to check.
 export function bandGlyph(band: BandCase): boolean {
     const shown = band.case === "one" ? band.edge : band.case === "several" ? band.primary : null;

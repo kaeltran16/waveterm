@@ -842,16 +842,29 @@ func boundRunes(s string, n int) string {
 	return strings.TrimSpace(string(rs[:n])) + "…"
 }
 
+// ambientLabelTail is how much of a long label's end survives its cut: records on one ticket often share a long
+// objective prefix and differ only at the end, so a head-only cut labels them the same.
+const ambientLabelTail = 14
+
+// boundRunesMiddle is boundRunes cutting from the middle, keeping the last tail runes.
+func boundRunesMiddle(s string, n, tail int) string {
+	rs := []rune(strings.TrimSpace(s))
+	if len(rs) <= n {
+		return string(rs)
+	}
+	return strings.TrimSpace(string(rs[:n-tail])) + "…" + strings.TrimSpace(string(rs[len(rs)-tail:]))
+}
+
 // ambientLabel is a dossier's tag text: the first line of its objective, bounded so a long one cannot blow
 // out a row. Tickets are shared across dossiers, so the ticket labels only a dossier with no objective;
 // AmbientTask.Ticket carries it for the tag to show beside the label.
 func ambientLabel(d wshrpc.SpaceSummary) string {
 	for _, line := range strings.Split(d.Objective, "\n") {
 		if s := strings.TrimSpace(line); s != "" {
-			return boundRunes(s, ambientLabelMax)
+			return boundRunesMiddle(s, ambientLabelMax, ambientLabelTail)
 		}
 	}
-	return boundRunes(d.Ticket, ambientLabelMax)
+	return boundRunesMiddle(d.Ticket, ambientLabelMax, ambientLabelTail)
 }
 
 // ambientTask is a dossier as a tag target, the one shape the band and the detached rows both label from.

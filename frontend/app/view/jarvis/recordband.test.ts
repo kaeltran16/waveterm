@@ -1,6 +1,14 @@
 import type { AmbientTag } from "@/app/view/agents/ambient";
 import { describe, expect, it } from "vitest";
-import { bandGlyph, edgeLabel, edgeLineStyle, recordBandCase, recordPickerMatches } from "./recordband";
+import {
+    bandGlyph,
+    edgeLabel,
+    edgeLineStyle,
+    LABEL_END_RUNES,
+    labelEnds,
+    recordBandCase,
+    recordPickerMatches,
+} from "./recordband";
 
 function tag(taskId: string, state: string, bucket: string): AmbientTag {
     return { taskId, label: taskId.toUpperCase(), state, bucket };
@@ -118,5 +126,24 @@ describe("recordPickerMatches", () => {
             "fix-the-picker",
         ]);
         expect(recordPickerMatches(records, "the", 1)).toHaveLength(1);
+    });
+});
+
+describe("labelEnds", () => {
+    it("keeps a long label's end apart, so a css cut lands in the middle", () => {
+        const [head, tail] = labelEnds("Verify the record band tells apart…on one ticket: twin A.");
+        expect(head + tail).toBe("Verify the record band tells apart…on one ticket: twin A.");
+        expect(tail).toBe("ticket: twin A.".slice(-LABEL_END_RUNES));
+    });
+
+    it("leaves a short label whole", () => {
+        expect(labelEnds("fix the parser")).toEqual(["fix the parser", ""]);
+    });
+
+    it("splits on a rune boundary", () => {
+        const label = "ünïcödé ".repeat(6);
+        const [head, tail] = labelEnds(label);
+        expect(Array.from(tail)).toHaveLength(LABEL_END_RUNES);
+        expect(head + tail).toBe(label);
     });
 });

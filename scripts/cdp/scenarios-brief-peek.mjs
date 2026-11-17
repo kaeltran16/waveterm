@@ -1836,9 +1836,10 @@ const RECORD_BAND_LIB = `
 // confirmed edge: both of its edges stay guesses. Objectives run past the detail's clamp, and neither names the
 // ticket, so a picker match on "1739" is a ticket match.
 const RECORD_BAND_TICKET = "VERIFY-1739";
+// the heads share more than the server's 40-rune label cut, so only a label keeping their ends tells them apart
 const RECORD_BAND_TWINS = [
-    { id: "verify-record-band-twin-a", head: "Verify record-band twin A shares a ticket with twin B." },
-    { id: "verify-record-band-twin-b", head: "Verify record-band twin B shares a ticket with twin A." },
+    { id: "verify-record-band-twin-a", head: "Verify the record band tells apart two records on one ticket: twin A." },
+    { id: "verify-record-band-twin-b", head: "Verify the record band tells apart two records on one ticket: twin B." },
 ];
 const RECORD_BAND_FILLER = "This sentence is padding, so the record detail has a body long enough to clamp. ".repeat(7);
 const RECORD_BAND_PICKER = `${RECORD_BAND}?.querySelector("[data-jarvis-record-picker]")`;
@@ -1886,7 +1887,7 @@ async function seedRecordBandRecords(h) {
     const stamp = Date.now() - 30 * DAY_MS;
     writeRecordBandRecord(dir, RECORD_BAND_RECORD, RECORD_BAND_RECORD_TICKET, RECORD_BAND_RECORD_OBJECTIVE, stamp);
     return RECORD_BAND_TWINS.map((t) =>
-        writeRecordBandRecord(dir, t.id, RECORD_BAND_TICKET, `${t.head} ${RECORD_BAND_FILLER.trim()}`, stamp)
+        writeRecordBandRecord(dir, t.id, RECORD_BAND_TICKET, `${t.head}\n${RECORD_BAND_FILLER.trim()}`, stamp)
     );
 }
 
@@ -2230,18 +2231,39 @@ export const recordBandDetachRestore = {
             if (toggle && toggle.getAttribute("aria-expanded") !== "true") toggle.click();
             const chips = () => [...(${RECORD_BAND}?.querySelectorAll("[data-jarvis-edge-chip]") ?? [])].filter((c) => !toggle?.contains(c));
             const ok = await until(() => chips().length === ${RECORD_BAND_TWINS.length} && ${RECORD_BAND}?.querySelector("[data-jarvis-detail-headline]"));
-            const rows = chips().map((c) => ({
-                id: c.getAttribute("title"),
-                label: (c.querySelector(".truncate")?.textContent || "").trim(),
-                ticket: c.querySelector("[data-jarvis-edge-ticket]")?.textContent?.trim() ?? null,
-                edge: c.querySelector("[data-jarvis-edge-label]")?.textContent?.trim() ?? null,
-            }));
-            return { ok, rows, distinct: new Set(rows.map((r) => r.label)).size === rows.length };
+            const rows = chips().map((c) => {
+                const text = c.querySelector("[data-jarvis-edge-text]");
+                const head = text?.firstElementChild;
+                const end = head?.nextElementSibling;
+                // the twins differ only in their last runes: those must be drawn inside the label, however narrow
+                const last = (() => {
+                    const node = end?.querySelector("[dir=ltr]")?.firstChild;
+                    if (!node) return null;
+                    const r = document.createRange();
+                    r.setStart(node, Math.max(0, node.length - 2));
+                    r.setEnd(node, node.length);
+                    return r.getBoundingClientRect();
+                })();
+                const t = text?.getBoundingClientRect();
+                return {
+                    id: c.getAttribute("title"),
+                    label: (text?.textContent || "").trim(),
+                    headCut: !!head && head.scrollWidth > head.clientWidth,
+                    end: end?.textContent ?? null,
+                    endShown: !!last && !!t && last.width > 0 && last.left >= t.left - 0.5 && last.right <= t.right + 0.5,
+                    ticket: c.querySelector("[data-jarvis-edge-ticket]")?.textContent?.trim() ?? null,
+                    edge: c.querySelector("[data-jarvis-edge-label]")?.textContent?.trim() ?? null,
+                };
+            });
+            const distinct = (k) => new Set(rows.map((r) => r[k])).size === rows.length;
+            return { ok, rows, distinct: distinct("label"), endsDistinct: distinct("end") };
         })()`);
         rec(
-            "8. expanded, two records on one ticket have distinct labels and each carries the ticket chip",
+            "8. expanded, two records on one ticket whose objectives share a long prefix keep the label ends that tell them apart in view, and each carries the ticket chip",
             twinRows.ok === true &&
                 twinRows.distinct === true &&
+                twinRows.endsDistinct === true &&
+                twinRows.rows.every((r) => r.endShown) &&
                 twinRows.rows.every((r) => r.ticket === RECORD_BAND_TICKET && /^guessed · /.test(r.edge ?? "")),
             JSON.stringify(twinRows)
         );

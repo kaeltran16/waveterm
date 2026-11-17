@@ -16,7 +16,7 @@ import { useEffect, useState } from "react";
 import { EdgeControls } from "./edgecontrolsview";
 import { briefPeekRecordAtom } from "./jarvisstore";
 import { acceptEdge, detachedEdgesAtom, loadDetachedEdges } from "./recordactions";
-import { bandGlyph, edgeLabel, edgeLineStyle, recordBandCase } from "./recordband";
+import { bandGlyph, edgeLabel, edgeLineStyle, labelEnds, recordBandCase } from "./recordband";
 import { RecordPicker, TicketChip } from "./recordpicker";
 import { STAGE_BAND_INSET, STAGE_GUTTER, STAGE_SCROLLER } from "./stagemeasure";
 import { TaskDetail } from "./taskdetail";
@@ -39,6 +39,7 @@ function MachineGlyph() {
 // state stay fixed-width — those are the signal; the label is what can give.
 function EdgeChip({ tag }: { tag: AmbientTag }) {
     const line = edgeLineStyle(tag);
+    const [head, tail] = labelEnds(tag.label);
     return (
         <span
             data-jarvis-edge-chip
@@ -49,7 +50,17 @@ function EdgeChip({ tag }: { tag: AmbientTag }) {
                 className="w-4 flex-none"
                 style={{ borderTopStyle: line.style, borderTopWidth: line.weightPx, borderTopColor: "currentColor" }}
             />
-            <span className="truncate text-[11.5px] font-semibold text-secondary">{tag.label}</span>
+            <span data-jarvis-edge-text className="flex min-w-0 text-[11.5px] font-semibold text-secondary">
+                <span className="truncate">{head}</span>
+                {/* the head gives way first; a row too narrow for the whole end cuts it from the left, keeping the
+                    last runes, which tell twins apart. rtl puts the ellipsis on the left, the ltr isolate keeps
+                    the text's order. */}
+                {tail ? (
+                    <span className="max-w-full flex-none overflow-hidden text-ellipsis whitespace-pre [direction:rtl]">
+                        <span dir="ltr">{tail}</span>
+                    </span>
+                ) : null}
+            </span>
             {tag.ticket ? (
                 <span data-jarvis-edge-ticket className="contents">
                     <TicketChip ticket={tag.ticket} />

@@ -131,6 +131,19 @@ func TestAmbientLabelObjectiveAndTicket(t *testing.T) {
 	}
 }
 
+// records on one ticket often share a long objective prefix and differ only at the end, which a head-only cut drops
+func TestAmbientLabelKeepsTheEndOfALongObjective(t *testing.T) {
+	prefix := "SIEM-1745 detector calibration follow-up for the off-hours alarms: "
+	a := ambientLabel(wshrpc.SpaceSummary{Objective: prefix + "bounds"})
+	b := ambientLabel(wshrpc.SpaceSummary{Objective: prefix + "thresholds"})
+	if a == b {
+		t.Fatalf("two objectives that differ only at the end share the label %q", a)
+	}
+	if !strings.HasPrefix(a, "SIEM-1745") || !strings.HasSuffix(a, "bounds") {
+		t.Fatalf("label %q should keep the objective's start and its end", a)
+	}
+}
+
 func TestAmbientTaskLabelAndTicket(t *testing.T) {
 	cases := []struct {
 		in   wshrpc.SpaceSummary
@@ -162,7 +175,7 @@ func TestAmbientLabelAndTitleAreBounded(t *testing.T) {
 	if n := len([]rune(label)); n > ambientLabelMax+1 { // +1 allows the ellipsis
 		t.Fatalf("label runes = %d, want <= %d + ellipsis", n, ambientLabelMax)
 	}
-	if !strings.HasSuffix(label, "…") {
+	if !strings.Contains(label, "…") {
 		t.Fatalf("bounded label should be elided: %q", label)
 	}
 	// truncation must land on a rune boundary, never mid-character
