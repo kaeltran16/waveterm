@@ -33,8 +33,8 @@ export interface EditFile {
 }
 
 export type ActionDetail =
-    | { kind: "grep"; matches: GrepMatch[]; more?: string }
-    | { kind: "read"; snippet: string; truncated?: boolean }
+    | { kind: "grep"; matches: GrepMatch[]; more?: string; pattern?: string; ignoreCase?: boolean }
+    | { kind: "read"; snippet: string; truncated?: boolean; path?: string }
     // exit null: refused before it started, so there is no code
     | { kind: "bash"; command?: string; output: string; exit: number | null }
     | { kind: "skill"; name: string; args?: string }
@@ -63,8 +63,17 @@ export type AgentEntry =
     | { kind: "command"; name: string; args?: string; isSkill?: boolean; output?: string; ts?: number }
     | { kind: "compaction"; trigger?: string; preTokens?: number; postTokens?: number; summary?: string }
     // a background Task/subagent finished (Claude's <task-notification>): summary + optional full result;
-    // notice: a background-task notice (e.g. a shell finished) rather than a finished subagent
-    | { kind: "notification"; summary: string; status?: string; result?: string; notice?: true }
+    // notice: a background-task notice (e.g. a shell finished) rather than a finished subagent; source: what the
+    // notice came from, when the projection can tell
+    | {
+          kind: "notification";
+          summary: string;
+          status?: string;
+          result?: string;
+          notice?: true;
+          ts?: number;
+          source?: "command" | "monitor" | "subagent";
+      }
     // the human interrupted the agent mid-turn ([Request interrupted by user])
     | { kind: "interrupted" }
     // a `!` command the human ran in Claude Code's bash mode; streams undefined until its output record lands (running),
@@ -77,6 +86,7 @@ export type AgentEntry =
           // blocked: refused before it ran (a hook, a permission rule, the user declining), which is no failure
           outcome?: "ok" | "fail" | "blocked";
           note?: string;
+          error?: string; // the failure text of a failed call, drawn under the line
           summary?: string; // e.g. "14 matches", "80 lines", "24 passing"
           durationMs?: number; // tool_use → tool_result wall time, when timestamps present
           startedTs?: number; // tool_use time while the call has no outcome yet, so a live call can show its elapsed
