@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The boards a Rendered card draws: LiveBoards, the live-board block a question's card and the standalone Mockup card
-// share, and MockupCard, for a canvas with no brainstorm (CanvasEdge). The block draws the canvas the agent's canvas
+// share, useQuestionBoards, the question card's block and option chips (Main), and MockupCard, for a canvas with no
+// brainstorm (CanvasEdge). The block draws the canvas the agent's canvas
 // state serves; a board shown here counts as on screen for the poller, so it reloads when its file changes.
 
 import { microFade } from "@/app/element/motiontokens";
@@ -38,21 +39,86 @@ import {
     setMarking,
     showInlineBoard,
 } from "./canvasstore";
-import { boardCount, mockupView, shownOf, type MockupView } from "./renderedbsboardsmodel";
-
-const NO_BOARDS: { block: ReactNode | null; chip: (i: number) => ReactNode | null } = { block: null, chip: () => null };
-
-export function useQuestionBoards(
-    _agent: AgentVM,
-    _s: BrainstormState,
-    _f: BrainstormFile,
-    _judging: boolean,
-    _compact: boolean
-): { block: ReactNode | null; chip: (i: number) => ReactNode | null } {
-    return NO_BOARDS;
-}
+import { boardCount, mockupView, questionTabs, shownOf, type MockupView } from "./renderedbsboardsmodel";
 
 const MOCKUP_WHAT = "the agent's mockup";
+const QUESTION_TABS_LABEL = "Boards for this question";
+
+function BoardChip({ board, pressed, onShow }: { board: string; pressed: boolean; onShow: (board: string) => void }) {
+    const label = boardLabel(board);
+    return (
+        <button
+            type="button"
+            aria-pressed={pressed}
+            title={`Show ${label} above`}
+            data-rendered-bs-board-chip={board}
+            onClick={() => onShow(board)}
+            className={cn(
+                "inline-flex cursor-pointer items-center gap-[5px] whitespace-nowrap rounded-[6px] border border-edge-strong px-2 py-[3px] text-[11.5px] transition-colors",
+                pressed
+                    ? "bg-surface-selected font-semibold text-primary"
+                    : "bg-transparent text-ink-mid hover:text-secondary"
+            )}
+        >
+            <PanelsTopLeft size={11} strokeWidth={2} aria-hidden />
+            {label}
+        </button>
+    );
+}
+
+// the boards drawn for the open question, inside its card (Main): the live board with a tab for each, and a chip on
+// each option naming a board that shows it above. Laid out as the pane's question (questionTabs)
+export function useQuestionBoards(
+    agent: AgentVM,
+    s: BrainstormState,
+    f: BrainstormFile,
+    judging: boolean,
+    compact: boolean
+): { block: ReactNode | null; chip: (i: number) => ReactNode | null } {
+    const [want, setWant] = useState<string | null>(null);
+    const layout = questionTabs(
+        f,
+        s.base,
+        s.boards.map((b) => b.name),
+        judging
+    );
+    const shown = layout != null ? shownOf(layout.tabs, want) : null;
+    if (layout == null || shown == null || f.canvas == null) {
+        return { block: null, chip: () => null };
+    }
+    const block = (
+        <div data-rendered-bs-boards>
+            <LiveBoards
+                agent={agent}
+                canvas={f.canvas}
+                cwd={s.cwd}
+                boards={layout.tabs}
+                shown={shown}
+                onShow={setWant}
+                what={MOCKUP_WHAT}
+                disabled={null}
+                compact={compact}
+                tabsLabel={QUESTION_TABS_LABEL}
+            />
+        </div>
+    );
+    const chip = (i: number) => {
+        const boards = layout.chips[i] ?? [];
+        if (boards.length === 0) {
+            return null;
+        }
+        return (
+            <div className="flex flex-wrap items-center gap-1.5">
+                {boards.map((b) => (
+                    <BoardChip key={b} board={b} pressed={b === shown} onShow={setWant} />
+                ))}
+            </div>
+        );
+    };
+    return { block, chip };
+}
+
+const DEFAULT_TABS_LABEL = "Boards";
 const MARK_TITLE = "Mark part of the board: opens the canvas";
 // "updated 40s ago" counts in seconds
 const AGO_TICK_MS = 1000;
@@ -95,11 +161,12 @@ function BoardTabs(p: {
     shown: string;
     unseen: (board: string) => boolean;
     onShow: (board: string) => void;
+    label: string;
 }) {
     return (
         <div
             role="tablist"
-            aria-label="Boards"
+            aria-label={p.label}
             className="flex flex-none rounded-[7px] border border-edge-mid bg-surface-raised p-[2px]"
         >
             {p.boards.map((b) => {
@@ -153,6 +220,7 @@ export function LiveBoards(p: {
     what: string;
     disabled: string | null;
     compact: boolean;
+    tabsLabel?: string;
 }): JSX.Element {
     const id = p.agent.id;
     const s = useAtomValue(canvasStateAtom(id));
@@ -196,6 +264,7 @@ export function LiveBoards(p: {
                         shown={p.shown}
                         unseen={(b) => ours != null && boardUnseen(ours, b)}
                         onShow={p.onShow}
+                        label={p.tabsLabel ?? DEFAULT_TABS_LABEL}
                     />
                 ) : null}
                 <span className={cn("min-w-0 text-muted", p.compact ? "text-[11.5px]" : "text-[12px]")}>
