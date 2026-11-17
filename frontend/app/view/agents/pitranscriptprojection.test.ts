@@ -235,6 +235,17 @@ describe("projectPiTranscript", () => {
         expect(grep.summary).toBe("2 matches");
     });
 
+    it("summarizes a one-line read result as 1 line", () => {
+        const lines = [
+            session,
+            user("u", "inspect"),
+            toolCall("r1", "read", { path: "src/a.ts" }),
+            toolResult("r1", "read", "only line"),
+        ];
+        const read = projectPiTranscript(lines).find((e) => e.kind === "action" && e.verb === "read") as any;
+        expect(read.summary).toBe("1 line");
+    });
+
     it("enriches bash actions with command + output + exit and computes duration", () => {
         const lines = [
             session,

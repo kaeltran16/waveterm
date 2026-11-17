@@ -1342,6 +1342,16 @@ describe("projectTranscript malformed and mistyped records", () => {
         ]);
     });
 
+    it("summarizes a one-line Glob result as 1 line", () => {
+        const out = projectTranscript([
+            asst([{ type: "tool_use", id: "gl", name: "Glob", input: { pattern: "*.ts" } }]),
+            result("gl", "a.ts"),
+            asst([{ type: "tool_use", id: "gl2", name: "Glob", input: { pattern: "*.zz" } }]),
+            result("gl2", "No files found"),
+        ]);
+        expect(out.map((e: any) => e.summary)).toEqual(["1 line", "1 line"]);
+    });
+
     it("records exit 1 on a failed Bash result that has output", () => {
         const out = projectTranscript([
             asst([{ type: "tool_use", id: "b", name: "Bash", input: { command: "false" } }]),

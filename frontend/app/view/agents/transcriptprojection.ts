@@ -491,7 +491,8 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                             ? { path: relativePath(input.file_path, cwd) }
                             : {}),
                     };
-                    action.summary = `${body.split("\n").length} lines`;
+                    const lineCount = body.split("\n").length;
+                    action.summary = `${lineCount} line${lineCount === 1 ? "" : "s"}`;
                 } else if (tool === "Bash" && body) {
                     action.detail = {
                         kind: "bash",
