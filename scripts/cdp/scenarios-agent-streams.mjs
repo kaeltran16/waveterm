@@ -11,6 +11,8 @@ import {
     agentPage,
     assistantText,
     focusAgent,
+    pinDefaultView,
+    restoreDefaultView,
     restoreRoster,
     setRoster,
     toolResult,
@@ -81,6 +83,8 @@ export default function (_kit) {
                     await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
                     await h.reload();
                     await h.goto("agent");
+                    // the rail under test shows in the Terminal view; the Rendered view has the workspace pane in its place; pinned after the reload, which would drop the pin's saved value
+                    await pinDefaultView(h, "terminal");
                     ctx.roster = [
                         {
                             id: ctx.id,
@@ -200,6 +204,7 @@ export default function (_kit) {
                         console.error(`${NAME} teardown: ${what} failed: ${e?.message ?? e}`);
                     }
                 };
+                await step("restore the default view", () => restoreDefaultView(h));
                 await step("restore the roster", () => restoreRoster(h));
                 await step("drop the focus", () =>
                     agentPage(h, `globalStore.set(agentsModel().focusIdAtom, undefined); return true;`)

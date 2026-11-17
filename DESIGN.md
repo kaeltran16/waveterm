@@ -328,6 +328,11 @@ content is always fluid.
   `relative min-w-0 flex-1` shell; each surface is `flex flex-col bg-background`.
   The Agent surface stays mounted-but-hidden across nav switches so its xterm
   never remounts; other surfaces unmount on switch.
+- **Workspace pane** — the Agent surface's Rendered view opens what the
+  conversation references in a tabbed pane beside the transcript. It is a
+  resizable split, not a rail: 600px by default, dragged from its left edge
+  (min 360px, and the transcript keeps 360px), expandable over the center,
+  collapsible to a 44px strip. Rails stay fixed-width.
 - **Modals** — `fixed inset-0 z-[70]` overlay with backdrop; focus is
   trapped (`modalfocus.ts`).
 - **Z-index** — tokenized: `--z-window-drag: 100`; legacy `--zindex-*` vars

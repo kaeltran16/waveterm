@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { RAIL_VISIBLE_KEY, TREE_RAIL_FIXTURE, restoreLocalStorage, teardownFixtureRun } from "./scenarios-shared.mjs";
-import { closeTabs, makeTab } from "./agent-page-fixtures.mjs";
+import { closeTabs, makeTab, pinDefaultView, restoreDefaultView } from "./agent-page-fixtures.mjs";
 
 // --- shell-tasks: an idle agent with a background shell task still running reads standing by -----------
 // docs/superpowers/plans/2026-10-12-shell-task-standing-by.md. A plain fixture agent, idle past the 5-minute grace
@@ -212,6 +212,8 @@ export const shellTasksScenario = {
                     await new Promise((r) => setTimeout(r, 500));
                 }
             })()`);
+            // the rail under test shows in the Terminal view; the Rendered view has the workspace pane in its place; pinned after the reload, which would drop the pin's saved value
+            await pinDefaultView(h, "terminal");
             await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
             await h.goto("cockpit");
             ctx.loaded = await h.ev(`(async () => {
@@ -751,8 +753,11 @@ export const shellTasksScenario = {
         for (const t of SHELL_TASKS.filter((t) => t.redirect)) rmSync(shellRedirectFile(t, ctx.cwd).path, { force: true });
         await closeTabs(h, ctx);
         await teardownFixtureRun(h, ctx, "shell-tasks", {
-            what: "restore the rail's visibility",
-            fn: () => h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail)),
+            what: "restore the rail's visibility and the default view",
+            fn: async () => {
+                await h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail));
+                await restoreDefaultView(h);
+            },
         });
     },
 };

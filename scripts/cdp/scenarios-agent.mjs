@@ -42,7 +42,7 @@ import {
     waitForDispatch,
     waveService,
 } from "./scenarios-shared.mjs";
-import { closeTabs, makeTab } from "./agent-page-fixtures.mjs";
+import { closeTabs, makeTab, pinDefaultView, restoreDefaultView } from "./agent-page-fixtures.mjs";
 import { arrangeLiveRuns, injectLiveAsks, LIVE_IDS, LIVE_TASKS_A, liveRoster, publishLiveEvents, setLiveRoster, teardownLiveRuns } from "./live-run-fixture.mjs";
 
 async function openOwnTerminal(h, label) {
@@ -811,6 +811,8 @@ export const agentTreeRail = {
         // a throw past this point still returns ctx, so teardown removes whatever was already made
         try {
             await arrangeTreeRail(h, ctx);
+            // the rail under test shows in the Terminal view; the Rendered view has the workspace pane in its place; pinned after arrangeTreeRail's reload, which would drop the pin's saved value
+            await pinDefaultView(h, "terminal");
             // the block of the worker tab step 9b adds: a real shell, so its header reads as a running worker
             try {
                 ctx.workerTerm = {};
@@ -1134,13 +1136,15 @@ export const agentTreeRail = {
         }
         await teardownLiveRuns(h, ctx, "agent-tree-rail");
         await teardownFixtureRun(h, ctx, "agent-tree-rail", {
-            what: "restore the rail preference",
-            fn: () =>
-                h.ev(
+            what: "restore the rail preference and the default view",
+            fn: async () => {
+                await h.ev(
                     ctx.prevRail == null
                         ? `localStorage.removeItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`
                         : `localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, ${JSON.stringify(ctx.prevRail)})`
-                ),
+                );
+                await restoreDefaultView(h);
+            },
         });
     },
 };

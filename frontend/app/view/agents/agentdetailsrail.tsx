@@ -6,13 +6,12 @@ import { Meter } from "@/app/element/meter";
 import { easeFluidCss, MOTION, popoverReveal } from "@/app/element/motiontokens";
 import { SkeletonLine } from "@/app/element/skeleton";
 import { globalStore } from "@/app/store/jotaiStore";
-import * as WOS from "@/app/store/wos";
 import { formatChordString } from "@/util/keysym";
 import { cn, fireAndForget } from "@/util/util";
-import { atom, useAtomValue, type Atom } from "jotai";
+import { useAtomValue } from "jotai";
 import { ArrowLeft, ArrowUpRight, ChevronLeft } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { driveAgent, NUDGE_INPUT } from "./agentactions";
 import { getLastOutputAtom } from "./agentcontrollerstore";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
@@ -25,7 +24,6 @@ import {
     lastTurnInterrupted,
     offersContextReset,
     railAction,
-    railReloadKey,
     toolChips,
 } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
@@ -40,16 +38,17 @@ import {
 } from "./agentsviewmodel";
 import { agentCacheStatusAtom, formatCacheCountdown, loadCacheStatusForAgent } from "./cachestatusstore";
 import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
-import { ASK_OWNER_USER } from "./childaskmodel";
 import { finalRowFocusId, isFinalStageId } from "./finalstage";
 import { FinalStageRail } from "./finalstagerail";
 import { capFiles, lineCountsShown, statusColor } from "./gitstatus";
 import { leadLandFacts } from "./leadland";
 import { entriesAtomFor, liveEntriesByIdAtom } from "./livetranscriptatoms";
 import { prettyModel } from "./modellabel";
-import { loadRailForAgent, railStateAtom, railVisibleAtom } from "./railstore";
-import { agentProject, isEndedWorkerId, roleRunId } from "./runlineage";
-import { NeedsYouSection, RunSection, TaskSection, useRunAsks } from "./runrailsections";
+import { useRailGit } from "./railgit";
+import { railVisibleAtom } from "./railstore";
+import { useRoleAsks } from "./roleasks";
+import { agentProject, isEndedWorkerId } from "./runlineage";
+import { NeedsYouSection, RunSection, TaskSection } from "./runrailsections";
 import { SectionLabel, SubLabel } from "./sectionlabel";
 import type { SubagentState } from "./session-models/sessionviewmodel";
 import { isStandingBy } from "./shelltasks";
@@ -76,8 +75,6 @@ const SUB_COLOR: Record<SubagentState, string> = {
     failure: "var(--color-error)",
     done: "var(--color-muted)",
 };
-
-const NO_BLOCK: Atom<Block | undefined> = atom(undefined as Block | undefined);
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; the summary line under it counts them all
 const USAGE_REFRESH_MS = 15_000;
@@ -286,20 +283,6 @@ function SealedFiles({ files }: { files: EvidenceFile[] }) {
     );
 }
 
-// the agent's run role, its run's asks, and those waiting on the user: the lead's, or a worker's own task's
-function useRoleAsks(model: AgentsViewModel, agent: AgentVM) {
-    const lineage = useAtomValue(model.lineageAtom);
-    const role = lineage.roles[agent.id];
-    const roleRun = role ? lineage.runs[roleRunId(role)] : undefined;
-    const asks = useRunAsks(roleRun);
-    const yours = asks.filter(
-        (a) =>
-            a.owner === ASK_OWNER_USER &&
-            (role?.kind === "lead" || (role?.kind === "worker" && a.taskid === role.taskId))
-    );
-    return { lineage, role, roleRun, asks, yours };
-}
-
 // The collapsed strip reads only the context % and the ask count. The panel and its loaders (the 1 s clock, usage
 // and cache status every 15 s, the git read) mount only while the rail is open on the Agent surface, which stays
 // mounted off-screen under every other surface.
@@ -366,7 +349,7 @@ function AgentDetailsPanel({
     const usage = agent.usage;
     const ctxPct = usage?.contextpct;
     const tools = toolChips(summarizeActions(recentActions(entries, 0)).byVerb);
-    const railState = useAtomValue(railStateAtom);
+    const railState = useRailGit(agent);
     const cacheStatus = useAtomValue(agentCacheStatusAtom);
     const now = useAtomValue(model.nowAtom);
     const endedWorker = useAtomValue(model.endedWorkerAtom);
@@ -386,19 +369,6 @@ function AgentDetailsPanel({
         standingBy,
         silentMs,
     });
-    const block = useAtomValue(
-        agent.blockId ? WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", agent.blockId)) : NO_BLOCK
-    );
-    const reloadKey = railReloadKey(agent, block?.meta?.["agent:lasteditts"]);
-    const loadedFor = useRef("");
-
-    // a new focus blanks the list while it loads; the same agent's later edits reload under the list it shows
-    useEffect(() => {
-        const silent = loadedFor.current === agent.id;
-        loadedFor.current = agent.id;
-        fireAndForget(() => loadRailForAgent(agent.transcriptPath, agent.blockId, { silent }));
-    }, [reloadKey]);
-
     // re-read while focused: every turn writes the cache again, so a status read once at focus
     // counts down to "expired" under an agent that is still working
     useEffect(() => {

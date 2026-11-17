@@ -140,8 +140,8 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | Keys | Action |
 |---|---|
 | `j` / `k` (or `↓` / `↑`, `→` / `←`) | Next / previous row in the tree: agents, workers and terminals |
-| `d` | Toggle the agent rail |
-| `f` | Toggle terminal fullscreen |
+| `d` | Toggle the agent rail (Terminal), or collapse the workspace pane (Rendered, with tabs open) |
+| `f` | Toggle terminal fullscreen (in Rendered it hides the tree and keeps the workspace pane) |
 | `v` | Toggle the focused Claude Code agent between Terminal and Rendered |
 | `Ctrl`+`Shift`+`B` | The same toggle, also while typing in the terminal or the composer, when the agent has no brainstorm or canvas (with one, it switches to that instead) |
 | `1`…`9` | In Rendered, with a permission prompt docked and focus outside the composer: answer it with that choice; with a question docked instead, pick that option |

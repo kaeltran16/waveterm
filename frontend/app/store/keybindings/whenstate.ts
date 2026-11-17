@@ -31,10 +31,12 @@ import { canvasStateAtom } from "@/app/view/agents/canvasstore";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { compareOnAtom } from "@/app/view/agents/comparestore";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
+import { pickerFlipAtom, viewModeAtom } from "@/app/view/agents/renderedmode";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { usageLensAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
+import { workspaceAtom } from "@/app/view/agents/workspacestore";
 import { codePeekFocusedAtom } from "@/app/view/code/codepeekstore";
 import { boardOwnsEscapeAtom } from "@/app/view/boards/boardstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
@@ -91,21 +93,24 @@ for (const predicateAtom of PREDICATE_ATOMS) {
 
 // The canvas and brainstorm predicates (buildAgentBindings, and the surface/agent switches in buildGlobalBindings)
 // read the focused agent's canvasStateAtom and brainstormAtom: one atom per agent, picked by a model-owned focus
-// id, so neither can be a static PREDICATE_ATOMS entry. This follows the focus and re-subscribes them, and watches
-// the terminal roster agent:toggle-rail reads; the completeness test counts these atoms and the roster as covered
-// here. Returns the unsubscribe.
+// id, so neither can be a static PREDICATE_ATOMS entry. The `d` bindings read its workspace, view mode and picker
+// flip the same way. This follows the focus and re-subscribes them, and watches the terminal roster
+// agent:toggle-rail reads; the completeness test counts these atoms and the roster as covered here. Returns the
+// unsubscribe.
 export function watchFocusedCanvas(model: AgentsViewModel): () => void {
     let unsub = () => {};
     const follow = () => {
         unsub();
         const id = globalStore.get(model.focusIdAtom);
         if (id) {
-            const unsubCanvas = globalStore.sub(canvasStateAtom(id), bumpWhenVersion);
-            const unsubBrainstorm = globalStore.sub(brainstormAtom(id), bumpWhenVersion);
-            unsub = () => {
-                unsubCanvas();
-                unsubBrainstorm();
-            };
+            const unsubs = [
+                canvasStateAtom(id),
+                brainstormAtom(id),
+                workspaceAtom(id),
+                viewModeAtom(id),
+                pickerFlipAtom(id),
+            ].map((a) => globalStore.sub(a, bumpWhenVersion));
+            unsub = () => unsubs.forEach((u) => u());
         } else {
             unsub = () => {};
         }

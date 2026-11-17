@@ -25,8 +25,10 @@ import {
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
+import { pickerFlipAtom, viewModeAtom } from "@/app/view/agents/renderedmode";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { workspaceAtom } from "@/app/view/agents/workspacestore";
 import { codePeekFocusedAtom } from "@/app/view/code/codepeekstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
@@ -582,8 +584,9 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             detachCanvas("a1");
         }
 
-        // the focus id, the roster, the terminal roster, and the focused agent's canvas, brainstorm and exit atoms
-        // are watched by watchFocusedCanvas, not listed; a1 is not in the stub roster, so its block id is ""
+        // the focus id, the roster, the terminal roster, and the focused agent's canvas, brainstorm, workspace, view
+        // and picker flip atoms are watched by watchFocusedCanvas, not listed; a1 is not in the stub roster, so its
+        // block id is ""
         const registered = new Set<unknown>([
             ...PREDICATE_ATOMS,
             model.focusIdAtom,
@@ -591,6 +594,9 @@ describe("PREDICATE_ATOMS completeness (whenstate.ts)", () => {
             model.terminalsAtom,
             canvasStateAtom("a1"),
             brainstormAtom("a1"),
+            workspaceAtom("a1"),
+            viewModeAtom("a1"),
+            pickerFlipAtom("a1"),
         ]);
         const missing = [...seen].filter((a) => !registered.has(a));
         const unused = PREDICATE_ATOMS.filter((a) => !seen.has(a));

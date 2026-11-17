@@ -96,6 +96,7 @@ import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageBackStep } from "@/app/view/agents/usagenav";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
+import { rendersNow, toggleWorkspaceCollapsed, workspaceAtom } from "@/app/view/agents/workspacestore";
 import { boardOwnsEscapeAtom, runBoardEscape } from "@/app/view/boards/boardstore";
 import { toggleBlame } from "@/app/view/code/codeblamestore";
 import { closePeek, codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
@@ -1035,6 +1036,15 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             canRender(agent, { ended: isEndedWorkerId(id), stage: isFinalStageId(id) });
         return ok ? id : null;
     };
+    // the focused agent's center shows Rendered, where the workspace pane stands in for the details rail
+    const rendered = () => {
+        const id = focusId();
+        return id != null && rendersNow(model, id);
+    };
+    const workspaceTabs = () => {
+        const id = focusId();
+        return id == null ? 0 : globalStore.get(workspaceAtom(id)).tabs.length;
+    };
     const codePeekFocused = () => globalStore.get(codePeekFocusedAtom);
     // the Rendered view's ask dock draws only for an asking agent, and only the focused agent's view is mounted, so a
     // dock in the DOM is the renderable focused agent's
@@ -1288,9 +1298,21 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "d",
             group: "Agent",
             label: "Toggle agent rail",
-            // a terminal has no rail
-            when: (ctx) => nav(ctx) && !globalStore.get(model.terminalsAtom).some((t) => t.id === focusId()),
+            // a terminal has no rail, and the Rendered view has the workspace pane in its place
+            when: (ctx) =>
+                nav(ctx) && !globalStore.get(model.terminalsAtom).some((t) => t.id === focusId()) && !rendered(),
             run: () => globalStore.set(railVisibleAtom, !globalStore.get(railVisibleAtom)),
+        },
+        {
+            // with no tab open there is no pane, so the key passes on
+            id: "agent:toggle-workspace",
+            keys: "d",
+            group: "Agent",
+            label: "Collapse or restore the workspace pane",
+            when: (ctx) => nav(ctx) && workspaceTabs() > 0 && rendered(),
+            run: () => {
+                toggleWorkspaceCollapsed(focusId()!);
+            },
         },
         {
             id: "agent:fullscreen",

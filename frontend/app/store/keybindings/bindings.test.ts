@@ -45,13 +45,14 @@ import { treeModeAtom } from "@/app/view/agents/filetree";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom, refreshHistory } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
-import { viewModeAtom } from "@/app/view/agents/renderedmode";
+import { pickerFlipAtom, viewModeAtom } from "@/app/view/agents/renderedmode";
 import { activeReviewAtom, reviewMarksAtom } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
+import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "@/app/view/agents/workspacestore";
 import { boardOwnsEscapeAtom, setBoardEscape } from "@/app/view/boards/boardstore";
 import { codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
@@ -2245,6 +2246,59 @@ describe("Agent keys, stepping and toggles", () => {
         const rail = (focus: string) => build(focus).find("agent:toggle-rail").when!(nav);
         expect(rail("a")).toBe(true);
         expect(rail("c")).toBe(false);
+    });
+
+    describe("d in the Rendered view", () => {
+        // a claude agent with a block renders; the stub roster's "a" does not, so it keeps the rail
+        const renderable = () => {
+            const { model, find } = build("r");
+            globalStore.set(model.agentsAtom, [{ id: "r", state: "idle", agent: "claude", blockId: "blk-r" }]);
+            globalStore.set(viewModeAtom("r"), "rendered");
+            return {
+                model,
+                find,
+                d: () => ["agent:toggle-rail", "agent:toggle-workspace"].filter((id) => find(id).when!(nav)),
+            };
+        };
+
+        afterEach(() => {
+            closeWorkspaceTab("r", "changes");
+            globalStore.set(pickerFlipAtom("r"), null);
+            globalStore.set(viewModeAtom("r"), "rendered");
+        });
+
+        it("does nothing with no tabs open: neither the rail nor the pane takes it", () => {
+            expect(renderable().d()).toEqual([]);
+        });
+
+        it("collapses and restores the pane with tabs open, and leaves the rail alone", () => {
+            const { find, d } = renderable();
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            expect(d()).toEqual(["agent:toggle-workspace"]);
+            const rail = globalStore.get(railVisibleAtom);
+            find("agent:toggle-workspace").run(nav);
+            expect(globalStore.get(workspaceAtom("r")).collapsed).toBe(true);
+            find("agent:toggle-workspace").run(nav);
+            expect(globalStore.get(workspaceAtom("r")).collapsed).toBe(false);
+            expect(globalStore.get(railVisibleAtom)).toBe(rail);
+        });
+
+        it("toggles the rail in the Terminal view and during a picker flip, tabs or not", () => {
+            const { d } = renderable();
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            globalStore.set(viewModeAtom("r"), "terminal");
+            expect(d()).toEqual(["agent:toggle-rail"]);
+            globalStore.set(viewModeAtom("r"), "rendered");
+            globalStore.set(pickerFlipAtom("r"), 1);
+            expect(d()).toEqual(["agent:toggle-rail"]);
+        });
+
+        it("toggles the rail while a subagent interior is open over the Rendered view", () => {
+            const { d } = renderable();
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            globalStore.set(focusSubagentAtom, { parentId: "r", agentId: "s1" } as any);
+            expect(d()).toEqual(["agent:toggle-rail"]);
+        });
     });
 
     it("toggles the rail and fullscreen, and F11 toggles fullscreen too", () => {
