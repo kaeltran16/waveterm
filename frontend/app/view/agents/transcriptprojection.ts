@@ -140,6 +140,23 @@ function applyBashRecord(entries: AgentEntry[], content: string, rec: any): bool
     return true;
 }
 
+const COMMAND_OUTPUT_RE = /^<local-command-(?:stdout|stderr)>([^]*?)<\/local-command-(?:stdout|stderr)>$/;
+
+// a slash command's printed output fills the command right before it when that one has none yet; /compact keeps its own
+// divider. An output anywhere else adds nothing, and is never a user bubble.
+function applyCommandOutput(entries: AgentEntry[], content: string): boolean {
+    const m = COMMAND_OUTPUT_RE.exec(content.trim());
+    if (m == null) {
+        return false;
+    }
+    const last = entries[entries.length - 1];
+    const text = stripAnsi(m[1]).trim();
+    if (last?.kind === "command" && last.name !== "/compact" && last.output === undefined && text !== "") {
+        last.output = text;
+    }
+    return true;
+}
+
 // A background-task notice delivered mid-turn. A structured prompt reads like a finished subagent's notification; a
 // free-text one is just the text inside the tag.
 function parseNotice(prompt: string): Extract<AgentEntry, { kind: "notification" }> | null {
@@ -330,9 +347,10 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 const note = parseTaskNotification(content);
                 if (note != null) {
                     entries.push(note);
+                } else if (applyCommandOutput(entries, content)) {
+                    // handled: the output sits under its command, or draws nothing. Never a user bubble.
                 } else if (content.includes("<local-command-stdout>")) {
-                    // slash-command stdout (e.g. "Compacted …", with raw ANSI) — not shown, matching the
-                    // system/local_command record that is already skipped. Never a user bubble.
+                    // slash-command stdout mixed with other text: not shown
                 } else if (isInterrupted(content)) {
                     entries.push({ kind: "interrupted" });
                 } else {

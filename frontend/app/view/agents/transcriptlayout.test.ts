@@ -324,6 +324,11 @@ describe("layoutTranscript statuses and Arc messages", () => {
         expect(withRole[0]).toMatchObject({ kind: "arc", message: { kind: "brief" } });
     });
 
+    it("carries a command's output onto its item", () => {
+        const items = layoutTranscript([{ kind: "command", name: "/mcp", output: "Connected" }], { active: true });
+        expect(items[0]).toMatchObject({ kind: "command", name: "/mcp", output: "Connected" });
+    });
+
     it("passes events through as standalone items that break a stretch", () => {
         const entries: AgentEntry[] = [
             { kind: "command", name: "/review", args: "PR #402" },

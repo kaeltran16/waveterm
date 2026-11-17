@@ -3,7 +3,7 @@
 // wsh change call as a standalone row inside its turn's fold while a failed one stays a step, a queued message
 // splitting a turn's fold in two, consecutive thoughts merged into one clamped thought that stays clamped under
 // renderAll and opens under unfold (as does a long bubble), a heredoc step's derived title,
-// and a background notice's muted row. The fold checks run at the Rendered column's width and at a card's (compact).
+// a background notice's muted row, and a slash command's printed output under its row. The fold checks run at the Rendered column's width and at a card's (compact).
 
 import { bash, clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
@@ -697,6 +697,64 @@ async function noticeStep(h) {
     };
 }
 
+// CommandOutput.dc.html: a command's printed line under its row, a command that printed nothing, a compaction divider
+const MCP_OUTPUT = "Authentication successful. Connected to siem-portal.";
+const CONFIG_OUTPUT = "Set theme to dark";
+const COMMAND_OUTPUT_TURN = [
+    { kind: "command", name: "/mcp", ts: T0, output: MCP_OUTPUT },
+    { kind: "command", name: "/config", args: "theme dark", ts: T0 + S, output: CONFIG_OUTPUT },
+    { kind: "command", name: "/clear", ts: T0 + 2 * S },
+    { kind: "compaction", trigger: "manual", preTokens: 90_000, postTokens: 12_000 },
+];
+
+const COMMAND_OUTPUT_STATE = probe(`
+    const chips = [...root.querySelectorAll('[data-command-chip]')].map((c) => {
+        const out = c.querySelector('[data-command-output]');
+        const row = c.querySelector('span');
+        const rowBox = row?.getBoundingClientRect();
+        const outBox = out?.getBoundingClientRect();
+        return {
+            name: row?.textContent ?? null,
+            output: out?.textContent ?? null,
+            below: rowBox && outBox ? outBox.top >= rowBox.bottom - 1 : null,
+            rightAligned: rowBox && outBox ? Math.abs(outBox.right - rowBox.right) <= 1 : null,
+            font: out ? getComputedStyle(out).fontFamily : null,
+        };
+    });
+    const compaction = root.querySelector('[data-compaction]');
+    return {
+        chips,
+        compaction: compaction != null,
+        compactionOutput: compaction?.querySelector('[data-command-output]') != null,
+    };
+`);
+
+async function commandOutputStep(h) {
+    await showTranscript(h, { entries: COMMAND_OUTPUT_TURN, width: 736 });
+    const s = await h.ev(COMMAND_OUTPUT_STATE);
+    await h.shot("cdp-shots/transcript-base-command-output.png");
+    const [mcp, config, clear] = s?.chips ?? [];
+    return {
+        step: "CommandOutput: /mcp and /config show their line under the row in mono, /clear shows nothing, the compaction divider has no output block",
+        ok:
+            s != null &&
+            s.chips.length === 3 &&
+            (mcp.name ?? "").includes("/mcp") &&
+            mcp.output === MCP_OUTPUT &&
+            mcp.below === true &&
+            mcp.rightAligned === true &&
+            /mono/i.test(mcp.font ?? "") &&
+            (config.name ?? "").includes("/config") &&
+            config.output === CONFIG_OUTPUT &&
+            config.below === true &&
+            (clear.name ?? "").includes("/clear") &&
+            clear.output === null &&
+            s.compaction &&
+            !s.compactionOutput,
+        detail: JSON.stringify(s),
+    };
+}
+
 export const transcriptBase = {
     name: "transcript-base",
     surface: "cockpit",
@@ -725,6 +783,7 @@ export const transcriptBase = {
         steps.push(await clampModeStep(h));
         steps.push(await heredocStep(h));
         steps.push(await noticeStep(h));
+        steps.push(await commandOutputStep(h));
         return steps;
     },
     async teardown(h) {

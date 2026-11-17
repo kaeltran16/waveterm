@@ -365,6 +365,58 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
         expect(projectTranscript([L({ type: "user", message: { content } })])).toEqual([]);
     });
 
+    describe("slash command output", () => {
+        const cmd = (name: string, args = "") =>
+            L({
+                type: "user",
+                message: { content: `<command-name>${name}</command-name><command-args>${args}</command-args>` },
+            });
+        const stdout = (text: string) => L({ type: "user", message: { content: `<local-command-stdout>${text}</local-command-stdout>` } });
+        const stderr = (text: string) => L({ type: "user", message: { content: `<local-command-stderr>${text}</local-command-stderr>` } });
+
+        it("attaches a stdout, colour codes stripped, to the command right before it", () => {
+            const out = projectTranscript([
+                cmd("/mcp"),
+                stdout("\x1b[1mAuthentication successful.\x1b[22m Connected to siem-portal."),
+            ]);
+            expect(out).toEqual([
+                { kind: "command", name: "/mcp", output: "Authentication successful. Connected to siem-portal." },
+            ]);
+        });
+
+        it("attaches a stderr the same way", () => {
+            expect(projectTranscript([cmd("/config", "x"), stderr("Unknown setting")])).toEqual([
+                { kind: "command", name: "/config", args: "x", output: "Unknown setting" },
+            ]);
+        });
+
+        it("gives /compact no output", () => {
+            expect(projectTranscript([cmd("/compact"), stdout("Compacted (ctrl+o to see full summary)")])).toEqual([
+                { kind: "command", name: "/compact" },
+            ]);
+        });
+
+        it("draws nothing for an output with no command, or after another entry", () => {
+            expect(projectTranscript([stdout("orphan")])).toEqual([]);
+            const out = projectTranscript([
+                cmd("/mcp"),
+                L({ type: "user", message: { content: "a prompt" } }),
+                stdout("late"),
+            ]);
+            expect(out).toEqual([{ kind: "command", name: "/mcp" }, { kind: "user", text: "a prompt" }]);
+        });
+
+        it("keeps the first output when a command prints twice", () => {
+            const out = projectTranscript([cmd("/mcp"), stdout("first"), stdout("second")]);
+            expect(out).toEqual([{ kind: "command", name: "/mcp", output: "first" }]);
+        });
+
+        it("leaves a command that printed nothing with no output", () => {
+            expect(projectTranscript([cmd("/clear")])).toEqual([{ kind: "command", name: "/clear" }]);
+            expect(projectTranscript([cmd("/clear"), stdout("")])).toEqual([{ kind: "command", name: "/clear" }]);
+        });
+    });
+
     it("projects [Request interrupted by user] as an interrupted marker, both as a text block and a string", () => {
         expect(
             projectTranscript([
