@@ -290,16 +290,19 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     const ctx = useTranscriptContext(model, agent);
     const working = useWorkingTail(model.nowAtom, agent, entries);
     const foot = useQueuedFoot(agent, entries);
-    // one node per change of either, so the memoized timeline does not re-render on every view render
-    const tail = useMemo(
-        () => (
+    // one node per change of either, so the memoized timeline does not re-render on every view render; an idle feed
+    // gets no foot element, so its list holds only the rows it draws
+    const tail = useMemo(() => {
+        if (foot.items.length === 0) {
+            return working;
+        }
+        return (
             <>
                 <QueuedFoot foot={foot} />
                 {working}
             </>
-        ),
-        [foot, working]
-    );
+        );
+    }, [foot, working]);
     const pin = usePinnedPrompt(scrollRef, entries, ctx);
     const composerRef = useRef<AgentComposerHandle>(null);
     const askShown = askDocked(agent);
