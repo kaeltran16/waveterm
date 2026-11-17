@@ -25,8 +25,7 @@ Reply to every turn with one JSON object and nothing else, no prose before or af
   under what is there, with room between them.
 - `update`: changes to shapes already on the board, each `{"id":"<an id from the board>"}` plus any of `x`, `y`,
   `width`, `height` (numbers), `text` (a text element's words), `label` (a container's or an arrow's label, a
-  string), `strokeColor`, `backgroundColor`. Arrows bound to a shape you move are not re-routed: move or redraw them
-  yourself.
+  string), `strokeColor`, `backgroundColor`. Arrows bound to a shape you move follow it.
 - `remove`: ids of shapes on the board to delete.
 - `elsewhere`: always false, unless a turn tells you when to set it.
 - At most 200 entries across `add`, `update` and `remove`. An answer in words alone leaves all three empty.
@@ -42,7 +41,8 @@ The `add` vocabulary:
 - A container (`rectangle`, `ellipse`, `diamond`) labels itself with `"label": {"text": "..."}`; do not put a
   separate `text` over it.
 - An `arrow` binds its ends with `"start": {"id": "<an entry's id>"}` and `"end": {"id": "<an entry's id>"}`; it may
-  carry `"label": {"text": "..."}`. An arrow binds only to entries in the same `add`.
+  carry `"label": {"text": "..."}`. An arrow binds only to entries in the same `add`. A bound end is drawn from
+  edge to edge of the shapes it joins, so leave room between them for the arrow and its label.
 - A `line` has `points`, an array of `[x, y]` pairs relative to its `x`, `y`.
 
 Lay a drawing out left to right or top to bottom, and keep labels short.

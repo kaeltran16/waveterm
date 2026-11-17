@@ -214,6 +214,89 @@ describe("applyAnswer", () => {
     });
 });
 
+// an arrow as convertToExcalidrawElements leaves one bound to existing shapes: a 100px stub where its x, y put it
+function arrow(id: string, x: number, y: number, start: string | null, end: string | null, extra: object = {}) {
+    return base(id, "arrow", x, y, 99, 0, {
+        points: [
+            [0, 0],
+            [99, 0],
+        ],
+        startBinding: start ? { elementId: start, focus: 0.4, gap: 1 } : null,
+        endBinding: end ? { elementId: end, focus: 0.4, gap: 20 } : null,
+        elbowed: false,
+        ...extra,
+    });
+}
+
+function ends(el: any): [number, number][] {
+    return [el.points[0], el.points[el.points.length - 1]].map(([px, py]) => [el.x + px, el.y + py]);
+}
+
+// distance from a point to a box's outline, negative inside
+function outside([x, y]: [number, number], b: any): number {
+    const dx = Math.max(b.x - x, x - (b.x + b.width));
+    const dy = Math.max(b.y - y, y - (b.y + b.height));
+    return dx > 0 || dy > 0 ? Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) : Math.max(dx, dy);
+}
+
+describe("applyAnswer arrow routing", () => {
+    it("lays an added arrow between the shapes it binds", () => {
+        const a = rect("a", 0, 0, 200, 80);
+        const b = rect("b", 600, 400, 200, 80);
+        const scene = emptyScene([a, b]);
+        const stub = arrow("ab", 200, 40, "a", "b", { boundElements: [{ type: "text", id: "ab-label" }] });
+        const label = text("ab-label", 230, 30, "calls", { containerId: "ab" });
+        const { scene: next } = applyAnswer(scene, answer({ add: "[]" }), [stub, label], NOW);
+        const routed = byId(next, "ab");
+        const [start, end] = ends(routed);
+        expect(outside(start, a)).toBeGreaterThan(0);
+        expect(outside(start, a)).toBeLessThan(20);
+        expect(outside(end, b)).toBeGreaterThan(0);
+        expect(outside(end, b)).toBeLessThan(20);
+        expect(routed.width).toBeCloseTo(Math.abs(end[0] - start[0]));
+        expect(routed.height).toBeCloseTo(Math.abs(end[1] - start[1]));
+        // the label sits on the arrow's middle
+        const l = byId(next, "ab-label");
+        expect(l.x + l.width / 2).toBeCloseTo((start[0] + end[0]) / 2);
+        expect(l.y + l.height / 2).toBeCloseTo((start[1] + end[1]) / 2);
+    });
+
+    it("re-routes an arrow whose shape the answer moves, and leaves other arrows alone", () => {
+        const a = rect("a", 0, 0, 200, 80);
+        const b = rect("b", 300, 0, 200, 80);
+        const c = rect("c", 0, 300, 200, 80);
+        const ab = arrow("ab", 200, 40, "a", "b");
+        const ac = arrow("ac", 100, 80, "a", "c");
+        const scene = emptyScene([a, b, c, ab, ac]);
+        const update = JSON.stringify([{ id: "b", x: 300, y: 500 }]);
+        const { scene: next, shapeIds } = applyAnswer(scene, answer({ update }), [], NOW);
+        const [, end] = ends(byId(next, "ab"));
+        expect(outside(end, byId(next, "b"))).toBeGreaterThan(0);
+        expect(outside(end, byId(next, "b"))).toBeLessThan(20);
+        expect(byId(next, "ab").version).toBe(2);
+        expect(byId(next, "ac")).toBe(ac);
+        expect(shapeIds).toEqual(["b"]);
+    });
+
+    it("keeps an arrow's free end where it was", () => {
+        const a = rect("a", 0, 0, 200, 80);
+        const free = arrow("free", 500, 300, "a", null);
+        const { scene: next } = applyAnswer(emptyScene([a]), answer({ add: "[]" }), [free], NOW);
+        const [start, end] = ends(byId(next, "free"));
+        expect(end).toEqual([599, 300]);
+        expect(outside(start, a)).toBeGreaterThan(0);
+        expect(outside(start, a)).toBeLessThan(20);
+    });
+
+    it("leaves an arrow between overlapping shapes as drawn", () => {
+        const a = rect("a", 0, 0, 200, 80);
+        const b = rect("b", 50, 20, 200, 80);
+        const ab = arrow("ab", 200, 40, "a", "b");
+        const { scene: next } = applyAnswer(emptyScene([a, b]), answer({ add: "[]" }), [ab], NOW);
+        expect(byId(next, "ab")).toBe(ab);
+    });
+});
+
 describe("copyElements", () => {
     it("copyElements gives every element a new id and remaps containers, bindings, groups and frames", () => {
         const source = [

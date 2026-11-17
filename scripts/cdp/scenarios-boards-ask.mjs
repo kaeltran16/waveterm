@@ -56,7 +56,14 @@ const BRIEFING = {
 const box = (x, y, text) => ({ type: "rectangle", x, y, width: 180, height: 70, label: { text } });
 const FIRST_DRAWING = [box(0, 0, "wavesrv"), box(260, 0, "orchestrate"), box(520, 0, "land")];
 const SECOND_DRAWING = [box(260, 160, "merge queue"), { type: "arrow", x: 350, y: 75, width: 0, height: 80 }];
-const FED_ANSWER = [box(0, 320, "retry"), box(260, 320, "rebase"), { type: "arrow", x: 185, y: 355, width: 70, height: 0 }];
+// its arrow as the drawer writes one: bound, x and y only, so Excalidraw alone leaves a 100px stub into "rebase"
+const FED_ANSWER = [
+    { ...box(0, 320, "retry"), id: "fed-retry" },
+    { ...box(260, 320, "rebase"), id: "fed-rebase" },
+    { type: "arrow", id: "fed-arrow", x: 180, y: 355, start: { id: "fed-retry" }, end: { id: "fed-rebase" } },
+];
+// how far a routed arrow's end may sit outside the shape it binds
+const ARROW_END_MAX_GAP = 20;
 const START_SHAPES = FIRST_DRAWING.length + SECOND_DRAWING.length;
 const QUESTION = "What happens when a landing fails?";
 
@@ -473,8 +480,22 @@ export const boardsAsk = {
             await polishWaitFor(h, `${itemsOf("reply")}.length === 3`, WAIT_MS);
             await polishNap(800);
             const ack = (await calls(h, "ack")).at(-1);
+            // the bound arrow runs from one box's edge to the other's, just outside each
             const landed = await page(h, `const ids = new Set(shapes().map((e) => e.id));
-                return { shapes: ids.size, acked: ${q(ack?.shapeids ?? [])}.every((id) => ids.has(id)) };`);
+                const els = shapes();
+                const arrow = els.find((e) => e.type === "arrow" && ${q(ack?.shapeids ?? [])}.includes(e.id));
+                const gapTo = ([x, y], id) => {
+                    const b = els.find((e) => e.id === id);
+                    if (!b) return null;
+                    const dx = Math.max(b.x - x, x - (b.x + b.width)), dy = Math.max(b.y - y, y - (b.y + b.height));
+                    return dx > 0 || dy > 0 ? Math.hypot(Math.max(dx, 0), Math.max(dy, 0)) : Math.max(dx, dy);
+                };
+                const pt = (p) => [arrow.x + p[0], arrow.y + p[1]];
+                const arrowGaps = arrow && [
+                    gapTo(pt(arrow.points[0]), arrow.startBinding?.elementId),
+                    gapTo(pt(arrow.points.at(-1)), arrow.endBinding?.elementId),
+                ];
+                return { shapes: ids.size, acked: ${q(ack?.shapeids ?? [])}.every((id) => ids.has(id)), arrowGaps };`);
             const factsAfter = await h.ev(text(`${SURFACE}?.querySelector("[data-board-facts]")`));
             const lastCard = await h.ev(text(`${TALK}?.querySelector('[data-board-card="${turnId}"]')`));
             await h.shot(SHOT("B1", "talk"));
@@ -504,6 +525,8 @@ export const boardsAsk = {
                 ack.turnid === turnId &&
                 ack.shapeids?.length === FED_ANSWER.length &&
                 landed.acked &&
+                landed.arrowGaps?.length === 2 &&
+                landed.arrowGaps.every((g) => g != null && g > 0 && g < ARROW_END_MAX_GAP) &&
                 landed.shapes === START_SHAPES + FED_ANSWER.length &&
                 new RegExp(`^3 questions · ${START_SHAPES + FED_ANSWER.length} shapes · answered ${HHMM}$`).test(factsAfter) &&
                 new RegExp(`^Retrying a landingadded ${FED_ANSWER.length} shapes · ${HHMM}Show$`).test(lastCard) &&
