@@ -2,8 +2,7 @@
 
 **Effort:** effort:25e5eb18-863e-4e80-b585-60124822822b
 **Spec:** `docs/superpowers/specs/2026-11-16-slim-superpowers-design.md` (Decisions 8 and 9: the replay bench and its rule)
-**Verify:** `node scripts/verify.mjs ./cmd/gomutate`
-**Check:** `go vet ./cmd/gomutate`
+**Verify:** `node scripts/verify.mjs ./cmd/...`
 
 Tooling for the replay bench that decides the default plan skill: three shipped specs replayed from their
 pre-feature commit under both plan skills (`plan` and `writing-plans`, the values `pkg/jarvis/planskill.go`
@@ -44,12 +43,15 @@ is counted but excluded. A run with no mutants writes `score: null`.
 **What to build:** the per-run numbers the bench and the real-run comparison read, from the packaged store
 (`%LOCALAPPDATA%/dev.arc.app/data/db/waveterm.db`, read-only via `node:sqlite`, BLOB `data` decoded before
 `JSON.parse`) and the `~/.claude/projects` transcripts. Port the logic of
-`.superpowers/dag-measure/planskill-compare.mjs` (gitignored scratch; read it there): a run's dag is the
+`C:/Users/kael02/IdeaProjects/waveterm/.superpowers/dag-measure/planskill-compare.mjs` (gitignored scratch in
+the main checkout, absent from a run tree; read it at that absolute path): a run's dag is the
 `db_dag` row whose `runid` is the run; its children are the `db_run` rows whose `dagoref` is that dag's
 oid, classified by goal prefix (worker, task reviewer, plan reviewer, final verifier); cost is the
 list-price estimate over each session's transcript and its subagents, deduplicated by message id, with that
 script's price table; plan words are the dag's preamble plus every task description; Final round 1 is the
-`final-step` event with `step: "final"` and round 1, `ok` deciding pass or fail. A plan passed in with
+`outcome` of the round-1 `final-ended` event (`passed`, `unverified` or `failed`; `final-step` only says how
+one command ended, see `pkg/waveobj/runevent.go`), and Final rounds is the highest `round` of the run's
+`final-ended` events. A plan passed in with
 `--plan` (goal's first line contains "Implementation Plan", or the plan path exists at the run's base
 commit) is marked not lead-written.
 
@@ -59,7 +61,7 @@ done, dag-backed orchestrator runs, grouped by effective plan skill: medians and
 scratch script prints). `--db <path>` and `--transcripts <dir>` override the two sources.
 
 **Interfaces:** `export function runRow(db, runId, transcriptIndex)` returns
-`{ runId, planSkill, leadWrotePlan, tasks, width, planWords, planReviewRounds, asks, reviewFails, verifyFails, finalRound1: "passed"|"failed"|null, finalRounds, minutes, cost: { lead, worker, taskReviewer, planReviewer, verifier }, totalCost }`;
+`{ runId, planSkill, leadWrotePlan, tasks, width, planWords, planReviewRounds, asks, reviewFails, verifyFails, finalRound1: "passed"|"unverified"|"failed"|null, finalRounds, minutes, cost: { lead, worker, taskReviewer, planReviewer, verifier }, totalCost }`;
 `width` is the most tasks running at once (overlapping `task-spawned`..`task-done` spans of the run's events),
 `planReviewRounds` the dag's `planreview.round`;
 `export function openStore(path)` and `export function indexTranscripts(dir)` build the two arguments.
@@ -68,12 +70,16 @@ scratch script prints). `--db <path>` and `--transcripts <dir>` override the two
 **Acceptance:**
 - given a fixture store and transcript dir, `runRow` returns the counts, width, Final outcome and per-role
   cost the fixture's events and usage lines imply, with a duplicated message id counted once
-- a run with no dag row returns `null`; a run with no `final-step` event has `finalRound1: null`
+- a run with no dag row returns `null`; a run with no `final-ended` event has `finalRound1: null`; a
+  round-1 `final-step` with `ok: true` but a `final-ended` outcome `failed` gives `failed`
 - `--since` excludes runs started from a plan file and groups an empty stored plan skill as `writing-plans`
 
 ### Task 2: Go mutator
 **Depends on:** none
 **Files:** `cmd/gomutate/main.go`, `cmd/gomutate/mutate.go`, `cmd/gomutate/mutate_test.go`
+
+The plan has no Check line (no whole-tree static check names a package before this task creates it), so this
+task runs `go vet ./cmd/gomutate` itself; Verify's `./cmd/...` covers the package once it lands.
 
 **What to build:** `go run ./cmd/gomutate --dir <tree> --base <sha> [--max 200] [--seed 1] [--timeout 120s]`
 scores how well a tree's tests catch changes to the Go lines it added since `base`. It mutates only lines
@@ -89,6 +95,7 @@ invalid. Above `--max` mutants it tests a seeded random sample. Prints the share
 - lines outside the diff, `_test.go` files and generated files produce no mutants
 - a mutant that fails to compile is counted invalid and left out of `score`
 - the tree's files are byte-identical after a run; the same `--seed` picks the same sample
+- `go vet ./cmd/gomutate` is clean
 
 ### Task 3: TS mutation wrapper
 **Depends on:** none
@@ -115,8 +122,9 @@ NoCoverage as survived, CompileError and RuntimeError as invalid).
 
 **What to build:** `node scripts/bench/replay.mjs start --bench <dir> --pick <id>` launches one pair: for each
 arm (`plan`, then `writing-plans`) it creates `<bench>/wt/<pick>-<arm>` as a git worktree of the main checkout
-on a new branch `bench/<pick>-<arm>` at the pick's base, links it with
-`node scripts/worktree-junctions.mjs prepare`, copies the spec from `<specCommit>:<specPath>` to
+on a new branch `bench/<pick>-<arm>` at the pick's base, links it by running the main checkout's
+`scripts/worktree-junctions.mjs prepare` (the current copy, by absolute path, not the older one at the pick's
+base) with the new worktree as the working directory, copies the spec from `<specCommit>:<specPath>` to
 `<bench>/specs/<pick>.md`, sets `run:planskill` to the arm, starts the run, and restores the setting. The
 setting is set only for the seconds between the flip and the run's creation; it lives in the packaged app's local `settings.json` (`%LOCALAPPDATA%/dev.arc.app/config`), which
 overrides the vault layer: the harness adds the key and afterwards restores the file's prior state (the key
@@ -124,11 +132,12 @@ removed if it was absent), in a `finally`, parsing and rewriting JSON so every o
 starts as `wsh runs start "Build <spec H1>." --mode orchestrator --project <worktree> --spec <abs spec>
 [--prototype <abs canvas>] --runtime claude --model opus --worker-runtime claude --worker-model opus
 --reviewer-runtime claude --reviewer-model opus --autonomous --parallelism 3 --json`, run with the worktree
-as its working directory (so the run works in that worktree and lands on its branch, never on main), with no
+as its working directory (`wsh` needs an Arc terminal's RPC environment, so the harness is run from one) (so the run works in that worktree and lands on its branch, never on main), with no
 `--effort`.
 After start it reads `wsh runs show <id> --json`: a recorded plan skill other than the arm cancels the run
-and exits non-zero. It appends the row to `runs.json`, with `arcBuild` read from the installed
-`%LOCALAPPDATA%/Arc/bin/wavesrv.x64.exe` (its BuildTime string); `start` refuses when an earlier row's
+(`wsh runs cancel <id> --yes`, since its lead is live) and exits non-zero. It appends the row to `runs.json`, with `arcBuild` the SHA-256 of the installed
+`%LOCALAPPDATA%/Arc/bin/wavesrv.x64.exe` (any reinstall changes it, so it guards the same build without parsing
+the binary); `start` refuses when an earlier row's
 `arcBuild` differs. `status --bench <dir>` prints each row's run status; `cleanup --bench <dir>` removes the
 worktrees with `task worktree:cleanup -- <path>`.
 
@@ -146,6 +155,7 @@ worktrees with `task worktree:cleanup -- <path>`.
   the prototype when the pick has one, and never `--effort`
 - a recorded plan skill that differs from the arm, or an `arcBuild` that differs from the first row's, fails
   `start` with a message naming both values
+- `arcBuild` is the SHA-256 of the file at the given path (a fixture file's known digest)
 - an unknown pick id or a pick missing a field is refused before any worktree is created
 
 ### Task 5: Blind pairwise review
@@ -182,7 +192,7 @@ plan words, asks, review and verify fails, Final round 1, Final rounds, Go and T
 decision, applying Decision 9 exactly (the table also shows width and plan-review rounds, which decide
 nothing):
 - **blind:** `plan` wins at least 2 of the 3 picks in `blind.json`
-- **Final:** `plan`'s count of round-1 Final passes is at least `writing-plans`'
+- **Final:** `plan`'s count of runs whose `finalRound1` is `passed` is at least `writing-plans`'
 - **mutation:** `plan`'s pooled score (killed + timedOut over killed + timedOut + survived, summed over every
   mutation file of that arm, Go and TS together) is at least `writing-plans'`; an arm with no mutants on
   either side skips this term
