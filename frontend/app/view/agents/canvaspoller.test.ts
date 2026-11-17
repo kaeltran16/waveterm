@@ -1,13 +1,22 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: {} }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { canvasOnScreen, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
-import type { CanvasState } from "./canvasstore";
+import { boardUnseen } from "./canvasmodel";
+import { canvasOnScreen, pollAndMerge, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
+import {
+    attachCanvas,
+    detachCanvas,
+    getCanvas,
+    setCanvasMode,
+    showInlineBoard,
+    updateCanvas,
+    type CanvasState,
+} from "./canvasstore";
 
 const NOW = 50_000;
 const BASE = "http://127.0.0.1:5005/canvas/tok";
@@ -101,7 +110,9 @@ describe("pollCanvasOnce", () => {
             status: "ready",
             boards: BOARDS_TWO,
             lastModifiedMs: 3000,
+            boardModifiedMs: { "Main.dc.html": 1000, "States.dc.html": 3000 },
             lastViewedMs: NOW,
+            boardViewedMs: { "Main.dc.html": NOW },
         });
         expect(io.serves).toEqual(["/p/.superpowers/design"]);
     });
@@ -122,7 +133,9 @@ describe("pollCanvasOnce", () => {
             status: "ready",
             boards: [{ name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 }],
             lastModifiedMs: 1000,
+            boardModifiedMs: { "Main.dc.html": 1000 },
             lastViewedMs: NOW,
+            boardViewedMs: { "Main.dc.html": NOW },
         });
     });
 
@@ -190,11 +203,139 @@ describe("pollCanvasOnce", () => {
         expect(patch.status).toBe("ready");
     });
 
+    it("carries each served board's Last-Modified, leaving out a board whose file is not there", async () => {
+        const io = fakeIO({ files: { "Main.dc.html": 1000, "canvas.json": 500 }, json: JSON_TWO });
+        const patch = await pollCanvasOnce(state({ base: BASE, mode: "terminal" }), io, NOW);
+        expect(patch.boardModifiedMs).toEqual({ "Main.dc.html": 1000 });
+        expect(patch.boardViewedMs).toBeUndefined();
+    });
+
+    it("marks only the boards on screen as viewed: the pane's shown board, or every one under All", async () => {
+        const io = fakeIO({
+            files: { "Main.dc.html": 1000, "States.dc.html": 3000, "canvas.json": 500 },
+            json: JSON_TWO,
+        });
+        const viewed = { "States.dc.html": 7 };
+        const one = await pollCanvasOnce(
+            state({ base: BASE, board: "States.dc.html", boardViewedMs: viewed }),
+            io,
+            NOW
+        );
+        expect(one.boardViewedMs).toEqual({ "States.dc.html": NOW });
+        const all = await pollCanvasOnce(state({ base: BASE, all: true }), io, NOW);
+        expect(all.boardViewedMs).toEqual({ "Main.dc.html": NOW, "States.dc.html": NOW });
+    });
+
+    it("counts a Rendered card's inline board as on screen, apart from the canvas pane", async () => {
+        const io = fakeIO({
+            files: { "Main.dc.html": 1000, "States.dc.html": 3000, "canvas.json": 500 },
+            json: JSON_TWO,
+        });
+        const inline = state({
+            base: BASE,
+            mode: "terminal",
+            inlineBoard: "States.dc.html",
+            boardViewedMs: { "Main.dc.html": 9 },
+        });
+        const patch = await pollCanvasOnce(inline, io, NOW);
+        expect(patch.boardViewedMs).toEqual({ "Main.dc.html": 9, "States.dc.html": NOW });
+        // the canvas-wide stamp is the pane's: the header's unseen dot is not cleared by a card
+        expect(patch.lastViewedMs).toBeUndefined();
+    });
+
+    it("reloads when the inline board's own file changes, and not for another board's", async () => {
+        const io = fakeIO({
+            files: { "Main.dc.html": 1000, "States.dc.html": 5000, "canvas.json": 500 },
+            json: JSON_TWO,
+        });
+        const was = { "Main.dc.html": 1000, "States.dc.html": 3000 };
+        const base = {
+            base: BASE,
+            mode: "terminal" as const,
+            lastModifiedMs: 3000,
+            boardModifiedMs: was,
+            reloadKey: 2,
+        };
+        expect((await pollCanvasOnce(state({ ...base, inlineBoard: "States.dc.html" }), io, NOW)).reloadKey).toBe(3);
+        expect(
+            (await pollCanvasOnce(state({ ...base, inlineBoard: "Main.dc.html" }), io, NOW)).reloadKey
+        ).toBeUndefined();
+        // a board seen for the first time is not a change
+        const first = state({ ...base, boardModifiedMs: undefined, inlineBoard: "States.dc.html" });
+        expect((await pollCanvasOnce(first, io, NOW)).reloadKey).toBeUndefined();
+    });
+
     it("keeps a known base and does not ask wavesrv again while it answers", async () => {
         const io = fakeIO({ files: { "Main.dc.html": 1000 } });
         await pollCanvasOnce(state({ base: BASE }), io, NOW);
         expect(io.serves).toEqual([]);
         expect(io.urls.every((u) => u.startsWith(`${BASE}/`))).toBe(true);
+    });
+});
+
+describe("pollAndMerge", () => {
+    const AGENT = "agent-poll";
+    const LATER = NOW + 10_000;
+
+    // the agent's canvas, already served, with the given state on top
+    function attached(over: Partial<CanvasState>): void {
+        attachCanvas(AGENT, { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
+        updateCanvas(AGENT, (s) => ({ ...s, base: BASE, status: "ready", ...over }));
+    }
+
+    // a poll during whose reads `during` runs, as a tab click or mode switch landing while it is in flight would
+    function pollWith(during: () => void): CanvasIO {
+        const io = fakeIO({
+            files: { "Main.dc.html": 1000, "States.dc.html": 5000, "canvas.json": 500 },
+            json: JSON_TWO,
+        });
+        return {
+            ...io,
+            get: async (url) => {
+                during();
+                return io.get(url);
+            },
+        };
+    }
+
+    beforeEach(() => {
+        vi.spyOn(Date, "now").mockReturnValue(NOW);
+    });
+    afterEach(() => {
+        detachCanvas(AGENT);
+        vi.restoreAllMocks();
+    });
+
+    it("keeps a board shown while the poll was reading as viewed at the show", async () => {
+        attached({ mode: "terminal", inlineBoard: "Main.dc.html", boardViewedMs: { "Main.dc.html": 9 } });
+        await pollAndMerge(
+            AGENT,
+            pollWith(() => showInlineBoard(AGENT, "States.dc.html", LATER))
+        );
+        const s = getCanvas(AGENT);
+        expect(s.boardViewedMs).toEqual({ "Main.dc.html": NOW, "States.dc.html": LATER });
+        expect(boardUnseen(s, "States.dc.html")).toBe(false);
+    });
+
+    it("keeps a canvas-mode switch made while the poll was reading", async () => {
+        attached({ mode: "canvas", lastViewedMs: 7 });
+        await pollAndMerge(
+            AGENT,
+            pollWith(() => setCanvasMode(AGENT, "canvas", LATER))
+        );
+        expect(getCanvas(AGENT).lastViewedMs).toBe(LATER);
+    });
+
+    it("records the boards on screen as viewed at the poll's time when nothing else moved them", async () => {
+        attached({ mode: "canvas", board: "States.dc.html", lastViewedMs: 7, boardViewedMs: { "States.dc.html": 7 } });
+        await pollAndMerge(
+            AGENT,
+            pollWith(() => {})
+        );
+        const s = getCanvas(AGENT);
+        expect(s.boardViewedMs).toEqual({ "States.dc.html": NOW });
+        expect(s.lastViewedMs).toBe(NOW);
+        expect(s.boardModifiedMs).toEqual({ "Main.dc.html": 1000, "States.dc.html": 5000 });
     });
 });
 

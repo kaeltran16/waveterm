@@ -5,21 +5,35 @@
 // context ring and one button, Send or (while a turn is live and the box is empty) Stop. Attachments sit above
 // the text and reach the agent as paths appended to the prompt, as an agent picked with @ (filemention.tsx) does.
 // While Claude's question is shown Send is held, since typing into the pty would land in its picker. In ! bash mode the text runs in the agent's shell instead, and the
-// tray's attachments wait for the next message.
+// tray's attachments wait for the next message. With the agent's brainstorm asking (or open to pushback) the line
+// goes to it as the pane's own answer (brainstormRoute).
 
 import { pushToast } from "@/app/cockpit/notificationstore";
+import { composerReveal, microFade } from "@/app/element/motiontokens";
 import { cn, fireAndForget } from "@/util/util";
+import { useAtomValue } from "jotai";
 import { ArrowUp } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { forwardRef, useState, type KeyboardEvent } from "react";
 import { canSendComposer, useAgentComposer, useComposerHandle, type AgentComposerHandle } from "./agentcomposer";
 import { sendAgentBash } from "./agentsend";
 import type { AgentVM } from "./agentsviewmodel";
 import { AttachButton, AttachmentTray } from "./attachmenttray";
 import { bashOffKey, bashOnInput } from "./bashmodemodel";
+import { builderCheckView } from "./brainstormmodel";
+import { brainstormAtom } from "./brainstormstore";
 import { appendAttachments, pickFilePaths, useComposerAttachments } from "./composerattachments";
 import { MIRRORED_TEXTAREA, useAgentCwd, useFileMention } from "./filemention";
 import { BoxControls } from "./headercontrols";
-import { boxButton, composerBox, contextRing } from "./renderedmode";
+import {
+    answersLabel,
+    boxButton,
+    brainstormRoute,
+    composerBox,
+    contextRing,
+    sendRoutedLine,
+    type BrainstormRoute,
+} from "./renderedmode";
 import { useSlashPanel } from "./slashpanel";
 
 const BoxMinH = 22; // one line of 14px text
@@ -57,15 +71,35 @@ function ContextRing({ agent }: { agent: AgentVM }) {
     );
 }
 
+// the agent's brainstorm route for the box, with the builder check as the pane reads it
+function useBrainstormRoute(agent: AgentVM): BrainstormRoute | null {
+    const s = useAtomValue(brainstormAtom(agent.id));
+    if (s == null) {
+        return null;
+    }
+    const check = builderCheckView(
+        agent.builderCheck,
+        s.sentCheckAt,
+        s.file,
+        s.modifiedMs,
+        agent,
+        s.turnStartMs,
+        s.checkTakenTs
+    );
+    return brainstormRoute(s, check);
+}
+
 export const RenderedComposer = forwardRef<
     AgentComposerHandle,
     { agent: AgentVM; hasTranscript: boolean; onInterrupt: () => void; onSubmitText?: (text: string) => void }
 >(function RenderedComposer({ agent, hasTranscript, onInterrupt, onSubmitText }, ref) {
     const blockId = agent.blockId;
     const [bash, setBash] = useState(false);
-    const box = composerBox(agent, hasTranscript, bash);
+    const box = composerBox(agent, hasTranscript, bash, useBrainstormRoute(agent));
+    const route = box.route;
     const { attachments, addPaths, remove, retry, onPaste, clear } = useComposerAttachments();
-    // bash mode sends the bare command (no attachment paths, no picker flip) and keeps the tray for the next message
+    // bash mode sends the bare command (no attachment paths, no picker flip) and keeps the tray for the next message.
+    // A line the brainstorm routes goes as the pane's own answer, its attachments' paths appended as a prompt's are
     const { text, setText, taRef, send, onKeyDown } = useAgentComposer({
         blockId,
         minH: BoxMinH,
@@ -74,6 +108,7 @@ export const RenderedComposer = forwardRef<
         ...(bash
             ? { send: sendAgentBash, onSent: () => setBash(false) }
             : {
+                  ...(route != null ? { send: (_: string, t: string) => sendRoutedLine(agent, route, t) } : {}),
                   onSubmitText,
                   compose: (t: string) => appendAttachments(mention.compose(t), attachments),
                   onSent: () => {
@@ -126,13 +161,16 @@ export const RenderedComposer = forwardRef<
     };
     const filled = text !== "" || (!bash && attachments.length > 0);
     const button = boxButton(box, filled);
+    const answers = answersLabel(box, filled);
     return (
         <div
             data-composer-box
             data-bash-mode={bash ? "" : undefined}
+            data-composer-route={route?.kind}
             className={cn(
                 "relative rounded-[14px] border border-edge-strong bg-surface-raised pb-2.5 pl-3.5 pr-3 pt-3 focus-within:border-accent/60",
                 filled && "border-accent/60",
+                answers != null && "border-warning focus-within:border-warning",
                 bash && "border-accent focus-within:border-accent"
             )}
         >
@@ -178,6 +216,37 @@ export const RenderedComposer = forwardRef<
             <div className="flex items-center gap-2">
                 {bash ? null : <AttachButton onClick={pickFiles} />}
                 {blockId != null ? <BoxControls agent={agent} /> : null}
+                <AnimatePresence initial={false}>
+                    {answers != null ? (
+                        <motion.span
+                            key="answers"
+                            data-composer-answers
+                            variants={microFade}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            className="shrink-0 whitespace-nowrap text-[12px] text-warning"
+                        >
+                            {answers}
+                        </motion.span>
+                    ) : null}
+                </AnimatePresence>
+                <AnimatePresence initial={false}>
+                    {box.hint != null ? (
+                        <motion.span
+                            key="hint"
+                            data-composer-hint
+                            title={box.hint}
+                            variants={composerReveal}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            className="min-w-0 overflow-hidden truncate text-[12px] text-muted"
+                        >
+                            {box.hint}
+                        </motion.span>
+                    ) : null}
+                </AnimatePresence>
                 <span className="flex-1" />
                 <ContextRing agent={agent} />
                 {button === "stop" ? (

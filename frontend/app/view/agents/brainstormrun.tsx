@@ -29,6 +29,7 @@ import {
     useAction,
 } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN } from "./canvaspane";
+import { closeDetail, recordClose } from "./renderedbsrunmodel";
 import { runInfoAtom, useRunInfo } from "./runlineagestore";
 import { RunSection, useRunAsks } from "./runrailsections";
 
@@ -159,11 +160,6 @@ function StateCard({
     );
 }
 
-function closeDetail(topic: string, canvas: string | undefined): string {
-    const deletes = `.superpowers/brainstorm/${topic}${canvas ? ` and the ${canvas} canvas` : ""}`;
-    return `The final check passed. The spec stays in docs/. The brainstorm file and its mockups were scaffolding for the design: closing deletes ${deletes}.`;
-}
-
 function CloseButton({
     agentId,
     s,
@@ -195,8 +191,9 @@ function CloseButton({
     );
 }
 
-// the gate and the targets are read again at the click, not trusted from the render that drew the button
-async function closeBrainstorm(agentId: string, runId: string): Promise<void> {
+// the gate and the targets are read again at the click, not trusted from the render that drew the button; shared with
+// the Rendered transcript's run card
+export async function closeBrainstorm(agentId: string, runId: string): Promise<void> {
     const read = globalStore.get(runInfoAtom(runId));
     if (!runStepView(runId, read.run, read.loaded).canClose) {
         throw new Error("The run is no longer merged with its final check passed, so the brainstorm stays.");
@@ -220,6 +217,8 @@ async function closeBrainstorm(agentId: string, runId: string): Promise<void> {
             }
         }
     }
+    // after the deletes: a failed close leaves the brainstorm, and a later removal of it must not read as closed
+    recordClose(s.path, { topic: s.topic, canvas: f.canvas });
 }
 
 function HandedOver({ f, caption }: { f: BrainstormFile; caption: boolean }) {

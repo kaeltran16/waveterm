@@ -29,6 +29,13 @@ export type CanvasState = {
     // drawn and not yet sent; a new box replaces it
     mark: Mark | null;
     reloadKey: number;
+    // each served board's Last-Modified, and when each was last on screen: a card's tab says which one changed
+    boardModifiedMs?: Record<string, number>;
+    boardViewedMs?: Record<string, number>;
+    // the board a Rendered card draws inline, which the poller counts as on screen
+    inlineBoard?: string | null;
+    // a mark started from the Rendered transcript: once sent, the agent goes back there (canvassend)
+    markFrom?: "transcript" | null;
 };
 
 // cast because a null initial value picks jotai's read-only overload under the non-strict tsconfig
@@ -105,8 +112,18 @@ export function canvasOwner(topic: string, live: ReadonlySet<string>): string | 
 
 export function setCanvasMode(agentId: string, mode: "terminal" | "canvas", now: number): void {
     updateCanvas(agentId, (s) =>
-        mode === "canvas" ? { ...s, mode, lastViewedMs: now } : { ...s, mode, marking: false, mark: null }
+        mode === "canvas"
+            ? { ...s, mode, lastViewedMs: now }
+            : { ...s, mode, marking: false, mark: null, markFrom: null }
     );
+}
+
+export function showInlineBoard(agentId: string, board: string | null, now: number): void {
+    updateCanvas(agentId, (s) => ({
+        ...s,
+        inlineBoard: board,
+        boardViewedMs: board != null ? { ...s.boardViewedMs, [board]: now } : s.boardViewedMs,
+    }));
 }
 
 // a mark is drawn over one board where it sits on screen, so any board or view switch drops it
@@ -130,7 +147,11 @@ export function selectCanvasBoard(agentId: string, board: string): void {
 }
 
 export function setMarking(agentId: string, on: boolean): void {
-    updateCanvas(agentId, (s) => ({ ...s, marking: on, mark: on ? s.mark : null }));
+    updateCanvas(agentId, (s) => (on ? { ...s, marking: true } : { ...s, marking: false, mark: null, markFrom: null }));
+}
+
+export function markFromTranscript(agentId: string): void {
+    updateCanvas(agentId, (s) => ({ ...s, marking: true, markFrom: "transcript" }));
 }
 
 export function setMark(agentId: string, mark: Mark | null): void {

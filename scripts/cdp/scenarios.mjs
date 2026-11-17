@@ -49,6 +49,7 @@ import agentHeader from "./scenarios-agent-header.mjs";
 import agentRail from "./scenarios-agent-rail.mjs";
 import agentTree from "./scenarios-agent-tree.mjs";
 import agentRendered from "./scenarios-agent-rendered.mjs";
+import { RENDERED_BS_SCENARIOS } from "./scenarios-rendered-brainstorm.mjs";
 import {
     diffComments,
     diffCompare,
@@ -412,6 +413,7 @@ export const SCENARIOS = [
     ...agentRail(SESSIONS_KIT),
     ...agentTree(SESSIONS_KIT),
     ...agentRendered(SESSIONS_KIT),
+    ...RENDERED_BS_SCENARIOS,
     canvasMark,
     canvasTabsScenario,
     agentTerminalNames,

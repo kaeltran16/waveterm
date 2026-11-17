@@ -260,7 +260,8 @@ export const tauriBrainstormIO: BrainstormIO = {
 export const tauriOpenBrainstormsIO: OpenBrainstormsIO = {
     stat: tauriBrainstormIO.stat,
     read: tauriBrainstormIO.read,
-    list: tauriSendIO.list,
+    // read at call time: canvassend can reach this module through an import cycle before tauriSendIO exists
+    list: (path) => tauriSendIO.list(path),
 };
 
 // `wsh agent-hook` stamps the agent's block on every prompt it submits, the terminal's included

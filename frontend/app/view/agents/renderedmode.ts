@@ -11,6 +11,16 @@ import { atom, type PrimitiveAtom, type WritableAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { contextTokens } from "./agentrailmodel";
 import { hasAnswerableAsk, type AgentVM } from "./agentsviewmodel";
+import {
+    brainstormPhase,
+    confirmableGuesses,
+    judgeWait,
+    lineBox,
+    shownFile,
+    type BuilderCheckView,
+} from "./brainstormmodel";
+import { sendBrainstorm } from "./brainstormsend";
+import type { BrainstormState } from "./brainstormstore";
 
 export type ViewMode = "terminal" | "rendered";
 
@@ -59,6 +69,36 @@ export function askDocked(agent: AgentVM): boolean {
     return agent.state === "asking" && hasAnswerableAsk(agent);
 }
 
+// what a line typed in the box answers in the agent's brainstorm: the talk question open, the builder's question
+// open, or (no question open) the brainstorm itself, as pushback or a question back. hint: the box says so, unless
+// the talk phase's design card already says what it waits on (a guess to confirm)
+export type BrainstormRoute = { kind: "talk"; n: number } | { kind: "builder" } | { kind: "line"; hint: boolean };
+
+// null while the pane's view is working (a sent line not yet taken included), once a run started, or with no
+// brainstorm: the box is then the normal one. The judge's wait routes to its question, since an answer stops it
+export function brainstormRoute(s: BrainstormState | null, check: BuilderCheckView): BrainstormRoute | null {
+    if (s == null || s.removed || s.file == null) {
+        return null;
+    }
+    const f = shownFile(s.file, s.sent);
+    if (f.run != null) {
+        return null;
+    }
+    if (f.question != null && (f.working == null || judgeWait(f, s.sent != null))) {
+        return { kind: "talk", n: f.question.n };
+    }
+    if (f.working != null) {
+        return null;
+    }
+    if (f.check?.yours.some((y) => y.a == null)) {
+        return { kind: "builder" };
+    }
+    if (lineBox(f, check.kind === "pending") !== "open") {
+        return null;
+    }
+    return { kind: "line", hint: !(brainstormPhase(f) === "talk" && confirmableGuesses(f) > 0) };
+}
+
 export type ComposerBox = {
     kind: "new" | "idle" | "working";
     placeholder: string;
@@ -68,26 +108,86 @@ export type ComposerBox = {
     live: boolean;
     // the Send button's aria-label and title
     sendLabel: "Send" | "Steer" | "Run";
+    // where a sent line goes in the brainstorm; null sends it as a normal prompt
+    route: BrainstormRoute | null;
+    // what a filled box answers (answersLabel)
+    answers: string | null;
+    hint: string | null;
 };
 
 export const BASH_PLACEHOLDER = "Run a shell command; its output joins the transcript";
+const LINE_HINT = "No question open · your line reaches the brainstorm as pushback or a question back";
+
+function routePlaceholder(route: BrainstormRoute | null): string | null {
+    if (route?.kind === "talk") {
+        return `Answer question ${route.n} in your own words, or push back`;
+    }
+    return route?.kind === "builder" ? "Answer the builder's question in your own words, or push back" : null;
+}
+
+function routeAnswers(route: BrainstormRoute | null): string | null {
+    if (route?.kind === "talk") {
+        return `Answers question ${route.n}`;
+    }
+    return route?.kind === "builder" ? "Answers the builder's question" : null;
+}
 
 // the message box's state from the agent's: which placeholder, whether Send is held, whether a turn can be stopped.
 // bash: the box is in ! bash mode, which changes only the placeholder and the Send label (the text runs as a command,
-// not a steer, whatever the agent's state)
-export function composerBox(agent: AgentVM, hasTranscript: boolean, bash = false): ComposerBox {
+// not a steer, whatever the agent's state) and drops the brainstorm route. route: brainstormRoute's
+export function composerBox(
+    agent: AgentVM,
+    hasTranscript: boolean,
+    bash = false,
+    brainstorm: BrainstormRoute | null = null
+): ComposerBox {
     const askBlocks = askDocked(agent);
     const working = agent.state === "working";
     const kind = working ? "working" : hasTranscript ? "idle" : "new";
+    const route = bash ? null : brainstorm;
     const placeholder = bash
         ? BASH_PLACEHOLDER
-        : kind === "working"
-          ? "Steer the agent; it reads this before its next step"
-          : kind === "idle"
-            ? `Reply to ${agent.name}, @ to mention, / for commands`
-            : `Message ${agent.name}, @ to mention, / for commands`;
+        : (routePlaceholder(route) ??
+          (kind === "working"
+              ? "Steer the agent; it reads this before its next step"
+              : kind === "idle"
+                ? `Reply to ${agent.name}, @ to mention, / for commands`
+                : `Message ${agent.name}, @ to mention, / for commands`));
     const sendLabel = bash ? "Run" : working ? "Steer" : "Send";
-    return { kind, placeholder, askBlocks, live: working || askBlocks, sendLabel };
+    const hint = route?.kind === "line" && route.hint ? LINE_HINT : null;
+    return {
+        kind,
+        placeholder,
+        askBlocks,
+        live: working || askBlocks,
+        sendLabel,
+        route,
+        answers: routeAnswers(route),
+        hint,
+    };
+}
+
+// the label beside the model chip: what the line answers, once there is a line
+export function answersLabel(box: ComposerBox, filled: boolean): string | null {
+    return filled ? box.answers : null;
+}
+
+// a routed line goes as the pane's own answer, so waiting picks ride along and a running judge stops; the answer is
+// recorded as picked here
+export function sendRoutedLine(
+    agent: AgentVM,
+    route: BrainstormRoute,
+    text: string,
+    io?: Parameters<typeof sendBrainstorm>[2],
+    now: number = Date.now()
+): Promise<void> {
+    return sendBrainstorm(
+        agent,
+        { kind: route.kind === "builder" ? "builder-answer" : "answer", text },
+        io,
+        now,
+        "transcript"
+    );
 }
 
 // the box's button: Stop while a turn is live and the box is empty, else Send (a steer while working)

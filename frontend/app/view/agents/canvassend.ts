@@ -5,11 +5,13 @@
 // to the agent as a prompt: its mod runs it, leaving the composer alone, and a session with no mod has it
 // typed. Every failure throws before the line is sent, and the mark stays for a retry.
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { arrayToBase64, makeConnRoute } from "@/util/util";
 import { invoke } from "@tauri-apps/api/core";
 import type { AgentVM } from "./agentsviewmodel";
+import { setBrainstormMode } from "./brainstormstore";
 import {
     canvasHandoffLine,
     cropRect,
@@ -20,6 +22,7 @@ import {
 } from "./canvasmarks";
 import { canvasFeedbackDir, canvasFeedbackFile, shownBoard } from "./canvasmodel";
 import { getCanvas, setCanvasMode } from "./canvasstore";
+import { viewModeAtom } from "./renderedmode";
 
 export type SendIO = {
     capture(): Promise<Blob>;
@@ -117,5 +120,11 @@ export async function sendCanvasMark(agent: AgentVM, io: SendIO = tauriSendIO): 
     });
     const line = canvasHandoffLine(feedbackRelPath(s.topic, name), shownBoard(s).name, s.mark);
     await step(`Couldn't send to ${agent.name}`, () => io.prompt(agent.blockId!, line));
-    setCanvasMode(agent.id, "terminal", Date.now());
+    const now = Date.now();
+    setCanvasMode(agent.id, "terminal", now);
+    // marked from the conversation, so the reply is read there
+    if (s.markFrom === "transcript") {
+        setBrainstormMode(agent.id, "terminal", now);
+        globalStore.set(viewModeAtom(agent.id), "rendered");
+    }
 }

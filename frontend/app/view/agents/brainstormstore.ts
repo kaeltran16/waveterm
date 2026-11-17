@@ -24,7 +24,8 @@ import {
     type SeenMark,
     type SentLine,
 } from "./brainstormmodel";
-import type { CanvasBoard } from "./canvasmodel";
+import { canvasDir, type CanvasBoard } from "./canvasmodel";
+import { attachCanvas, setMarking } from "./canvasstore";
 
 export type BrainstormState = {
     topic: string;
@@ -66,6 +67,8 @@ export type BrainstormState = {
     // the check review's cursor row and the rows opened to their was/now; here because the keybindings and the
     // asking rail's links act on them from outside the review
     review: { cursor: string | null; open: Record<string, boolean> };
+    // a part opened from outside the pane (openBrainstormAt): the pane opens its row, scrolls to it, then clears it
+    partTarget?: string | null;
 };
 
 // what every view draws: the file, with a pending sent line read as the agent writing
@@ -199,6 +202,66 @@ export function openBrainstormBoard(agentId: string, board: string | null): void
 
 export function openBrainstormDesign(agentId: string, open: boolean): void {
     updateBrainstorm(agentId, (s) => ({ ...s, designOpen: open }));
+}
+
+// The pane at a place, for a control outside it (the Rendered transcript's cards): a part opens the design at that
+// part's row (in the check phase, the review's cursor on it), a board the pane's board view on that board of the
+// brainstorm's canvas, marking on for mark; neither, the pane as it was
+export function openBrainstormAt(
+    agentId: string,
+    at: { part?: string; board?: string; mark?: boolean },
+    now: number = Date.now()
+): void {
+    const s = getBrainstorm(agentId);
+    if (s == null) {
+        return;
+    }
+    setBrainstormMode(agentId, "brainstorm", now);
+    const canvas = s.file?.canvas;
+    if (at.part != null) {
+        const part = at.part;
+        updateBrainstorm(agentId, (x) => ({
+            ...x,
+            board: null,
+            designOpen: true,
+            partTarget: part,
+            review: x.file?.check != null ? { ...x.review, cursor: part } : x.review,
+        }));
+    } else if (at.board != null && canvas != null) {
+        attachCanvas(
+            agentId,
+            { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board: at.board },
+            now
+        );
+        setMarking(agentId, at.mark === true);
+        openBrainstormBoard(agentId, at.board);
+    }
+}
+
+export function clearPartTarget(agentId: string): void {
+    updateBrainstorm(agentId, (s) => ({ ...s, partTarget: null }));
+}
+
+// every answer Arc sent to a brainstorm question, keyed by the brainstorm file's path, so the transcript can tell an
+// answer picked in its own card from one picked in the pane. In memory only: after a restart the transcript claims no
+// place for an answer
+export type AnswerOrigin = "transcript" | "pane";
+export type AnswerRecord = {
+    line: string;
+    question: number | null;
+    builder: string | null;
+    answer: string;
+    origin: AnswerOrigin;
+    at: number;
+};
+
+export const brainstormAnswersAtom = atom<Record<string, AnswerRecord[]>>({}) as PrimitiveAtom<
+    Record<string, AnswerRecord[]>
+>;
+
+export function recordAnswer(path: string, rec: AnswerRecord): void {
+    const all = globalStore.get(brainstormAnswersAtom);
+    globalStore.set(brainstormAnswersAtom, { ...all, [path]: [...(all[path] ?? []), rec] });
 }
 
 // ids is the review's rows in cursor order; a cursor not among them (none yet, or its row gone) starts at the first
