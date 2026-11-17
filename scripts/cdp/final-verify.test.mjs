@@ -23,6 +23,7 @@ import {
     releaseDevApp,
     sweepStaleStores,
     tauriSourceKey,
+    timingLine,
     unlinkBuildJunctions,
     writeExeStamp,
     writeFinalManifest,
@@ -272,6 +273,19 @@ describe("parseFinalArgs", () => {
 
     it("passes every scenario on when the flag is absent", () => {
         expect(parseFinalArgs(["a", "b"])).toEqual({ scenarios: ["a", "b"], isolateClaudeConfig: false });
+    });
+});
+
+// the line a transcript or run log is measured from: which part of a stage took its time
+describe("timingLine", () => {
+    it("names each phase in whole seconds", () => {
+        expect(timingLine({ slot: 0, prep: 41_400, app: 32_600, verify: 22_000 })).toBe(
+            "final-verify timing: slot wait 0s, prep 41s, app 33s, verify 22s"
+        );
+    });
+
+    it("leaves out a phase the stage never reached", () => {
+        expect(timingLine({ slot: 1_000, prep: 5_000 })).toBe("final-verify timing: slot wait 1s, prep 5s");
     });
 });
 

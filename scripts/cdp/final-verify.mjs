@@ -463,9 +463,26 @@ export function finalOutcome(verifyCode, close) {
     return { code: EXIT_UNVERIFIED, line: close.reason };
 }
 
+const TIMING_PHASES = [
+    ["slot", "slot wait"],
+    ["prep", "prep"],
+    ["app", "app"],
+    ["verify", "verify"],
+];
+
+// where a stage's time went, in ms per phase; a phase it never reached is left out. Printed so worker checks and
+// Finals can be measured from their transcripts and run logs
+export function timingLine(timing) {
+    const parts = TIMING_PHASES.filter(([key]) => timing[key] != null).map(
+        ([key, label]) => `${label} ${Math.round(timing[key] / 1000)}s`
+    );
+    return `final-verify timing: ${parts.join(", ")}`;
+}
+
 // starts the dev app: ARC_FINAL_DEV_CMD when set, else the build steps, then the slot's exe when it was built from this
 // source, else `cargo tauri dev`. Resolves { dev, vite?, stamp?, reason? }: dev is the process whose exit and CDP
-// port the stage watches (the build steps' when they failed), stamp the key to record once cargo's exe answers
+// port the stage watches (the build steps' when they failed), stamp the key to record once cargo's exe answers, and
+// prepMs how long the build steps took
 async function startApp({ start, root, configPath, configText, targetDir, vitePort, port, deadline }) {
     const override = process.env.ARC_FINAL_DEV_CMD;
     if (override) {
@@ -473,10 +490,12 @@ async function startApp({ start, root, configPath, configText, targetDir, vitePo
         return { dev: start(override) };
     }
     console.log(`building with \`${PREP_CMD}\``);
+    const prepStart = Date.now();
     const prep = start(PREP_CMD);
     const prepCode = await exitWithin(prep, deadline - Date.now());
-    if (prepCode === null) return { dev: prep, reason: `\`${PREP_CMD}\` did not finish within the boot budget` };
-    if (prepCode !== 0) return { dev: prep, reason: `\`${PREP_CMD}\` exited with code ${prepCode}` };
+    const prepMs = Date.now() - prepStart;
+    if (prepCode === null) return { dev: prep, prepMs, reason: `\`${PREP_CMD}\` did not finish within the boot budget` };
+    if (prepCode !== 0) return { dev: prep, prepMs, reason: `\`${PREP_CMD}\` exited with code ${prepCode}` };
 
     const key = tauriSourceKey(root, configText);
     const exe = prebuiltExe(targetDir, key);
@@ -485,13 +504,13 @@ async function startApp({ start, root, configPath, configText, targetDir, vitePo
         rmSync(exeStampPath(targetDir), { force: true });
         const cmd = `npm run dev -- --config "${configPath}"`;
         console.log(`starting \`${cmd}\` on :${port}, vite :${vitePort}`);
-        return { dev: start(cmd), stamp: key };
+        return { dev: start(cmd), stamp: key, prepMs };
     }
     console.log(`reusing ${exe}, built from this src-tauri: no cargo build. cdp :${port}, vite :${vitePort}`);
     const vite = start(tauriConfig(vitePort).build.beforeDevCommand);
-    if (!(await waitForVite(vitePort, vite, deadline))) return { dev: vite, reason: `vite did not answer on :${vitePort}` };
+    if (!(await waitForVite(vitePort, vite, deadline))) return { dev: vite, prepMs, reason: `vite did not answer on :${vitePort}` };
     // cargo tauri dev runs it from src-tauri
-    return { dev: start(exe, { shell: false, cwd: join(root, "src-tauri") }), vite };
+    return { dev: start(exe, { shell: false, cwd: join(root, "src-tauri") }), vite, prepMs };
 }
 
 async function main() {
@@ -501,8 +520,10 @@ async function main() {
     const bootMs = Number(process.env.ARC_FINAL_BOOT_MS) || DEFAULT_BOOT_MS;
     const lockWaitMs = Number(process.env.ARC_FINAL_LOCK_WAIT_MS) || DEFAULT_LOCK_WAIT_MS;
     mkdirSync(FINAL_BASE, { recursive: true });
+    const slotStart = Date.now();
     const held = await acquireBuildSlot(FINAL_BASE, lockWaitMs);
     if (!held) unverified(`other final stages held every build slot for ${Math.round(lockWaitMs / 1000)}s`);
+    const timing = { slot: Date.now() - slotStart };
     const { slot, lock } = held;
     // two stages started together would otherwise pick the same free ports
     const portOffset = slot * SLOT_PORT_STRIDE;
@@ -574,10 +595,14 @@ async function main() {
     let reason;
     let close;
     let app;
+    const bootStart = Date.now();
     try {
         app = await startApp({ start, root, configPath, configText, targetDir, vitePort, port, deadline });
+        timing.prep = app.prepMs;
         reason = app.reason;
-        if (!reason && !(await waitForCdp(port, app.dev, deadline - Date.now()))) {
+        const answered = !reason && (await waitForCdp(port, app.dev, deadline - Date.now()));
+        if (!reason) timing.app = Date.now() - bootStart - (app.prepMs ?? 0);
+        if (!reason && !answered) {
             reason =
                 app.dev.exitCode === null
                     ? `dev app did not answer on :${port}`
@@ -585,7 +610,9 @@ async function main() {
         } else if (!reason) {
             // answering, so cargo finished building the exe from this source
             if (app.stamp) writeExeStamp(targetDir, app.stamp);
+            const verifyStart = Date.now();
             code = await runVerify(port, scenarios);
+            timing.verify = Date.now() - verifyStart;
             if (existsSync(SHOTS_DIR)) {
                 cpSync(SHOTS_DIR, join(out, SHOTS_DIR), { recursive: true });
                 writeFinalManifest(SHOTS_DIR, out);
@@ -606,6 +633,8 @@ async function main() {
         dropStore(store, out);
     }
     const outcome = reason ? { code: EXIT_UNVERIFIED, line: reason } : finalOutcome(code, close);
+    // before the outcome line: the engine reads the last stdout line as the unverified reason
+    console.log(timingLine(timing));
     if (outcome.line) console.log(outcome.line);
     // not process.exit: the loop drains by itself now that the stage let go of everything
     process.exitCode = outcome.code;

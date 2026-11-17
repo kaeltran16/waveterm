@@ -43,10 +43,13 @@ const SHOTS_DIR = "cdp-shots";
 const results = [];
 // a scenario owns the shots taken from its start to the next one's: the goto shot, then any from assert or teardown
 const shotsByScenario = {};
-for (const scenario of chosen) {
+for (const [i, scenario] of chosen.entries()) {
     const firstShot = h.shots.length;
     let ctx;
     try {
+        // each scenario after the first starts on a fresh page: front-end state an earlier one left made a step
+        // fail in Final's order that passed alone (rendered-bs-mockup, 14 of 14 alone)
+        if (i > 0) await h.reload();
         ctx = await scenario.arrange(h);
         await h.goto(scenario.surface);
         await h.shot(`cdp-shots/${scenario.name}.png`);
