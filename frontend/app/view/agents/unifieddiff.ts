@@ -90,3 +90,7 @@ export function capDiffLines(files: EditFile[], max: number): { files: EditFile[
     });
     return { files: capped, hidden };
 }
+
+export function hiddenLinesLabel(hidden: number): string {
+    return `${hidden} more ${hidden === 1 ? "line" : "lines"} in raw`;
+}

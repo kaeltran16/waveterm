@@ -12,7 +12,7 @@ import { RecordedOutput } from "./recordedoutput";
 import { ToolDetailBody } from "./tooldetailbody";
 import { bashCard, toolRendererKey } from "./renderregistry";
 import { failureLabel, type TestSummary } from "./testoutput";
-import { capDiffLines } from "./unifieddiff";
+import { capDiffLines, hiddenLinesLabel } from "./unifieddiff";
 
 // Tool output cards: a test or diff card is its step's opened body (StepsOpen.dc.html test card), open from the start in
 // the rendered view; an image card sits under its row there. A collapsed card (one in a finished turn that is not the
@@ -208,7 +208,7 @@ function DiffCard({ files, output, collapsed }: { files: EditFile[]; output: str
         <BashCardShell kind="git-diff" label="git diff" counts={counts} output={output} collapsed={collapsed}>
             <ToolDetailBody detail={{ kind: "edit", files: shown }} variant="inline" />
             {hidden > 0 ? (
-                <div className="px-[11px] py-[7px] text-[12px] text-muted">{`${hidden} more lines in raw`}</div>
+                <div className="px-[11px] py-[7px] text-[12px] text-muted">{hiddenLinesLabel(hidden)}</div>
             ) : null}
         </BashCardShell>
     );
