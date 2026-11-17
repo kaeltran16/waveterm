@@ -300,7 +300,8 @@ describe("summaryLine follows what the panes show", () => {
             "3eaffac · 1 file · +2 −2"
         );
     });
-    it("reads the merge-base comparison from the head's side", () => {
+    // the ref picker beside the summary names both refs, so the summary names none
+    it("reads the merge-base comparison from its merge base, naming no ref", () => {
         const range = {
             kind: "compare",
             base: "main",
@@ -309,12 +310,12 @@ describe("summaryLine follows what the panes show", () => {
             from: { kind: "working" },
         } as const;
         expect(summaryLine({ ...base, mergeBase: "7a4155cff", range, changes: ch(31, 764, 88) })).toBe(
-            "exp-native since 7a4155c · 31 files · +764 −88"
+            "since 7a4155c · 31 files · +764 −88"
         );
     });
-    it("reads tip to tip as both refs", () => {
+    it("reads tip to tip naming no ref", () => {
         const range = { kind: "compare", base: "main", head: "x", form: "tips", from: { kind: "working" } } as const;
-        expect(summaryLine({ ...base, range, changes: ch(2) })).toBe("main .. x tip to tip · 2 files · +10 −2");
+        expect(summaryLine({ ...base, range, changes: ch(2) })).toBe("tip to tip · 2 files · +10 −2");
     });
     it("keeps the run and session phrasing for their top rows", () => {
         expect(
@@ -375,10 +376,10 @@ describe("compare range form", () => {
         expect(summaryLine({ ...input, range: { ...mergebase, form: "tips" } })).toContain("tip to tip");
     });
 
-    // unrelated histories have no merge base: no "since" with an empty hash
-    it("names both refs when there is no merge base", () => {
+    // unrelated histories have no merge base (or it is still loading): no "since" with an empty hash
+    it("reads the counts alone when there is no merge base", () => {
         const input = { branch: "feature", ref: "", mergeBase: "", commit: null, changes: null };
-        expect(summaryLine({ ...input, range: mergebase })).toBe("main … feature · 0 files · +0 −0");
+        expect(summaryLine({ ...input, range: mergebase })).toBe("0 files · +0 −0");
     });
 });
 

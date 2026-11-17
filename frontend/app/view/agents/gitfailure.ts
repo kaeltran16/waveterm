@@ -5,15 +5,19 @@
 // one-line notice that shows the first line shows the warning instead of the failure.
 const ERROR_PREFIXES = ["fatal:", "error:"];
 const NOISE_PREFIXES = ["warning:", "hint:"];
+// a push's per-ref status for a ref it refused ("! [rejected] main -> main (fetch first)"); only a push
+// prints it, and it says why where the error line after it only says "failed to push some refs"
+const REFUSED_REF_PREFIX = "! [";
 
-// the one line of stderr that best says why git failed: its error line, else the first non-warning line,
-// else the first line, so a warnings-only stderr still shows something.
+// the one line of stderr that best says why git failed: a refused ref, else its error line, else the first
+// non-warning line, else the first line, so a warnings-only stderr still shows something.
 export function failureHeadline(stderr: string): string {
     const lines = stderr
         .split(/\r?\n/)
         .map((line) => line.trim())
         .filter((line) => line !== "");
     return (
+        lines.find((line) => line.startsWith(REFUSED_REF_PREFIX)) ??
         lines.find((line) => ERROR_PREFIXES.some((p) => line.startsWith(p))) ??
         lines.find((line) => !NOISE_PREFIXES.some((p) => line.startsWith(p))) ??
         lines[0] ??

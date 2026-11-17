@@ -165,6 +165,7 @@ function TooltipInner({
                             transition: `opacity ${MOTION.durMicro}s ${easeFluidCss}`,
                         }}
                         {...getFloatingProps()}
+                        role="tooltip"
                         data-tooltip=""
                         className={TOOLTIP_SURFACE}
                     >

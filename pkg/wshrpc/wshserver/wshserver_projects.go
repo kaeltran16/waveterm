@@ -6,6 +6,7 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,8 +87,6 @@ func (ws *WshServer) ListBranchesCommand(ctx context.Context, data wshrpc.Comman
 	// A repo with no resolvable default is not an error here — DefaultBranch returns "" and the
 	// picker's base field just opens empty.
 	rtn.Default, _ = gitinfo.DefaultBranch(ctx, data.ProjectPath)
-	// degrades to false like Default: the surface just offers no fetch
-	rtn.HasRemote, _ = gitinfo.HasRemote(ctx, data.ProjectPath)
 	return rtn, nil
 }
 
@@ -107,5 +106,14 @@ func (ws *WshServer) GitChangesCommand(ctx context.Context, data wshrpc.CommandG
 	if err != nil {
 		return nil, fmt.Errorf("git changes: %w", err)
 	}
-	return &wshrpc.CommandGitChangesRtnData{Branch: ch.Branch, StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo, Ref: ref, Head: ch.Head, NumstatError: ch.NumstatError}, nil
+	rtn := &wshrpc.CommandGitChangesRtnData{Branch: ch.Branch, StatusZ: ch.StatusZ, Numstat: ch.Numstat, IsRepo: ch.IsRepo, Ref: ref, Head: ch.Head, NumstatError: ch.NumstatError}
+	if data.Remote && ch.IsRepo {
+		// the change list is the surface's primary answer: a failed remote read only drops Push's detail
+		if facts, err := gitinfo.RemoteStatus(ctx, data.Cwd); err != nil {
+			log.Printf("git changes %s: remote status: %v", data.Cwd, err)
+		} else {
+			rtn.HasRemote, rtn.Upstream, rtn.Ahead, rtn.Behind = facts.HasRemote, facts.Upstream, facts.Ahead, facts.Behind
+		}
+	}
+	return rtn, nil
 }

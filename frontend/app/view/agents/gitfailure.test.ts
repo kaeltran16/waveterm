@@ -24,6 +24,17 @@ describe("failureHeadline", () => {
         expect(failureHeadline("warning: only")).toBe("warning: only");
     });
 
+    // a push prints its per-ref status ahead of the error line; the rejected ref is the reason
+    it("takes a push's rejected ref line over its error line", () => {
+        const stderr = [
+            "To /tmp/origin.git",
+            " ! [rejected]        main -> main (fetch first)",
+            "error: failed to push some refs to '/tmp/origin.git'",
+            "hint: Updates were rejected because the remote contains work that you do not",
+        ].join("\n");
+        expect(failureHeadline(stderr)).toBe("! [rejected]        main -> main (fetch first)");
+    });
+
     it("is empty for empty stderr", () => {
         expect(failureHeadline("")).toBe("");
     });

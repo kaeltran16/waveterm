@@ -822,6 +822,12 @@ export class RpcApiType {
         return client.wshRpcCall("gitlistworktrees", data, opts);
     }
 
+    // command "gitpush" [call]
+    GitPushCommand(client: WshClient, data: CommandGitPushData, opts?: RpcOpts): Promise<CommandGitPushRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitpush", data, opts);
+        return client.wshRpcCall("gitpush", data, opts);
+    }
+
     // command "jarvisctx" [call]
     JarvisCtxCommand(client: WshClient, data: CommandJarvisCtxData, opts?: RpcOpts): Promise<CommandJarvisCtxRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "jarvisctx", data, opts);

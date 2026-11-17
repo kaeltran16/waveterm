@@ -48,9 +48,6 @@ export const compareSelectedFileAtom = atom<string | null>(null) as PrimitiveAto
 // A failed compare read, phrased with the refs in it so the column can name what did not resolve.
 export const compareErrorAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 export const compareBranchesAtom = atom<BranchInfo[]>([]) as PrimitiveAtom<BranchInfo[]>;
-// whether the repository has any remote at all, which remote-tracking refs alone cannot say: a clone
-// of a never-fetched remote has a remote and no origin/* branches
-export const compareHasRemoteAtom = atom<boolean>(false) as PrimitiveAtom<boolean>;
 // a failed commit-row file list, so the column can say so and offer a retry rather than draw nothing
 export const compareCommitFailureAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
@@ -112,11 +109,9 @@ export async function loadCompareRefsMeta(cwd: string): Promise<string> {
         // backend's default branch now prefers the remote one (T2)
         const rtn = await RpcApi.ListBranchesCommand(TabRpcClient, { projectpath: cwd, includeremotes: true });
         globalStore.set(compareBranchesAtom, rtn.branches ?? []);
-        globalStore.set(compareHasRemoteAtom, rtn.hasremote ?? false);
         return rtn.default ?? "";
     } catch {
         globalStore.set(compareBranchesAtom, []);
-        globalStore.set(compareHasRemoteAtom, false);
         return "";
     }
 }
@@ -271,70 +266,6 @@ export async function swapCompareRefs(cwd: string): Promise<void> {
         return;
     }
     await setCompareRefs(cwd, refs.head, refs.base);
-}
-
-export interface FetchState {
-    running: boolean;
-    at: number; // unix seconds of the last successful fetch; 0 = never in this session
-    failure: GitFailure | null;
-}
-
-// keyed by repository: a fetch is a fact about one remote, so its clock and its failure must not
-// follow the surface to the next source picked
-export const fetchStatesAtom = atom<Record<string, FetchState>>({}) as PrimitiveAtom<Record<string, FetchState>>;
-
-const FETCH_IDLE: FetchState = { running: false, at: 0, failure: null };
-
-export function fetchStateOf(states: Record<string, FetchState>, cwd: string | undefined): FetchState {
-    return (cwd && states[cwd]) || FETCH_IDLE;
-}
-
-function setFetchState(cwd: string, patch: Partial<FetchState>): void {
-    const states = globalStore.get(fetchStatesAtom);
-    globalStore.set(fetchStatesAtom, { ...states, [cwd]: { ...fetchStateOf(states, cwd), ...patch } });
-}
-
-// The one network call this surface makes. A remote-tracking ref is only as fresh as the last fetch,
-// so comparing against origin/main without one silently compares against yesterday's origin/main.
-//
-// The budget is raised on purpose: the client's timeout binds the SERVER's context, so at the 5s
-// default a merely-slow fetch would be cancelled underneath a git process that is still running.
-// 60s sits just outside gitinfo's own 55s fetchTimeout, so git's answer arrives first and a real
-// timeout is reported by the side that knows what it was doing.
-export async function runFetch(cwd: string): Promise<void> {
-    setFetchState(cwd, { running: true, failure: null });
-    try {
-        const r = await RpcApi.GitFetchCommand(TabRpcClient, { cwd }, { timeout: 60000 });
-        // a failed fetch reports no time; the previous one still happened, so the clock keeps reading it
-        const prevAt = fetchStateOf(globalStore.get(fetchStatesAtom), cwd).at;
-        setFetchState(cwd, { running: false, at: r.fetchedat || prevAt, failure: r.failure ?? null });
-        if (r.failure != null) {
-            return;
-        }
-        // a fetch takes seconds: the surface may have moved to another repository, or out of compare, since.
-        // Re-reading this one then would put its branches in the picker and read the other's pair here.
-        if (!globalStore.get(compareOnAtom) || remembered.cwd !== cwd) {
-            return;
-        }
-        // The refs moved, so what the picker suggests and what the comparison means both moved with
-        // them. Re-reading is the point of having fetched.
-        await loadCompareRefsMeta(cwd);
-        const refs = globalStore.get(compareRefsAtom);
-        if (refs != null) {
-            await setCompareRefs(cwd, refs.base, refs.head);
-        }
-    } catch {
-        // An RPC-level failure has no stderr to show, so say the one thing that is known rather than
-        // leaving the button spinning.
-        setFetchState(cwd, {
-            running: false,
-            failure: { command: "git fetch", exitcode: -1, stderr: "the fetch did not complete" },
-        });
-    }
-}
-
-export function dismissFetchFailure(cwd: string): void {
-    setFetchState(cwd, { failure: null });
 }
 
 export async function selectCompareRow(cwd: string, rowId: string): Promise<void> {

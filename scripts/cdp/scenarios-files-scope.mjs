@@ -575,18 +575,20 @@ async function compareAndLayoutSteps(h, ctx, rec) {
     const remoteCompare = await until(h, `${q('[data-range-chip="compare"]')}?.getAttribute("aria-pressed") === "true"`, 10000);
     const fetchDrawn = onRemote && remoteCompare && (await until(h, `!!${q("[data-files-fetch]")}`, 10000));
     if (fetchDrawn) await mouseClick(h, "[data-files-fetch]");
-    const fetched = fetchDrawn && (await until(h, `(${q("[data-files-fetched]")}?.textContent ?? "").trim() === "fetched just now"`, 15000));
-    const fetchedText = await textOf(h, "[data-files-fetched]");
+    // the clock sits inside the Fetch button
+    const clockSel = "[data-files-fetch] [data-files-fetched]";
+    const fetched = fetchDrawn && (await until(h, `(${q(clockSel)}?.textContent ?? "").trim() === "just now"`, 15000));
+    const fetchedText = await textOf(h, clockSel);
     const fetchStates = await lookEval(h, `
         const { globalStore } = await mod("app/store/jotaiStore.ts");
-        const { fetchStatesAtom } = await mod("app/view/agents/comparestore.ts");
+        const { gitRemoteStatesAtom } = await mod("app/view/agents/gitremotestore.ts");
         const { filesStateAtom } = await mod("app/view/agents/filesstore.ts");
-        return { states: globalStore.get(fetchStatesAtom), cwd: globalStore.get(filesStateAtom)?.cwd ?? null };
+        return { states: globalStore.get(gitRemoteStatesAtom), cwd: globalStore.get(filesStateAtom)?.cwd ?? null };
     `);
     await h.shot("cdp-shots/diff-scope-fetched.png");
     await h.ev(`${q('[data-range-chip="working"]')}?.click()`);
     rec(
-        "17. fetched just now: on a clone with a remote, Fetch is drawn and its clock reads \"fetched just now\"",
+        "17. fetched just now: on a clone with a remote, Fetch is drawn and the clock inside it reads \"just now\"",
         fetched,
         JSON.stringify({ onRemote, remoteCompare, fetchDrawn, fetchedText, fetchStates })
     );
