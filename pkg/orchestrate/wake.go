@@ -773,13 +773,16 @@ func SendToSession(blockId, text string) {
 	sendWakeFn(blockId, text)
 }
 
-// QueueToSession delivers a message the person typed into an agent's box: over its mod's stream marked Queue,
-// so the mod holds it for the turn's next step and reports it; with no stream it goes as SendToSession's does.
+// QueueToSession delivers a message the person typed into an agent's box. Mid-turn it goes over the mod's stream
+// marked Queue, so the mod holds it for the turn's next step and reports it. At the prompt it is typed, stream or
+// not: after the person's Stop, Claude Code refuses a mod's prompts until the person types, so a streamed message
+// would bounce back to the box every time.
 func QueueToSession(blockId, text string) {
-	if toStream(blockId, text, latestAgentState(blockId, ""), true) {
+	state := latestAgentState(blockId, "")
+	if !atPrompt(state) && toStream(blockId, text, state, true) {
 		return
 	}
-	sendWakeFn(blockId, text)
+	typeWakeFn(blockId, text)
 }
 
 // sendWake delivers a wake: a session whose mod holds a control stream is not typed into at all.

@@ -978,13 +978,15 @@ func TestRetryEnterIsNotTypedIntoASessionWithAStream(t *testing.T) {
 	}
 }
 
-// captureSends records what the plain delivery path is handed, the one that types into a session with no stream.
+// captureSends records what the typing paths are handed: the plain delivery, which types into a session with no
+// stream, and the one that types whether or not a stream is open.
 func captureSends(t *testing.T) *[]string {
 	t.Helper()
-	orig := sendWakeFn
+	origSend, origType := sendWakeFn, typeWakeFn
 	sent := &[]string{}
 	sendWakeFn = func(_, text string) { *sent = append(*sent, text) }
-	t.Cleanup(func() { sendWakeFn = orig })
+	typeWakeFn = sendWakeFn
+	t.Cleanup(func() { sendWakeFn, typeWakeFn = origSend, origType })
 	return sent
 }
 
@@ -994,27 +996,38 @@ func publishBlockState(blockId, state string) {
 		Data: baseds.AgentStatusData{ORef: oref, State: state, Ts: 1}})
 }
 
-func TestQueuedTextGoesOverTheStreamMarkedQueued(t *testing.T) {
-	const working, idle = "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e01", "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e02"
+func TestQueuedTextMidTurnGoesOverTheStreamMarkedQueued(t *testing.T) {
+	const working = "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e01"
 	typed := captureSends(t)
 	publishBlockState(working, baseds.AgentState_Working)
-	publishBlockState(idle, baseds.AgentState_Idle)
-	for _, tc := range []struct {
-		block   string
-		midTurn bool
-	}{{working, true}, {idle, false}} {
-		msgs, done := agentctl.Register(tc.block)
-		QueueToSession(tc.block, "and the tests")
-		done()
-		if len(msgs) != 1 {
-			t.Fatalf("block %s: stream got %d messages, want 1", tc.block, len(msgs))
-		}
-		if got := <-msgs; got.Text != "and the tests" || !got.Queue || got.MidTurn != tc.midTurn || got.TakeBack != "" {
-			t.Fatalf("block %s: stream got %+v, want queued text with MidTurn %v", tc.block, got, tc.midTurn)
-		}
+	msgs, done := agentctl.Register(working)
+	QueueToSession(working, "and the tests")
+	done()
+	if len(msgs) != 1 {
+		t.Fatalf("stream got %d messages, want 1", len(msgs))
+	}
+	if got := <-msgs; got.Text != "and the tests" || !got.Queue || !got.MidTurn || got.TakeBack != "" {
+		t.Fatalf("stream got %+v, want queued mid-turn text", got)
 	}
 	if len(*typed) != 0 {
-		t.Fatalf("a session with a stream was typed into: %q", *typed)
+		t.Fatalf("a working session with a stream was typed into: %q", *typed)
+	}
+}
+
+// after the person's Stop, Claude Code refuses a mod's prompts until the person types, so every box message sent
+// over the stream to an idle session bounced back to the box as lost and the person could send nothing
+func TestQueuedTextAtThePromptIsTypedEvenWithAStream(t *testing.T) {
+	const idle = "6a1e0a52-2d5c-4c3b-9d8e-0f3b7c1a9e02"
+	typed := captureSends(t)
+	publishBlockState(idle, baseds.AgentState_Idle)
+	msgs, done := agentctl.Register(idle)
+	QueueToSession(idle, "and the tests")
+	done()
+	if len(msgs) != 0 {
+		t.Fatalf("an idle session's stream got %d messages, want none", len(msgs))
+	}
+	if len(*typed) != 1 || (*typed)[0] != "and the tests" {
+		t.Fatalf("typed %q, want the text once", *typed)
 	}
 }
 
