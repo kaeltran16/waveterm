@@ -72,20 +72,17 @@ function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: b
     );
 }
 
-// A finished turn's work behind its Worked-for line, which opens to the items in order. startsOpen: it holds a tool
-// output card (rendered view), which a fold would hide. finishing: the turn just finished under a mounted feed, so it
-// mounts open and folds its work away under the new line. unfold: drawn open with no reveal, so a find over the
-// transcript sees every row where it will stay.
+// A finished turn's work behind its Worked-for line, which opens to the items in order. finishing: the turn just
+// finished under a mounted feed, so it mounts open and folds its work away under the new line. unfold: drawn open
+// with no reveal, so a find over the transcript sees every row where it will stay.
 function TurnFold({
     fold,
-    startsOpen,
     finishing,
     unfold,
     compact,
     children,
 }: {
     fold: FoldSummary;
-    startsOpen: boolean;
     finishing: boolean;
     unfold: boolean;
     compact: boolean;
@@ -94,7 +91,7 @@ function TurnFold({
     const [toggled, setToggled] = useState(false);
     const [settled, setSettled] = useState(!finishing);
     useEffect(() => setSettled(true), []);
-    const open = unfold || !settled || (startsOpen ? !toggled : toggled);
+    const open = unfold || !settled || toggled;
     const body = <AnimatePresence initial={false}>{children}</AnimatePresence>;
     return (
         <div data-turn-fold>
@@ -567,8 +564,8 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     const role = ctx?.role;
     const marksKey = (marks ?? []).map((m) => m.afterEntry).join(",");
     const items = useMemo(
-        () => layoutTranscript(entries, { active: !!active, ctx: { role }, thoughts, renderers, marks }),
-        [entries, active, role, thoughts, renderers, marksKey]
+        () => layoutTranscript(entries, { active: !!active, ctx: { role }, thoughts, marks }),
+        [entries, active, role, thoughts, marksKey]
     );
     // a turn folding after the first render is one that just finished
     const mounted = useRef(false);
@@ -603,7 +600,6 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                 <TurnFold
                     key={"f" + item.startIndex}
                     fold={item.fold}
-                    startsOpen={item.open}
                     finishing={mounted.current && item === lastTurn}
                     unfold={!!unfold}
                     compact={isCompact}

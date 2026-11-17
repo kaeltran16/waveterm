@@ -168,7 +168,7 @@ describe("placeMarks", () => {
                 startIndex: 1,
                 items: [items[1]],
                 fold: { phrase: "", adds: 0, dels: 0, failed: 0 },
-                open: false,
+                latest: false,
             },
             items[2],
         ];

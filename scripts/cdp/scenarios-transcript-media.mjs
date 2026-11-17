@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
+import { clearTranscript, openFolds, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const T0 = Date.UTC(2026, 10, 16, 9, 0, 0);
@@ -90,6 +90,8 @@ export const transcriptMedia = {
             width: WIDE,
             renderers: true,
         });
+        // the finished turn starts folded, its image card inside
+        await openFolds(h);
         const opened = await poll(h, `!!${R}?.querySelector('[data-tool-card="image"]')`);
         const state = await h.ev(THUMBS_STATE);
         await h.shot("cdp-shots/transcript-media-thumbs.png");

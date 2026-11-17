@@ -2,8 +2,8 @@
 // work folded into one "Worked for N" line that opens to its step boxes and cards, a running step's live elapsed, a
 // wsh change call as a standalone row inside its turn's fold while a failed one stays a step, a queued message
 // splitting a turn's fold in two, consecutive thoughts merged into one clamped thought that stays clamped under
-// renderAll and opens under unfold (as does a long bubble), a heredoc step's derived title,
-// a background notice's muted row, and a slash command's printed output under its row. The fold checks run at the Rendered column's width and at a card's (compact).
+// renderAll and opens under unfold (as does a long bubble), a heredoc step's derived title, a cd-prefixed command's
+// preview, turns started by a background notification, a background notice's muted row, and a slash command's printed output under its row. The fold checks run at the Rendered column's width and at a card's (compact).
 
 import { bash, clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
@@ -379,7 +379,7 @@ const STEPS_OPEN_STATE = probe(`
 
 async function stepsOpenStep(h) {
     await showTranscript(h, { entries: STEPS_OPEN, width: 736, renderers: true });
-    // a stretch holding a test card starts open in the rendered view; open the other two steps as the board draws them
+    // the fold starts closed even with a test card in it; open it, then the other two steps as the board draws them
     await h.ev(openFold);
     await sleep(MOTION_MS);
     const grep = await h.ev(openStep("Searched"));
@@ -651,6 +651,75 @@ async function heredocStep(h) {
     };
 }
 
+// two turns, each started by a background-task notification that arrived as its own record (not queued): each its own
+// Worked for line with its reply after it, rather than one fold swallowing both
+const NOTIFIED_REPLIES = ["The first test run passed.", "The second test run passed too."];
+const NOTIFIED = NOTIFIED_REPLIES.flatMap((reply, k) => {
+    const ts = T0 + k * 600 * S;
+    return [
+        { kind: "notification", summary: `Background command "npm test" completed (exit code 0)`, status: "completed", ts },
+        tool("read", `run-${k}.log`, { ts: ts + S, durationMs: 100 }),
+        prose(reply, ts + 4 * S),
+    ];
+});
+
+const NOTIFIED_STATE = probe(`
+    const folds = [...root.querySelectorAll('[data-fold]')];
+    const replies = ${JSON.stringify(NOTIFIED_REPLIES)}.map((r) => [...root.querySelectorAll('[data-find-turn]')].find((t) => t.textContent.includes(r)));
+    const after = (a, b) => !!(a && b && a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    return {
+        folds: folds.map((f) => f.textContent),
+        replies: replies.map((r) => (r ? { inFold: !!r.closest('[data-turn-fold]'), visible: r.getBoundingClientRect().height > 0 } : null)),
+        order: after(folds[0], replies[0]) && after(replies[0], folds[1]) && after(folds[1], replies[1]),
+    };
+`);
+
+async function notifiedStep(h) {
+    await showTranscript(h, { entries: NOTIFIED, width: 736 });
+    const s = await h.ev(NOTIFIED_STATE);
+    await h.shot("cdp-shots/transcript-base-notified.png");
+    return {
+        step: "Notification turns: two turns started by a background notification draw two Worked for lines, each with its reply after it",
+        ok:
+            s != null &&
+            s.folds.length === 2 &&
+            s.folds.every((f) => f.startsWith("Worked for")) &&
+            s.replies.every((r) => r != null && r.inFold === false && r.visible) &&
+            s.order === true,
+        detail: JSON.stringify(s),
+    };
+}
+
+// a worker's command prefixed with a cd into its own tree: the row previews the command, the opened detail keeps the cd
+const CD_DIR = "C:/Users/someone/AppData/Local/arc-wt/f860511c-t-6";
+const CD_TURN = [
+    user("Run the tests.", T0),
+    bash({ description: "Run the tests", command: `cd ${CD_DIR} && npm test`, output: "ok 12 passed", ts: T0 + S, durationMs: 2_000 }),
+    prose("They pass.", T0 + 4 * S),
+];
+
+const CD_STATE = probe(`
+    const step = [...root.querySelectorAll('[data-step]')].find((s) => s.textContent.includes('Run the tests'));
+    const panel = step?.querySelector('[data-tool-panel]');
+    return { mono: step?.querySelector('.font-mono')?.textContent ?? null, panel: panel?.textContent ?? null };
+`);
+
+async function cdPreviewStep(h) {
+    await showTranscript(h, { entries: CD_TURN, width: 736 });
+    await h.ev(openFold);
+    await sleep(MOTION_MS);
+    const closed = await h.ev(CD_STATE);
+    await h.ev(openStep("Run the tests"));
+    await sleep(MOTION_MS);
+    const opened = await h.ev(CD_STATE);
+    await h.shot("cdp-shots/transcript-base-cd-preview.png");
+    return {
+        step: "Command preview: a cd <dir> && npm test row previews npm test; the opened detail keeps the cd",
+        ok: closed?.mono === "npm test" && (opened?.panel ?? "").includes(`cd ${CD_DIR} && npm test`),
+        detail: JSON.stringify({ closed, opened }),
+    };
+}
+
 // a free-text background-task notice of two lines: one muted row that opens to the whole text
 const NOTICE_TEXT = "arc-skim: its prompt.compose hook was skipped\nthe hook timed out after 5 s; the prompt went out without it";
 const NOTICE_TURN = [
@@ -782,6 +851,8 @@ export const transcriptBase = {
         steps.push(await thoughtStep(h));
         steps.push(await clampModeStep(h));
         steps.push(await heredocStep(h));
+        steps.push(await cdPreviewStep(h));
+        steps.push(await notifiedStep(h));
         steps.push(await noticeStep(h));
         steps.push(await commandOutputStep(h));
         return steps;
