@@ -7,7 +7,6 @@
 
 import { DrawCheck } from "@/app/element/drawcheck";
 import { ViewSwap } from "@/app/element/viewswap";
-import { openTarget } from "@/app/view/jarvis/openref";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUpRight, Lightbulb } from "lucide-react";
@@ -22,6 +21,7 @@ import { CardFrame } from "./renderedbrainstorm";
 import type { CardProps } from "./renderedbrainstormmodel";
 import { brainstormClosedAtom, goneView, runCardView } from "./renderedbsrunmodel";
 import { useRunInfo } from "./runlineagestore";
+import { openRunBeside } from "./runrailsections";
 
 const STATE_DOT: Partial<Record<RunStepState, string>> = {
     "final-failed": "bg-error",
@@ -83,7 +83,7 @@ export function RunCard({ model, agent, s, f, compact }: CardProps): JSX.Element
         <button
             type="button"
             data-rendered-bs-open-run
-            onClick={() => void openTarget(model, { kind: "run", runId })}
+            onClick={(e) => openRunBeside(model, agent.id, runId, e)}
             className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline"
         >
             Open run

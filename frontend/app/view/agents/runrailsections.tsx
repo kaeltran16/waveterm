@@ -45,8 +45,10 @@ import { tsLabel } from "./runtimeline";
 import { useRunUsage } from "./runtokenstore";
 import { estimateText, summarizeUsage, tokensText, type UsageSummary } from "./runusage";
 import { SectionLabel, SubLabel } from "./sectionlabel";
+import type { RunView } from "./workspacemodel";
+import { openBeside } from "./workspacestore";
 
-const LANE_DOT: Record<LaneState, string> = {
+export const LANE_DOT: Record<LaneState, string> = {
     done: "bg-success",
     working: "bg-accent pulse-dot",
     asking: "bg-warning pulse-dot",
@@ -56,7 +58,7 @@ const LANE_DOT: Record<LaneState, string> = {
     muted: "bg-muted",
 };
 
-const LANE_TEXT: Record<LaneState, string> = {
+export const LANE_TEXT: Record<LaneState, string> = {
     done: "text-success",
     working: "text-accent",
     asking: "text-warning",
@@ -120,6 +122,21 @@ export function openRunDag(model: AgentsViewModel, run: RunInfo, taskId?: string
         return;
     }
     void openOrPeek(model, { kind: "dag", dagId: run.dag.oid, ...(taskId ? { taskId } : {}) }, event);
+}
+
+// openRunBeside opens a run's link: in the Rendered view, its Run tab beside the transcript of the agent the link
+// sits in (a new tab on view, an open one as it was); anywhere else, or with Ctrl held, the run as it opened before.
+export function openRunBeside(
+    model: AgentsViewModel,
+    agentId: string | undefined,
+    runId: string,
+    event?: React.MouseEvent,
+    view: RunView = "tasks"
+): void {
+    if (agentId && openBeside(model, agentId, { kind: "run", runId, view }, event)) {
+        return;
+    }
+    void openOrPeek(model, { kind: "run", runId }, event);
 }
 
 // useRunAsks is the open questions on a run, yours first. A rail with no run gets none.
@@ -245,7 +262,7 @@ export function NeedsYouSection({ model, run, asks }: { model: AgentsViewModel; 
 }
 
 // LeadAskCard is a worker's question the lead is answering, which the human can take over.
-function LeadAskCard({ model, run, ask }: { model: AgentsViewModel; run: RunInfo; ask: DagAskItem }) {
+export function LeadAskCard({ model, run, ask }: { model: AgentsViewModel; run: RunInfo; ask: DagAskItem }) {
     const now = useAtomValue(model.nowAtom);
     const error = useAtomValue(childAskErrorAtom)[childAskKey(ask)];
     const first = ask.questions[0];
@@ -381,6 +398,16 @@ function Lanes({ model, run, leadAsks }: { model: AgentsViewModel; run: RunInfo;
     );
 }
 
+// one row of a run's activity: when, then what happened
+export function ActivityRow({ ts, text, className }: { ts: number; text: string; className?: string }) {
+    return (
+        <div className={cn("flex gap-[9px] font-mono text-[11px] leading-[1.45] text-secondary", className)}>
+            <span className="flex-none text-muted">{tsLabel(ts)}</span>
+            <span className="min-w-0">{text}</span>
+        </div>
+    );
+}
+
 function Activity({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
     const events = useRunEvents(run.runId, run.channelId);
     const [open, setOpen] = useState(false);
@@ -392,12 +419,7 @@ function Activity({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
     // above it
     const [newest, ...older] = log;
     const more = older.length;
-    const row = (l: (typeof log)[number]) => (
-        <div key={l.id} className="flex gap-[9px] font-mono text-[11px] leading-[1.45] text-secondary">
-            <span className="flex-none text-muted">{tsLabel(l.ts)}</span>
-            <span className="min-w-0">{l.text}</span>
-        </div>
-    );
+    const row = (l: (typeof log)[number]) => <ActivityRow key={l.id} ts={l.ts} text={l.text} />;
     return (
         <div className="flex flex-col gap-[5px] border-t border-edge-faint pt-[10px]">
             <div className="flex items-center gap-[4px]">

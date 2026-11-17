@@ -4,6 +4,7 @@
 // wsh jarvis dag calls about the run itself: plan submit, review verdicts, Final, completion, and the dag status view.
 // Each card draws from argv first, then the run and dag status in wshdata, so a missing run still leaves the card.
 
+import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -13,7 +14,8 @@ import { useState, type ReactNode } from "react";
 import type { OpenTarget } from "../jarvis/address";
 import { shotRounds, stageHasShots } from "../jarvis/finalshotsmodel";
 import { FinalShotsViewer } from "../jarvis/finalshotsviewer";
-import { openTarget } from "../jarvis/openref";
+import { openOrPeek, openTarget } from "../jarvis/openref";
+import { selectedTaskIdAtom } from "../orchestrate/dagstore";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { plural } from "./cockpitsurfacemodel";
 import {
@@ -36,6 +38,8 @@ import {
 } from "./dagcards";
 import { LoadFailure } from "./recordedoutput";
 import type { TranscriptContext } from "./transcriptcontext";
+import type { RunView } from "./workspacemodel";
+import { openBeside } from "./workspacestore";
 import { CallFacts } from "./wshchangerow";
 import { useWshData, type WshDataState } from "./wshdata";
 import type { WshRendererProps, WshRenderers } from "./wshrenderers";
@@ -153,15 +157,22 @@ function Mark({ tone, compact }: { tone: Tone; compact: boolean }) {
     );
 }
 
-// a router link; draws nothing without the cockpit model to route through
+// the Run tab a link opens beside the transcript in the Rendered view: its run, the view a new tab starts on, and the
+// task the graph selects
+type Beside = { runId: string; view: RunView; taskId?: string };
+
+// a router link; draws nothing without the cockpit model to route through. With beside, the Rendered view opens the
+// run's tab instead, and anywhere else, or with Ctrl held, the target opens or peeks.
 function CardLink({
     ctx,
     target,
+    beside,
     label,
     compact,
 }: {
     ctx: TranscriptContext;
     target?: OpenTarget;
+    beside?: Beside;
     label: string;
     compact: boolean;
 }) {
@@ -169,10 +180,24 @@ function CardLink({
     if (model == null || target == null) {
         return null;
     }
+    const open = (e: React.MouseEvent) => {
+        if (beside == null) {
+            fireAndForget(() => openTarget(model, target));
+            return;
+        }
+        const tab = { kind: "run" as const, runId: beside.runId, view: beside.view };
+        if (ctx.agentId && openBeside(model, ctx.agentId, tab, e)) {
+            if (beside.taskId) {
+                globalStore.set(selectedTaskIdAtom, beside.taskId);
+            }
+            return;
+        }
+        void openOrPeek(model, target, e);
+    };
     return (
         <button
             type="button"
-            onClick={() => fireAndForget(() => openTarget(model, target))}
+            onClick={open}
             className={cn(
                 "inline-flex shrink-0 cursor-pointer items-center gap-1 text-ink-mid hover:text-foreground",
                 compact ? "text-[11.5px]" : "text-[12px]"
@@ -294,6 +319,7 @@ function DagSubmitCard({ call, action, ctx, compact }: WshRendererProps) {
             ? `${plural(m.tasks, "task")} · ${plural(m.lanes ?? 0, "lane")} · longest chain ${m.longestChain}`
             : undefined;
     const planTarget: OpenTarget | undefined = group ? { kind: "dag", dagId: group.oid || group.id } : undefined;
+    const planBeside: Beside | undefined = group?.runid ? { runId: group.runid, view: "graph" } : undefined;
     return (
         <Shell compact={compact}>
             <Head compact={compact}>
@@ -301,7 +327,7 @@ function DagSubmitCard({ call, action, ctx, compact }: WshRendererProps) {
                 <Label>Plan submitted</Label>
                 {shape ? <span className="min-w-0 truncate font-semibold text-foreground">{shape}</span> : null}
                 <Spacer />
-                <CardLink ctx={ctx} target={planTarget} label="Plan" compact={compact} />
+                <CardLink ctx={ctx} target={planTarget} beside={planBeside} label="Plan" compact={compact} />
                 {facts}
             </Head>
             {m.grid.length > 0 ? (
@@ -530,6 +556,8 @@ function CompleteCard({ call, action, ctx, compact }: WshRendererProps) {
     const iconSize = compact ? 13 : 15;
     if (m.kind === "task") {
         const report: OpenTarget | undefined = m.dagId ? { kind: "dag", dagId: m.dagId, taskId: m.taskId } : undefined;
+        const reportBeside: Beside | undefined =
+            m.dagId && runId ? { runId, view: "graph", ...(m.taskId ? { taskId: m.taskId } : {}) } : undefined;
         return (
             <Shell compact={compact}>
                 <Head compact={compact}>
@@ -542,7 +570,7 @@ function CompleteCard({ call, action, ctx, compact }: WshRendererProps) {
                         </span>
                     ) : null}
                     <Spacer />
-                    <CardLink ctx={ctx} target={report} label="Report" compact={compact} />
+                    <CardLink ctx={ctx} target={report} beside={reportBeside} label="Report" compact={compact} />
                     {facts}
                 </Head>
                 <Section compact={compact} className="text-[12.5px] text-muted">
@@ -552,6 +580,7 @@ function CompleteCard({ call, action, ctx, compact }: WshRendererProps) {
         );
     }
     const report: OpenTarget | undefined = m.runId ? { kind: "run", runId: m.runId } : undefined;
+    const reportBeside: Beside | undefined = m.runId ? { runId: m.runId, view: "tasks" } : undefined;
     const loadError = <LoadError state={runState} what="the run" action={action} compact={compact} />;
     if (m.land === "held") {
         return (
@@ -562,7 +591,7 @@ function CompleteCard({ call, action, ctx, compact }: WshRendererProps) {
                     <span className="shrink-0 font-semibold text-warning">land held</span>
                     {m.reason ? <span className="min-w-0 truncate text-[12.5px] text-muted">{m.reason}</span> : null}
                     <Spacer />
-                    <CardLink ctx={ctx} target={report} label="Report" compact={compact} />
+                    <CardLink ctx={ctx} target={report} beside={reportBeside} label="Report" compact={compact} />
                     {facts}
                 </Head>
                 <div className="border-t border-edge-faint">
@@ -629,7 +658,7 @@ function CompleteCard({ call, action, ctx, compact }: WshRendererProps) {
                     </span>
                 ) : null}
                 <Spacer />
-                <CardLink ctx={ctx} target={report} label="Report" compact={compact} />
+                <CardLink ctx={ctx} target={report} beside={reportBeside} label="Report" compact={compact} />
                 {facts}
             </Head>
             {m.stats ? <Stats stats={m.stats} compact={compact} /> : null}

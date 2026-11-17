@@ -7,12 +7,12 @@
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { cn, fireAndForget } from "@/util/util";
+import { cn } from "@/util/util";
 import { ArrowUpRight, Check, MessageSquare } from "lucide-react";
 import type { ReactNode } from "react";
-import { openTarget } from "../jarvis/openref";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { LoadFailure } from "./recordedoutput";
+import { openRunBeside } from "./runrailsections";
 import {
     attentionModel,
     attentionStepSummary,
@@ -82,7 +82,8 @@ function shortId(id: string): string {
     return id.slice(0, SHORT_RUN_ID);
 }
 
-// a link to the run through the router; with no model to route through, no link
+// a link to the run: beside the transcript in the Rendered view, else through the router; with no model to route
+// through, no link
 function OpenRun({
     runId,
     ctx,
@@ -101,7 +102,8 @@ function OpenRun({
     return (
         <button
             type="button"
-            onClick={() => fireAndForget(() => openTarget(model, { kind: "run", runId }))}
+            data-open-run={runId}
+            onClick={(e) => openRunBeside(model, ctx.agentId, runId, e)}
             className={cn(
                 "inline-flex shrink-0 cursor-pointer items-center gap-1 text-ink-mid hover:text-foreground",
                 compact ? "text-[11.5px]" : "text-[12px]"

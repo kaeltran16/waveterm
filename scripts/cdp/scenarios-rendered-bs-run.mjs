@@ -1,7 +1,7 @@
 // Scenario rendered-bs-run: the run card at the end of the Rendered transcript (building, merged with its final check
-// passed, merged with a failed one), Close the brainstorm from the card, the gone card for a removed brainstorm with
-// the header's Brainstorm switch gone, the closed row, and the unreadable card. kit is scenarios-rendered-brainstorm.mjs's
-// RBS_KIT.
+// passed, merged with a failed one), its Open run opening the run's tab beside, Close the brainstorm from the card, the
+// gone card for a removed brainstorm with the header's Brainstorm switch gone, the closed row, and the unreadable card.
+// kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
 //
 // The run is page-only: its run and dag objects are written into the page's object cache (updateWaveObject), so no
 // engine runs; the card reads them as it reads a real run. Close deletes real folders in the temp project.
@@ -182,6 +182,33 @@ export default (kit) => {
                         r.close === null &&
                         r.switchShown;
                     return [ok, r];
+                });
+
+                await step("Open run opens the run's tab beside the Rendered transcript, and closing it takes the pane away", async () => {
+                    const clicked = await h.ev(`(() => {
+                        const b = ${CARD}?.querySelector("[data-rendered-bs-open-run]");
+                        if (!b) return false;
+                        b.click();
+                        return true;
+                    })()`);
+                    const opened = await polishWaitFor(h, `document.querySelector('[data-workspace-run="${RUN_ID}"]') != null`, WAIT_MS);
+                    const r = await agentPage(
+                        h,
+                        `const W = await mod("app/view/agents/workspacestore.ts");
+                        const s = globalStore.get(W.workspaceAtom(${JSON.stringify(ctx.agentId)}));
+                        const out = { tabs: s.tabs, active: s.active };
+                        W.closeWorkspaceTab(${JSON.stringify(ctx.agentId)}, "run:${RUN_ID}");
+                        return out;`
+                    );
+                    const closed = await polishWaitFor(h, `document.querySelector('aside[aria-label="Workspace"]') == null`, WAIT_MS);
+                    const ok =
+                        clicked &&
+                        opened &&
+                        r.active === `run:${RUN_ID}` &&
+                        r.tabs.length === 1 &&
+                        r.tabs[0].view === "tasks" &&
+                        closed;
+                    return [ok, { clicked, opened, closed, ...r }];
                 });
 
                 await step("the run merged with its final check passed draws the check, and offers Close the brainstorm with what it deletes", async () => {
