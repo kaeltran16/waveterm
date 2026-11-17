@@ -785,8 +785,10 @@ The Agent tree groups agents by project and nests a run's workers under its lead
 for live workers or "N done". Finished workers fold under **✓ N done**. A worker row reads `t-4 · Pick the
 sign-off` with its lane and state. Its header links back to the lead (**↑ lead**) and names its lane.
 
-The details rail (`d`) carries a **Run** section for a lead (progress, lanes, health, the last timeline rows,
-held questions) and a **Task** section for a worker (**plan · Task N ↗**, Lead, Lane, Depends on, Result).
+In the Terminal view, the details rail (`d`) carries a **Run** section for a lead (progress, lanes, health, the
+last timeline rows, held questions) and a **Task** section for a worker (**plan · Task N ↗**, Lead, Lane, Depends
+on, Result). In the Rendered view there is no rail: the header's run link opens the run as a **Run** tab in the
+workspace pane beside the transcript (Tasks, Asks, Activity, Graph).
 
 ![The sandbox lead after its run finished, with the run section in the rail](images/orchestrator-guide/19-lead-rail-done.png)
 
