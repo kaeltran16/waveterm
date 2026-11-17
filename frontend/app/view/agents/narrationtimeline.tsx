@@ -706,7 +706,7 @@ function ImageReadsRow({
 function ThoughtText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
     return (
         <ClampedText lines="thought" clamp={clamp}>
-            <MarkdownMessage text={text} className={cn("text-muted", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />
+            <MarkdownMessage text={text} className={cn("text-ink-mid", compact ? "text-[12.5px]" : "text-[13px] leading-[1.55]")} />
         </ClampedText>
     );
 }

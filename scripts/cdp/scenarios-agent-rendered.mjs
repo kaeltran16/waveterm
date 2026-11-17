@@ -1631,7 +1631,7 @@ export default function (_kit) {
                             thought: true,
                             inStretch: thought.closest("[data-steps]") != null,
                             beforeStep: next?.matches("[data-step]") === true && flat(next).includes(${JSON.stringify(THINK_STEP)}),
-                            muted: md?.classList.contains("text-muted") === true && getComputedStyle(md).color !== getComputedStyle(reply).color,
+                            muted: md?.classList.contains("text-ink-mid") === true && getComputedStyle(md).color !== getComputedStyle(reply).color,
                             hiddenShown: (rv.textContent ?? "").includes(${JSON.stringify(HIDDEN_THOUGHT)}),
                         };
                     })()`);
