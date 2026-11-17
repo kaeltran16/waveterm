@@ -98,6 +98,9 @@ export default (kit) => {
                 status: flat(q("[data-rendered-bs-status]")),
                 head: flat(q("[data-rendered-bs-head]")),
                 line: flat(q("[data-rendered-bs-design-line]")),
+                confirmed: flat(q("[data-rendered-bs-design-confirmed]")),
+                open: flat(q("[data-rendered-bs-open]")),
+                text: flat(card),
                 confirmAll: flat(q("[data-rendered-bs-confirm-all]")),
                 check: flat(q("[data-rendered-bs-check-btn]")),
                 waiting: flat(q("[data-rendered-bs-design-waiting]")),
@@ -177,7 +180,7 @@ export default (kit) => {
       );
 
       await step(
-        "every decision yours: the head sums the design up beside Check with a builder, and the rows are gone",
+        "every decision yours: one row sums the design up beside Open brainstorm and Check with a builder, with no card head, so The design reads once, and the rows are gone",
         async () => {
           writeFile(ctx, ALL_YOURS);
           await drawn(h, `card?.querySelector("[data-rendered-bs-check-btn]") != null`);
@@ -185,8 +188,11 @@ export default (kit) => {
           await h.shot(SHOT(4, "all-yours"));
           const ok =
             r.kind === "design" &&
-            r.head.includes("The design") &&
-            r.line === "The design · 5 of 5 yours · you confirmed 2 guesses" &&
+            r.head === "" &&
+            r.line === "The design · 5 of 5 yours" &&
+            r.confirmed === "you confirmed 2 guesses" &&
+            r.text.split("The design").length === 2 &&
+            r.open === "Open brainstorm" &&
             r.check === "Check with a builder" &&
             r.confirmAll === "" &&
             r.rows.length === 0 &&
