@@ -3,14 +3,24 @@ use std::path::{Path, PathBuf};
 
 // WAVETERM_APP_PATH: the dir whose `bin/` subdir holds the bundled wavesrv + wsh
 // (wavebase.GetWaveAppBinPath = WAVETERM_APP_PATH + "/bin"). Dev keeps the spike's
-// source-tree path; packaged uses Tauri's resource dir.
-pub fn resolve_app_path(is_dev: bool, manifest_dir: &Path, resource_dir: &Path) -> PathBuf {
-    if is_dev {
-        manifest_dir.join("..").join("dist")
-    } else {
-        resource_dir.to_path_buf()
+// source-tree path unless DEV_APP_PATH_ENV names another; packaged uses Tauri's resource dir.
+pub fn resolve_app_path(
+    is_dev: bool,
+    manifest_dir: &Path,
+    resource_dir: &Path,
+    override_dir: Option<OsString>,
+) -> PathBuf {
+    match override_dir {
+        Some(dir) if is_dev && !dir.is_empty() => PathBuf::from(dir),
+        _ if is_dev => manifest_dir.join("..").join("dist"),
+        _ => resource_dir.to_path_buf(),
     }
 }
+
+// a debug build's source tree is baked in at compile time, and cargo rebuilds the crate for every new tree path.
+// the final stage (scripts/cdp/final-verify.mjs) runs one tree's build against another tree's dist through this,
+// so a worker's tree reuses the exe another tree built from the same src-tauri. packaged builds ignore it.
+pub const DEV_APP_PATH_ENV: &str = "ARC_DEV_APP_PATH";
 
 // dev and packaged builds share one bundle identifier, so app_local_data_dir() resolves
 // to the same %LOCALAPPDATA%/<id> for both. Without separation a running dev instance and
@@ -72,13 +82,55 @@ mod tests {
 
     #[test]
     fn dev_uses_source_tree_dist() {
-        let got = resolve_app_path(true, Path::new("C:/proj/src-tauri"), Path::new("C:/ignored"));
+        let got = resolve_app_path(
+            true,
+            Path::new("C:/proj/src-tauri"),
+            Path::new("C:/ignored"),
+            None,
+        );
         assert_eq!(got, Path::new("C:/proj/src-tauri").join("..").join("dist"));
     }
 
     #[test]
+    fn dev_app_path_takes_the_override() {
+        let got = resolve_app_path(
+            true,
+            Path::new("C:/built/src-tauri"),
+            Path::new("C:/ignored"),
+            Some(OsString::from("C:/worker/dist")),
+        );
+        assert_eq!(got, PathBuf::from("C:/worker/dist"));
+        let empty = resolve_app_path(
+            true,
+            Path::new("C:/proj/src-tauri"),
+            Path::new("C:/ignored"),
+            Some(OsString::new()),
+        );
+        assert_eq!(
+            empty,
+            Path::new("C:/proj/src-tauri").join("..").join("dist")
+        );
+    }
+
+    #[test]
+    fn packaged_app_path_ignores_the_override() {
+        let got = resolve_app_path(
+            false,
+            Path::new("C:/ignored"),
+            Path::new("C:/app/res"),
+            Some(OsString::from("C:/worker/dist")),
+        );
+        assert_eq!(got, PathBuf::from("C:/app/res"));
+    }
+
+    #[test]
     fn packaged_uses_resource_dir() {
-        let got = resolve_app_path(false, Path::new("C:/ignored"), Path::new("C:/app/res"));
+        let got = resolve_app_path(
+            false,
+            Path::new("C:/ignored"),
+            Path::new("C:/app/res"),
+            None,
+        );
         assert_eq!(got, PathBuf::from("C:/app/res"));
     }
 
