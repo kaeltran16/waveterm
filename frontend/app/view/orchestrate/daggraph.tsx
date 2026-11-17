@@ -80,12 +80,21 @@ const NO_TICK_ATOM = atom(0);
 // a band carries its lane's ids so it can follow a card while it is dragged
 type BandNodeData = LaneBandData & { ids: string[] };
 
+type GraphProps = {
+    oref: string;
+    owner: Run;
+    harnesses: HarnessInfo[];
+    // inside a host that already heads the run (the workspace pane's Run tab): the graph without its own header
+    // and route line
+    embedded?: boolean;
+};
+
 // the per-run graph: ReactFlow canvas fed by the pure view data + left-to-right layout. The provider
 // must wrap the component that calls useReactFlow (the hook reads the provider's context).
-export function DagGraphView({ oref, owner, harnesses }: { oref: string; owner: Run; harnesses: HarnessInfo[] }) {
+export function DagGraphView(props: GraphProps) {
     return (
         <ReactFlowProvider>
-            <DagGraphInner oref={oref} owner={owner} harnesses={harnesses} />
+            <DagGraphInner {...props} />
         </ReactFlowProvider>
     );
 }
@@ -118,7 +127,7 @@ function withLiveBands(nodes: Node[]): Node[] {
     });
 }
 
-function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; harnesses: HarnessInfo[] }) {
+function DagGraphInner({ oref, owner, harnesses, embedded }: GraphProps) {
     const [group, loading] = useDagGroup(oref);
     const selectedId = useAtomValue(selectedTaskIdAtom);
     const hovered = useAtomValue(hoveredTaskAtom);
@@ -431,33 +440,12 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
             : null;
     return (
         <div className="relative flex h-full min-h-0 w-full min-w-0 flex-col bg-background">
-            <DagGraphHeader group={group} owner={owner} />
-            <div className="flex flex-none flex-wrap items-center gap-x-[18px] gap-y-1 border-b border-border bg-surface px-4 py-1.5 font-mono text-[11.5px] text-ink-mid">
-                <span className="whitespace-nowrap">
-                    Run route · {owner.runtime || "unavailable"} / {owner.model || "default"}
-                </span>
-                {stageEntries(group, owner).map((s) => (
-                    <Fragment key={s.key}>
-                        <span data-dag-stage-entry={s.key} className="flex items-center gap-1.5 whitespace-nowrap">
-                            <span className={`h-[7px] w-[7px] rounded-full border ${STAGE_DOT[s.tone]}`} />
-                            {s.text}
-                        </span>
-                        {s.reviewers.map((r) => (
-                            <span
-                                key={r.lens}
-                                data-plan-reviewer={r.lens}
-                                data-plan-reviewer-state={r.state}
-                                className="flex items-center gap-1.5 whitespace-nowrap"
-                            >
-                                <span
-                                    className={`h-[7px] w-[7px] rounded-full border ${STAGE_DOT[stageTone(r.state)]}`}
-                                />
-                                {`${r.title} · ${r.state} · ${r.model}`}
-                            </span>
-                        ))}
-                    </Fragment>
-                ))}
-            </div>
+            {embedded ? null : (
+                <>
+                    <DagGraphHeader group={group} owner={owner} />
+                    <RouteLine group={group} owner={owner} />
+                </>
+            )}
             <div ref={paneRef} className="relative min-h-0 flex-1">
                 <FinalStageViewContext.Provider value={finalView}>
                     <ReactFlow
@@ -566,6 +554,36 @@ function DagGraphInner({ oref, owner, harnesses }: { oref: string; owner: Run; h
                     ) : null}
                 </AnimatePresence>
             </div>
+        </div>
+    );
+}
+
+// the run's route and its stages, under the graph's header
+function RouteLine({ group, owner }: { group: TaskGroup; owner: Run }) {
+    return (
+        <div className="flex flex-none flex-wrap items-center gap-x-[18px] gap-y-1 border-b border-border bg-surface px-4 py-1.5 font-mono text-[11.5px] text-ink-mid">
+            <span className="whitespace-nowrap">
+                Run route · {owner.runtime || "unavailable"} / {owner.model || "default"}
+            </span>
+            {stageEntries(group, owner).map((s) => (
+                <Fragment key={s.key}>
+                    <span data-dag-stage-entry={s.key} className="flex items-center gap-1.5 whitespace-nowrap">
+                        <span className={`h-[7px] w-[7px] rounded-full border ${STAGE_DOT[s.tone]}`} />
+                        {s.text}
+                    </span>
+                    {s.reviewers.map((r) => (
+                        <span
+                            key={r.lens}
+                            data-plan-reviewer={r.lens}
+                            data-plan-reviewer-state={r.state}
+                            className="flex items-center gap-1.5 whitespace-nowrap"
+                        >
+                            <span className={`h-[7px] w-[7px] rounded-full border ${STAGE_DOT[stageTone(r.state)]}`} />
+                            {`${r.title} · ${r.state} · ${r.model}`}
+                        </span>
+                    ))}
+                </Fragment>
+            ))}
         </div>
     );
 }

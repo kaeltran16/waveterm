@@ -14,6 +14,7 @@ import { useAtomValue } from "jotai";
 import { ArrowUpRight, PanelsTopLeft, SquareDashed } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState, type JSX, type ReactNode } from "react";
+import { openPaneTab } from "./agentpanes";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import type { BrainstormFile } from "./brainstormmodel";
@@ -35,7 +36,6 @@ import {
     getCanvas,
     markFromTranscript,
     selectCanvasTab,
-    setCanvasMode,
     setMarking,
     showInlineBoard,
 } from "./canvasstore";
@@ -126,14 +126,13 @@ const AGO_TICK_MS = 1000;
 const LINK =
     "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline disabled:cursor-default disabled:opacity-50 disabled:no-underline";
 
-// the pane at a board: a brainstorm's board view, or the agent's canvas. A mark started here returns to Rendered once
-// sent (canvassend)
+// the pane at a board, as a tab beside the transcript: a brainstorm's board view, or the agent's canvas
 function openBoard(agentId: string, board: string, mark: boolean): void {
     if (getBrainstorm(agentId) != null) {
         openBrainstormAt(agentId, { board, mark });
     } else {
         selectCanvasTab(agentId, board);
-        setCanvasMode(agentId, "canvas", Date.now());
+        openPaneTab(agentId, "canvas", Date.now());
         setMarking(agentId, mark);
     }
     if (mark) {

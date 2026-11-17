@@ -154,7 +154,7 @@ export default (kit) => {
             ];
         });
 
-        await step("Mark opens the brainstorm pane's board with marking on", async () => {
+        await step("Mark opens the Brainstorm tab's board beside the transcript with marking on", async () => {
             await h.ev(`${BLOCK}?.querySelector("[data-live-boards-mark]")?.click()`);
             const board = await polishWaitFor(h, `${PANE}?.getAttribute("data-brainstorm-view") === "board"`, WAIT_MS);
             const marking = await polishWaitFor(
@@ -177,8 +177,8 @@ export default (kit) => {
                 C.setMarking(${JSON.stringify(ctx.agentId)}, false);
                 return true;`
             );
-            const back = await kit.backToRendered(h, ctx);
-            return [board && marking && s.board === MAIN && !rendered && back, { board, marking, ...s, rendered, back }];
+            const back = await kit.closePaneTabs(h, ctx);
+            return [board && marking && s.board === MAIN && rendered && back, { board, marking, ...s, rendered, back }];
         });
 
         await step("the narrow column stacks each option's chip under its label", async () => {

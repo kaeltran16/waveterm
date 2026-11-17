@@ -77,6 +77,8 @@ import {
 import {
     ChangeDiff,
     CheckMark,
+    BS_RAIL_STACK,
+    BS_SPLIT,
     CHIP,
     DesignHead,
     DOT,
@@ -188,7 +190,7 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
             animate="animate"
             data-brainstorm-pane
             data-brainstorm-view={view}
-            className="flex min-h-0 flex-1 flex-col"
+            className="@container/bs flex min-h-0 flex-1 flex-col"
         >
             {view === "removed" ? (
                 <Removed agent={agent} topic={s.topic} path={s.path} />
@@ -287,7 +289,7 @@ function Design({
         <>
             <Toolbar topic={s.topic} f={f} />
             <StaleBanner s={s} />
-            <div className="flex min-h-0 flex-1">
+            <div className={BS_SPLIT}>
                 <div className="flex min-w-0 flex-1 flex-col bg-background">
                     {/* opening or closing the design fades; the talk itself (a question, the agent writing, the next
                         question) slides forward, keyed per question so each one starts over */}
@@ -1022,7 +1024,10 @@ function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; g
             ref={railRef}
             data-brainstorm-rail
             aria-label="Decided so far"
-            className="flex w-[32%] min-w-[280px] max-w-[500px] flex-none flex-col overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px]"
+            className={cn(
+                "flex w-[32%] min-w-[280px] max-w-[500px] flex-none flex-col overflow-y-auto border-l border-border bg-surface px-[24px] py-[22px]",
+                BS_RAIL_STACK
+            )}
         >
             <div className="flex items-baseline gap-[8px] pb-[8px]">
                 <h2 className="m-0 text-[13px] font-semibold text-secondary">Decided so far · {decided}</h2>

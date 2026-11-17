@@ -13,6 +13,7 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Check, ChevronDown, Lightbulb } from "lucide-react";
 import { useCallback, useState, type ReactNode } from "react";
+import { openPaneTab } from "./agentpanes";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry, AgentVM } from "./agentsviewmodel";
 import { arcMessageOf } from "./arcmessage";
@@ -20,7 +21,7 @@ import { ArcMessageRow } from "./arcmessagerow";
 import { brainstormAnswersAtom, brainstormAtom, getBrainstorm, openBrainstormAt } from "./brainstormstore";
 import { boardLabel, canvasDesignDir, canvasDir } from "./canvasmodel";
 import { tauriCanvasIO } from "./canvaspoller";
-import { attachCanvas, canvasStateAtom, setCanvasMode } from "./canvasstore";
+import { attachCanvas, canvasStateAtom } from "./canvasstore";
 import { COMPACT_CARD_PX } from "./renderedbrainstormmodel";
 import { entryRowView, type EntryRowView } from "./renderedbsrowsmodel";
 import { useTranscriptContext } from "./transcriptcontext";
@@ -181,7 +182,8 @@ function projectDirOf(agent: AgentVM, canvas: string, canvasTopic: string | null
     return getBrainstorm(agent.id)?.cwd ?? agent.cwd ?? null;
 }
 
-// the board the mark was made on: the brainstorm's board view when the canvas is the brainstorm's, else the canvas pane
+// the board the mark was made on, as a tab beside the transcript: the brainstorm's board view when the canvas is the
+// brainstorm's, else the canvas pane
 function openMarkedBoard(agent: AgentVM, view: MarkView, projectDir: string) {
     if (getBrainstorm(agent.id)?.file?.canvas === view.canvas) {
         openBrainstormAt(agent.id, { board: view.board });
@@ -193,7 +195,7 @@ function openMarkedBoard(agent: AgentVM, view: MarkView, projectDir: string) {
         { topic: view.canvas, dir: canvasDir(projectDir, view.canvas), projectDir, board: view.board },
         now
     );
-    setCanvasMode(agent.id, "canvas", now);
+    openPaneTab(agent.id, "canvas", now);
 }
 
 // the crop is served from the canvas folder: through the agent's canvas while it shows this one, else asked for

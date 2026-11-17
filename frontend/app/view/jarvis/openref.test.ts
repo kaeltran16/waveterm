@@ -45,7 +45,9 @@ import { attachBrainstorm, detachBrainstorm, getBrainstorm } from "../agents/bra
 import { attachCanvas, detachCanvas, getCanvas, setCanvasMode, setMark } from "../agents/canvasstore";
 import { activeChannelIdAtom } from "../agents/channelsstore";
 import { memorySelectedChangeAtom, memorySelectedProjectAtom } from "../agents/memorystore";
+import { viewModeAtom } from "../agents/renderedmode";
 import { setupTabAtom } from "../agents/setupstore";
+import { closeWorkspaceTab, workspaceAtom } from "../agents/workspacestore";
 import { boardFormAtom } from "../boards/boardformrequest";
 import { boardsChannelAtom, openBoardByChannelAtom } from "../boards/boardstore";
 import { dagModalStateAtom, dismissDagModal } from "../orchestrate/dagmodalstate";
@@ -666,6 +668,19 @@ describe("canvas landing", () => {
         expect(globalStore.get(model.focusIdAtom)).toBe("a2");
         expect(globalStore.get(model.surfaceAtom)).toBe("agent");
         expect(rpc.FileInfoCommand).not.toHaveBeenCalled();
+    });
+
+    it("without a caller, lands on an owner in Rendered with its Canvas tab open beside the transcript", async () => {
+        const claude = { id: "a2", name: "a2", task: "", state: "working", agent: "claude", blockId: "block-a2" };
+        const model = { ...makeModel(["a2"]), agentsAtom: atom([claude as AgentVM]) } as unknown as AgentsViewModel;
+        globalStore.set(viewModeAtom("a2"), "rendered");
+        attachCanvas("a2", { topic: "t", dir: DIR, projectDir: CWD }, 1);
+        expect(await openAddress(model, "canvas:t", undefined, noReport)).toEqual({ ok: true });
+        expect(globalStore.get(workspaceAtom("a2")).active).toBe("canvas");
+        expect(getCanvas("a2")?.mode).toBe("terminal");
+        expect(globalStore.get(model.focusIdAtom)).toBe("a2");
+        closeWorkspaceTab("a2", "canvas");
+        globalStore.set(viewModeAtom("a2"), "terminal");
     });
 
     it("without a caller, skips a closed agent that still held the canvas", async () => {

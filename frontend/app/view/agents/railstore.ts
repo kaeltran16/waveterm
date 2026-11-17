@@ -24,6 +24,12 @@ export interface RailGitState {
     changes: GitChanges | null;
     // the linked worktree the agent works in, as linkedWorktree names it; unset in the main checkout
     worktree?: string;
+    // the base the list was read against (the session-start commit, or "" for HEAD) and the sha HEAD pointed at,
+    // so a file's diff reads the same range the list counts
+    ref?: string;
+    head?: string;
+    // why the git read failed; changes is then null and isRepo false
+    failure?: string;
 }
 
 // First persisted FE pref in frontend/app: rail is global + off by default (localStorage key
@@ -80,10 +86,22 @@ export async function loadRailForAgent(
         }
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat, ch.numstaterror) : null;
         const worktree = ch.isrepo ? linkedWorktree(cwd, wts?.worktrees ?? []) : undefined;
-        globalStore.set(railStateAtom, { cwd, branch: ch.branch, isRepo: ch.isrepo, changes, worktree });
-    } catch {
+        globalStore.set(railStateAtom, {
+            cwd,
+            branch: ch.branch,
+            isRepo: ch.isrepo,
+            changes,
+            worktree,
+            ref: ch.ref ?? "",
+            head: ch.head ?? "",
+        });
+    } catch (e) {
         if (seq === loadSeq) {
-            globalStore.set(railStateAtom, { ...EMPTY, cwd });
+            globalStore.set(railStateAtom, {
+                ...EMPTY,
+                cwd,
+                failure: (e instanceof Error ? e.message : String(e ?? "")) || "The read failed with no message.",
+            });
         }
     }
 }

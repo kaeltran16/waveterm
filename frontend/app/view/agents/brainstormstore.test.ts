@@ -27,6 +27,7 @@ import {
     updateBrainstorm,
 } from "./brainstormstore";
 import { detachCanvas, getCanvas } from "./canvasstore";
+import { closeWorkspaceTab, workspaceAtom } from "./workspacestore";
 
 const IDS = ["a1", "a2"];
 const LAG = { topic: "lag", cwd: "/p" };
@@ -216,14 +217,24 @@ describe("openBrainstormAt", () => {
         attachBrainstorm("a1", LAG, 100);
         updateBrainstorm("a1", (s) => ({ ...s, file: f }));
     };
-    afterEach(() => IDS.forEach(detachCanvas));
+    afterEach(() => {
+        IDS.forEach(detachCanvas);
+        IDS.forEach((id) => closeWorkspaceTab(id, "brainstorm"));
+    });
+    const tabShown = (id: string) => globalStore.get(workspaceAtom(id)).active === "brainstorm";
+
+    it("opens the Brainstorm tab beside the transcript and leaves the Terminal view's mode alone", () => {
+        arrange(TALK);
+        openBrainstormAt("a1", {});
+        expect(tabShown("a1")).toBe(true);
+        expect(getBrainstorm("a1")?.mode).toBe("terminal");
+    });
 
     it("with a part, shows the Brainstorm pane with the design open and the part to open", () => {
         arrange(TALK);
         openBrainstormBoard("a1", "Main.dc.html");
         openBrainstormAt("a1", { part: "intent" });
         expect(getBrainstorm("a1")).toMatchObject({
-            mode: "brainstorm",
             designOpen: true,
             board: null,
             partTarget: "intent",
@@ -234,7 +245,6 @@ describe("openBrainstormAt", () => {
         arrange(CHECKING);
         openBrainstormAt("a1", { part: "thresholds" });
         expect(getBrainstorm("a1")).toMatchObject({
-            mode: "brainstorm",
             designOpen: true,
             partTarget: "thresholds",
             review: { cursor: "thresholds" },
@@ -244,7 +254,7 @@ describe("openBrainstormAt", () => {
     it("with a board, shows the pane's board view on that board of the brainstorm's canvas", () => {
         arrange(TALK);
         openBrainstormAt("a1", { board: "States.dc.html" });
-        expect(getBrainstorm("a1")).toMatchObject({ mode: "brainstorm", board: "States.dc.html" });
+        expect(getBrainstorm("a1")).toMatchObject({ board: "States.dc.html" });
         expect(getCanvas("a1")).toMatchObject({ topic: "lag-canvas", board: "States.dc.html", marking: false });
     });
 
@@ -258,7 +268,7 @@ describe("openBrainstormAt", () => {
         arrange(TALK);
         openBrainstormBoard("a1", "Main.dc.html");
         openBrainstormAt("a1", {});
-        expect(getBrainstorm("a1")).toMatchObject({ mode: "brainstorm", board: "Main.dc.html", designOpen: false });
+        expect(getBrainstorm("a1")).toMatchObject({ board: "Main.dc.html", designOpen: false });
         expect(getBrainstorm("a1")?.partTarget ?? null).toBeNull();
     });
 
@@ -271,6 +281,7 @@ describe("openBrainstormAt", () => {
     it("does nothing for an agent with no brainstorm", () => {
         openBrainstormAt("a2", { part: "intent" });
         expect(getBrainstorm("a2")).toBeNull();
+        expect(globalStore.get(workspaceAtom("a2")).tabs).toEqual([]);
     });
 });
 

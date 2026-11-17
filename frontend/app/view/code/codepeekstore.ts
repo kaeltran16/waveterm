@@ -168,6 +168,19 @@ export async function togglePeek(req: PeekRequest): Promise<void> {
         closePeek();
         return;
     }
+    await loadPeek(req);
+}
+
+// a second open of the open anchor keeps its card: a workspace File tab reopens its peek, it never closes it
+export async function openPeek(req: PeekRequest): Promise<void> {
+    const prev = globalStore.get(codePeekAtom);
+    if (prev != null && sameAnchor(prev, req)) {
+        return;
+    }
+    await loadPeek(req);
+}
+
+async function loadPeek(req: PeekRequest): Promise<void> {
     const token = ++loadToken;
     const current = () => loadToken === token;
     const home = needsHome(req.raw, req.cwd) ? await homeDir() : "";
@@ -201,6 +214,14 @@ export function closePeek(): void {
     loadToken++;
     globalStore.set(codePeekAtom, null);
     globalStore.set(codePeekFocusedAtom, false);
+}
+
+// closes the card only while it is the one open at that place and path, so a view leaving cannot close another's
+export function closePeekAt(at: Pick<CodePeek, "blockId" | "raw">): void {
+    const peek = globalStore.get(codePeekAtom);
+    if (peek != null && peek.blockId === at.blockId && peek.raw === at.raw) {
+        closePeek();
+    }
 }
 
 export function setPeekMode(mode: PeekMode): void {

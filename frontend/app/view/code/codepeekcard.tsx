@@ -11,7 +11,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { CodeEditor } from "@/app/view/codeeditor/codeeditor";
 import { cn, fireAndForget } from "@/util/util";
-import { X } from "lucide-react";
+import { ArrowUpRight, X } from "lucide-react";
 import type * as MonacoTypes from "monaco-editor";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { binaryPeekMessage, peekModes, peekStat, type PeekFile, type PeekMode } from "./codepeekmodel";
@@ -181,22 +181,29 @@ function PeekBody({ peek, blockId }: { peek: CodePeek; blockId: string }) {
     return <SourceView key={`${key}|${peek.line}`} peek={peek} blockId={blockId} text={file.text} />;
 }
 
+// "card" floats over the terminal with its own close and a footer; "tab" fills a workspace File tab, whose tab closes
+// it, so its header carries Open in Code and it has no footer (the File board)
 export function CodePeekCard({
     peek,
     model,
     blockId,
     side,
+    variant = "card",
 }: {
     peek: CodePeek;
     model: AgentsViewModel;
     blockId: string;
-    side: "below" | "above";
+    side?: "below" | "above";
+    variant?: "card" | "tab";
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
     const modes = useMemo(() => peekModes(peek.abs ?? peek.raw, peek.file), [peek.abs, peek.raw, peek.file]);
     const path = headerPath(peek);
     const canOpen = "open" in peek.file;
     const isFolder = peek.file.kind === "folder";
+    const inTab = variant === "tab";
+    const openLabel = isFolder ? "Open folder in Code" : "Open in Code";
+    const openInCode = () => fireAndForget(() => openPeekInCode(model));
 
     // a new anchor is a new card: it takes focus so Enter and Esc reach it
     useEffect(() => {
@@ -212,17 +219,26 @@ export function CodePeekCard({
             data-code-peek
             data-peek-state={peek.file.kind}
             data-peek-side={side}
+            data-peek-variant={variant}
             onFocus={() => globalStore.set(codePeekFocusedAtom, true)}
             onBlur={(e) => {
                 if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
                     globalStore.set(codePeekFocusedAtom, false);
                 }
             }}
-            className="flex h-full w-full flex-col overflow-hidden rounded-[8px] border border-edge-strong bg-background text-primary shadow-popover-md outline-none"
+            className={cn(
+                "flex h-full w-full flex-col overflow-hidden bg-background text-primary outline-none",
+                !inTab && "rounded-[8px] border border-edge-strong shadow-popover-md"
+            )}
         >
-            <div className="flex min-h-[44px] flex-none items-center gap-[10px] border-b border-border pr-[8px] pl-[14px]">
+            <div
+                className={cn(
+                    "flex flex-none items-center gap-[10px] border-b border-border pl-[14px]",
+                    inTab ? "min-h-[40px] pr-[12px]" : "min-h-[44px] pr-[8px]"
+                )}
+            >
                 <span className="font-mono text-[10.5px] font-bold tracking-[0.1em] text-accent-soft uppercase">
-                    {isFolder ? "Folder" : "File"}
+                    {isFolder ? "Folder" : inTab ? "Code" : "File"}
                 </span>
                 <span
                     data-peek-path
@@ -231,14 +247,27 @@ export function CodePeekCard({
                 >
                     {path}
                 </span>
-                <button
-                    type="button"
-                    aria-label="Close the peek"
-                    onClick={closePeek}
-                    className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[7px] text-muted hover:bg-surface-raised hover:text-secondary"
-                >
-                    <X size={14} aria-hidden />
-                </button>
+                {inTab ? (
+                    <button
+                        type="button"
+                        data-peek-open
+                        disabled={!canOpen}
+                        onClick={openInCode}
+                        className="flex flex-none cursor-pointer items-center gap-[3px] font-mono text-[10.5px] font-semibold text-accent-soft hover:text-primary disabled:cursor-default disabled:opacity-50"
+                    >
+                        {openLabel}
+                        <ArrowUpRight size={11} aria-hidden />
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        aria-label="Close the peek"
+                        onClick={closePeek}
+                        className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[7px] text-muted hover:bg-surface-raised hover:text-secondary"
+                    >
+                        <X size={14} aria-hidden />
+                    </button>
+                )}
             </div>
             <div className="flex flex-none items-center gap-[8px] border-b border-border px-[12px] py-[6px]">
                 <div className="flex items-center gap-[2px] rounded-[6px] border border-border p-[2px]">
@@ -275,24 +304,26 @@ export function CodePeekCard({
                     <PeekBody peek={peek} blockId={blockId} />
                 </ViewSwap>
             </div>
-            <div className="flex flex-none items-center gap-[12px] border-t border-border px-[14px] py-[10px]">
-                <button
-                    type="button"
-                    data-peek-open
-                    disabled={!canOpen}
-                    onClick={() => fireAndForget(() => openPeekInCode(model))}
-                    className="cursor-pointer rounded-[7px] bg-accent px-[13px] py-[7px] text-[12px] font-semibold text-background disabled:cursor-default disabled:opacity-50"
-                >
-                    {isFolder ? "Open folder in Code" : "Open in Code"}
-                </button>
-                <span className="flex-1" />
-                <span className="flex items-center gap-[6px] text-[11px] text-muted">
-                    <Kbd>Enter</Kbd>open in Code
-                </span>
-                <span className="flex items-center gap-[6px] text-[11px] text-muted">
-                    <Kbd>Esc</Kbd>close
-                </span>
-            </div>
+            {inTab ? null : (
+                <div className="flex flex-none items-center gap-[12px] border-t border-border px-[14px] py-[10px]">
+                    <button
+                        type="button"
+                        data-peek-open
+                        disabled={!canOpen}
+                        onClick={openInCode}
+                        className="cursor-pointer rounded-[7px] bg-accent px-[13px] py-[7px] text-[12px] font-semibold text-background disabled:cursor-default disabled:opacity-50"
+                    >
+                        {openLabel}
+                    </button>
+                    <span className="flex-1" />
+                    <span className="flex items-center gap-[6px] text-[11px] text-muted">
+                        <Kbd>Enter</Kbd>open in Code
+                    </span>
+                    <span className="flex items-center gap-[6px] text-[11px] text-muted">
+                        <Kbd>Esc</Kbd>close
+                    </span>
+                </div>
+            )}
         </div>
     );
 }

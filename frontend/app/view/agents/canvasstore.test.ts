@@ -9,7 +9,6 @@ import {
     canvasOwner,
     detachCanvas,
     focusedCanvas,
-    focusedCanvasMode,
     getCanvas,
     markFromTranscript,
     selectCanvasBoard,
@@ -277,14 +276,10 @@ describe("ownership", () => {
 describe("focused canvas", () => {
     const model = { focusIdAtom: atom("a1") } as any;
 
-    it("reads the focused agent's canvas, and only in canvas mode for focusedCanvasMode", () => {
+    it("reads the focused agent's canvas", () => {
         attachCanvas("a1", A, 100);
         attachCanvas("a2", A, 100);
-        setCanvasMode("a2", "canvas", 500);
-        expect(focusedCanvas(model)?.topic).toBe("t");
-        expect(focusedCanvasMode(model)).toBeNull();
-        setCanvasMode("a1", "canvas", 500);
-        expect(focusedCanvasMode(model)).toBe(getCanvas("a1"));
+        expect(focusedCanvas(model)).toBe(getCanvas("a1"));
     });
 
     it("is null with nothing focused", () => {

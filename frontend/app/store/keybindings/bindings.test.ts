@@ -45,13 +45,19 @@ import { treeModeAtom } from "@/app/view/agents/filetree";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom, refreshHistory } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
-import { viewModeAtom } from "@/app/view/agents/renderedmode";
+import { pickerFlipAtom, viewModeAtom } from "@/app/view/agents/renderedmode";
 import { activeReviewAtom, reviewMarksAtom } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
+import {
+    closeWorkspaceTab,
+    openWorkspaceTab,
+    setWorkspaceCollapsed,
+    workspaceAtom,
+} from "@/app/view/agents/workspacestore";
 import { boardOwnsEscapeAtom, setBoardEscape } from "@/app/view/boards/boardstore";
 import { codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
@@ -2245,6 +2251,178 @@ describe("Agent keys, stepping and toggles", () => {
         const rail = (focus: string) => build(focus).find("agent:toggle-rail").when!(nav);
         expect(rail("a")).toBe(true);
         expect(rail("c")).toBe(false);
+    });
+
+    describe("d in the Rendered view", () => {
+        // a claude agent with a block renders; the stub roster's "a" does not, so it keeps the rail
+        const renderable = () => {
+            const { model, find } = build("r");
+            globalStore.set(model.agentsAtom, [{ id: "r", state: "idle", agent: "claude", blockId: "blk-r" }]);
+            globalStore.set(viewModeAtom("r"), "rendered");
+            return {
+                model,
+                find,
+                d: () => ["agent:toggle-rail", "agent:toggle-workspace"].filter((id) => find(id).when!(nav)),
+            };
+        };
+
+        afterEach(() => {
+            closeWorkspaceTab("r", "changes");
+            globalStore.set(pickerFlipAtom("r"), null);
+            globalStore.set(viewModeAtom("r"), "rendered");
+        });
+
+        it("does nothing with no tabs open: neither the rail nor the pane takes it", () => {
+            expect(renderable().d()).toEqual([]);
+        });
+
+        it("collapses and restores the pane with tabs open, and leaves the rail alone", () => {
+            const { find, d } = renderable();
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            expect(d()).toEqual(["agent:toggle-workspace"]);
+            const rail = globalStore.get(railVisibleAtom);
+            find("agent:toggle-workspace").run(nav);
+            expect(globalStore.get(workspaceAtom("r")).collapsed).toBe(true);
+            find("agent:toggle-workspace").run(nav);
+            expect(globalStore.get(workspaceAtom("r")).collapsed).toBe(false);
+            expect(globalStore.get(railVisibleAtom)).toBe(rail);
+        });
+
+        it("toggles the rail in the Terminal view and during a picker flip, tabs or not", () => {
+            const { d } = renderable();
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            globalStore.set(viewModeAtom("r"), "terminal");
+            expect(d()).toEqual(["agent:toggle-rail"]);
+            globalStore.set(viewModeAtom("r"), "rendered");
+            globalStore.set(pickerFlipAtom("r"), 1);
+            expect(d()).toEqual(["agent:toggle-rail"]);
+        });
+
+        it("toggles the rail while a subagent interior is open over the Rendered view", () => {
+            const { d } = renderable();
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            globalStore.set(focusSubagentAtom, { parentId: "r", agentId: "s1" } as any);
+            expect(d()).toEqual(["agent:toggle-rail"]);
+        });
+    });
+
+    describe("the Brainstorm and Canvas tabs in the Rendered view", () => {
+        const asking = (labels: string[]): BrainstormFile => ({
+            v: 1,
+            title: "T",
+            spec: "",
+            question: { n: 1, text: "Q", part: "p", options: labels.map((label) => ({ label, detail: "" })) },
+            working: null,
+            parts: [{ id: "p", title: "P", state: "asked", body: "" }],
+            history: [],
+            done: false,
+            check: null,
+            run: null,
+        });
+        const rendered = () => {
+            const { model } = build("r");
+            globalStore.set(model.agentsAtom, [{ id: "r", state: "idle", agent: "claude", blockId: "blk-r" }]);
+            globalStore.set(viewModeAtom("r"), "rendered");
+            const all = buildAgentBindings(model);
+            const find = (id: string) => all.find((b) => b.id === id)!;
+            const claiming = (key: string, c: KeyContext = nav) =>
+                all.filter((b) => b.keys === key && b.when?.(c) !== false).map((b) => b.id);
+            return { model, find, claiming };
+        };
+        const tabs = () => globalStore.get(workspaceAtom("r"));
+
+        beforeEach(() => vi.stubGlobal("document", { activeElement: null, querySelector: () => null }));
+        afterEach(() => {
+            for (const key of ["brainstorm", "canvas", "changes"]) {
+                closeWorkspaceTab("r", key);
+            }
+            detachBrainstorm("r");
+            detachCanvas("r");
+            vi.unstubAllGlobals();
+        });
+
+        it("b opens the Brainstorm tab and closes it again, leaving the Terminal view's mode alone", () => {
+            const { claiming, find } = rendered();
+            attachBrainstorm("r", { topic: "bs", cwd: "/p" }, 0);
+            expect(claiming("b")).toEqual(["agent:brainstorm-open"]);
+            find("agent:brainstorm-open").run(nav);
+            expect(tabs()).toMatchObject({ active: "brainstorm", tabs: [{ kind: "brainstorm" }] });
+            expect(getBrainstorm("r")!.mode).toBe("terminal");
+            expect(claiming("b")).toEqual(["agent:brainstorm-close"]);
+            find("agent:brainstorm-close").run(nav);
+            expect(tabs().tabs).toEqual([]);
+        });
+
+        it("b reopens a Brainstorm tab another tab hides", () => {
+            const { claiming } = rendered();
+            attachBrainstorm("r", { topic: "bs", cwd: "/p" }, 0);
+            openWorkspaceTab("r", { kind: "brainstorm" });
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            expect(claiming("b")).toEqual(["agent:brainstorm-open"]);
+        });
+
+        it("c opens and closes the Canvas tab", () => {
+            const { claiming, find } = rendered();
+            attachCanvas("r", { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
+            find(claiming("c")[0]).run(nav);
+            expect(tabs().active).toBe("canvas");
+            expect(getCanvas("r")!.mode).toBe("terminal");
+            expect(claiming("c")).toEqual(["agent:canvas-close"]);
+            find("agent:canvas-close").run(nav);
+            expect(tabs().tabs).toEqual([]);
+        });
+
+        it("Ctrl+Shift+B opens and closes the tab rather than flipping the view", () => {
+            const { find } = rendered();
+            attachBrainstorm("r", { topic: "bs", cwd: "/p" }, 0);
+            const chord = find("agent:view-chord");
+            chord.run({ ...nav, editable: true });
+            expect(tabs().active).toBe("brainstorm");
+            chord.run({ ...nav, editable: true });
+            expect(tabs().tabs).toEqual([]);
+            expect(globalStore.get(viewModeAtom("r"))).toBe("rendered");
+        });
+
+        it("the answer letters pick on the shown tab only, and d collapses the pane unless it is the fourth answer", () => {
+            const { claiming } = rendered();
+            attachBrainstorm("r", { topic: "bs", cwd: "/p" }, 0);
+            updateBrainstorm("r", (s) => ({ ...s, file: asking(["A", "B", "C"]) }));
+            openWorkspaceTab("r", { kind: "brainstorm" });
+            expect(claiming("a")).toEqual(["agent:brainstorm-option-a"]);
+            expect(claiming("d")).toEqual(["agent:toggle-workspace"]);
+            updateBrainstorm("r", (s) => ({ ...s, file: asking(["A", "B", "C", "D"]) }));
+            expect(claiming("d")).toEqual(["agent:brainstorm-option-d"]);
+            // the tab hidden behind another, or the pane collapsed: the letters stand down, d collapses or restores
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            expect(claiming("a")).toEqual([]);
+            expect(claiming("d")).toEqual(["agent:toggle-workspace"]);
+            setWorkspaceCollapsed("r", true);
+            expect(claiming("d")).toEqual(["agent:toggle-workspace"]);
+        });
+
+        it("the transcript's keys stay live beside a shown tab, and no key has two claims", () => {
+            const { claiming } = rendered();
+            attachBrainstorm("r", { topic: "bs", cwd: "/p" }, 0);
+            updateBrainstorm("r", (s) => ({ ...s, file: asking(["A", "B", "C", "D"]) }));
+            openWorkspaceTab("r", { kind: "brainstorm" });
+            expect(claiming("v")).toEqual(["agent:toggle-view"]);
+            expect(claiming("f")).toEqual(["agent:fullscreen"]);
+            for (const key of ["a", "b", "c", "d", "Escape", "Enter", "j", "k", "[", "]", "1"]) {
+                expect(claiming(key).length, key).toBeLessThanOrEqual(1);
+            }
+        });
+
+        it("Esc steps back in the shown tab, and otherwise leaves it alone as the center pane's does", () => {
+            const { claiming } = rendered();
+            attachBrainstorm("r", { topic: "bs", cwd: "/p" }, 0);
+            updateBrainstorm("r", (s) => ({ ...s, file: asking(["A", "B"]) }));
+            openWorkspaceTab("r", { kind: "brainstorm" });
+            expect(claiming("Escape")).toEqual([]);
+            openBrainstormBoard("r", "Main.dc.html");
+            expect(claiming("Escape")).toEqual(["agent:brainstorm-back"]);
+            closeWorkspaceTab("r", "brainstorm");
+            expect(claiming("Escape")).toEqual(["agent:back"]);
+        });
     });
 
     it("toggles the rail and fullscreen, and F11 toggles fullscreen too", () => {

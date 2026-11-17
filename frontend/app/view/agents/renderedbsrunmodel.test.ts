@@ -5,7 +5,6 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
     brainstormClosedAtom,
-    brainstormSwitchShown,
     closeDetail,
     closedRowText,
     goneView,
@@ -91,13 +90,11 @@ describe("goneView", () => {
         });
     });
 
-    it("a removed brainstorm says its file is gone, with why and what the switch does", () => {
+    it("a removed brainstorm says its file is gone, with why, and that the answers stay", () => {
         const v = goneView("removed", { topic: "run-memory-pressure", path: PATH, error: null }, {});
         expect(v).toMatchObject({ kind: "removed", title: "run-memory-pressure's brainstorm file is gone" });
         expect(v.kind === "removed" && v.text).toContain("It is no longer at");
-        expect(v.kind === "removed" && v.text).toContain(
-            "The Brainstorm switch in the header goes with it; the answers above stay in the transcript."
-        );
+        expect(v.kind === "removed" && v.text).toContain("The answers above stay in the transcript.");
     });
 
     it("a removed brainstorm with a close record is the closed row, naming the canvas deleted", () => {
@@ -147,23 +144,5 @@ describe("recordClose", () => {
         recordClose("a", { topic: "a" });
         recordClose("b", { topic: "b", canvas: "c" });
         expect(globalStore.get(brainstormClosedAtom)).toEqual({ a: { topic: "a" }, b: { topic: "b", canvas: "c" } });
-    });
-});
-
-describe("brainstormSwitchShown", () => {
-    it("drops the switch for a removed brainstorm while Rendered shows", () => {
-        expect(brainstormSwitchShown({ removed: true, mode: "terminal" }, true)).toBe(false);
-    });
-
-    it("keeps it for a live brainstorm", () => {
-        expect(brainstormSwitchShown({ removed: false, mode: "terminal" }, true)).toBe(true);
-    });
-
-    it("keeps it while the pane shows the removed view, so the user can go back", () => {
-        expect(brainstormSwitchShown({ removed: true, mode: "brainstorm" }, true)).toBe(true);
-    });
-
-    it("keeps it off the Rendered view", () => {
-        expect(brainstormSwitchShown({ removed: true, mode: "terminal" }, false)).toBe(true);
     });
 });

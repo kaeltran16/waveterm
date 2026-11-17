@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Agent (Focus) surface: AgentTree | center [| AgentDetailsRail]. The rail is toggleable
-// (railVisibleAtom, default off, `d` key) so the surface is normally 2 panes, 3 with the rail open.
+// (railVisibleAtom, default off, `d` key) so the surface is normally 2 panes, 3 with the rail open. In the
+// Rendered view the workspace pane takes the rail's place, and only while the agent has tabs open in it.
 // The center is the focused agent's live Claude Code terminal (CockpitFocusPane) — the real TUI,
 // not a narrated transcript; an AgentHeader bar sits above it for identity + the rail toggle. With no
 // explicit focus it defaults to the tree's first agent (handoff dc.html:1790
@@ -14,17 +15,19 @@
 import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
 import { viewFade } from "@/app/element/motiontokens";
 import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
+import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildAgentBindings } from "@/app/store/keybindings/bindings";
 import { focusClaimed, isEditableTarget } from "@/app/store/keybindings/dispatcher";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { MotionConfig, motion } from "motion/react";
+import { AnimatePresence, MotionConfig, motion } from "motion/react";
 import { useEffect, useMemo, useRef } from "react";
 import { CodePeekContext } from "../code/codepeekhost";
 import type { AgentsViewModel } from "./agents";
 import { AgentDetailsRail } from "./agentdetailsrail";
+import { usePaneShown } from "./agentpanes";
 import { AgentHeader } from "./agentheader";
 import { AgentLaunchHero } from "./agentlaunchhero";
 import { AgentTree } from "./agenttree";
@@ -33,7 +36,6 @@ import { BrainstormPane } from "./brainstormpane";
 import { brainstormAtom } from "./brainstormstore";
 import { CanvasPane } from "./canvaspane";
 import { useCanvasPoller } from "./canvaspoller";
-import { canvasStateAtom } from "./canvasstore";
 import { rosterLoadPhase } from "./cockpitsurfacemodel";
 import { autoOpenedAskIdsAtom, docReviewAtom, shouldAutoOpen } from "./docreview";
 import { EndedTranscript } from "./endedtranscript";
@@ -46,6 +48,9 @@ import { RenderedView, useUnflipOnPrompt } from "./renderedview";
 import { isEndedWorkerId } from "./runlineage";
 import { SubagentInterior } from "./subagentinterior";
 import { focusSubagentAtom } from "./subagentsstore";
+import { paneShape } from "./workspacemodel";
+import { WorkspacePane } from "./workspacepane";
+import { workspaceAtom } from "./workspacestore";
 
 export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     const focusId = useAtomValue(model.focusIdAtom);
@@ -71,25 +76,28 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const agent = focused ?? firstInTree ?? agents[0] ?? terminals[0];
     const showSub = focusSub != null && focusSub.parentId === agent?.id;
     const brainstorm = useAtomValue(brainstormAtom(agent?.id ?? ""));
-    const brainstormMode = brainstorm?.mode === "brainstorm";
-    // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
-    const canvasMode = useAtomValue(canvasStateAtom(agent?.id ?? ""))?.mode === "canvas" && brainstorm == null;
-    // both hide the terminal and the rail
-    const paneMode = canvasMode || brainstormMode;
+    // the brainstorm or canvas showing: Rendered's tab beside the transcript, or the Terminal view's center
+    const shown = usePaneShown(model, agent?.id ?? "");
     const compacted = brainstorm?.file?.compacted;
-    const showCompacted = !paneMode && compacted != null && compacted > brainstorm!.lastViewedMs;
+    const showCompacted = shown == null && compacted != null && compacted > brainstorm!.lastViewedMs;
     useCanvasPoller(model, agent);
-    // ended workers, the final stage, the brainstorm and canvas panes and a subagent interior all win over Rendered
+    // ended workers, the final stage and a subagent interior all win over Rendered
     const viewMode = effectiveViewMode(
         useAtomValue(viewModeAtom(agent?.id ?? "")),
         useAtomValue(pickerFlipAtom(agent?.id ?? ""))
     );
-    const showRendered =
+    const inRendered =
         agent != null &&
         viewMode === "rendered" &&
-        !paneMode &&
         !showSub &&
         canRender(agent, { ended: isEndedWorkerId(agent.id), stage: stage != null && agent.id === stage.agent.id });
+    // in Terminal a brainstorm or canvas takes over the center, hiding the terminal and the rail; Rendered keeps the
+    // transcript and shows it as a workspace tab
+    const centerPane = inRendered ? null : shown;
+    const paneMode = centerPane != null;
+    const ws = useAtomValue(workspaceAtom(agent?.id ?? ""));
+    const shape = inRendered ? paneShape(ws) : "none";
+    const [rowRef, , rowRect] = useDimensionsWithCallbackRef<HTMLDivElement>();
     useUnflipOnPrompt(agent);
 
     // sync focusId to the defaulted agent so the tree highlights it and ←/→ start from the right place
@@ -159,21 +167,21 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const lastRendered = useRef<{ id: string; on: boolean } | null>(null);
     useEffect(() => {
         const prev = lastRendered.current;
-        lastRendered.current = agent != null ? { id: agent.id, on: showRendered } : null;
-        if (agent == null || prev == null || prev.on === showRendered) {
+        lastRendered.current = agent != null ? { id: agent.id, on: inRendered } : null;
+        if (agent == null || prev == null || prev.on === inRendered) {
             return;
         }
         if (prev.id !== agent.id) {
-            if (showRendered) {
+            if (inRendered) {
                 wrapRef.current?.focus();
             }
             return;
         }
-        const target = showRendered
+        const target = inRendered
             ? "[data-rendered-composer] textarea"
             : `[data-agent-terminal="${agent.id}"] .xterm-helper-textarea`;
         wrapRef.current?.querySelector<HTMLElement>(target)?.focus();
-    }, [agent?.id, showRendered]);
+    }, [agent?.id, inRendered]);
 
     // the surface stays mounted, so the effects above never run on a switch back to it, and arriving left
     // focus on <body>: typing reached the agent only after a click. Arriving hands focus to the live
@@ -217,69 +225,93 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                 {/* the tree stays in canvas and brainstorm modes: hiding it made reaching another agent a round trip
                     through the terminal */}
                 {!fullscreen ? <AgentTree model={model} /> : null}
-                <div className="flex min-w-0 flex-1 flex-col">
-                    {/* terminal stack stays mounted (hidden) while a subagent interior is shown, so
-                        returning to the parent never remounts/replays the live TUI (frame-stacking) */}
-                    <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "hidden")}>
-                        <AgentHeader model={model} agent={agent} />
-                        {showCompacted ? (
-                            <div
-                                data-brainstorm-compacted
-                                className="mx-[16px] mt-[12px] flex flex-none items-center gap-[10px] rounded-[8px] border border-edge-mid bg-surface-raised px-[12px] py-[10px]"
-                            >
-                                <span className="h-[7px] w-[7px] flex-none rounded-full bg-accent" aria-hidden />
-                                <span className="flex-1 text-[13px] leading-[1.45] text-secondary">
-                                    {compactedSummary(brainstorm!.file!)}
-                                </span>
-                            </div>
-                        ) : null}
-                        <div className="relative flex min-h-0 flex-1 flex-col">
-                            {mountable
-                                .filter((a) => a.blockId != null)
-                                .map((a) => (
-                                    <div
-                                        key={a.id}
-                                        data-agent-terminal={a.id}
-                                        className={cn(
-                                            "min-h-0 flex-1",
-                                            terminalClass(a.id === agent.id, paneMode, showRendered)
-                                        )}
-                                    >
-                                        <CodePeekContext.Provider value={{ model, transcriptPath: a.transcriptPath }}>
-                                            <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
-                                        </CodePeekContext.Provider>
-                                    </div>
-                                ))}
-                            {isEndedWorkerId(agent.id) ? (
-                                <EndedTranscript model={model} agent={agent} />
-                            ) : stage != null && agent.id === stage.agent.id ? (
-                                <FinalStagePane model={model} run={stage.run} />
-                            ) : brainstormMode ? (
-                                <BrainstormPane model={model} agent={agent} />
-                            ) : canvasMode ? (
-                                // keyed like the brainstorm pane, so opening the canvas or another agent's fades in
-                                <motion.div
-                                    key={agent.id}
-                                    variants={viewFade}
-                                    initial="initial"
-                                    animate="animate"
-                                    className="flex min-h-0 flex-1 flex-col"
+                <div ref={rowRef} className="relative flex min-w-0 flex-1">
+                    {/* expanded, the pane fills the row over the center, which stays laid out so the focused terminal
+                        keeps its size (terminalClass) */}
+                    <div
+                        data-agent-center
+                        className={cn(
+                            "flex min-w-0 flex-col",
+                            shape === "expanded" ? "invisible absolute inset-0" : "flex-1"
+                        )}
+                    >
+                        {/* terminal stack stays mounted (hidden) while a subagent interior is shown, so
+                            returning to the parent never remounts/replays the live TUI (frame-stacking) */}
+                        <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "hidden")}>
+                            <AgentHeader model={model} agent={agent} />
+                            {showCompacted ? (
+                                <div
+                                    data-brainstorm-compacted
+                                    className="mx-[16px] mt-[12px] flex flex-none items-center gap-[10px] rounded-[8px] border border-edge-mid bg-surface-raised px-[12px] py-[10px]"
                                 >
-                                    <CanvasPane model={model} agent={agent} />
-                                </motion.div>
-                            ) : agent.blockId == null ? (
-                                <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
-                                    No live terminal for this agent.
+                                    <span className="h-[7px] w-[7px] flex-none rounded-full bg-accent" aria-hidden />
+                                    <span className="flex-1 text-[13px] leading-[1.45] text-secondary">
+                                        {compactedSummary(brainstorm!.file!)}
+                                    </span>
                                 </div>
-                            ) : showRendered ? (
-                                <RenderedView key={agent.id} model={model} agent={agent} />
                             ) : null}
+                            <div className="relative flex min-h-0 flex-1 flex-col">
+                                {mountable
+                                    .filter((a) => a.blockId != null)
+                                    .map((a) => (
+                                        <div
+                                            key={a.id}
+                                            data-agent-terminal={a.id}
+                                            className={cn(
+                                                "min-h-0 flex-1",
+                                                terminalClass(a.id === agent.id, paneMode, inRendered)
+                                            )}
+                                        >
+                                            <CodePeekContext.Provider
+                                                value={{ model, transcriptPath: a.transcriptPath }}
+                                            >
+                                                <CockpitFocusPane blockId={a.blockId!} tabId={tabId} />
+                                            </CodePeekContext.Provider>
+                                        </div>
+                                    ))}
+                                {isEndedWorkerId(agent.id) ? (
+                                    <EndedTranscript model={model} agent={agent} />
+                                ) : stage != null && agent.id === stage.agent.id ? (
+                                    <FinalStagePane model={model} run={stage.run} />
+                                ) : centerPane === "brainstorm" ? (
+                                    <BrainstormPane model={model} agent={agent} />
+                                ) : centerPane === "canvas" ? (
+                                    // keyed like the brainstorm pane, so opening the canvas or another agent's fades in
+                                    <motion.div
+                                        key={agent.id}
+                                        variants={viewFade}
+                                        initial="initial"
+                                        animate="animate"
+                                        className="flex min-h-0 flex-1 flex-col"
+                                    >
+                                        <CanvasPane model={model} agent={agent} />
+                                    </motion.div>
+                                ) : agent.blockId == null ? (
+                                    <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
+                                        No live terminal for this agent.
+                                    </div>
+                                ) : inRendered ? (
+                                    <RenderedView key={agent.id} model={model} agent={agent} />
+                                ) : null}
+                            </div>
                         </div>
+                        {showSub ? <SubagentInterior model={model} sub={focusSub!} parentName={agent.name} /> : null}
                     </div>
-                    {showSub ? <SubagentInterior model={model} sub={focusSub!} parentName={agent.name} /> : null}
+                    {/* fullscreen hides the tree, not the pane: the pane holds what you opened */}
+                    <AnimatePresence>
+                        {shape !== "none" ? (
+                            <WorkspacePane
+                                key="workspace"
+                                model={model}
+                                agent={agent}
+                                ws={ws}
+                                availablePx={rowRect?.width ?? null}
+                            />
+                        ) : null}
+                    </AnimatePresence>
                 </div>
-                {!fullscreen && !paneMode && agent.kind !== "terminal" ? (
-                    <AgentDetailsRail model={model} agent={agent} askInView={showRendered && askDocked(agent)} />
+                {!fullscreen && !paneMode && !inRendered && agent.kind !== "terminal" ? (
+                    <AgentDetailsRail model={model} agent={agent} askInView={inRendered && askDocked(agent)} />
                 ) : null}
             </div>
         </MotionConfig>

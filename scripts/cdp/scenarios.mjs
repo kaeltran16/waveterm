@@ -48,6 +48,13 @@ import agentRail from "./scenarios-agent-rail.mjs";
 import agentTree from "./scenarios-agent-tree.mjs";
 import agentRendered from "./scenarios-agent-rendered.mjs";
 import agentQueued from "./scenarios-agent-queued.mjs";
+import { workspacePane } from "./scenarios-workspace-pane.mjs";
+import { workspaceHeader } from "./scenarios-workspace-header.mjs";
+import { workspaceRing } from "./scenarios-workspace-ring.mjs";
+import { workspaceRun } from "./scenarios-workspace-run.mjs";
+import { workspaceChanges } from "./scenarios-workspace-changes.mjs";
+import { workspaceFile } from "./scenarios-workspace-file.mjs";
+import { workspaceBrainstormCanvas } from "./scenarios-workspace-brainstorm-canvas.mjs";
 import { RENDERED_BS_SCENARIOS } from "./scenarios-rendered-brainstorm.mjs";
 import {
     diffComments,
@@ -350,6 +357,13 @@ export const SCENARIOS = [
     ...agentTree(SESSIONS_KIT),
     ...agentRendered(SESSIONS_KIT),
     ...agentQueued(SESSIONS_KIT),
+    workspacePane,
+    workspaceHeader,
+    workspaceRing,
+    workspaceRun,
+    workspaceChanges,
+    workspaceFile,
+    workspaceBrainstormCanvas,
     ...RENDERED_BS_SCENARIOS,
     canvasMark,
     canvasTabsScenario,

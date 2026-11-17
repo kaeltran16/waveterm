@@ -60,7 +60,7 @@ export default (kit) => {
     agentPage,
     polishWaitFor,
     polishNap,
-    backToRendered,
+    closePaneTabs,
     HOST,
     PANE,
     RV,
@@ -218,7 +218,7 @@ export default (kit) => {
         return [ok, { narrowed, widened, compact: r.compact, rows: r.rows }];
       });
 
-      await step("Edit on the Banner row opens the Brainstorm pane at that part, its row open and in view", async () => {
+      await step("Edit on the Banner row opens the Brainstorm tab at that part beside the transcript, its row open and in view", async () => {
         writeFile(ctx, DESIGN_READY);
         await drawn(h, `${ROW("banner")}?.querySelector("[data-rendered-bs-design-actions]") != null`);
         const edit = `[...(${ROW("banner")}?.querySelectorAll("[data-rendered-bs-design-actions] button") ?? [])].find((b) => b.innerText.trim() === "Edit")`;
@@ -246,9 +246,9 @@ export default (kit) => {
             };
         })()`);
         await h.shot(SHOT(6, "edit-opens-pane"));
-        const back = await backToRendered(h, ctx);
+        const back = await closePaneTabs(h, ctx);
         await waitCard(h, "design");
-        return [clicked && shown && row.expanded === "true" && row.inView && !row.rendered && back, { clicked, shown, ...row, back }];
+        return [clicked && shown && row.expanded === "true" && row.inView && row.rendered && back, { clicked, shown, ...row, back }];
       });
 
       await step("Confirm all sends the pane's line", async () => {

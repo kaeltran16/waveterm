@@ -92,15 +92,6 @@ export function goneView(
     return {
         kind: "removed",
         title: `${s.topic}'s brainstorm file is gone`,
-        text: `${brainstormGoneText(s.path)} The Brainstorm switch in the header goes with it; the answers above stay in the transcript.`,
+        text: `${brainstormGoneText(s.path)} The answers above stay in the transcript.`,
     };
-}
-
-// the header's Rendered | Brainstorm switch goes with a removed brainstorm while Rendered shows; the pane's removed
-// view keeps it, since the switch is how the user leaves that view
-export function brainstormSwitchShown(
-    s: { removed: boolean; mode: "terminal" | "brainstorm" },
-    rendered: boolean
-): boolean {
-    return !(s.removed && rendered && s.mode !== "brainstorm");
 }

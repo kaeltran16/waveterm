@@ -12,6 +12,8 @@ import {
     closeTabs,
     focusAgent,
     makeTab,
+    pinDefaultView,
+    restoreDefaultView,
     restoreRoster,
     setRoster,
     taskNotification,
@@ -104,6 +106,8 @@ export default function (_kit) {
                 try {
                     Object.assign(ctx, writeFixture(ctx.dir));
                     await h.goto("agent");
+                    // the rail under test shows in the Terminal view; the Rendered view has the workspace pane in its place
+                    await pinDefaultView(h, "terminal");
                     const { tabId, blockId } = await makeTab(h, ctx, { label: PARENT_NAME });
                     ctx.parentId = tabId;
                     ctx.prevRail = await agentPage(
@@ -230,6 +234,7 @@ export default function (_kit) {
                         return true;`
                     )
                 );
+                await step("restore the default view", () => restoreDefaultView(h));
                 await step("restore the roster", () => restoreRoster(h));
                 await step("close the fixture tab", () => closeTabs(h, ctx));
                 if (ctx.prevRail !== undefined) {

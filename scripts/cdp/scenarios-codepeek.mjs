@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { pinDefaultView, restoreDefaultView } from "./agent-page-fixtures.mjs";
 import { SURFACE_LABEL } from "./attach.mjs";
 import {
     lookEval,
@@ -266,6 +267,8 @@ export const codePeek = {
     async arrange(h) {
         const ctx = {};
         try {
+            // the peek under test is the terminal's, and the details rail it reads shows in the Terminal view
+            await pinDefaultView(h, "terminal");
             ctx.repo = mkdtempSync(join(tmpdir(), "verify-peek-repo-"));
             ctx.plainDir = mkdtempSync(join(tmpdir(), "verify-peek-plain-"));
             makeRepo(ctx.repo);
@@ -746,6 +749,7 @@ export const codePeek = {
         if (ctx.railWas != null) {
             await lookEval(h, `${RAIL_LIB} globalStore.set(railVisibleAtom, ${JSON.stringify(ctx.railWas)});`).catch(() => {});
         }
+        await restoreDefaultView(h).catch((e) => console.error(`code-peek teardown: restoring the default view failed: ${e?.message ?? e}`));
         if (ctx.tabId) {
             try {
                 await waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]);

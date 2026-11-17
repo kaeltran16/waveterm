@@ -8,6 +8,7 @@
 import { useSettle } from "@/app/element/motionhooks";
 import { MOTION } from "@/app/element/motiontokens";
 import { Segmented } from "@/app/element/segmented";
+import { TickNumber } from "@/app/element/ticknumber";
 import { ContextMenuModel } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { effortDetailAtom, loadEffortDetail } from "@/app/view/jarvis/effortstore";
@@ -19,7 +20,9 @@ import { useAtomValue } from "jotai";
 import {
     ChevronLeft,
     CircleStop,
+    File as FileIcon,
     FileText,
+    GitBranch,
     Maximize2,
     Minimize2,
     PanelRight,
@@ -32,24 +35,30 @@ import { motion } from "motion/react";
 import { Fragment, useEffect, useRef } from "react";
 import { confirmCloseSession, interruptAgent } from "./agentactions";
 import { getLastOutputAtom } from "./agentcontrollerstore";
+import { FilesSummary } from "./agentdetailsrail";
+import { agentDiffScope, openDiff } from "./agentdiffnav";
 import { hungSilenceMs } from "./agenthung";
-import { contextLevel, contextTokens } from "./agentrailmodel";
+import { showPane, usePaneShown } from "./agentpanes";
+import { checkoutFacts, contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import { agentStateView, STATE_TONE_COLOR } from "./agentstateview";
 import { agentRunDone, type AgentVM } from "./agentsviewmodel";
-import { brainstormAtom, brainstormWaitOf, setBrainstormMode } from "./brainstormstore";
+import { brainstormAtom, brainstormWaitOf } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
-import { canvasStateAtom, setCanvasMode } from "./canvasstore";
+import { canvasStateAtom } from "./canvasstore";
+import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick } from "./committick";
 import { DOC_REVIEW_COPY, docReviewAtom, parseDocReview } from "./docreview";
 import { isFinalStageId } from "./finalstage";
 import { canHandToPhone, isHandedOver } from "./handtophone";
 import { HeaderControls } from "./headercontrols";
-import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
+import { leadLandFacts } from "./leadland";
+import { useRailGit } from "./railgit";
+import { railStateAtom, railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { remoteStatusAtom, toggleHandToPhone } from "./remotestore";
-import { brainstormSwitchShown } from "./renderedbsrunmodel";
 import { canRender, effectiveViewMode, pickerFlipAtom, toggleViewMode, viewModeAtom } from "./renderedmode";
+import { useRoleAsks } from "./roleasks";
 import { agentProject, isEndedWorkerId, leadAgentOf, leadDisplayName } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
 import { runtimeMeta } from "./runtimemeta";
@@ -57,6 +66,7 @@ import { isStandingBy } from "./shelltasks";
 import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
 import { subagentsByIdAtom } from "./subagentsstore";
+import { openBeside, workspaceAtom } from "./workspacestore";
 
 // header context chip color by context level (mirrors the rail gauge, as text not fill)
 const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
@@ -119,6 +129,36 @@ function InitiativeLink({ model, agent }: { model: AgentsViewModel; agent: Agent
     );
 }
 
+// the Rendered subline's parts, each after a separator but the line's first; from is the first part's place in it
+function sublineParts(parts: React.ReactNode[], from: number) {
+    return parts.map((part, i) => (
+        <Fragment key={from + i}>
+            {from + i > 0 ? <span className="shrink-0 text-ink-faint">{" · "}</span> : null}
+            {part}
+        </Fragment>
+    ));
+}
+
+// the git read behind the Rendered header's facts, mounted only there: in Terminal the rail reads its own
+function RailGitHold({ agent }: { agent: AgentVM }) {
+    useRailGit(agent);
+    return null;
+}
+
+// useCheckoutFacts is what the Rendered header says about the agent's checkout (the rail's Details and Files touched
+// in Terminal), and the asks on its run waiting on you; null outside Rendered, where the rail says it
+function useCheckoutFacts(model: AgentsViewModel, agent: AgentVM, rendered: boolean) {
+    const { role, roleRun, yours } = useRoleAsks(model, agent);
+    const git = useAtomValue(railStateAtom);
+    const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
+    if (!rendered) {
+        return { facts: null, yours: 0 };
+    }
+    // a land removes the run's worktree, so a landed lead reads its run's landing, as the rail does
+    const landed = role?.kind === "lead" ? leadLandFacts(roleRun) : null;
+    return { facts: checkoutFacts({ git, landed, sharedBy }), yours: yours.length };
+}
+
 export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const railVisible = useAtomValue(railVisibleAtom);
     const fullscreen = useAtomValue(terminalFullscreenAtom);
@@ -177,35 +217,81 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const reviewOpen = useAtomValue(docReviewAtom) != null;
     const viewMode = effectiveViewMode(useAtomValue(viewModeAtom(agent.id)), useAtomValue(pickerFlipAtom(agent.id)));
     const renderable = canRender(agent, { ended, stage });
-    // mirrors agentsurface: an agent with a brainstorm never shows its canvas
-    const paneShown = brainstorm?.mode === "brainstorm" || (brainstorm == null && canvas?.mode === "canvas");
+    const shown = usePaneShown(model, agent.id);
     const rendered = renderable && viewMode === "rendered";
-    // the pane switch's other half names the view it returns to
-    const centerLabel = rendered ? "Rendered" : "Terminal";
+    // in Terminal a brainstorm or canvas takes over the center; in Rendered it is a workspace tab, which replaces the
+    // header's switch
+    const centerTaken = !rendered && shown != null;
     // Ctrl+Shift+B goes to the pane when the agent has one, so then only v flips the view
     const viewToggleKeys = brainstorm != null || canvas != null ? formatChordString("v") : viewKeys("v");
     const viewToggleTitle = `${rendered ? "Show the terminal" : "Show rendered"} (${viewToggleKeys})`;
+    // in Rendered the rail is gone, so its checkout facts and the run's asks waiting on you read here
+    const { facts, yours } = useCheckoutFacts(model, agent, rendered);
+    const ws = useAtomValue(workspaceAtom(agent.id));
+    const changesOn = ws.active === "changes" && !ws.collapsed;
     // only the facts this session has: a background terminal often has none, and then the line goes
     const subline: React.ReactNode[] = [];
     if (project) {
         subline.push(project);
     }
+    if (facts?.branch) {
+        subline.push(
+            <span title={facts.branch} className="inline-flex min-w-[6ch] items-center gap-[4px] text-ink-mid">
+                <GitBranch size={11} strokeWidth={2} aria-hidden className="shrink-0" />
+                <span className="truncate">{facts.branch}</span>
+            </span>
+        );
+    }
+    if (facts?.worktree) {
+        // clipped at its start: a worktree's path ends in the name that tells it apart. On a narrow header it gives
+        // way before the branch, and both before the run link
+        subline.push(
+            <span
+                data-header-worktree
+                title={facts.worktreePath}
+                dir="rtl"
+                className="min-w-[4ch] shrink-[100] truncate text-left"
+            >
+                <bdi dir="ltr">{facts.worktree}</bdi>
+            </span>
+        );
+    }
     if (agent.effortId != null) {
         subline.push(<InitiativeLink model={model} agent={agent} />);
     }
+    // in Rendered the facts before the links clip on a narrow header; the links after them stay whole
+    const linksFrom = subline.length;
     if (lineage?.kind === "lead") {
-        // a link, as a worker's header links up to its lead: the run's sheet, ctrl+click peeks it
+        // a link, as a worker's header links up to its lead: the run's sheet, ctrl+click peeks it. In Rendered a
+        // plain click opens the run beside the transcript instead
         const runId = lineage.runId;
         subline.push(
             <button
                 type="button"
                 data-peek
                 data-header-run-link
-                onClick={(e) => fireAndForget(() => openOrPeek(model, { kind: "run", runId }, e))}
+                onClick={(e) => {
+                    if (!openBeside(model, agent.id, { kind: "run", runId, view: "tasks" }, e)) {
+                        fireAndForget(() => openOrPeek(model, { kind: "run", runId }, e));
+                    }
+                }}
                 title="Open the run"
-                className="cursor-pointer text-accent-soft hover:underline"
+                className={cn(
+                    "cursor-pointer text-accent-soft hover:underline",
+                    rendered && "inline-flex shrink-0 items-center gap-[5px]"
+                )}
             >
                 orchestrator run {runId.slice(0, 8)}
+                {yours > 0 ? (
+                    <span
+                        data-header-run-asks
+                        aria-label={`${yours} waiting on you`}
+                        className="inline-flex items-center gap-[4px] text-warning"
+                    >
+                        <span className="h-[6px] w-[6px] rounded-full bg-warning" aria-hidden />
+                        <TickNumber value={yours} />
+                    </span>
+                ) : null}
             </button>
         );
     }
@@ -249,11 +335,14 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                 click: () => globalStore.set(terminalFullscreenAtom, !fullscreen),
             });
         }
-        items.push({
-            label: railVisible ? "Hide details" : "Show details",
-            icon: <PanelRight size={15} />,
-            click: () => globalStore.set(railVisibleAtom, !railVisible),
-        });
+        // Rendered has no details rail to show
+        if (!rendered) {
+            items.push({
+                label: railVisible ? "Hide details" : "Show details",
+                icon: <PanelRight size={15} />,
+                click: () => globalStore.set(railVisibleAtom, !railVisible),
+            });
+        }
         if (blockId != null) {
             items.push({ type: "separator" });
             items.push({ label: closeLabel, icon: <X size={15} />, danger: true, click: closeTerminal });
@@ -347,8 +436,20 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         {agent.startError}
                     </div>
                 ) : null}
-                {subline.length > 0 ? (
-                    <div className="mt-[2px] truncate font-mono text-[11px] font-medium text-muted">
+                {subline.length > 0 && rendered ? (
+                    <div
+                        data-agent-subline
+                        className="mt-[2px] flex min-w-0 items-center whitespace-nowrap font-mono text-[11px] font-medium text-muted"
+                    >
+                        {linksFrom > 0 ? (
+                            <span className="flex min-w-0 items-center overflow-hidden">
+                                {sublineParts(subline.slice(0, linksFrom), 0)}
+                            </span>
+                        ) : null}
+                        {sublineParts(subline.slice(linksFrom), linksFrom)}
+                    </div>
+                ) : subline.length > 0 ? (
+                    <div data-agent-subline className="mt-[2px] truncate font-mono text-[11px] font-medium text-muted">
                         {subline.map((part, i) => (
                             <Fragment key={i}>
                                 {i > 0 ? " · " : null}
@@ -358,7 +459,32 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                     </div>
                 ) : null}
             </div>
+            {rendered ? <RailGitHold agent={agent} /> : null}
             <div data-agent-actions className="flex shrink-0 items-center gap-[7px]">
+                {facts?.chip ? (
+                    <button
+                        type="button"
+                        data-header-files-chip
+                        onClick={(e) => {
+                            if (!openBeside(model, agent.id, { kind: "changes", selected: null }, e)) {
+                                openDiff(model, agentDiffScope(agent.id, agent.name));
+                            }
+                        }}
+                        title={facts.chip.title ? `${facts.chip.title} · Open the Changes tab` : "Open the Changes tab"}
+                        data-on={changesOn || undefined}
+                        className={cn(
+                            "inline-flex cursor-pointer items-center gap-[6px] whitespace-nowrap rounded-[7px] border px-[9px] py-[5px] font-mono text-[11px] font-semibold",
+                            changesOn
+                                ? "border-edge-strong bg-surface-selected text-primary"
+                                : "border-edge-mid bg-surface-raised text-ink-mid hover:border-edge-strong"
+                        )}
+                    >
+                        <FileIcon size={12} strokeWidth={2} aria-hidden />
+                        <span>
+                            <FilesSummary chip={facts.chip} />
+                        </span>
+                    </button>
+                ) : null}
                 {review && !reviewOpen ? (
                     <button
                         type="button"
@@ -371,13 +497,13 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                         <ChevronLeft size={12} strokeWidth={2} aria-hidden />
                     </button>
                 ) : null}
-                {brainstorm != null && brainstormSwitchShown(brainstorm, rendered) ? (
+                {rendered ? null : brainstorm != null ? (
                     <Segmented
                         role="group"
                         ariaLabel="Show terminal or brainstorm"
-                        value={brainstorm.mode}
+                        value={shown === "brainstorm" ? "brainstorm" : "terminal"}
                         options={[
-                            { key: "terminal", label: centerLabel, title: `${centerLabel} (${viewKeys("b")})` },
+                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("b")})` },
                             {
                                 key: "brainstorm",
                                 label: (
@@ -394,21 +520,21 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                                 title: `Brainstorm (${viewKeys("b")})`,
                             },
                         ]}
-                        onChange={(m) => setBrainstormMode(agent.id, m, Date.now())}
+                        onChange={(m) => showPane(model, agent.id, "brainstorm", m === "brainstorm", Date.now())}
                     />
-                ) : brainstorm == null && canvas != null ? (
+                ) : canvas != null ? (
                     <Segmented
                         role="group"
                         ariaLabel="Show terminal or canvas"
-                        value={canvas.mode}
+                        value={shown === "canvas" ? "canvas" : "terminal"}
                         options={[
-                            { key: "terminal", label: centerLabel, title: `${centerLabel} (${viewKeys("c")})` },
+                            { key: "terminal", label: "Terminal", title: `Terminal (${viewKeys("c")})` },
                             {
                                 key: "canvas",
                                 label: (
                                     <>
                                         Canvas
-                                        {isUnseen(canvas) ? (
+                                        {isUnseen(canvas, shown === "canvas") ? (
                                             <span
                                                 aria-label="updated since you last looked"
                                                 className="h-[6px] w-[6px] rounded-full bg-accent"
@@ -419,13 +545,13 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                                 title: `Canvas (${viewKeys("c")})`,
                             },
                         ]}
-                        onChange={(m) => setCanvasMode(agent.id, m, Date.now())}
+                        onChange={(m) => showPane(model, agent.id, "canvas", m === "canvas", Date.now())}
                     />
                 ) : null}
                 {blockId != null ? (
                     <>
                         {/* an open pane hides the terminal, so there is no view for this to flip */}
-                        {renderable && !paneShown ? (
+                        {renderable && !centerTaken ? (
                             <button
                                 type="button"
                                 data-view-toggle

@@ -33,6 +33,7 @@ import { clearPartTarget, openBrainstormDesign, setReviewCursor, type Brainstorm
 import {
     AnswerBox,
     BS_RAIL,
+    BS_SPLIT,
     CHIP,
     DesignButton,
     DOT,
@@ -108,7 +109,7 @@ export function Check({
         <>
             <Toolbar topic={s.topic} f={f} progress={false} />
             <StaleBanner s={s} />
-            <div className="flex min-h-0 flex-1">
+            <div className={BS_SPLIT}>
                 <div ref={mainRef} className="flex min-w-0 flex-1 flex-col bg-background">
                     {under !== "review" ? (
                         <div className="flex flex-none items-center border-b border-border px-[22px] py-[8px]">

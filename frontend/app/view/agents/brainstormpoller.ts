@@ -250,7 +250,9 @@ export const tauriBrainstormIO: BrainstormIO = {
         const data = await RpcApi.FileReadCommand(TabRpcClient, { info: { path } });
         return data?.data64 ? base64ToString(data.data64) : "";
     },
-    serve: tauriCanvasIO.serve,
+    // read at call time: canvaspoller sits in an import cycle with this module (through agentpanes and openref), so
+    // tauriCanvasIO may not exist yet while this one evaluates
+    serve: (designDir) => tauriCanvasIO.serve(designDir),
     async canvasJson(url) {
         const res = await tauriCanvasIO.get(url);
         return res.status === HTTP_OK ? res.json : undefined;

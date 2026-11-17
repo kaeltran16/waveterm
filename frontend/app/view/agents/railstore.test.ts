@@ -27,4 +27,25 @@ describe("loadRailForAgent", () => {
 
         expect(globalStore.get(railStateAtom)?.changes?.files.map((f) => f.path)).toEqual(["b.ts"]);
     });
+
+    // the Changes tab reads each file's diff against the base the list was read against
+    it("keeps the base the backend resolved for the list", async () => {
+        vi.mocked(RpcApi.GitChangesCommand).mockResolvedValueOnce({
+            ...changes("a.ts"),
+            ref: "abc123",
+            head: "def456",
+        });
+        await loadRailForAgent("t.jsonl");
+        expect(globalStore.get(railStateAtom)).toMatchObject({ ref: "abc123", head: "def456", isRepo: true });
+    });
+
+    it("says why a read failed rather than reading as no repo", async () => {
+        vi.mocked(RpcApi.GitChangesCommand).mockRejectedValueOnce(new Error("git: index.lock exists"));
+        await loadRailForAgent("t.jsonl");
+        expect(globalStore.get(railStateAtom)).toMatchObject({
+            cwd: "C:/src/demo",
+            changes: null,
+            failure: "git: index.lock exists",
+        });
+    });
 });

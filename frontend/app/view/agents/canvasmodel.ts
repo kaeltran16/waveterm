@@ -154,8 +154,9 @@ export function paneState(s: CanvasState): "board" | "probing" | "server-down" |
     }
 }
 
-export function isUnseen(s: CanvasState): boolean {
-    return s.mode === "terminal" && s.lastModifiedMs != null && s.lastModifiedMs > s.lastViewedMs;
+// shown: the canvas is on screen now (agentpanes.ts's paneShown), its pane or its tab
+export function isUnseen(s: CanvasState, shown: boolean): boolean {
+    return !shown && s.lastModifiedMs != null && s.lastModifiedMs > s.lastViewedMs;
 }
 
 // the boards whose file the server answered for, in canvas order: canvas.json can name boards not written yet

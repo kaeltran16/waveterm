@@ -49,7 +49,8 @@ const SURF = `document.querySelector("[data-cockpit-surface-wrap]")`;
 const RV = `${SURF}?.querySelector("[data-rendered-view]")`;
 const COLUMN = `${RV}?.querySelector("[data-rendered-column]")`;
 const HOST = `${RV}?.querySelector("[data-rendered-brainstorm]")`;
-const PANE = `document.querySelector("[data-brainstorm-pane]")`;
+// the brainstorm pane in Rendered is the workspace pane's Brainstorm tab, beside the transcript
+const PANE = `document.querySelector('aside[aria-label="Workspace"] [data-brainstorm-pane]')`;
 const FLAT = `const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();`;
 
 const rosterAgent = (id, blockId, name, transcriptPath, brainstormFile) => ({
@@ -143,14 +144,16 @@ async function showRendered(h) {
     return polishWaitFor(h, `${RV} != null`, WAIT_MS);
 }
 
-// the brainstorm pane back to Rendered, as the header's switch does
-const backToRendered = (h, ctx) =>
+// the Brainstorm and Canvas tabs closed, as their x does, so the transcript has the row to itself again
+const closePaneTabs = (h, ctx) =>
     agentPage(
         h,
-        `const S = await mod("app/view/agents/brainstormstore.ts");
-        S.setBrainstormMode(${JSON.stringify(ctx.agentId)}, "terminal", Date.now());
+        `const W = await mod("app/view/agents/workspacestore.ts");
+        for (const key of ["brainstorm", "canvas"]) W.closeWorkspaceTab(${JSON.stringify(ctx.agentId)}, key);
         return true;`
-    ).then(() => polishWaitFor(h, `${RV} != null`, WAIT_MS));
+    ).then(() =>
+        polishWaitFor(h, `${RV} != null && !document.querySelector('aside[aria-label="Workspace"]')`, WAIT_MS)
+    );
 
 // the host as drawn: the card kind it shows, whether it is compact, its flat text, and where it sits
 const readHost = (h) =>
@@ -313,7 +316,7 @@ export const RBS_KIT = {
     waitSent,
     answerRecords,
     agentIdle,
-    backToRendered,
+    closePaneTabs,
     agentPage,
     polishWaitFor,
     polishNap,
@@ -357,7 +360,7 @@ const renderedBsHost = scenario("rendered-bs-host", { file: HOST_WORKING }, asyn
         return [narrowed && at.width < 600 && widened, { narrowed, width: at.width, widened }];
     });
 
-    await step("openBrainstormAt with a part shows the Brainstorm pane with that part's row open and in view", async () => {
+    await step("openBrainstormAt with a part opens the Brainstorm tab beside the transcript, that part's row open and in view", async () => {
         const opened = await agentPage(
             h,
             `const S = await mod("app/view/agents/brainstormstore.ts");
@@ -372,7 +375,20 @@ const renderedBsHost = scenario("rendered-bs-host", { file: HOST_WORKING }, asyn
             `${sel}?.querySelector("[data-brainstorm-row-toggle]")?.getAttribute("aria-expanded") === "true"`,
             WAIT_MS
         );
-        await polishNap(800);
+        // the scroll is smooth, and the tab's pane widens as it opens: wait for the row to land before judging it
+        await polishWaitFor(
+            h,
+            `(() => {
+                const el = ${sel};
+                let sc = el?.parentElement;
+                while (sc && !(sc.scrollHeight > sc.clientHeight && /(auto|scroll)/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+                const r = el?.getBoundingClientRect();
+                const v = (sc ?? document.documentElement).getBoundingClientRect();
+                return r != null && r.top >= v.top - 1 && r.top < v.bottom;
+            })()`,
+            WAIT_MS
+        );
+        await polishNap(300);
         const row = await h.ev(`(() => {
             const el = ${sel};
             const toggle = el?.querySelector("[data-brainstorm-row-toggle]");
@@ -387,8 +403,8 @@ const renderedBsHost = scenario("rendered-bs-host", { file: HOST_WORKING }, asyn
             };
         })()`);
         await h.shot(SHOT(3, "pane-part"));
-        const back = await backToRendered(h, ctx);
-        return [opened && shown && row.expanded === "true" && row.inView && !row.rendered && back, { shown, ...row, back }];
+        const back = await closePaneTabs(h, ctx);
+        return [opened && shown && row.expanded === "true" && row.inView && row.rendered && back, { shown, ...row, back }];
     });
 });
 
