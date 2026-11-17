@@ -6,7 +6,7 @@ import useResizeObserver from "@react-hook/resize-observer";
 import { useLayoutEffect, useRef, useState } from "react";
 
 // the line clamp per kind of clamped text, spelled out so tailwind sees each class
-export const CLAMP_LINES = { bubble: "line-clamp-[8]", thought: "line-clamp-3" } as const;
+export const CLAMP_LINES = { bubble: "line-clamp-[8]", thought: "line-clamp-3", wakeItem: "line-clamp-3" } as const;
 
 // Long text clamped behind Show more. The clamp is measured, not estimated, so the toggle only shows when text is
 // really hidden. A find over the transcript (unfold) passes clamp=false, since a match must never sit in hidden text.
@@ -37,7 +37,11 @@ export function ClampedText({
     useResizeObserver(ref, measure);
     return (
         <>
-            <div ref={ref} data-find-turn={findTurn || undefined} className={cn(className, clamped && CLAMP_LINES[lines])}>
+            <div
+                ref={ref}
+                data-find-turn={findTurn || undefined}
+                className={cn(className, clamped && CLAMP_LINES[lines])}
+            >
                 {children}
             </div>
             {clamp && (overflows || open) ? (
