@@ -19,7 +19,16 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { stringToBase64 } from "@/util/util";
 import type { AgentsViewModel } from "../agents/agents";
 import { MAX_VIEW_BYTES } from "./codeclassify";
-import { closePeek, codePeekAtom, codePeekFocusedAtom, openPeekInCode, setPeekMode, togglePeek } from "./codepeekstore";
+import {
+    closePeek,
+    closePeekAt,
+    codePeekAtom,
+    codePeekFocusedAtom,
+    openPeek,
+    openPeekInCode,
+    setPeekMode,
+    togglePeek,
+} from "./codepeekstore";
 
 const CWD = "C:\\repo\\docs";
 const anchor = { blockId: "b1", bufferLine: 10, start: 4, line: null, cwd: CWD };
@@ -259,6 +268,45 @@ describe("togglePeek", () => {
         await togglePeek({ ...anchor, raw: "a.ts" });
 
         expect(globalStore.get(codePeekAtom)?.file).toEqual({ kind: "error", message: "connection lost" });
+    });
+});
+
+describe("openPeek", () => {
+    it("keeps the card open on a second open of the same anchor", async () => {
+        await openPeek({ ...anchor, raw: "a.ts", line: 3 });
+        await openPeek({ ...anchor, raw: "a.ts", line: 3 });
+
+        expect(globalStore.get(codePeekAtom)).toMatchObject({ raw: "a.ts", line: 3, file: { kind: "text" } });
+    });
+
+    it("moves to the new line or path at the same place", async () => {
+        await openPeek({ ...anchor, raw: "a.ts", line: 3 });
+        await openPeek({ ...anchor, raw: "a.ts", line: 9 });
+        expect(globalStore.get(codePeekAtom)).toMatchObject({ raw: "a.ts", line: 9 });
+
+        await openPeek({ ...anchor, raw: "b.ts", line: null });
+        expect(globalStore.get(codePeekAtom)).toMatchObject({ raw: "b.ts", line: null });
+    });
+});
+
+describe("closePeekAt", () => {
+    it("closes the card open on that place and path", async () => {
+        await openPeek({ ...anchor, raw: "a.ts", line: 3 });
+        globalStore.set(codePeekFocusedAtom, true);
+
+        closePeekAt({ blockId: anchor.blockId, raw: "a.ts" });
+
+        expect(globalStore.get(codePeekAtom)).toBeNull();
+        expect(globalStore.get(codePeekFocusedAtom)).toBe(false);
+    });
+
+    it("leaves a card open on another place or path", async () => {
+        await openPeek({ ...anchor, raw: "a.ts", line: 3 });
+
+        closePeekAt({ blockId: anchor.blockId, raw: "b.ts" });
+        closePeekAt({ blockId: "other", raw: "a.ts" });
+
+        expect(globalStore.get(codePeekAtom)).toMatchObject({ blockId: anchor.blockId, raw: "a.ts" });
     });
 });
 

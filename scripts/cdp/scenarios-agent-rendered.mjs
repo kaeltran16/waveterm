@@ -1684,7 +1684,7 @@ export default function (_kit) {
                         copied,
                     };
                 })()`;
-                const peekCard = `${RV}?.querySelector("[data-rendered-peek] [data-code-peek]")`;
+                const peekCard = `document.querySelector('aside[aria-label="Workspace"] [data-code-peek][data-peek-variant="tab"]')`;
                 const clickLink = (path) =>
                     h.ev(`(() => {
                         const link = ${findLink(path)};
@@ -1748,8 +1748,10 @@ export default function (_kit) {
                     return [ok, seen];
                 });
 
-                await step("rendered: file peek — a click on the path docks the Code peek on that file under the transcript, its editor drawing the file; a second click closes it", async () => {
+                await step("rendered: file peek — a click on the path opens a File tab beside the transcript on that file, its editor drawing the file; a second click keeps it, and the tab's × closes the tab and its peek", async () => {
                     if (think == null) return [false, "the thought step did not append the turn"];
+                    const key = `file:${think.peekPath}`;
+                    const tab = `[...document.querySelectorAll("[data-workspace-tab]")].find((t) => t.dataset.workspaceTab === ${JSON.stringify(key)})`;
                     const clicked = await clickLink(think.peekPath);
                     const opened = await wait(`${peekCard}?.getAttribute("data-peek-state") === "text"`);
                     // the editor draws the file's own lines, not an empty box (Monaco draws a space as a no-break space)
@@ -1758,24 +1760,25 @@ export default function (_kit) {
                     const lines = await h.ev(viewLines);
                     const card = await h.ev(`(() => {
                         const rv = ${RV};
-                        const dock = rv?.querySelector("[data-rendered-peek]");
+                        const pane = document.querySelector('aside[aria-label="Workspace"]');
+                        const box = ${peekCard};
+                        const path = box?.querySelector("[data-peek-path]");
                         const scroll = rv?.querySelector("[data-rendered-scroll]");
-                        const comp = rv?.querySelector("[data-rendered-composer]");
-                        const box = dock?.querySelector("[data-code-peek]");
-                        const path = dock?.querySelector("[data-peek-path]");
-                        if (!dock || !scroll || !comp || !box || !path) return null;
-                        const d = dock.getBoundingClientRect();
-                        const b = box.getBoundingClientRect();
+                        if (!pane || !box || !path || !scroll) return null;
                         return {
                             path: path.getAttribute("title"),
-                            belowTranscript: d.top >= scroll.getBoundingClientRect().bottom - 0.5,
-                            aboveComposer: d.bottom <= comp.getBoundingClientRect().top + 0.5,
-                            cardInDock: b.top >= d.top - 0.5 && b.bottom <= d.bottom + 0.5,
+                            tabLabel: ${tab}?.textContent.trim() ?? null,
+                            besideTranscript: pane.getBoundingClientRect().left >= scroll.getBoundingClientRect().right - 0.5,
+                            noDock: rv.querySelector("[data-rendered-peek]") == null,
                         };
                     })()`);
                     await h.shot(SHOT(27, "file-peek"));
                     const again = await clickLink(think.peekPath);
-                    const closed = await wait(`${RV}?.querySelector("[data-rendered-peek]") == null`);
+                    await agentPage(h, `await nap(400); return true;`);
+                    const kept = await h.ev(`${peekCard} != null && ${tab} != null`);
+                    await h.ev(`${tab}?.querySelector("[data-workspace-tab-close]")?.click()`);
+                    const closed = await wait(`${tab} == null && ${peekCard} == null`);
+                    const peekGone = await agentPage(h, `const P = await mod("app/view/code/codepeekstore.ts"); return until(() => globalStore.get(P.codePeekAtom) == null, 3000);`);
                     const samePath = (p) => (p ?? "").replace(/\\/g, "/").toLowerCase() === think.peekPath.toLowerCase();
                     const ok =
                         clicked &&
@@ -1783,12 +1786,14 @@ export default function (_kit) {
                         drawn &&
                         card != null &&
                         samePath(card.path) &&
-                        card.belowTranscript &&
-                        card.aboveComposer &&
-                        card.cardInDock &&
+                        card.tabLabel === PEEK_FILE &&
+                        card.besideTranscript &&
+                        card.noDock &&
                         again &&
-                        closed;
-                    return [ok, { clicked, opened, drawn, lines, card, again, closed }];
+                        kept &&
+                        closed &&
+                        peekGone;
+                    return [ok, { clicked, opened, drawn, lines, card, again, kept, closed, peekGone }];
                 });
 
                 await step("rendered: bash card — A's two ! runs draw as cards: the finished one shows its command, stdout, and stderr in the error colour; the unfinished one reads running; no user bubble holds <bash-; a third run of 12 lines shows 8 and Show all, whose click shows every line", async () => {
