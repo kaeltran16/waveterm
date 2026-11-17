@@ -899,7 +899,7 @@ export default function (_kit) {
 
                 // Claude Code raises a permission request for the question dialog too; put one in the page's queue (a
                 // server-held one would outlive the step and turn the next Edit request into a queue of two)
-                await step("rendered: ask permission — the ask card's own AskUserQuestion request draws no band, and the rail does not send you to the terminal", async () => {
+                await step("rendered: ask permission — the ask card's own AskUserQuestion request draws no band, nor once the card closes before the request retires, and the rail does not send you to the terminal", async () => {
                     // the last step answered its ask, so a fresh one is raised
                     const raised = await raiseAsk([ASK_QUESTION]);
                     await wait(`${ASK} != null && !(${ASK}.textContent ?? "").includes("Answered")`);
@@ -933,6 +933,12 @@ export default function (_kit) {
                             };
                         })()`);
                         await h.shot(SHOT(9, "ask-permission"));
+                        // claude's `wsh ask --clear` closes the dock before the PostToolUse that retires the request lands
+                        await h.rpc("agentaskclear", aOref);
+                        await wait(`${RV}?.querySelector("[data-rendered-ask]") == null`, 2000);
+                        seen.bandAfterClear = await h.ev(
+                            `${RV}?.querySelector("[data-permission-band], [data-permission-queue]") != null`
+                        );
                     } finally {
                         await agentPage(
                             h,
@@ -943,7 +949,7 @@ export default function (_kit) {
                             return true;`
                         );
                     }
-                    return [injected && seen.ask && !seen.band && seen.hint === "waiting on you", seen];
+                    return [injected && seen.ask && !seen.band && !seen.bandAfterClear && seen.hint === "waiting on you", seen];
                 });
 
                 await step("rendered: MultiQuestion — two tabs, the second multi-select with two picked, 1/2 answered", async () => {

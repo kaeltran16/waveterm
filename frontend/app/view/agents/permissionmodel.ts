@@ -51,10 +51,10 @@ function editPath(input: Record<string, any> | null, cwd?: string): string | nul
 }
 
 /** Claude Code also raises a permission request for its AskUserQuestion dialog (wavesrv keeps it to know when the
- *  question is over). While the ask dock shows that question's choices, an AskUserQuestion at the head is the dock's to
- *  answer, so the band draws nothing until it leaves the queue. */
-export function bandRequests<T extends Pick<AgentPermissionData, "toolname">>(pending: T[], askShown: boolean): T[] {
-    return askShown && pending[0]?.toolname === "AskUserQuestion" ? [] : pending;
+ *  question is over). The band never draws one at the head: its Yes would pick the question's first option, and the
+ *  dock closes on `wsh ask --clear` before the PostToolUse that retires the request lands, which flashed the band. */
+export function bandRequests<T extends Pick<AgentPermissionData, "toolname">>(pending: T[]): T[] {
+    return pending[0]?.toolname === "AskUserQuestion" ? [] : pending;
 }
 
 export function permissionTitle(p: AgentPermissionData, cwd?: string): string {

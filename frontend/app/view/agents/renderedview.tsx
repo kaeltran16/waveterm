@@ -403,7 +403,6 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
             <PermissionBand
                 agentId={agent.id}
                 blockId={agent.blockId}
-                askShown={askShown}
                 onLastChoice={() => composerRef.current?.focus()}
             />
             <div data-rendered-composer className="shrink-0 px-6 pb-4 pt-3">

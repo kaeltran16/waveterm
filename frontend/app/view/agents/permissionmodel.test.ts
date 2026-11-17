@@ -26,19 +26,15 @@ describe("bandRequests", () => {
     const ask = perm("AskUserQuestion", {});
     const bash = perm("Bash", { command: "ls" });
 
-    it("leaves an AskUserQuestion at the head to the ask dock", () => {
-        expect(bandRequests([ask], true)).toEqual([]);
-        expect(bandRequests([ask, bash], true)).toEqual([]);
+    it("never draws an AskUserQuestion at the head", () => {
+        expect(bandRequests([ask])).toEqual([]);
+        expect(bandRequests([ask, bash])).toEqual([]);
     });
 
-    it("draws an AskUserQuestion when no ask dock shows it", () => {
-        expect(bandRequests([ask], false)).toEqual([ask]);
-    });
-
-    it("draws any other head, dock or not", () => {
-        expect(bandRequests([bash, ask], true)).toEqual([bash, ask]);
-        expect(bandRequests([bash], false)).toEqual([bash]);
-        expect(bandRequests([], true)).toEqual([]);
+    it("draws any other head", () => {
+        expect(bandRequests([bash, ask])).toEqual([bash, ask]);
+        expect(bandRequests([bash])).toEqual([bash]);
+        expect(bandRequests([])).toEqual([]);
     });
 });
 
