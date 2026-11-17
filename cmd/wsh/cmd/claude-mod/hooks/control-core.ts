@@ -5,8 +5,6 @@
 // function of the hooks file itself
 export type Session = {
     submit: (text: string) => Promise<unknown>;
-    // joins text to the turn the session is running
-    steer: (text: string) => Promise<unknown>;
     command: (name: string, args: string) => Promise<unknown>;
     compact: (instructions: string) => Promise<unknown>;
 };
@@ -19,12 +17,12 @@ export function takeLines(buffered: string): { lines: string[]; rest: string } {
 }
 
 // one thing the cockpit asked for: a prompt, which midTurn asks to join the running turn instead of
-// waiting for it to end, or a compaction with these instructions
-export type ControlMsg = { text: string; midTurn?: boolean } | { compact: string };
-
-// the session's own turn as the mod has seen it: whether one is running, and the texts joined to it
-// that no model request has carried yet
-export type Turn = { isOpen: boolean; unread: string[] };
+// waiting for it to end and queue marks as the person's own, a compaction with these instructions, or the
+// person's held messages back, answering the take-back request of this id
+export type ControlMsg =
+    | { text: string; midTurn?: boolean; queue?: boolean }
+    | { compact: string }
+    | { takeBack: string };
 
 const filled = (v: unknown): v is string => typeof v === "string" && v !== "";
 
@@ -35,10 +33,17 @@ export function controlMsg(line: string): ControlMsg | null {
         if (filled(msg?.compact)) {
             return { compact: msg.compact };
         }
+        if (filled(msg?.takeback)) {
+            return { takeBack: msg.takeback };
+        }
         if (!filled(msg?.text)) {
             return null;
         }
-        return msg.midturn === true ? { text: msg.text, midTurn: true } : { text: msg.text };
+        return {
+            text: msg.text,
+            ...(msg.midturn === true && { midTurn: true }),
+            ...(msg.queue === true && { queue: true }),
+        };
     } catch {
         return null;
     }
@@ -50,11 +55,15 @@ const SLASH = /^\/([\w:-]+)(?:\s+([\s\S]*))?$/;
 
 const COMPACT = "compact";
 
+// whether typing the text would run a command rather than send a prompt
+export function isCommand(text: string): boolean {
+    return SLASH.test(text);
+}
+
 // runs a prompt as typing it would: a leading slash is a command (a prompt when the session refuses it),
 // anything else a prompt. a compaction is the session's own call, which echoes no command into the
-// transcript; a session that refuses it (a headless one) runs the command. a mid-turn text joins the running turn, and is a prompt when no turn
-// runs or the session refuses the row
-export function deliver(session: Session, msg: ControlMsg, turn: Turn): Promise<unknown> {
+// transcript; a session that refuses it (a headless one) runs the command
+export function deliver(session: Session, msg: { text: string } | { compact: string }): Promise<unknown> {
     if ("compact" in msg) {
         return session.compact(msg.compact).catch(() => session.command(COMPACT, msg.compact));
     }
@@ -65,23 +74,13 @@ export function deliver(session: Session, msg: ControlMsg, turn: Turn): Promise<
         // any refusal is sent as the prompt it may have been rather than lost
         return session.command(name, args).catch(() => session.submit(text));
     }
-    if (!msg.midTurn || !turn.isOpen) {
-        return session.submit(text);
-    }
-    turn.unread.push(text);
-    return session.steer(text).catch(() => {
-        turn.unread = turn.unread.filter((t) => t !== text);
-        return session.submit(text);
-    });
+    return session.submit(text);
 }
 
-// closes the turn and returns the texts joined to it too late for any request to carry: the model never
-// read them, so they are owed as prompts
-export function endTurn(turn: Turn): string[] {
-    const unread = turn.unread;
-    turn.isOpen = false;
-    turn.unread = [];
-    return unread;
+// whether the engine refused a submit: it answers `{ drop: reason }` rather than failing, as after the person's Stop
+// until they next send input
+export function isDropped(result: unknown): boolean {
+    return typeof result === "object" && result !== null && filled((result as { drop?: unknown }).drop);
 }
 
 // the one transcript line for a text that joined the running turn, whose own row draws nothing. the

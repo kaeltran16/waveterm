@@ -1,22 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { Turn } from "./control-core";
-import { controlMsg, deliver, endTurn, steerNotice, takeLines } from "./control-core";
+import { controlMsg, deliver, isCommand, isDropped, steerNotice, takeLines } from "./control-core";
 
-const idle = (): Turn => ({ isOpen: false, unread: [] });
-const running = (): Turn => ({ isOpen: true, unread: [] });
-
-function recorder(compactError?: Error, steerError?: Error, commandError?: Error) {
+function recorder(compactError?: Error, commandError?: Error) {
     const calls: string[][] = [];
     return {
         calls,
         session: {
             submit: async (text: string) => void calls.push(["submit", text]),
-            steer: async (text: string) => {
-                calls.push(["steer", text]);
-                if (steerError) {
-                    throw steerError;
-                }
-            },
             command: async (name: string, args: string) => {
                 calls.push(["command", name, args]);
                 if (commandError) {
@@ -68,10 +58,23 @@ describe("controlMsg", () => {
         });
     });
 
+    it("reads the person's queued message", () => {
+        expect(controlMsg('{"text":"also print the date","midturn":true,"queue":true}')).toEqual({
+            text: "also print the date",
+            midTurn: true,
+            queue: true,
+        });
+    });
+
+    it("reads a take-back request by its id", () => {
+        expect(controlMsg('{"takeback":"r1"}')).toEqual({ takeBack: "r1" });
+    });
+
     it("ignores a line that asks for nothing", () => {
         expect(controlMsg("not json")).toBeNull();
         expect(controlMsg('{"text":""}')).toBeNull();
         expect(controlMsg('{"other":1}')).toBeNull();
+        expect(controlMsg('{"takeback":""}')).toBeNull();
         expect(controlMsg("null")).toBeNull();
     });
 });
@@ -79,32 +82,32 @@ describe("controlMsg", () => {
 describe("deliver", () => {
     it("submits plain text as a prompt", async () => {
         const { calls, session } = recorder();
-        await deliver(session, { text: "wake: task 1 done\nmore" }, idle());
+        await deliver(session, { text: "wake: task 1 done\nmore" });
         expect(calls).toEqual([["submit", "wake: task 1 done\nmore"]]);
     });
 
     it("runs a leading slash as a command with its arguments", async () => {
         const { calls, session } = recorder();
-        await deliver(session, { text: "/compact Keep: the reasons. Drop: tool output." }, idle());
+        await deliver(session, { text: "/compact Keep: the reasons. Drop: tool output." });
         expect(calls).toEqual([["command", "compact", "Keep: the reasons. Drop: tool output."]]);
     });
 
     it("runs a bare command with no arguments", async () => {
         const { calls, session } = recorder();
-        await deliver(session, { text: "/compact" }, idle());
+        await deliver(session, { text: "/compact" });
         expect(calls).toEqual([["command", "compact", ""]]);
     });
 
     it("runs a plugin command by its namespaced name", async () => {
         const { calls, session } = recorder();
-        await deliver(session, { text: "/arc:brainstorm the queue" }, idle());
+        await deliver(session, { text: "/arc:brainstorm the queue" });
         expect(calls).toEqual([["command", "arc:brainstorm", "the queue"]]);
     });
 
     it("submits a prompt that starts with a path as a prompt", async () => {
         const { calls, session } = recorder();
-        await deliver(session, { text: "/tmp/build.log has the failing test, read it" }, idle());
-        await deliver(session, { text: "/README.md is out of date" }, idle());
+        await deliver(session, { text: "/tmp/build.log has the failing test, read it" });
+        await deliver(session, { text: "/README.md is out of date" });
         expect(calls).toEqual([
             ["submit", "/tmp/build.log has the failing test, read it"],
             ["submit", "/README.md is out of date"],
@@ -112,8 +115,8 @@ describe("deliver", () => {
     });
 
     it("submits a slash text the session refuses to run as a command", async () => {
-        const { calls, session } = recorder(undefined, undefined, new Error("Unknown command: src"));
-        await deliver(session, { text: "/src needs a cleanup, start with the store" }, idle());
+        const { calls, session } = recorder(undefined, new Error("Unknown command: src"));
+        await deliver(session, { text: "/src needs a cleanup, start with the store" });
         expect(calls).toEqual([
             ["command", "src", "needs a cleanup, start with the store"],
             ["submit", "/src needs a cleanup, start with the store"],
@@ -122,67 +125,43 @@ describe("deliver", () => {
 
     it("compacts through the session when asked for a compaction", async () => {
         const { calls, session } = recorder();
-        await deliver(session, { compact: "Keep: the reasons." }, idle());
+        await deliver(session, { compact: "Keep: the reasons." });
         expect(calls).toEqual([["compact", "Keep: the reasons."]]);
     });
 
     it("runs the compact command when the session refuses to compact", async () => {
         const { calls, session } = recorder(new Error("not available in a headless session"));
-        await deliver(session, { compact: "Keep: the reasons." }, idle());
+        await deliver(session, { compact: "Keep: the reasons." });
         expect(calls).toEqual([
             ["compact", "Keep: the reasons."],
             ["command", "compact", "Keep: the reasons."],
         ]);
     });
+});
 
-    it("joins a mid-turn text to the running turn and holds it as unread", async () => {
-        const { calls, session } = recorder();
-        const turn = running();
-        await deliver(session, { text: "stop and rebase", midTurn: true }, turn);
-        expect(calls).toEqual([["steer", "stop and rebase"]]);
-        expect(turn.unread).toEqual(["stop and rebase"]);
+describe("isCommand", () => {
+    it("is a leading slash and a command name", () => {
+        expect(isCommand("/compact Keep: the reasons.")).toBe(true);
+        expect(isCommand("/arc:brainstorm")).toBe(true);
+        expect(isCommand("/tmp/build.log has the failing test")).toBe(false);
+        expect(isCommand("stop and rebase")).toBe(false);
+    });
+});
+
+describe("isDropped", () => {
+    it("is a submit the engine refused", () => {
+        expect(isDropped({ drop: "the session was stopped and nobody has sent input since" })).toBe(true);
     });
 
-    it("submits a mid-turn text as a prompt when no turn is running", async () => {
-        const { calls, session } = recorder();
-        await deliver(session, { text: "stop and rebase", midTurn: true }, idle());
-        expect(calls).toEqual([["submit", "stop and rebase"]]);
-    });
-
-    it("leaves a text that did not ask for the turn to wait for its end", async () => {
-        const { calls, session } = recorder();
-        await deliver(session, { text: "wake: task 1 done" }, running());
-        expect(calls).toEqual([["submit", "wake: task 1 done"]]);
-    });
-
-    it("runs a mid-turn slash as a command", async () => {
-        const { calls, session } = recorder();
-        await deliver(session, { text: "/clear", midTurn: true }, running());
-        expect(calls).toEqual([["command", "clear", ""]]);
-    });
-
-    it("submits a text the session refused to join, and no longer holds it", async () => {
-        const { calls, session } = recorder(undefined, new Error("a run no plugin may shape"));
-        const turn = running();
-        await deliver(session, { text: "stop and rebase", midTurn: true }, turn);
-        expect(calls).toEqual([
-            ["steer", "stop and rebase"],
-            ["submit", "stop and rebase"],
-        ]);
-        expect(turn.unread).toEqual([]);
+    it("is not a prompt that entered, nor a command run", () => {
+        expect(isDropped({ text: "a" })).toBe(false);
+        expect(isDropped(undefined)).toBe(false);
+        expect(isDropped({ drop: undefined })).toBe(false);
     });
 });
 
 describe("steerNotice", () => {
     it("is one line however the text is broken", () => {
         expect(steerNotice("stop and rebase\n  onto main\n")).toBe("read mid-turn: stop and rebase onto main");
-    });
-});
-
-describe("endTurn", () => {
-    it("closes the turn and hands back what no request carried", () => {
-        const turn: Turn = { isOpen: true, unread: ["stop and rebase"] };
-        expect(endTurn(turn)).toEqual(["stop and rebase"]);
-        expect(turn).toEqual({ isOpen: false, unread: [] });
     });
 });
