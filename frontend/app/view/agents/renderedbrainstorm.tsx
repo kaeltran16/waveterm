@@ -61,6 +61,8 @@ export function CardFrame(p: {
     asking: boolean;
     head: ReactNode;
     status?: string;
+    // replaces the head's "Open brainstorm" link: the run card opens its run instead
+    open?: ReactNode;
     compact: boolean;
     attr: string;
     children: ReactNode;
@@ -93,15 +95,17 @@ export function CardFrame(p: {
                             {status}
                         </span>
                     ) : null}
-                    <button
-                        type="button"
-                        data-rendered-bs-open
-                        onClick={() => openBrainstormAt(p.agent.id, {})}
-                        className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline"
-                    >
-                        Open brainstorm
-                        <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-                    </button>
+                    {p.open ?? (
+                        <button
+                            type="button"
+                            data-rendered-bs-open
+                            onClick={() => openBrainstormAt(p.agent.id, {})}
+                            className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline"
+                        >
+                            Open brainstorm
+                            <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
+                        </button>
+                    )}
                 </div>
                 {p.children}
             </div>
