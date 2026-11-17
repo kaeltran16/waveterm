@@ -9,10 +9,11 @@ import { cn } from "@/util/util";
 import { ArrowUpRight, Check, ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useAtomValue } from "jotai";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { ClampedText } from "./clampedtext";
 import { MarkdownMessage } from "./markdownmessage";
+import { RecordedOutput } from "./recordedoutput";
 import { toolRendererKey } from "./renderregistry";
 import { fmtDuration } from "./runcompletion";
 import { ToolDetailBody } from "./tooldetailbody";
@@ -105,6 +106,14 @@ function StepTitle({ step, compact }: { step: Step; compact: boolean }) {
                 </span>
             ) : null}
             {totals ? <AddsDels adds={totals.adds} dels={totals.dels} compact={compact} /> : null}
+            {step.edits ? (
+                <span
+                    data-step-edits
+                    className={cn("shrink-0 text-muted", compact ? "text-[11.5px]" : "text-[12.5px]")}
+                >
+                    {step.edits} edits
+                </span>
+            ) : null}
         </>
     );
     if (answer == null) {
@@ -121,16 +130,20 @@ function StepTitle({ step, compact }: { step: Step; compact: boolean }) {
     );
 }
 
+// a quicker step's time is noise on the row; the full view still shows it
+const STEP_DURATION_MIN_MS = 1000;
+
 // the row's right side: a failed call's exit chip, then its time (a running one's live elapsed, a stopped one's word)
 function StepFacts({ step, compact }: { step: Step; compact: boolean }) {
     const { action, status } = step;
     const chip = compact ? "px-[5px] text-[10.5px]" : "px-1.5 py-px text-[11px]";
-    const time = cn("shrink-0 font-mono text-ink-faint", compact ? "text-[10.5px]" : "text-[11px]");
+    const time = cn("shrink-0 font-mono text-muted", compact ? "text-[10.5px]" : "text-[11px]");
     return (
         <>
             {status === "fail" ? (
                 <span className={cn("shrink-0 rounded-[4px] bg-error/15 font-mono text-error", chip)}>
-                    {action.detail?.kind === "bash" && action.detail.exit !== 0 ? `exit ${action.detail.exit}` : "failed"}
+                    {/* a call that never ran has a null exit, so it reads failed rather than "exit null" */}
+                    {action.detail?.kind === "bash" && action.detail.exit ? `exit ${action.detail.exit}` : "failed"}
                 </span>
             ) : null}
             {status === "running" ? (
@@ -139,8 +152,10 @@ function StepFacts({ step, compact }: { step: Step; compact: boolean }) {
                 </span>
             ) : status === "stopped" || status === "blocked" ? (
                 <span className={cn("shrink-0 text-muted", compact ? "text-[11px]" : "text-[12px]")}>{status}</span>
-            ) : action.durationMs ? (
-                <span className={time}>{formatDuration(action.durationMs)}</span>
+            ) : (action.durationMs ?? 0) >= STEP_DURATION_MIN_MS ? (
+                <span data-step-duration className={time}>
+                    {formatDuration(action.durationMs)}
+                </span>
             ) : null}
         </>
     );
@@ -163,11 +178,60 @@ function stepSummary(step: Step): { text: string; tone: WshStepSummary["tone"] }
     return text ? { text, tone: entry.tone } : undefined;
 }
 
-function outputLines(action: AgentActionEntry): number {
-    return action.detail?.kind === "bash" ? action.detail.output.replace(/\n+$/, "").split("\n").length : 0;
+const BODY_BUTTON =
+    "inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-[3px] font-sans text-[12px] text-ink-mid hover:bg-lane hover:text-primary";
+
+// a refused call is passed over, not failed, so its reason reads muted as the full view draws it
+function errorTone(status: Step["status"]): string {
+    return status === "blocked" ? "text-muted" : "text-error";
 }
 
-// a step's opened body: a wsh read call's structured view, a test or diff card, else the tool detail
+// a Bash call that never ran: the projection leaves its output empty and puts the reason in error
+function isRefusedCommand(action: AgentActionEntry): boolean {
+    return action.detail?.kind === "bash" && action.detail.exit === null && !!action.error;
+}
+
+// a wsh read call's structured view, with the call's own recorded output behind a toggle
+function WshViewBody({
+    step,
+    View,
+    ctx,
+    compact,
+    openFull,
+}: {
+    step: Step;
+    View: ComponentType<WshRendererProps>;
+    ctx: TranscriptContext;
+    compact: boolean;
+    openFull: ReactNode;
+}) {
+    const [raw, setRaw] = useState(false);
+    const { action, wsh } = step;
+    const output = action.detail?.kind === "bash" ? action.detail.output : "";
+    return (
+        <div data-wsh-view={wsh!.key} className="mt-2.5">
+            <View call={wsh!.call} wshKey={wsh!.key} action={action} ctx={ctx} compact={compact} />
+            <div className="mt-2 flex items-center gap-2">
+                {output.trim() ? (
+                    <button type="button" aria-pressed={raw} onClick={() => setRaw((v) => !v)} className={BODY_BUTTON}>
+                        <TurnChevron open={raw} size={12} strokeWidth={2.2} />
+                        Raw output
+                    </button>
+                ) : null}
+                <div className="flex-1" />
+                {openFull}
+            </div>
+            <PaneReveal open={raw}>
+                <div data-step-raw className="mt-1.5 overflow-hidden rounded-[6px] border border-edge-faint bg-surface">
+                    <RecordedOutput output={output} compact={compact} />
+                </div>
+            </PaneReveal>
+        </div>
+    );
+}
+
+// a step's opened body: a wsh read call's structured view, a test or diff card, else the tool detail. A failed call
+// leads with its error; a refused command shows the command, then why it was refused as a note under it
 function StepBody({
     step,
     View,
@@ -185,45 +249,52 @@ function StepBody({
             type="button"
             aria-label="Open full view"
             onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-            className="inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-[3px] font-sans text-[12px] text-ink-mid hover:bg-lane hover:text-primary"
+            className={BODY_BUTTON}
         >
             <ArrowUpRight size={12} strokeWidth={2.2} aria-hidden />
             Open full view
         </button>
     );
     if (hasBodyCard(action)) {
+        // the card header's own raw toggle offers the output, so the footer holds only the full view
         return (
             <div data-step-card className="mt-2.5">
                 <ToolOutputRenderer action={action} />
-                <div className="mt-2 flex items-center gap-2.5">
-                    <span className="text-[12px] text-muted">Raw output, {outputLines(action)} lines</span>
-                    <div className="flex-1" />
-                    {openFull}
-                </div>
+                <div className="mt-2 flex justify-end">{openFull}</div>
             </div>
         );
     }
     if (View && step.wsh) {
-        return (
-            <div data-wsh-view={step.wsh.key} className="mt-2.5">
-                <View call={step.wsh.call} wshKey={step.wsh.key} action={action} ctx={ctx} compact={compact} />
-                <div className="mt-2 flex items-center gap-2">
-                    <span className="text-[12px] text-muted">Raw output</span>
-                    <div className="flex-1" />
-                    {openFull}
-                </div>
-            </div>
-        );
+        return <WshViewBody step={step} View={View} ctx={ctx} compact={compact} openFull={openFull} />;
     }
-    const detail = action.detail!;
+    const { detail, error } = action;
+    const refused = isRefusedCommand(action);
+    const tone = errorTone(step.status);
     return (
         <div data-tool-panel className="mt-2.5 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code">
             <div className="max-h-[400px] overflow-auto">
-                <ToolDetailBody detail={detail} variant="inline" />
+                {error && !refused ? (
+                    <div
+                        data-tool-error
+                        className={cn(
+                            "whitespace-pre-wrap border-b border-edge-faint px-3 py-2 font-mono text-[11.5px] leading-[1.6] [overflow-wrap:anywhere] last:border-b-0",
+                            tone
+                        )}
+                    >
+                        {error}
+                    </div>
+                ) : null}
+                {detail ? <ToolDetailBody detail={detail} variant="inline" /> : null}
+                {refused ? (
+                    <div
+                        data-tool-note
+                        className={cn("-mt-1 px-3 pb-2 text-[12px] leading-[1.5] [overflow-wrap:anywhere]", tone)}
+                    >
+                        {error}
+                    </div>
+                ) : null}
             </div>
-            <div className="flex items-center justify-end border-t border-edge-faint px-2 py-1">
-                {openFull}
-            </div>
+            <div className="flex items-center justify-end border-t border-edge-faint px-2 py-1">{openFull}</div>
         </div>
     );
 }
@@ -251,15 +322,16 @@ function StepRow({
     const [open, setOpen] = useState(!!renderers && bodyCard);
     const View = wsh && !isCardKey(wsh.key) ? wshRendererFor(wsh.key) : undefined;
     const summary = stepSummary(step);
-    const clickable = View != null || action.detail != null;
+    // a failed call with no detail (a Grep, Read or Monitor) still opens, to its error
+    const clickable = View != null || action.detail != null || !!action.error;
     const align = askAnswer(action) != null ? "items-start" : "items-center";
     const gap = compact ? "gap-2" : "gap-2.5";
+    // one title colour whatever the status: the spinner alone marks a running step
     const head = cn(
-        "flex min-w-0 flex-1 text-left font-sans",
+        "flex min-w-0 flex-1 text-left font-sans text-secondary",
         align,
         gap,
-        compact ? "text-[12.5px]" : "text-[13.5px]",
-        status === "running" ? "text-secondary" : "text-ink-mid"
+        compact ? "text-[12.5px]" : "text-[13.5px]"
     );
     // a finished step's spinner collapses, its trailing gap with it, so the title glides left rather than jumping
     const spinnerExit = {
@@ -319,11 +391,19 @@ function StepRow({
                     ) : null}
                 </AnimatePresence>
                 {clickable ? (
-                    <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)} className={cn(head, "cursor-pointer")}>
+                    <button
+                        type="button"
+                        data-step-head
+                        aria-expanded={open}
+                        onClick={() => setOpen((v) => !v)}
+                        className={cn(head, "cursor-pointer")}
+                    >
                         {content}
                     </button>
                 ) : (
-                    <div className={head}>{content}</div>
+                    <div data-step-head className={head}>
+                        {content}
+                    </div>
                 )}
             </div>
             <PaneReveal open={open}>
@@ -358,7 +438,7 @@ function ImageReadsRow({
                 aria-expanded={open}
                 onClick={() => setOpen((v) => !v)}
                 className={cn(
-                    "flex w-full cursor-pointer items-center text-left font-sans text-ink-mid",
+                    "flex w-full cursor-pointer items-center text-left font-sans text-secondary",
                     compact ? "gap-2 px-2.5 py-[7px] text-[12.5px]" : "gap-2.5 px-3.5 py-2.5 text-[13.5px]"
                 )}
             >

@@ -4,6 +4,8 @@
 // splitting a turn's fold in two, consecutive thoughts merged into one clamped thought that stays clamped under
 // renderAll and opens under unfold (as does a long bubble), a heredoc step's derived title, a cd-prefixed command's
 // preview, turns started by a background notification, a background notice's muted row, and a slash command's printed output under its row. The fold checks run at the Rendered column's width and at a card's (compact).
+// Step rows: merged edits to one file, the duration floor, one title colour for done and running rows, a failed
+// call's error, a refused command's note, and the Raw output toggle under a wsh view.
 
 import { bash, clearTranscript, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
 
@@ -152,7 +154,9 @@ const EVENTS = [
     {
         ...bash({ description: "Save the PR checks", command: "gh pr checks > checks.log", ts: T0 + 40 * S, durationMs: 50 }),
         outcome: "blocked",
-        detail: { kind: "bash", command: "gh pr checks > checks.log", output: "<tool_use_error>Refused by Arc</tool_use_error>", exit: null },
+        // as the projection records a refused call: no output, the unwrapped reason as its error
+        error: "Refused by Arc",
+        detail: { kind: "bash", command: "gh pr checks > checks.log", output: "", exit: null },
     },
     prose("The hook refused the redirect; I'll read the output file instead.", T0 + 42 * S),
 ];
@@ -346,7 +350,8 @@ async function mainStep(h) {
             s.steps.length === 6 &&
             step("Run the test").includes("node test.js") &&
             step("Run the test").includes("exit 1") &&
-            step("Run the test").includes("0.4s") &&
+            // under a second, so the row draws no duration
+            !step("Run the test").includes("0.4s") &&
             step("Commit the retry fix").includes("git commit") &&
             step("Commit the retry fix").includes("1.5s") &&
             step("Asked").includes("Leave it") &&
@@ -361,19 +366,25 @@ async function mainStep(h) {
 
 const STEPS_OPEN_STATE = probe(`
     const fold = root.querySelector('[data-fold]');
-    const grep = [...root.querySelectorAll('[data-tool-panel]')].find((p) => p.textContent.includes('src/client.js:14'));
+    const grep = [...root.querySelectorAll('[data-tool-panel]')].find((p) => p.querySelector('[data-grep-group]'));
     const card = root.querySelector('[data-step-card]');
     const test = card?.querySelector('[data-tool-card="test"]');
     const cmd = [...root.querySelectorAll('[data-tool-panel]')].find((p) => p.textContent.includes('git log -1 --oneline'));
     const full = card ? [...card.querySelectorAll('button[aria-label="Open full view"]')].length : 0;
     return {
         fold: fold?.textContent ?? null,
-        grep: grep ? [...grep.querySelectorAll('.flex')].map((r) => r.textContent) : null,
+        grep: grep
+            ? [...grep.querySelectorAll('[data-grep-group]')].map((g) => ({
+                  file: g.querySelector('[data-grep-file]')?.textContent ?? null,
+                  lines: [...g.querySelectorAll('[data-file-line]')].map((l) => [l.querySelector('[data-line-no]')?.textContent ?? null, l.querySelector('[data-line-text]')?.textContent ?? null]),
+              }))
+            : null,
         counts: test?.querySelector('[data-test-counts]')?.textContent ?? null,
         failures: test ? [...test.querySelectorAll('[data-test-failure]')].map((r) => r.textContent) : null,
         cardFooter: card ? card.lastElementChild.textContent : null,
         full,
         cmd: cmd ? cmd.textContent : null,
+        steps: [...root.querySelectorAll('[data-step]')].map((s) => s.textContent),
     };
 `);
 
@@ -388,20 +399,26 @@ async function stepsOpenStep(h) {
     const s = await h.ev(STEPS_OPEN_STATE);
     await h.shot("cdp-shots/transcript-base-steps-open.png");
     return {
-        step: "StepsOpen: grep matches, test card with Raw output and Open full view, command output with no exit 0 chip, the fold line's 1 failed",
+        step: "StepsOpen: grep matches grouped by file, test card with Open full view and no Raw output label, command output with no exit 0 chip, the fold line's 1 failed",
         ok:
             s != null &&
             grep === true &&
             log === true &&
             (s.fold ?? "").includes("1 failed") &&
             Array.isArray(s.grep) &&
-            s.grep.some((r) => r.startsWith("src/client.js:14") && r.includes("retry(() => fetch(url)")) &&
-            s.grep.some((r) => r.startsWith("src/queue.js:41")) &&
+            s.grep.length === 2 &&
+            s.grep[0].file === "src/client.js" &&
+            s.grep[0].lines.length === 1 &&
+            s.grep[0].lines[0][0] === "14" &&
+            (s.grep[0].lines[0][1] ?? "").includes("retry(() => fetch(url)") &&
+            s.grep[1].file === "src/queue.js" &&
+            s.grep[1].lines[0]?.[0] === "41" &&
             (s.counts ?? "").includes("11 passed") &&
             (s.counts ?? "").includes("1 failed") &&
             s.failures?.length === 1 &&
             s.failures[0].includes("expected at least 200 ms") &&
-            /Raw output, \d+ lines/.test(s.cardFooter ?? "") &&
+            !(s.cardFooter ?? "").includes("Raw output") &&
+            s.steps.every((t) => !/\b1 lines\b/.test(t)) &&
             s.full === 1 &&
             (s.cmd ?? "").includes("$git log -1 --oneline") &&
             (s.cmd ?? "").includes("085ead4") &&
@@ -824,6 +841,274 @@ async function commandOutputStep(h) {
     };
 }
 
+// step rows: four edits to one file, a quick and a slow command, a failed edit with its error, a failed Monitor call with
+// no detail, and a refused command as the projection records each
+const RETRY = "src/retry.js";
+const EDIT_COUNTS = [
+    [1, 0],
+    [2, 1],
+    [0, 3],
+    [1, 1],
+];
+const editOf = (path, [adds, dels], k, ts, extra = {}) =>
+    tool("edited", path, {
+        ts,
+        durationMs: 100,
+        detail: {
+            kind: "edit",
+            files: [{ path, badge: "M", adds, dels, lines: [{ sign: "-", text: `const delay${k} = 0;` }, { sign: "+", text: `const delay${k} = 100;` }] }],
+        },
+        ...extra,
+    });
+const EDIT_ERROR = "String to replace not found in file.\nString: await sleep(delayMs * i);";
+const MONITOR_ERROR = "InputValidationError: Monitor failed due to the following issue:\nThe required parameter `description` is missing";
+const REFUSED_COMMAND = "npm run release > release.log";
+const REFUSED_REASON = "Refused by Arc: a release's output may not be redirected to a file";
+const ROWS = [
+    user("Fix the retry delay, check it, and release.", T0),
+    ...EDIT_COUNTS.map((c, k) => editOf(RETRY, c, k, T0 + (k + 1) * S)),
+    bash({ description: "Quick check", command: "node -e 1", output: "", ts: T0 + 6 * S, durationMs: 200 }),
+    bash({ description: "Slow check", command: "node test.js", output: "ok", ts: T0 + 7 * S, durationMs: 3_000 }),
+    editOf("src/queue.js", [1, 1], 9, T0 + 11 * S, { outcome: "fail", error: EDIT_ERROR }),
+    tool("monitor", "the release", { ts: T0 + 12 * S, outcome: "fail", error: MONITOR_ERROR }),
+    {
+        ...bash({ description: "Release", command: REFUSED_COMMAND, ts: T0 + 13 * S, durationMs: 50 }),
+        outcome: "blocked",
+        error: REFUSED_REASON,
+        detail: { kind: "bash", command: REFUSED_COMMAND, output: "", exit: null },
+    },
+    prose("The release was refused.", T0 + 15 * S),
+];
+
+const rowOf = (text) => `[...root.querySelectorAll('[data-step]')].find((s) => s.textContent.includes(${JSON.stringify(text)}))`;
+// brings a row into the screenshot's view
+const scrollToRow = (text) => probe(`${rowOf(text)}?.scrollIntoView({ block: "center" }); return true;`);
+
+const MERGED_STATE = probe(`
+    const rows = [...root.querySelectorAll('[data-step]')].filter((s) => s.textContent.includes(${JSON.stringify(RETRY)}));
+    const row = rows[0];
+    return {
+        rows: rows.length,
+        head: row?.querySelector('[data-step-head]')?.textContent ?? null,
+        files: row ? row.querySelectorAll('[data-tool-panel] [data-diff-file]').length : 0,
+        added: row ? [...row.querySelectorAll('[data-diff-line="+"]')].map((l) => l.textContent) : [],
+    };
+`);
+
+const durationOf = (text) => probe(`
+    const row = ${rowOf(text)};
+    return row ? { head: row.querySelector('[data-step-head]')?.textContent ?? null, duration: row.querySelector('[data-step-duration]')?.textContent ?? null } : null;
+`);
+
+// a failed row opened: whether its head is a button, and its panel's error block, tone and what the panel leads with
+const failedOf = (text) => probe(`
+    const row = ${rowOf(text)};
+    const panel = row?.querySelector('[data-tool-panel]');
+    const err = panel?.querySelector('[data-tool-error]');
+    return row ? {
+        clickable: !!row.querySelector('button[aria-expanded]'),
+        panel: panel?.textContent ?? null,
+        error: err?.textContent ?? null,
+        errorTone: err ? err.classList.contains('text-error') : null,
+        diffs: panel ? panel.querySelectorAll('[data-diff-file]').length : 0,
+        errorAboveDiff: !!(err && panel.querySelector('[data-diff-file]') && err.compareDocumentPosition(panel.querySelector('[data-diff-file]')) & Node.DOCUMENT_POSITION_FOLLOWING),
+    } : null;
+`);
+
+const REFUSED_STATE = probe(`
+    const row = ${rowOf(REFUSED_COMMAND)};
+    const panel = row?.querySelector('[data-tool-panel]');
+    const cmd = panel ? [...panel.querySelectorAll('span')].find((s) => s.textContent === ${JSON.stringify(REFUSED_COMMAND)}) : null;
+    const note = panel?.querySelector('[data-tool-note]');
+    return row ? {
+        clickable: !!row.querySelector('button[aria-expanded]'),
+        panel: panel?.textContent ?? null,
+        note: note?.textContent ?? null,
+        noteError: note ? note.classList.contains('text-error') : null,
+        below: cmd && note ? note.getBoundingClientRect().top >= cmd.getBoundingClientRect().bottom - 1 : null,
+        outputs: panel ? panel.querySelectorAll('pre').length : null,
+    } : null;
+`);
+
+async function stepRowSteps(h) {
+    const steps = [];
+    await showTranscript(h, { entries: ROWS, width: 736 });
+    await h.ev(openFold);
+    await sleep(MOTION_MS);
+
+    await h.ev(openStep(RETRY));
+    await sleep(MOTION_MS);
+    const merged = await h.ev(MERGED_STATE);
+    await h.shot("cdp-shots/transcript-base-merged-edits.png");
+    steps.push({
+        step: "Merged edits: four edits to one file draw one row with the summed +4 −5 and 4 edits, whose body shows each edit",
+        ok:
+            merged != null &&
+            merged.rows === 1 &&
+            (merged.head ?? "").includes("+4") &&
+            (merged.head ?? "").includes("−5") &&
+            (merged.head ?? "").includes("4 edits") &&
+            merged.files === 4 &&
+            [0, 1, 2, 3].every((k) => merged.added.some((l) => l.includes(`const delay${k} = 100;`))),
+        detail: JSON.stringify(merged),
+    });
+
+    const quick = await h.ev(durationOf("Quick check"));
+    const slow = await h.ev(durationOf("Slow check"));
+    await h.ev(scrollToRow("Slow check"));
+    await h.shot("cdp-shots/transcript-base-durations.png");
+    steps.push({
+        step: "Durations: a 0.2 s row shows no duration and a 3 s row shows 3.0s",
+        ok: quick != null && quick.duration === null && !(quick.head ?? "").includes("0.2s") && slow?.duration === "3.0s",
+        detail: JSON.stringify({ quick, slow }),
+    });
+
+    await h.ev(openStep("queue.js"));
+    await sleep(MOTION_MS);
+    const edit = await h.ev(failedOf("queue.js"));
+    await h.ev(scrollToRow("queue.js"));
+    await h.shot("cdp-shots/transcript-base-failed-edit.png");
+    steps.push({
+        step: "Failed edit: a failed Edit opens to its error, in the error tone, above the attempted edit",
+        ok:
+            edit != null &&
+            edit.clickable &&
+            edit.error === EDIT_ERROR &&
+            edit.errorTone === true &&
+            edit.diffs === 1 &&
+            edit.errorAboveDiff === true &&
+            (edit.panel ?? "").startsWith(EDIT_ERROR.split("\n")[0]),
+        detail: JSON.stringify(edit),
+    });
+
+    await h.ev(openStep("the release"));
+    await sleep(MOTION_MS);
+    const monitor = await h.ev(failedOf("the release"));
+    await h.ev(scrollToRow("the release"));
+    await h.shot("cdp-shots/transcript-base-failed-monitor.png");
+    steps.push({
+        step: "Failed Monitor: a failed call with no detail is clickable and opens to its error",
+        ok: monitor != null && monitor.clickable && monitor.error === MONITOR_ERROR && monitor.errorTone === true,
+        detail: JSON.stringify(monitor),
+    });
+
+    await h.ev(openStep(REFUSED_COMMAND));
+    await sleep(MOTION_MS);
+    const refused = await h.ev(REFUSED_STATE);
+    await h.ev(scrollToRow(REFUSED_COMMAND));
+    await h.shot("cdp-shots/transcript-base-refused.png");
+    steps.push({
+        step: "Refused command: a blocked Bash row opens to its command, the reason as a muted note under it, no output block and no <tool_use_error>",
+        ok:
+            refused != null &&
+            refused.clickable &&
+            (refused.panel ?? "").startsWith("$" + REFUSED_COMMAND) &&
+            refused.note === REFUSED_REASON &&
+            refused.noteError === false &&
+            refused.below === true &&
+            refused.outputs === 0 &&
+            !(refused.panel ?? "").includes("tool_use_error"),
+        detail: JSON.stringify(refused),
+    });
+    return steps;
+}
+
+// the live turn: a finished command, then one still running
+const colourTurn = () => [
+    user("Run both checks.", Date.now() - 6 * S),
+    bash({ description: "First check", command: "node -e 1", output: "", ts: Date.now() - 5 * S, durationMs: 1_200 }),
+    bash({ description: "Second check", command: "node test.js", ts: Date.now() - 3 * S, pending: true }),
+];
+
+const COLOUR_STATE = probe(`
+    const head = (status) => root.querySelector('[data-step-status="' + status + '"] [data-step-head]');
+    const of = (el) => (el ? { secondary: el.classList.contains('text-secondary'), color: getComputedStyle(el).color } : null);
+    return { done: of(head('ok')), running: of(head('running')) };
+`);
+
+async function colourStep(h) {
+    await showTranscript(h, { entries: colourTurn(), width: 736, active: true });
+    const s = await h.ev(COLOUR_STATE);
+    await h.shot("cdp-shots/transcript-base-title-colour.png");
+    return {
+        step: "Title colour: a done row's title and a running row's title share text-secondary",
+        ok: s?.done?.secondary === true && s.running?.secondary === true && s.done.color === s.running.color,
+        detail: JSON.stringify(s),
+    };
+}
+
+// a wsh effort show call whose effort is seeded, so its view draws from data and the toggle is the only way to the
+// call's own output
+const RAW_EID = "r4w00001";
+const RAW_OUTPUT = "Retry fix\n 1/2 done";
+const RAW_SEED = {
+    [`effort:${RAW_EID}`]: {
+        otype: "effort",
+        oid: RAW_EID,
+        version: 1,
+        title: "Retry fix",
+        project: "waveterm",
+        status: "active",
+        chunks: [
+            { label: "Fix the delay", status: "done", notes: [], updatedts: T0 },
+            { label: "Release", status: "pending", notes: [], updatedts: T0 },
+        ],
+        events: [],
+        createdts: T0,
+        updatedts: T0,
+    },
+};
+const RAW_TURN = [
+    user("Where is the retry fix?", T0),
+    bash({ description: "Show the initiative", command: `wsh effort show effort:${RAW_EID}`, output: RAW_OUTPUT, ts: T0 + S, durationMs: 300 }),
+    prose("Half done.", T0 + 3 * S),
+];
+
+const RAW_STATE = probe(`
+    const view = root.querySelector('[data-wsh-view]');
+    const toggle = view ? [...view.querySelectorAll('button[aria-pressed]')].find((b) => b.textContent.includes('Raw output')) : null;
+    return {
+        view: view?.getAttribute('data-wsh-view') ?? null,
+        pressed: toggle?.getAttribute('aria-pressed') ?? null,
+        raw: view?.querySelector('[data-step-raw] [data-recorded-output]')?.textContent ?? null,
+        loadFailure: !!view?.querySelector('[data-wsh-load-failure]'),
+    };
+`);
+const clickRawToggle = probe(`
+    const b = [...root.querySelectorAll('[data-wsh-view] button[aria-pressed]')].find((x) => x.textContent.includes('Raw output'));
+    b?.click();
+    return !!b;
+`);
+
+async function rawToggleStep(h) {
+    await showTranscript(h, { entries: RAW_TURN, width: 736, seed: RAW_SEED });
+    await h.ev(openFold);
+    await sleep(MOTION_MS);
+    await h.ev(openStep("Show the initiative"));
+    await sleep(MOTION_MS);
+    const closed = await h.ev(RAW_STATE);
+    const clicked = await h.ev(clickRawToggle);
+    await sleep(MOTION_MS);
+    const opened = await h.ev(RAW_STATE);
+    await h.shot("cdp-shots/transcript-base-raw-toggle.png");
+    await h.ev(clickRawToggle);
+    await sleep(MOTION_MS);
+    const shut = await h.ev(RAW_STATE);
+    return {
+        step: "Raw output: under a wsh view it is a toggle (aria-pressed) that reveals the call's recorded output and hides it again",
+        ok:
+            closed?.view === "effort-show" &&
+            closed.pressed === "false" &&
+            closed.raw === null &&
+            clicked === true &&
+            opened?.pressed === "true" &&
+            opened.raw === RAW_OUTPUT &&
+            shut?.pressed === "false" &&
+            shut.raw === null,
+        detail: JSON.stringify({ closed, opened, shut }),
+    };
+}
+
 export const transcriptBase = {
     name: "transcript-base",
     surface: "cockpit",
@@ -855,6 +1140,9 @@ export const transcriptBase = {
         steps.push(await notifiedStep(h));
         steps.push(await noticeStep(h));
         steps.push(await commandOutputStep(h));
+        steps.push(...(await stepRowSteps(h)));
+        steps.push(await colourStep(h));
+        steps.push(await rawToggleStep(h));
         return steps;
     },
     async teardown(h) {
