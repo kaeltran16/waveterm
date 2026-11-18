@@ -36,17 +36,6 @@ const SELECTION_ALPHA = 0.5;
 const LINE_HIGHLIGHT_ALPHA = 0.35;
 // the share of --color-edge-strong in the thumb's hover color; the rest is --color-ink-faint
 const SCROLL_THUMB_HOVER_SHARE = 0.75;
-// GitHub Desktop's dark diff (app/styles/themes/_dark.scss): primer's green-900 / red-900 darkened for the
-// line and darker still for the gutter. Its changed-text fill (green-600 #22863a, red-700 #b31d28) left the
-// gray comment token at 1.06:1, so that is mixed only 30% of the way from the line color toward it.
-const DIFF_BANDS: Record<string, string> = {
-    "diffEditor.insertedLineBackground": "#113a1b",
-    "diffEditor.insertedTextBackground": "#165024",
-    "diffEditorGutter.insertedLineBackground": "#0b2611",
-    "diffEditor.removedLineBackground": "#450c0f",
-    "diffEditor.removedTextBackground": "#641117",
-    "diffEditorGutter.removedLineBackground": "#2f090a",
-};
 
 // token family -> cockpit role. "storage"/"control" read as keyword-family declarations
 // (let/const/type), "delimiter" joins "punctuation" (braces, brackets, separators).
@@ -104,7 +93,6 @@ export function monacoThemeFromTokens(
         }
         // the overview ruler's hairline reads as a second scrollbar track
         colors["editorOverviewRuler.border"] = "#00000000";
-        Object.assign(colors, DIFF_BANDS);
     }
     return { base: dark ? "vs-dark" : "vs", inherit: true, rules, colors };
 }

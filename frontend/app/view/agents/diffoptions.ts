@@ -38,19 +38,27 @@ export function splitHintText(splitAvailable: boolean): string {
 // was opened from. Off by default so the two agree; on is the opt-in for reading through a reformat.
 export const ignoreWsAtom = atom<boolean>(false);
 
-// a new file (empty original) is one hunk that every line belongs to, so neither its + markers nor
-// its bands ([data-diff-new-file] in tailwindsetup.css) tell the reader anything
+// a new file (empty original) is one hunk that every line belongs to, so its bands
+// ([data-diff-new-file] in tailwindsetup.css) tell the reader nothing
 export function isNewFile(original: string, modified: string): boolean {
     return original === "" && modified !== "";
 }
 
-export function paneOptions(split: boolean, ignoreWs: boolean, newFile = false): MonacoTypes.editor.IDiffEditorOptions {
+// Every Monaco diff editor's half of the shared diff look (the colors are tailwindsetup.css's): rows as
+// tall as the transcript's diff rows (12.5px at 1.6), and no +/- column, since the edge marks the side
+// as it does on the transcript's numbered rows.
+export const DIFF_EDITOR_LOOK = {
+    lineHeight: 20,
+    renderIndicators: false,
+} satisfies MonacoTypes.editor.IDiffEditorOptions;
+
+export function paneOptions(split: boolean, ignoreWs: boolean): MonacoTypes.editor.IDiffEditorOptions {
     return {
+        ...DIFF_EDITOR_LOOK,
         readOnly: true,
         originalEditable: false,
         renderSideBySide: split,
         ignoreTrimWhitespace: ignoreWs,
-        renderIndicators: !newFile,
         hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 3, revealLineCount: 20 },
         scrollBeyondLastLine: false,
         minimap: { enabled: false },

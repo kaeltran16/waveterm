@@ -71,19 +71,6 @@ describe("monacoThemeFromTokens", () => {
         expect(t.colors["editor.lineHighlightBackground"]).toBeUndefined();
     });
 
-    it("draws the diff bands in github desktop's dark colors on dark, and leaves light to the base", () => {
-        const dark = monacoThemeFromTokens(TOKENS, CHROME, true).colors;
-        expect(dark["diffEditor.insertedLineBackground"]).toBe("#113a1b");
-        expect(dark["diffEditor.insertedTextBackground"]).toBe("#165024");
-        expect(dark["diffEditorGutter.insertedLineBackground"]).toBe("#0b2611");
-        expect(dark["diffEditor.removedLineBackground"]).toBe("#450c0f");
-        expect(dark["diffEditor.removedTextBackground"]).toBe("#641117");
-        expect(dark["diffEditorGutter.removedLineBackground"]).toBe("#2f090a");
-        const light = monacoThemeFromTokens(TOKENS, CHROME, false).colors;
-        expect(light["diffEditor.insertedLineBackground"]).toBeUndefined();
-        expect(light["diffEditor.removedLineBackground"]).toBeUndefined();
-    });
-
     it("draws the scrollbar slider in the app scrollbar's thumb colors on dark, and leaves light to the base", () => {
         const dark = monacoThemeFromTokens(TOKENS, CHROME, true).colors;
         expect(dark["scrollbarSlider.background"]).toBe("#2a313a");

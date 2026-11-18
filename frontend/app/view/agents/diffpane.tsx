@@ -130,7 +130,7 @@ export function DiffPane({
     const layout = paneHeaderLayout(width);
     const splitShown = split && layout.split;
     const newFile = pair != null && isNewFile(pair.original, pair.modified);
-    const options = useMemo(() => paneOptions(splitShown, ignoreWs, newFile), [splitShown, ignoreWs, newFile]);
+    const options = useMemo(() => paneOptions(splitShown, ignoreWs), [splitShown, ignoreWs]);
     useEffect(() => {
         globalStore.set(commentSplitAtom, splitShown);
     }, [splitShown]);

@@ -29,10 +29,10 @@ describe("the diff pane's view switches", () => {
         expect(paneOptions(false, true).ignoreTrimWhitespace).toBe(true);
     });
 
-    // a new file is one all-lines hunk, so a + on every line says nothing
-    it("drops the per-line +/- markers only for a new file", () => {
-        expect(paneOptions(false, false).renderIndicators).toBe(true);
-        expect(paneOptions(false, false, true).renderIndicators).toBe(false);
+    // the shared look's edge marks the side, as on the transcript's numbered diff rows
+    it("draws no per-line +/- markers, unified or split", () => {
+        expect(paneOptions(false, false).renderIndicators).toBe(false);
+        expect(paneOptions(true, true).renderIndicators).toBe(false);
     });
 
     it("calls a file new only when the original is empty and the modified is not", () => {
