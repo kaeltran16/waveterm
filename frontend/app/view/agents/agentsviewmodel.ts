@@ -30,6 +30,8 @@ export interface EditFile {
     adds: number;
     dels: number;
     lines: DiffLine[];
+    // the patch said "Binary files ... differ": there are no lines to draw
+    binary?: true;
 }
 
 export type ActionDetail =
