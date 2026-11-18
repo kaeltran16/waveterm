@@ -48,7 +48,7 @@ import agentRail from "./scenarios-agent-rail.mjs";
 import agentTree from "./scenarios-agent-tree.mjs";
 import agentRendered from "./scenarios-agent-rendered.mjs";
 import agentQueued from "./scenarios-agent-queued.mjs";
-import { workspacePane } from "./scenarios-workspace-pane.mjs";
+import { workspacePane, workspacePaneCanvas } from "./scenarios-workspace-pane.mjs";
 import { workspaceHeader } from "./scenarios-workspace-header.mjs";
 import { workspaceRing } from "./scenarios-workspace-ring.mjs";
 import { workspaceRun } from "./scenarios-workspace-run.mjs";
@@ -358,6 +358,7 @@ export const SCENARIOS = [
     ...agentRendered(SESSIONS_KIT),
     ...agentQueued(SESSIONS_KIT),
     workspacePane,
+    workspacePaneCanvas,
     workspaceHeader,
     workspaceRing,
     workspaceRun,
