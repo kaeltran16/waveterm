@@ -5,8 +5,8 @@
 // so the subagent interior and runs worker cards get the same auto-follow + jump-to-latest pill.
 
 import { PopoverReveal } from "@/app/element/popoverreveal";
-import { useLayoutEffect, useRef, useState } from "react";
-import { followGlides, isNearBottom, stuckAfterScroll } from "./agentsviewmodel";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { followGlides, glideStep, isNearBottom, stuckAfterScroll } from "./agentsviewmodel";
 
 // the row at the top of the viewport: its place counted from the end of the feed's rows, which rows prepended above it
 // do not move, and the offset of its top under the viewport's
@@ -61,7 +61,39 @@ export function useStickToBottom(entries: unknown[], hold?: HoldPlace) {
     const placedRef = useRef(false);
     const lastTopRef = useRef(0);
     const lastHeightRef = useRef(0);
+    // the running glide's frame: one glide aims at the end afresh each frame, since a native smooth scroll restarted
+    // by each resize of a feed that keeps growing (a row easing open) never got going and left the tail out of view
+    const glideRef = useRef<number | null>(null);
     const [atBottom, setAtBottom] = useState(true);
+
+    const glide = (el: HTMLElement) => {
+        if (glideRef.current != null) {
+            return;
+        }
+        let last = performance.now();
+        const frame = (now: number) => {
+            const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+            if (!stickRef.current || gap <= 0 || !el.isConnected) {
+                glideRef.current = null;
+                return;
+            }
+            el.scrollTop += glideStep(gap, now - last);
+            last = now;
+            lastTopRef.current = el.scrollTop;
+            lastHeightRef.current = el.scrollHeight;
+            glideRef.current = requestAnimationFrame(frame);
+        };
+        glideRef.current = requestAnimationFrame(frame);
+    };
+
+    useEffect(
+        () => () => {
+            if (glideRef.current != null) {
+                cancelAnimationFrame(glideRef.current);
+            }
+        },
+        []
+    );
 
     const remember = () => {
         const el = scrollRef.current;
@@ -88,7 +120,7 @@ export function useStickToBottom(entries: unknown[], hold?: HoldPlace) {
             }
             const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
             if (placedRef.current && !reducedMotion() && followGlides(gap, el.clientHeight)) {
-                el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+                glide(el);
             } else {
                 el.scrollTop = el.scrollHeight;
             }

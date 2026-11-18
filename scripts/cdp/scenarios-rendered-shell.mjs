@@ -2,10 +2,11 @@
 // roster is a fixture of three claude agents backed by real tabs, as agent-rendered builds them: W, working, with a
 // transcript of a long first prompt, a reply, then a last prompt whose reply runs past the view and ends in a running
 // Bash, and a spinner row written onto its terminal; L whose transcript is empty, so it has not loaded; N with none.
-// The compact working line is drawn through the narration fixture seam. Teardown publishes a Stop for every fixture
-// block, restores the roster, closes the tabs and removes the temp dir.
+// The live steps (Follow, Released, Stop) append to W's transcript and grow its feed, then end W's turn. The compact
+// working line is drawn through the narration fixture seam. Teardown publishes a Stop for every fixture block,
+// restores the roster, closes the tabs and removes the temp dir.
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -45,6 +46,23 @@ const SPINNER_ROW = `✻ ${SPINNER_VERB} (24s · ↓ 1.8k tokens · esc to inter
 const TOKENS = "↓ 1.8k tokens";
 // the Read and the running Bash after the last prompt
 const TURN_TOOLS = 2;
+// Follow: a box at the end of the feed eases open GROW_PX a frame for GROW_FRAMES frames, as a row's entrance does.
+// A follow that keeps up stays within FOLLOW_MAX_PX of the tail (it measured ~80); the native smooth scroll each
+// resize restarted fell ~340 behind
+const GROW_PX = 20;
+const GROW_FRAMES = 20;
+const SETTLE_FRAMES = 45;
+const FOLLOW_MAX_PX = 150;
+// the stuck slack: a frame's gap at the tail
+const TAIL_PX = 4;
+// Released: how far the reader scrolls up, and the lines appended below them
+const READ_UP_PX = 400;
+const APPENDED = ["Re-running the test after the fix.", "The retry test passes now: 3 attempts, 0 ms then 100 ms then 200 ms."];
+// Stop: how long the fold is sampled
+const FOLD_SAMPLE_MS = 1_500;
+// an appended row's entrance and the layout under it are done well inside this
+const MOTION_SETTLE_MS = 800;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const iso = (ms) => new Date(ms).toISOString();
 
 // every query is scoped to the Agent surface
@@ -139,6 +157,7 @@ export const renderedShell = {
                 assistantText(LONG_REPLY, { ts: iso(t0 - TURN_MS + 3_000) }),
                 toolUse("toolu_run", "Bash", { command: RUN_CMD, description: "Run the test again" }, { ts: iso(t0 - 2_000) }),
             ]);
+            ctx.wPath = wPath;
             const lPath = join(ctx.dir, `shell-l-${tag}.jsonl`);
             writeFileSync(lPath, "");
 
@@ -238,6 +257,54 @@ export const renderedShell = {
             return [shown && pill?.title === "Jump to latest" && pill.text === "↓Latest" && back, { shown, pill, back }];
         });
 
+        await step("Follow: stuck at the tail, a box easing open under the feed keeps the tail in view every frame and lands on it", async () => {
+            const stuck = await wait(`(${PIN}).atBottom === true`);
+            const gaps = await h.ev(`(async () => {
+                const s = ${SCROLL};
+                const col = s?.querySelector("[data-rendered-column]");
+                if (!col) return null;
+                const box = document.createElement("div");
+                col.appendChild(box);
+                const gaps = [];
+                for (let i = 0; i < ${GROW_FRAMES + SETTLE_FRAMES}; i++) {
+                    if (i < ${GROW_FRAMES}) box.style.height = ${GROW_PX} * (i + 1) + "px";
+                    await new Promise((r) => requestAnimationFrame(r));
+                    gaps.push(Math.round(s.scrollHeight - s.scrollTop - s.clientHeight));
+                }
+                box.remove();
+                return gaps;
+            })()`);
+            const max = gaps ? Math.max(...gaps) : null;
+            const landed = gaps?.at(-1) ?? null;
+            return [stuck && max != null && max <= FOLLOW_MAX_PX && landed <= TAIL_PX, { stuck, max, landed, gaps }];
+        });
+
+        await step("Released: scrolled up, lines appended below leave the row at the top of the view where it was; Latest returns to the tail", async () => {
+            await h.ev(`(() => { const s = ${SCROLL}; s.scrollTop = Math.max(0, s.scrollTop - ${READ_UP_PX}); s.dispatchEvent(new Event("scroll")); return true; })()`);
+            const released = await wait(`${RV}?.querySelector("[data-latest-pill]") != null`);
+            const before = await h.ev(`(() => {
+                const s = ${SCROLL};
+                const top = s.getBoundingClientRect().top;
+                const rows = s.querySelector("[data-rendered-feed]")?.firstElementChild;
+                const row = rows ? [...rows.children].find((c) => c.getBoundingClientRect().bottom > top + 40) : null;
+                window.__readRow = row;
+                return row ? Math.round(row.getBoundingClientRect().top) : null;
+            })()`);
+            const now = Date.now();
+            appendFileSync(
+                ctx.wPath,
+                [toolResult("toolu_run", "1 passing", { ts: iso(now) }), ...APPENDED.map((t, i) => assistantText(t, { ts: iso(now + i + 1) }))].join("\n") + "\n"
+            );
+            const arrived = await wait(`(${SCROLL}?.textContent ?? "").includes(${JSON.stringify(APPENDED.at(-1))})`);
+            await sleep(MOTION_SETTLE_MS);
+            const after = await h.ev(`(() => { const r = window.__readRow; return r?.isConnected ? Math.round(r.getBoundingClientRect().top) : null; })()`);
+            await h.shot(SHOT(2, "released-appended"));
+            await h.ev(`(${RV}?.querySelector("[data-latest-pill]")?.click(), true)`);
+            const back = await wait(`(${PIN}).atBottom === true && ${RV}?.querySelector("[data-latest-pill]") == null`);
+            const held = before != null && after != null && Math.abs(after - before) <= FIT_PX;
+            return [released && arrived && held && back, { released, arrived, before, after, back }];
+        });
+
         await step("Composing: a long prompt is clamped with Show more, and a click on Show more opens it whole", async () => {
             const read = `(() => {
                 const bubble = ${SCROLL}?.querySelector("[data-user-bubble]");
@@ -259,6 +326,39 @@ export const renderedShell = {
             const after = await h.ev(read);
             await h.shot(SHOT(3, "composing-open"));
             return [before?.clamped === true && before.more === "Show more" && after?.clamped === false && after.expanded === "true", { before, after }];
+        });
+
+        await step("Stop: W's turn ends: its work folds under a Worked line while the reply stays at the bottom of the view every frame", async () => {
+            await h.ev(`(() => { const s = ${SCROLL}; s.scrollTop = s.scrollHeight; s.dispatchEvent(new Event("scroll")); return true; })()`);
+            const stuck = await wait(`(${PIN}).atBottom === true && ${RV}?.querySelector("[data-latest-pill]") == null`);
+            const folds = `(${SCROLL}?.querySelectorAll("[data-fold]").length ?? 0)`;
+            const foldsBefore = await h.ev(folds);
+            await h.ev(`(() => {
+                const s = ${SCROLL};
+                const gaps = (window.__foldGaps = []);
+                const t0 = performance.now();
+                const loop = () => {
+                    gaps.push(Math.round(s.scrollHeight - s.scrollTop - s.clientHeight));
+                    if (performance.now() - t0 < ${FOLD_SAMPLE_MS}) requestAnimationFrame(loop);
+                };
+                requestAnimationFrame(loop);
+                return true;
+            })()`);
+            ctx.roster[0] = { ...ctx.roster[0], state: "idle" };
+            await setRoster(h, ctx.roster);
+            await publishStatus(h, ctx, ctx.wBlock, { state: "idle", hook: "Stop" });
+            const folded = await wait(`${SCROLL}?.querySelector("[data-turn-live]") == null && ${folds} > ${foldsBefore}`);
+            await sleep(FOLD_SAMPLE_MS);
+            const gaps = await h.ev("window.__foldGaps");
+            const reply = await h.ev(`(() => {
+                const s = ${SCROLL};
+                const el = [...(s?.querySelectorAll("[data-find-turn]") ?? [])].find((e) => e.textContent.includes(${JSON.stringify(APPENDED.at(-1))}));
+                return el ? { bottom: el.getBoundingClientRect().bottom, scrollBottom: s.getBoundingClientRect().bottom } : null;
+            })()`);
+            await h.shot(SHOT(3, "stopped-folded"));
+            const max = gaps?.length ? Math.max(...gaps) : null;
+            const inView = reply != null && reply.bottom <= reply.scrollBottom;
+            return [stuck && folded && max != null && max <= TAIL_PX && inView, { stuck, folded, foldsBefore, max, frames: gaps?.length, reply }];
         });
 
         await step("Loading: a tab whose transcript has not loaded shows the skeleton with role=status", async () => {

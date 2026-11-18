@@ -211,6 +211,20 @@ export function followGlides(gap: number, clientHeight: number): boolean {
     return gap > 0 && gap <= clientHeight;
 }
 
+// the share of the tail gap a glide closes in one 60 Hz frame
+const GLIDE_RATE = 0.25;
+const GLIDE_FRAME_MS = 1000 / 60;
+
+/** Pure: how far a glide toward the tail moves in a frame of `dtMs`, the same share of the gap per unit of time at any
+ *  frame rate, and the whole gap once it is a pixel or less. */
+export function glideStep(gap: number, dtMs: number): number {
+    if (gap <= 1) {
+        return Math.max(gap, 0);
+    }
+    const share = 1 - Math.pow(1 - GLIDE_RATE, dtMs / GLIDE_FRAME_MS);
+    return Math.min(gap, Math.max(1, gap * share));
+}
+
 export interface AgentSections {
     asking: AgentVM[];
     working: AgentVM[];

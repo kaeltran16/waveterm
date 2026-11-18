@@ -20,6 +20,7 @@ import {
     formatAgo,
     formatReset,
     formatTokens,
+    glideStep,
     groupAgents,
     hasAnswerableAsk,
     isAskStale,
@@ -146,6 +147,44 @@ describe("followGlides", () => {
     it("jumps a gap longer than the viewport, and has nothing to glide at the bottom", () => {
         expect(followGlides(601, 600)).toBe(false);
         expect(followGlides(0, 600)).toBe(false);
+    });
+});
+
+describe("glideStep", () => {
+    const FRAME_60 = 1000 / 60;
+    // the gap after each frame of a feed growing by `grow` px a frame, followed by glideStep
+    const follow = (gap: number, frames: number, dt: number, grow = 0) => {
+        const gaps: number[] = [];
+        for (let i = 0; i < frames; i++) {
+            gap += grow;
+            gap -= glideStep(gap, dt);
+            gaps.push(gap);
+        }
+        return gaps;
+    };
+    it("glides rather than jumps: one frame closes part of the gap", () => {
+        const moved = glideStep(600, FRAME_60);
+        expect(moved).toBeGreaterThan(0);
+        expect(moved).toBeLessThan(300);
+    });
+    it("lands a one-viewport gap within 400 ms at 60 Hz, never past the end", () => {
+        const gaps = follow(600, Math.ceil(400 / FRAME_60), FRAME_60);
+        expect(gaps.at(-1)).toBe(0);
+        expect(Math.min(...gaps)).toBe(0);
+    });
+    it("closes a gap of a pixel or less at once", () => {
+        expect(glideStep(0.6, FRAME_60)).toBe(0.6);
+    });
+    it("moves the same over the same time at 120 Hz as at 60 Hz", () => {
+        const at60 = follow(400, 6, FRAME_60).at(-1);
+        const at120 = follow(400, 12, FRAME_60 / 2).at(-1);
+        expect(Math.abs(at60 - at120)).toBeLessThan(2);
+    });
+    // observed: a row easing open at the tail re-pinned every frame, and the native smooth scroll each pin restarted
+    // never got going, so the tail fell 300-600 px out of view until the growth stopped
+    it("keeps up with a feed that grows every frame", () => {
+        const gaps = follow(0, 60, FRAME_60, 20);
+        expect(Math.max(...gaps)).toBeLessThan(100);
     });
 });
 
