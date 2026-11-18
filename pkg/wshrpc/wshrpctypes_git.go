@@ -24,6 +24,7 @@ type GitCommands interface {
 	GitFetchCommand(ctx context.Context, data CommandGitFetchData) (*CommandGitFetchRtnData, error)
 	GitPushCommand(ctx context.Context, data CommandGitPushData) (*CommandGitPushRtnData, error)
 	GitBlameCommand(ctx context.Context, data CommandGitBlameData) (*CommandGitBlameRtnData, error)
+	GitPatchCommand(ctx context.Context, data CommandGitPatchData) (*CommandGitPatchRtnData, error)
 }
 
 type CommandGitHistoryData struct {
@@ -228,4 +229,18 @@ type CommandGitBlameRtnData struct {
 	Runs      map[string]GitBlameRun `json:"runs,omitempty"` // sha -> crediting run
 	IsRepo    bool                   `json:"isrepo"`
 	Untracked bool                   `json:"untracked,omitempty"`
+}
+
+// Ref "" diffs against HEAD. IgnoreWs is git's -w, the Diff surface's Hide whitespace.
+type CommandGitPatchData struct {
+	Cwd      string `json:"cwd"`
+	Ref      string `json:"ref,omitempty"`
+	IgnoreWs bool   `json:"ignorews,omitempty"`
+}
+
+// Mirrors gitinfo.Patch: raw unified diff for the frontend's parseUnifiedDiff, untracked files included.
+type CommandGitPatchRtnData struct {
+	Patch     string `json:"patch"`
+	IsRepo    bool   `json:"isrepo"`
+	Truncated bool   `json:"truncated,omitempty"`
 }
