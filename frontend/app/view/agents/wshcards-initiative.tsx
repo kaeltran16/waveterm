@@ -29,7 +29,7 @@ import {
 import { LoadFailure } from "./recordedoutput";
 import type { TranscriptContext } from "./transcriptcontext";
 import { actionCommand } from "./transcriptlayout";
-import { wshJsonOutput } from "./wshcall";
+import { printsOnlyWsh, wshJsonOutput } from "./wshcall";
 import { CallFacts, WshVerbRow } from "./wshchangerow";
 import { useWshData } from "./wshdata";
 import { AsOfNow, type WshRendererProps, type WshRenderers } from "./wshrenderers";
@@ -145,12 +145,14 @@ function OpenLink({ ctx, effortId, compact }: { ctx: TranscriptContext; effortId
     );
 }
 
-// a change card already says what changed from argv; wsh's recorded output ("addChunk applied to effort effort:<id>",
-// then often a whole effort show) would only repeat it raw, so it stays one click away in the call's facts
-function LoadError({ error, compact }: { error?: string; compact: boolean }) {
+// a change card already says what changed from argv. When only wsh printed (printsOnlyWsh), its recorded output
+// ("addChunk applied to effort effort:<id>", then often a whole effort show) would only repeat it raw, so it stays one
+// click away in the call's facts; when another command in the line printed (; sed -n ...), that output is shown
+function LoadError({ error, action, compact }: { error?: string; action: AgentActionEntry; compact: boolean }) {
     return error ? (
         <LoadFailure
             message={`Couldn't load the initiative: ${error}`}
+            action={printsOnlyWsh(actionCommand(action)) ? undefined : action}
             compact={compact}
             className={compact ? "ml-[22px] mt-1.5" : "ml-[26px] mt-2"}
         />
@@ -233,7 +235,7 @@ function ChunkDone({ card, ctx, action, compact }: CardProps<"chunk-done">) {
                 </div>
             ) : null}
             {card.progress ? <ProgressLine progress={card.progress} title={card.title} compact={compact} /> : null}
-            <LoadError error={card.error} compact={compact} />
+            <LoadError error={card.error} action={action} compact={compact} />
         </Shell>
     );
 }
@@ -273,7 +275,7 @@ function ChunkBlocked({ card, ctx, action, compact }: CardProps<"chunk-blocked">
                     Shows in the briefing's attention banner until it moves
                 </div>
             )}
-            <LoadError error={card.error} compact={compact} />
+            <LoadError error={card.error} action={action} compact={compact} />
         </Shell>
     );
 }
@@ -315,7 +317,7 @@ function EventRow({
     return (
         <div>
             {row}
-            <LoadError error={error} compact={compact} />
+            <LoadError error={error} action={action} compact={compact} />
         </div>
     );
 }
@@ -403,7 +405,7 @@ function InitiativeCreated({ call, action, ctx, compact }: WshRendererProps) {
                         </>
                     }
                 />
-                <LoadError error={card.error} compact={compact} />
+                <LoadError error={card.error} action={action} compact={compact} />
             </div>
             {shown.length > 0 ? (
                 <div className="flex flex-col border-t border-edge-faint py-1.5">

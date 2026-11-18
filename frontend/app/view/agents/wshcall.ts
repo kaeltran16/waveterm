@@ -188,10 +188,11 @@ export function isCardKey(key: WshKey): key is WshCardKey {
 }
 
 // literal: the [start, end) ranges of text that were single-quoted, where the shell expands nothing.
-// redir: a redirection's operator and its target word; a heredoc's target is its delimiter
+// redir: a redirection's operator and its target word; a heredoc's target is its delimiter.
+// pipe: the separator is a single | (or |&), so the next command reads this one's output
 export type Token =
     | { kind: "word"; text: string; literal?: [number, number][] }
-    | { kind: "sep" }
+    | { kind: "sep"; pipe?: true }
     | { kind: "redir"; op: string; target: string };
 
 const SEP_CHARS = new Set([";", "&", "|", "\n", "(", ")"]);
@@ -316,7 +317,10 @@ export function tokenize(src: string): Token[] {
             out.push({ kind: "redir", op, target: readWord() });
         } else if (SEP_CHARS.has(c)) {
             flush();
-            if (out.at(-1)?.kind !== "sep") out.push({ kind: "sep" });
+            if (out.at(-1)?.kind !== "sep") {
+                const pipe = c === "|" && src[i + 1] !== "|";
+                out.push(pipe ? { kind: "sep", pipe: true } : { kind: "sep" });
+            }
             i++;
             if (c === "\n" && heredocs.length > 0) skipHeredocBodies();
         } else {
@@ -445,6 +449,38 @@ export function parseWshCalls(command: string): WshCall[] {
     }
     end();
     return calls;
+}
+
+// whether everything the command line printed is wsh's own: each command that can print is a wsh call or a cd, after
+// leading assignments and keyword prefixes. A stage after a pipe only filters the stage before it (wsh ... | tail -1),
+// so the pipeline's first command decides; any other command (; sed -n ...) printed something wsh did not
+export function printsOnlyWsh(command: string | undefined): boolean {
+    let sawWsh = false;
+    let atCommand = true;
+    let piped = false; // the current command reads the previous one's output
+    for (const t of tokenize(command ?? "")) {
+        if (t.kind === "sep") {
+            atCommand = true;
+            piped = t.pipe === true;
+            continue;
+        }
+        if (t.kind === "redir" || !atCommand) {
+            continue;
+        }
+        if (ASSIGNMENT.test(t.text) || COMMAND_PREFIXES.has(t.text) || t.text === "export") {
+            continue;
+        }
+        atCommand = false;
+        if (piped) {
+            continue;
+        }
+        if (isWshCommandWord(t.text)) {
+            sawWsh = true;
+        } else if (t.text !== "cd") {
+            return false;
+        }
+    }
+    return sawWsh;
 }
 
 export function firstWshCall(command: string | undefined): { call: WshCall; key: WshKey } | null {
