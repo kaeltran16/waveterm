@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import type { DiffRange } from "./diffscope";
 import {
     WORKING_TREE,
     buildRows,
@@ -11,6 +12,7 @@ import {
     keepSelection,
     refChipClass,
     worktreeCaption,
+    worktreeHeading,
     type RefKind,
 } from "./historyrows";
 
@@ -300,6 +302,25 @@ describe("worktreeCaption", () => {
                 ""
             )
         ).toBe("On main, measured from run base b41d000 to its landed tip c0ffee1");
+    });
+});
+
+describe("worktreeHeading", () => {
+    // its B..H commits are rebuilt from the transcript, not read from the working tree
+    it("names the edits range after the agent's edits", () => {
+        expect(worktreeHeading({ kind: "edits", agentId: "a" })).toBe("Agent's edits");
+    });
+    it("keeps Working tree for every other range", () => {
+        const working: DiffRange = { kind: "working" };
+        const ranges: DiffRange[] = [
+            working,
+            { kind: "session", agentId: "a" },
+            { kind: "run", runId: "r", baseCommit: "b41d000aaaa" },
+            { kind: "compare", base: "a1", head: "b2", form: "mergebase", from: working },
+        ];
+        for (const r of ranges) {
+            expect(worktreeHeading(r)).toBe("Working tree");
+        }
     });
 });
 

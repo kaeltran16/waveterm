@@ -172,6 +172,18 @@ export const diffAgentEdits = {
                 { editsHistory }
             );
 
+            // B..H are rebuilt from the transcript, so the pane must not call them the working tree
+            await h.ev(`${q("[data-history-row] button")}?.click()`);
+            const PANE = `(${q("[data-commit-pane]")}?.textContent ?? "")`;
+            const named = await until(h, `${chipPressed("edits")} && ${PANE}.includes("Agent's edits")`, LOAD_MS);
+            const pane = await h.ev(PANE);
+            await h.shot("cdp-shots/diff-agent-edits-pane.png");
+            rec(
+                "6. with the edits chip pressed and the scope's row selected, the commit pane reads Agent's edits, not Working tree",
+                named && !pane.includes("Working tree"),
+                { pane: pane.slice(0, 200) }
+            );
+
             await h.ev(`${q('[data-range-chip="session"]')}?.click()`);
             const widened =
                 (await until(h, `${chipPressed("session")} && ${FILE_ROWS}.includes(${JSON.stringify(UNRELATED)})`, LOAD_MS)) &&
@@ -180,7 +192,7 @@ export const diffAgentEdits = {
             const sessionHistory = await h.ev(HISTORY_ROWS);
             await h.shot("cdp-shots/diff-agent-edits-session.png");
             rec(
-                "6. picking Since session start lists the unrelated edit too, and the history column shows commit rows again",
+                "7. picking Since session start lists the unrelated edit too, and the history column shows commit rows again",
                 widened && AGENT_FILES.every((p) => sessionRows.includes(p)),
                 { sessionRows, sessionHistory }
             );
@@ -197,7 +209,7 @@ export const diffAgentEdits = {
             const quietSummary = await textOf(h, SUMMARY);
             await h.shot("cdp-shots/diff-agent-edits-nothing.png");
             rec(
-                "7. the second agent opens on the pressed edits chip with an empty file list and the reply's reason in the caption",
+                "8. the second agent opens on the pressed edits chip with an empty file list and the reply's reason in the caption",
                 quiet && quietRows.length === 0 && !reply.base,
                 { quietPicked, reply, quietRows, quietSummary }
             );

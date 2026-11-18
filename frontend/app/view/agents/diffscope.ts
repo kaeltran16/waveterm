@@ -66,7 +66,7 @@ export interface LoadHistoryOpts {
     noCommits?: boolean;
 }
 
-const EDITS_LABEL = "Agent's edits";
+export const EDITS_LABEL = "Agent's edits";
 
 export function originKey(o: DiffOrigin): string {
     switch (o.kind) {

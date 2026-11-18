@@ -7,7 +7,7 @@
 // here so the pane stays a renderer. Lane assignment is gitgraph.ts; coordinates are gitgraphgeom.ts.
 
 import { formatAge } from "./agentsviewmodel";
-import type { DiffRange } from "./diffscope";
+import { EDITS_LABEL, type DiffRange } from "./diffscope";
 import type { GraphCommit } from "./gitgraph";
 
 // Sentinel hash for the synthetic uncommitted row. Empty on purpose: gitgraphgeom skips falsy hashes
@@ -175,6 +175,12 @@ export function worktreeCaption(range: DiffRange, branch: string, head: string, 
         default:
             return `${on}, measured from ${head.slice(0, 7)}`;
     }
+}
+
+// The commit pane's name for the scope's own row. The edits range's B..H commits are rebuilt from the
+// transcript, so calling them the working tree would misname them.
+export function worktreeHeading(range: DiffRange): string {
+    return range.kind === "edits" ? EDITS_LABEL : "Working tree";
 }
 
 // What the surface selects when history first arrives: uncommitted work if there is any, else the tip.

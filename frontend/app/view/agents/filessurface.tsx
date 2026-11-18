@@ -136,7 +136,7 @@ import {
 import { dismissRemoteFailure, gitRemoteStateOf, gitRemoteStatesAtom, runFetch, runPush } from "./gitremotestore";
 import { HistoryPane } from "./historypane";
 import { RESTORE_DISMISS_MS, countLabel } from "./historyquery";
-import { WORKING_TREE, commitCount, worktreeCaption } from "./historyrows";
+import { WORKING_TREE, commitCount, worktreeCaption, worktreeHeading } from "./historyrows";
 import { SourcePicker } from "./sourcepicker";
 import { SurfaceEmptyState, SurfaceError, SurfaceToolbar, ToolbarFact } from "./surfacescaffold";
 
@@ -661,6 +661,7 @@ export function FilesSurface({ model }: { model: AgentsViewModel }) {
             <CommitPane
                 row={selectedRow}
                 caption={scope && state ? worktreeCaption(scope.range, state.branch, state.head, state.ref) : undefined}
+                heading={scope ? worktreeHeading(scope.range) : undefined}
                 changes={activeChanges}
                 selectedFile={selectedFile}
                 onSelectFile={(path) => selectedCommit != null && selectCommitFile(selectedCommit, path)}
