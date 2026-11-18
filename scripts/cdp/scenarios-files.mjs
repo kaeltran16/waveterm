@@ -670,6 +670,16 @@ func Submit(id string) error {
 // reload, and a commit and a compare aggregate that keep marks of their own.
 const REVIEW_STORAGE_KEY = "diff.review.marks";
 
+// A claude agent opens on its own edits, and offers its session range only once its transcript has a session start:
+// one timestamped record, outside the repo so it is no change of its own, a minute ahead so the anchor is HEAD
+function seedSessionTranscript(cwd) {
+    const root = mkdtempSync(join(tmpdir(), "verify-diff-session-"));
+    const path = join(root, "session.jsonl");
+    const line = { type: "user", cwd, timestamp: new Date(Date.now() + 60_000).toISOString(), message: { role: "user", content: "start" } };
+    writeFileSync(path, JSON.stringify(line) + "\n");
+    return { root, path };
+}
+
 // the retry package on a feature branch, and a working tree with one file of each status the list draws:
 // README.md modified, src/retry/policy.go modified, src/retry/backoff.go added, src/retry/legacy.go deleted
 function seedRetryRepo(prefix) {
@@ -1049,7 +1059,7 @@ export const diffSourceRow = {
         const dir = seedRetryRepo("verify-diff-source-row-");
         const name = "verify-diff-source-row";
         await h.rpc("createproject", { name, path: dir });
-        return { dir, name };
+        return { dir, name, transcript: seedSessionTranscript(dir) };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -1080,11 +1090,15 @@ export const diffSourceRow = {
         };
         const agentRow = `[...document.querySelectorAll("button")].find((b) => !b.dataset.filesSourceOption &&
             (b.querySelector("span.truncate")?.textContent ?? "").startsWith(${JSON.stringify(DSR_AGENT_TOPIC)}))`;
+        // a claude agent opens on its own edits, which list nothing here; these steps are about the session range
+        const sessionChip = `[data-range-chip="session"]`;
         const pickAgent = async () => {
             await click("[data-files-source-picker]");
             const listed = await until(`!!(${agentRow})`, 10000);
             await h.ev(`${agentRow}?.click()`);
-            return listed && (await until(`!!${q(README)}`, 15000));
+            const onEdits = await until(`${q('[data-range-chip="edits"]')}?.getAttribute("aria-pressed") === "true"`, 15000);
+            await click(sessionChip);
+            return listed && onEdits && (await until(`${q(sessionChip)}?.getAttribute("aria-pressed") === "true" && !!${q(README)}`, 15000));
         };
         try {
             await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
@@ -1106,13 +1120,13 @@ export const diffSourceRow = {
                 event: "agent:status",
                 scopes: [`block:${ctx.blockId}`],
                 persist: 1,
-                data: { oref: `block:${ctx.blockId}`, state: "working", agent: "claude", cwd: ctx.dir, ts: Date.now() },
+                data: { oref: `block:${ctx.blockId}`, state: "working", agent: "claude", cwd: ctx.dir, transcriptpath: ctx.transcript.path, ts: Date.now() },
             });
             const agentListed = await pickAgent();
             const onAgent = await settledRow();
             rec(
-                "2. switching to an agent source in the same folder opens on Uncommitted changes",
-                agentListed && /Uncommitted changes/.test(onAgent ?? ""),
+                "2. switching to an agent source in the same folder opens on its session range's own row, Since session start",
+                agentListed && /Since session start/.test(onAgent ?? ""),
                 JSON.stringify({ agentListed, selected: onAgent })
             );
             await h.shot("cdp-shots/diff-source-row-agent.png");
@@ -1122,8 +1136,8 @@ export const diffSourceRow = {
             const reloadListed = await pickAgent();
             const afterReload = await settledRow();
             rec(
-                "3. after a reload, picking the agent source first opens on Uncommitted changes",
-                reloadListed && /Uncommitted changes/.test(afterReload ?? ""),
+                "3. after a reload, picking the agent source first opens on its session range's own row, Since session start",
+                reloadListed && /Since session start/.test(afterReload ?? ""),
                 JSON.stringify({ reloadListed, selected: afterReload })
             );
         } catch (e) {
@@ -1146,6 +1160,7 @@ export const diffSourceRow = {
         }
         try {
             rmSync(ctx.dir, { recursive: true, force: true });
+            if (ctx.transcript) rmSync(ctx.transcript.root, { recursive: true, force: true });
         } catch {
             /* a leftover temp repo is cheaper than a failed teardown */
         }
@@ -1164,7 +1179,7 @@ export const diffComments = {
         const prevComments = await h.ev(`localStorage.getItem(${JSON.stringify(COMMENT_STORAGE_KEY)})`);
         await h.ev(`localStorage.removeItem(${JSON.stringify(COMMENT_STORAGE_KEY)})`);
         await reloadApp(h);
-        return { dir, name, prevComments };
+        return { dir, name, prevComments, transcript: seedSessionTranscript(dir) };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -1507,7 +1522,7 @@ export const diffComments = {
                     event: "agent:status",
                     scopes: [`block:${ctx.blockId}`],
                     persist: 1,
-                    data: { oref: `block:${ctx.blockId}`, state, agent: "claude", cwd: ctx.dir, ts: Date.now() },
+                    data: { oref: `block:${ctx.blockId}`, state, agent: "claude", cwd: ctx.dir, transcriptpath: ctx.transcript.path, ts: Date.now() },
                 });
             await reportAgent("working");
             await click("[data-files-source-picker]");
@@ -1524,6 +1539,15 @@ export const diffComments = {
                 const fs = await mod("app/view/agents/filesstore.ts");
                 const hs = await mod("app/view/agents/githistorystore.ts");
                 const { diffScopeAtom } = await mod("app/view/agents/diffscopeatom.ts");`;
+            // a claude agent opens on its own edits; the batch below is on the session range, so its chip is
+            // picked once the agent's scope has loaded, and the watch starts from that switch
+            await h.ev(`${agentRow}?.click()`);
+            const onEdits = await lookEval(h, `${STORE}
+                return await until(() => {
+                    const scope = globalStore.get(diffScopeAtom);
+                    return scope?.repo.origin.kind === "agent" && scope.repo.origin.id === ${JSON.stringify(ctx.tabId)} &&
+                        scope.range.kind === "edits" && globalStore.get(fs.filesStateAtom) != null;
+                }, 15000);`);
             await lookEval(h, `${STORE}
                 const w = (window.__dcAgentScope = { nulled: false, reloaded: false, selected: false });
                 const offFiles = globalStore.sub(fs.filesStateAtom, () => {
@@ -1532,7 +1556,7 @@ export const diffComments = {
                 });
                 const offFile = globalStore.sub(hs.selectedFileAtom, () => { if (w.reloaded) w.selected = true; });
                 w.off = () => { offFiles(); offFile(); };`);
-            await h.ev(`${agentRow}?.click()`);
+            await h.ev(`${q('[data-range-chip="session"]')}?.click()`);
             // the source opens on the uncommitted row (diff-source-row), whose list has README.md and legacy.go
             const scope = await lookEval(h, `${STORE}
                 const { WORKING_TREE } = await mod("app/view/agents/historyrows.ts");
@@ -1579,6 +1603,7 @@ export const diffComments = {
             rec(
                 `9a. on a live agent working, the bar reads 3 comments in 2 files · to ${name}, working, joins its turn`,
                 listed &&
+                    onEdits &&
                     agentOpened &&
                     onAgent.every(Boolean) &&
                     working?.kind === "live" &&
@@ -1587,7 +1612,7 @@ export const diffComments = {
                     working.recipient === name &&
                     working.detail === "working, joins its turn" &&
                     working.send === "Send 3 comments",
-                JSON.stringify({ listed, agentOpened, name, onAgent, bar: working, scope })
+                JSON.stringify({ listed, onEdits, agentOpened, name, onAgent, bar: working, scope })
             );
             await h.shot("cdp-shots/diff-comments-live-working.png");
 
@@ -1786,6 +1811,7 @@ export const diffComments = {
         }
         try {
             rmSync(ctx.dir, { recursive: true, force: true });
+            if (ctx.transcript) rmSync(ctx.transcript.root, { recursive: true, force: true });
         } catch {
             /* a leftover temp repo is cheaper than a failed teardown */
         }
