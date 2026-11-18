@@ -5,12 +5,18 @@
 // the fields of the engine's CommandInfo that cross to wavesrv; CommandInfo satisfies it
 export type CommandEntry = { name: string; description: string; source: string; plugin?: string };
 
+// Claude Code's sec-default refuses a $.process.run whose stdin names a Claude settings file ("a Claude Code settings
+// file is not for plugins outside policy to write"), so a description naming one would keep the whole list from
+// publishing; such a description goes out blank, its command still listed
+const SETTINGS_PATH = /\.claude[\\/]+settings/iu;
+
 // the list as one JSON string, in the order given (the typeahead's), an entry's fields in a fixed order, so the same
 // list is always the same string and register.ts can send only when it changed. `plugin` only when it names one
 export function commandsPayload(list: readonly CommandEntry[]): string {
     return JSON.stringify(
         list.map((c) => {
-            const entry: CommandEntry = { name: c.name, description: c.description, source: c.source };
+            const description = SETTINGS_PATH.test(c.description) ? "" : c.description;
+            const entry: CommandEntry = { name: c.name, description, source: c.source };
             if (typeof c.plugin === "string" && c.plugin !== "") {
                 entry.plugin = c.plugin;
             }

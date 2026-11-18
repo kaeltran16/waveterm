@@ -46,6 +46,23 @@ describe("commandsPayload", () => {
         expect(a).toBe(b);
     });
 
+    // Claude Code's sec-default refuses a $.process.run whose stdin names a settings path, so one such
+    // description (2.1.327's fewer-permission-prompts) kept the whole list from publishing
+    it("blanks a description that names a Claude settings path, keeping the command", () => {
+        const parsed = JSON.parse(
+            commandsPayload([
+                { name: "a", description: "add an allowlist to project .claude/settings.json", source: "builtin" },
+                { name: "b", description: "edits ~\\.claude\\settings.local.json", source: "user" },
+                { name: "c", description: "changes to settings.json files", source: "user" },
+            ])
+        );
+        expect(parsed).toEqual([
+            { name: "a", description: "", source: "builtin" },
+            { name: "b", description: "", source: "user" },
+            { name: "c", description: "changes to settings.json files", source: "user" },
+        ]);
+    });
+
     it("is an empty list for no commands", () => {
         expect(commandsPayload([])).toBe("[]");
     });
