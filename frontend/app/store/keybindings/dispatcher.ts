@@ -8,6 +8,7 @@ import { contextMenuAtom } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import { modalsModel } from "@/app/store/modalmodel";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { canvasWindowAtom } from "@/app/view/agents/canvasstore";
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
@@ -122,6 +123,9 @@ export function deriveKeyContext(): KeyContext {
         globalStore.get(finalShotsViewerOpenAtom) ||
         // the image zoom view: its Escape closes it, where the Code surface's would go back underneath it
         globalStore.get(imageZoomOpenAtom) ||
+        // the canvas window over the Agent surface: its m, [ ] and Escape are its own, and the tree's j/k stand down
+        // under it. It draws only on that surface, so its atom left set elsewhere mutes nothing
+        (surface === "agent" && globalStore.get(canvasWindowAtom) != null) ||
         // the Resource Manager popover is window chrome too, and its arrows, Enter, x and Escape are surface keys
         globalStore.get(resmonOpenAtom) ||
         // a context menu moves its highlight with the arrows and closes on Escape; uncounted, the Brief's

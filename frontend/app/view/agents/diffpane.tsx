@@ -66,6 +66,7 @@ export function DiffPane({
     noCommit = false,
     lineCounts = true,
     source = diffSurfacePair,
+    wrap = false,
 }: {
     path: string | null;
     adds: number;
@@ -80,6 +81,8 @@ export function DiffPane({
     noCommit?: boolean;
     // the pair this pane shows: the Diff surface's unless a host keeps its own (the workspace pane's Changes tab)
     source?: DiffPairSource;
+    // wrap long lines instead of scrolling sideways
+    wrap?: boolean;
 }) {
     const pair = useAtomValue(source.pairAtom);
     const failure = useAtomValue(source.failureAtom);
@@ -130,7 +133,7 @@ export function DiffPane({
     const layout = paneHeaderLayout(width);
     const splitShown = split && layout.split;
     const newFile = pair != null && isNewFile(pair.original, pair.modified);
-    const options = useMemo(() => paneOptions(splitShown, ignoreWs), [splitShown, ignoreWs]);
+    const options = useMemo(() => paneOptions(splitShown, ignoreWs, wrap), [splitShown, ignoreWs, wrap]);
     useEffect(() => {
         globalStore.set(commentSplitAtom, splitShown);
     }, [splitShown]);

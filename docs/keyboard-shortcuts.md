@@ -155,7 +155,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 ### Agent: canvas mode
 
-`c` works when the focused agent has a canvas. In Terminal the canvas takes over the center (canvas mode), and there `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas. In Rendered the canvas is the workspace pane's Canvas tab beside the transcript: `c` and `Ctrl`+`Shift`+`B` open and close the tab, and the board keys below work while it is the shown tab.
+`c` works when the focused agent has a canvas. In Terminal the canvas takes over the center (canvas mode), and there `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas. In Rendered the canvas is the workspace pane's Canvas tab beside the transcript, every board stacked as a preview: `c` and `Ctrl`+`Shift`+`B` open and close the tab, and while it is the shown tab `[` / `]` move the selection among the boards (no All) and `m` opens the canvas window on the selected board with marking on.
 
 | Keys | Action |
 |---|---|
@@ -164,6 +164,14 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `[` / `]` | Previous / next board |
 | `m` | Mark part of the board; in mark mode, stop marking |
 | `Enter` / `Esc` | In the note under a drawn box: send the mark to the agent / drop it |
+
+The canvas window opens over the Rendered view on one board, or on every board with All laid out in rows of 3. While it is open the agent and surface keys stand down under it, and these are its keys:
+
+| Keys | Action |
+|---|---|
+| `[` / `]` | Previous / next board, All included |
+| `m` | Mark part of the board; in mark mode, stop marking |
+| `Esc` | Drop the drawn mark; with none drawn, close the window. In the mark's note, `Esc` drops the mark only |
 
 ### Agent: brainstorm mode
 

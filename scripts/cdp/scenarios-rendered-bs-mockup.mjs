@@ -1,27 +1,22 @@
 // Scenario rendered-bs-mockup: the standalone Mockup card (CanvasEdge) for an agent with a canvas and no brainstorm,
-// and the live-board block it draws. kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
+// and the one row it draws once boards are served. kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
 //
 // The fixture agent has no brainstorm, so the canvas is attached in the page as a reveal would; the canvas folder is
 // the agent's side, written and deleted from here, and the poller draws what it finds.
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { dragMarkBox } from "./scenarios-agent.mjs";
 
 const SHOT = (n, what) => `cdp-shots/rendered-bs-mockup-${n}-${what}.png`;
 const BOARDS = ["Main.dc.html", "States.dc.html"];
 const TITLES = { "Main.dc.html": "Run graph: Final queued behind another run", "States.dc.html": "The queued states" };
-// a board's Last-Modified has whole seconds, so a rewrite meant to read as newer than a look waits past one
+// a board's Last-Modified has whole seconds, so a rewrite meant to read as newer than the last one waits past one
 const PAST_A_SECOND_MS = 1200;
-const MARK_NOTE = "make the chip wider";
 
 export default (kit) => {
-    const { scenario, agentPage, polishWaitFor, polishNap, HOST, RV, WAIT_MS, BS_POLL_WAIT_MS } = kit;
+    const { scenario, agentPage, polishWaitFor, polishNap, HOST, BS_POLL_WAIT_MS } = kit;
     const CARD = `${HOST}?.querySelector("[data-rendered-mockup]")`;
     const kindIs = (kind) => `${CARD}?.getAttribute("data-rendered-mockup") === ${JSON.stringify(kind)}`;
-    const TAB = (b) => `${HOST}?.querySelector('[data-live-board-tab="${b}"]')`;
-    const FRAME = `${HOST}?.querySelector("[data-live-board] iframe")`;
-    const TAB_PANE = `document.querySelector('aside[aria-label="Workspace"] [data-canvas-pane]')`;
 
     const canvasDir = (ctx) => join(ctx.cwd, ".superpowers", "design", ctx.topic);
     const projectDir = (ctx) => join(canvasDir(ctx), "project");
@@ -45,6 +40,18 @@ export default (kit) => {
             const id = ${JSON.stringify(ctx.agentId)};
             ${body}`
         );
+    // where a row's button sent the agent: the workspace's tabs, the canvas's tab and marking, and the window's agent
+    const READ_OPEN = `const W = await mod("app/view/agents/workspacestore.ts");
+        const w = globalStore.get(W.workspaceAtom(id));
+        const c = C.getCanvas(id);
+        return {
+            tabs: w.tabs.map((t) => t.kind),
+            window: globalStore.get(C.canvasWindowAtom),
+            board: c.board,
+            all: c.all,
+            marking: c.marking,
+            mark: c.mark,
+        };`;
     const flat = (h, sel) =>
         h.ev(`(() => { const el = ${sel}; return (el?.innerText ?? "").replace(/\\s+/g, " ").trim(); })()`);
 
@@ -87,116 +94,94 @@ export default (kit) => {
             ];
         });
 
-        await step("a board file written swaps the card to the live board: tabs, the board scaled, its title and scale", async () => {
+        await step("a board file written swaps the card to one row: Mockup, topic, boards, updated, Open canvas, Mark", async () => {
             writeCanvasJson(ctx);
             for (const b of BOARDS) writeBoard(ctx, b, b);
-            const boards = await polishWaitFor(h, `${kindIs("boards")} && !!${FRAME}`, BS_POLL_WAIT_MS);
+            const boards = await polishWaitFor(h, kindIs("boards"), BS_POLL_WAIT_MS);
             const s = await h.ev(`(() => {
                 const card = ${CARD};
-                const frame = ${FRAME};
-                const tabs = [...(card?.querySelectorAll('[role="tab"]') ?? [])].map((t) => t.textContent.trim());
+                const label = (sel) => (card?.querySelector(sel)?.textContent ?? "").trim();
                 return {
                     text: (card?.innerText ?? "").replace(/\\s+/g, " ").trim(),
-                    tabs,
-                    selected: card?.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() ?? null,
-                    scaled: frame != null && /scale\\(0\\.\\d+\\)/.test(frame.style.transform),
-                    open: card?.querySelector("[data-live-board]")?.getAttribute("aria-label") ?? null,
+                    iframes: card?.querySelectorAll("iframe").length ?? -1,
+                    tabs: card?.querySelectorAll('[role="tab"]').length ?? -1,
+                    open: label("[data-rendered-mockup-open]"),
+                    mark: label("[data-rendered-mockup-mark]"),
+                    ago: label("[data-rendered-mockup-ago]"),
                 };
             })()`);
-            await h.shot(SHOT(2, "boards"));
+            await h.shot(SHOT(2, "row"));
             return [
                 boards &&
-                    s.text.includes("2 boards") &&
-                    s.tabs.join("|") === "Main|States" &&
-                    s.selected === "Main" &&
-                    s.scaled &&
-                    s.open === "Open Main in the canvas" &&
-                    s.text.includes(TITLES["Main.dc.html"]) &&
-                    /\d+%/.test(s.text) &&
-                    s.text.includes(`the agent's mockup · ${ctx.topic}`),
+                    s.text.startsWith(`Mockup ${ctx.topic} 2 boards updated`) &&
+                    /^updated \d+s ago$/.test(s.ago) &&
+                    s.open === "Open canvas" &&
+                    s.mark === "Mark" &&
+                    s.iframes === 0 &&
+                    s.tabs === 0,
                 { boards, ...s },
             ];
         });
 
-        await step("a board file rewritten reloads the shown board and puts the unseen dot on the other tab", async () => {
-            // States on screen once, then Main again, so States' last look is known and its rewrite comes after it
-            await h.ev(`${TAB("States.dc.html")}?.click()`);
-            await polishWaitFor(h, `${TAB("States.dc.html")}?.getAttribute("aria-selected") === "true"`, WAIT_MS);
-            await h.ev(`${TAB("Main.dc.html")}?.click()`);
-            await polishWaitFor(h, `${TAB("Main.dc.html")}?.getAttribute("aria-selected") === "true" && !!${FRAME}`, WAIT_MS);
-            const before = await h.ev(`(() => { const f = ${FRAME}; if (f) f.__mockupOld = true; return !!f; })()`);
-            // the dot leaves through its exit fade when States is shown, so under load it can still be in the DOM here
-            const noDot = await polishWaitFor(h, `!${TAB("States.dc.html")}?.querySelector("[data-live-board-unseen]")`, WAIT_MS);
+        await step("a board file rewritten moves the row's updated time", async () => {
+            const newest = () =>
+                store(h, ctx, `return Math.max(...Object.values(C.getCanvas(id).boardModifiedMs ?? {}));`);
+            const was = await newest();
             await polishNap(PAST_A_SECOND_MS);
-            writeBoard(ctx, "Main.dc.html", "Main, rewritten");
             writeBoard(ctx, "States.dc.html", "States, rewritten");
-            const dot = await polishWaitFor(h, `!!${TAB("States.dc.html")}?.querySelector("[data-live-board-unseen]")`, BS_POLL_WAIT_MS);
-            const reloaded = await polishWaitFor(h, `${FRAME} != null && !${FRAME}.__mockupOld`, BS_POLL_WAIT_MS);
-            const ago = await flat(h, `${HOST}?.querySelector("[data-live-boards-ago]")`);
-            const shownDot = await h.ev(`!!${TAB("Main.dc.html")}?.querySelector("[data-live-board-unseen]")`);
-            await h.shot(SHOT(3, "updated"));
-            // showing the changed tab clears its dot
-            await h.ev(`${TAB("States.dc.html")}?.click()`);
-            const cleared = await polishWaitFor(h, `!${TAB("States.dc.html")}?.querySelector("[data-live-board-unseen]")`, WAIT_MS);
-            await h.ev(`${TAB("Main.dc.html")}?.click()`);
-            return [
-                before && noDot && dot && reloaded && !shownDot && /updated \d+s ago/.test(ago) && cleared,
-                { before, noDot, dot, reloaded, shownDot, ago, cleared },
-            ];
+            let now = was;
+            for (const start = Date.now(); now <= was && Date.now() - start < BS_POLL_WAIT_MS; await polishNap(300)) {
+                now = await newest();
+            }
+            const ago = await flat(h, `${CARD}?.querySelector("[data-rendered-mockup-ago]")`);
+            return [now > was && /^updated \d+s ago$/.test(ago), { was, now, ago }];
         });
 
-        await step("Mark opens the Canvas tab beside the transcript with marking on, and a sent mark leaves the tab open", async () => {
-            await kit.recordSends(h);
-            await h.ev(`${HOST}?.querySelector("[data-live-boards-mark]")?.click()`);
-            const pane = await polishWaitFor(h, `!!${TAB_PANE}`, WAIT_MS);
-            const marking = await polishWaitFor(
-                h,
-                `[...(${TAB_PANE}?.querySelectorAll("button[aria-pressed]") ?? [])]
-                    .some((b) => (b.textContent || "").trim() === "Mark" && b.getAttribute("aria-pressed") === "true")`,
-                WAIT_MS
-            );
-            const rendered = await h.ev(`${RV} != null`);
-            await polishWaitFor(h, `!!document.querySelector("[data-canvas-board] iframe")`, WAIT_MS);
-            await h.shot(SHOT(4, "mark-pane"));
-            const dragged = await dragMarkBox(h);
-            const note = await polishWaitFor(h, `!!document.querySelector("[data-canvas-mark-note]")`, WAIT_MS);
-            await store(h, ctx, `C.setMark(id, { ...C.getCanvas(id).mark, note: ${JSON.stringify(MARK_NOTE)} }); return true;`);
-            await h.ev(`[...(document.querySelector("[data-canvas-mark-note]")?.querySelectorAll("button") ?? [])]
-                .find((b) => (b.textContent || "").trim().startsWith("Send"))?.click()`);
-            const line = await kit.waitSent(h, 0, WAIT_MS);
-            const kept = await polishWaitFor(
-                h,
-                `${RV} != null && !!${TAB_PANE} && !document.querySelector("[data-canvas-mark-note]") &&
-                    ![...(${TAB_PANE}?.querySelectorAll("button[aria-pressed]") ?? [])]
-                        .some((b) => (b.textContent || "").trim() === "Mark" && b.getAttribute("aria-pressed") === "true")`,
-                WAIT_MS
-            );
-            // closed, so the column is back to its own width for the narrow step
+        await step("Open canvas opens the Canvas tab beside the transcript at the board", async () => {
+            await h.ev(`${CARD}?.querySelector("[data-rendered-mockup-open]")?.click()`);
+            const at = await store(h, ctx, READ_OPEN);
+            await h.shot(SHOT(3, "open-canvas"));
             const back = await kit.closePaneTabs(h, ctx);
             return [
-                pane && marking && rendered && dragged && note && line != null && line.includes(MARK_NOTE) && kept && back,
-                { pane, marking, rendered, dragged, note, line, kept, back },
+                at.tabs.includes("canvas") && at.board === BOARDS[0] && !at.all && !at.marking && at.window == null && back,
+                { ...at, back },
             ];
         });
 
-        await step("the narrow column stacks the card's head and the block's actions", async () => {
+        await step("Mark opens the Canvas tab and the canvas window on the board with marking on", async () => {
+            await h.ev(`${CARD}?.querySelector("[data-rendered-mockup-mark]")?.click()`);
+            const at = await store(h, ctx, READ_OPEN);
+            await h.shot(SHOT(4, "mark"));
+            // closing turns marking off and drops the window, so the narrow step starts from a bare column
+            await store(h, ctx, `C.closeCanvasWindow(); return true;`);
+            const back = await kit.closePaneTabs(h, ctx);
+            return [
+                at.tabs.includes("canvas") &&
+                    at.window === ctx.agentId &&
+                    at.board === BOARDS[0] &&
+                    !at.all &&
+                    at.marking &&
+                    at.mark == null &&
+                    back,
+                { ...at, back },
+            ];
+        });
+
+        await step("the narrow column stacks the row's label and its actions", async () => {
             const narrowed = await kit.narrow(h);
             const s = await h.ev(`(() => {
                 const card = ${CARD};
                 const r = (sel) => card?.querySelector(sel)?.getBoundingClientRect();
                 const label = r("[data-rendered-mockup-head] > span");
-                const open = r("[data-rendered-mockup-open]");
-                const tabs = r('[role="tablist"]');
-                const actions = r("[data-live-boards-actions]");
+                const actions = r("[data-rendered-mockup-actions]");
                 return {
-                    headStacked: label != null && open != null && open.top >= label.bottom - 1,
-                    barStacked: tabs != null && actions != null && actions.top >= tabs.bottom - 1,
+                    headStacked: label != null && actions != null && actions.top >= label.bottom - 1,
                     compact: ${HOST}?.hasAttribute("data-compact") ?? false,
                 };
             })()`);
             await h.shot(SHOT(5, "narrow"));
             const widened = await kit.widen(h);
-            return [narrowed && s.compact && s.headStacked && s.barStacked && widened, { narrowed, ...s, widened }];
+            return [narrowed && s.compact && s.headStacked && widened, { narrowed, ...s, widened }];
         });
 
         await step("Arc could not serve the canvas: the card says so with the pane's explanation", async () => {

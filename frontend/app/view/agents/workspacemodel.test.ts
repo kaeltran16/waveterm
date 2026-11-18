@@ -6,6 +6,7 @@ import {
     activateTab,
     closeTab,
     EMPTY_WORKSPACE,
+    iconOnlyTabs,
     openTab,
     paneShape,
     paneWidth,
@@ -235,5 +236,29 @@ describe("tabWaiting and waitingOnYou", () => {
         const tabs = [run("r1"), run("r2"), changes, { kind: "brainstorm" } as WorkspaceTab];
         expect(waitingOnYou(tabs, { runAsks, brainstormAsking: true })).toBe(4);
         expect(waitingOnYou([], { runAsks, brainstormAsking: true })).toBe(0);
+    });
+});
+
+describe("iconOnlyTabs", () => {
+    // three 100px tabs with the strip's 2px gaps between them take 304px
+    const widths = [100, 100, 100];
+
+    it("keeps every label while the full widths fit, the room exactly included", () => {
+        expect(iconOnlyTabs(widths, 400, 0)).toEqual([false, false, false]);
+        expect(iconOnlyTabs(widths, 304, 1)).toEqual([false, false, false]);
+    });
+
+    it("drops every tab but the shown one to its icon once the full widths overflow", () => {
+        expect(iconOnlyTabs(widths, 303, 1)).toEqual([true, false, true]);
+        expect(iconOnlyTabs(widths, 50, 2)).toEqual([true, true, false]);
+    });
+
+    it("never compacts the shown tab, even alone and over the room", () => {
+        expect(iconOnlyTabs([500], 100, 0)).toEqual([false]);
+    });
+
+    it("compacts every tab when none is shown", () => {
+        expect(iconOnlyTabs(widths, 303, -1)).toEqual([true, true, true]);
+        expect(iconOnlyTabs([], 0, -1)).toEqual([]);
     });
 });

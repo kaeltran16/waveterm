@@ -1,64 +1,41 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The boards a Rendered card draws: LiveBoards, the live-board block a question's card and the standalone Mockup card
-// share, useQuestionBoards, the question card's block and option chips (Main), and MockupCard, for a canvas with no
-// brainstorm (CanvasEdge). The block draws the canvas the agent's canvas
-// state serves; a board shown here counts as on screen for the poller, so it reloads when its file changes.
+// The boards a Rendered card names: useQuestionBoards, the question card's option chips (Main), and MockupCard, one
+// row for a canvas with no brainstorm (CanvasEdge). The boards themselves draw in the workspace pane's Canvas tab
+// and the canvas window; a card only opens them.
 
-import { microFade } from "@/app/element/motiontokens";
 import { ViewSwap } from "@/app/element/viewswap";
-import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUpRight, PanelsTopLeft, SquareDashed } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useState, type JSX, type ReactNode } from "react";
 import { openPaneTab } from "./agentpanes";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import type { BrainstormFile } from "./brainstormmodel";
-import { getBrainstorm, openBrainstormAt, type BrainstormState } from "./brainstormstore";
+import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
+import { boardLabel, updatedAgo } from "./canvasmodel";
+import { SERVER_DOWN } from "./canvaspane";
+import { canvasStateAtom, openCanvasWindow, selectCanvasTab } from "./canvasstore";
 import {
-    boardLabel,
-    boardUnseen,
-    boardUrl,
-    canvasDir,
-    DEFAULT_BOARD_H,
-    DEFAULT_BOARD_W,
-    fitScale,
-    updatedAgo,
-} from "./canvasmodel";
-import { BoardIframe, SERVER_DOWN } from "./canvaspane";
-import {
-    attachCanvas,
-    canvasStateAtom,
-    getCanvas,
-    markFromTranscript,
-    selectCanvasTab,
-    setMarking,
-    showInlineBoard,
-} from "./canvasstore";
-import { boardCount, mockupView, questionTabs, shownOf, type MockupView } from "./renderedbsboardsmodel";
+    boardCount,
+    boardsUpdatedMs,
+    mockupView,
+    questionChips,
+    shownOf,
+    type MockupView,
+} from "./renderedbsboardsmodel";
 
-const MOCKUP_WHAT = "the agent's mockup";
-const QUESTION_TABS_LABEL = "Boards for this question";
-
-function BoardChip({ board, pressed, onShow }: { board: string; pressed: boolean; onShow: (board: string) => void }) {
+function BoardChip({ board, onOpen }: { board: string; onOpen: (board: string) => void }) {
     const label = boardLabel(board);
     return (
         <button
             type="button"
-            aria-pressed={pressed}
-            title={`Show ${label} above`}
+            title={`Open ${label} in the Brainstorm tab`}
             data-rendered-bs-board-chip={board}
-            onClick={() => onShow(board)}
-            className={cn(
-                "inline-flex cursor-pointer items-center gap-[5px] whitespace-nowrap rounded-[6px] border border-edge-strong px-2 py-[3px] text-[11.5px] transition-colors",
-                pressed
-                    ? "bg-surface-selected font-semibold text-primary"
-                    : "bg-transparent text-ink-mid hover:text-secondary"
-            )}
+            onClick={() => onOpen(board)}
+            className="inline-flex cursor-pointer items-center gap-[5px] whitespace-nowrap rounded-[6px] border border-edge-strong bg-transparent px-2 py-[3px] text-[11.5px] text-ink-mid transition-colors hover:text-secondary"
         >
             <PanelsTopLeft size={11} strokeWidth={2} aria-hidden />
             {label}
@@ -66,78 +43,52 @@ function BoardChip({ board, pressed, onShow }: { board: string; pressed: boolean
     );
 }
 
-// the boards drawn for the open question, inside its card (Main): the live board with a tab for each, and a chip on
-// each option naming a board that shows it above. Laid out as the pane's question (questionTabs)
+// a chip on each option naming a board, which opens the Brainstorm tab at that board. Laid out as the pane's question
+// (questionChips)
 export function useQuestionBoards(
     agent: AgentVM,
     s: BrainstormState,
     f: BrainstormFile,
-    judging: boolean,
-    compact: boolean
-): { block: ReactNode | null; chip: (i: number) => ReactNode | null } {
-    const [want, setWant] = useState<string | null>(null);
-    const layout = questionTabs(
+    judging: boolean
+): { chip: (i: number) => ReactNode | null } {
+    const rows = questionChips(
         f,
         s.base,
         s.boards.map((b) => b.name),
         judging
     );
-    const shown = layout != null ? shownOf(layout.tabs, want) : null;
-    if (layout == null || shown == null || f.canvas == null) {
-        return { block: null, chip: () => null };
-    }
-    const block = (
-        <div data-rendered-bs-boards>
-            <LiveBoards
-                agent={agent}
-                canvas={f.canvas}
-                cwd={s.cwd}
-                boards={layout.tabs}
-                shown={shown}
-                onShow={setWant}
-                what={MOCKUP_WHAT}
-                disabled={null}
-                compact={compact}
-                tabsLabel={QUESTION_TABS_LABEL}
-            />
-        </div>
-    );
     const chip = (i: number) => {
-        const boards = layout.chips[i] ?? [];
+        const boards = rows?.[i] ?? [];
         if (boards.length === 0) {
             return null;
         }
         return (
             <div className="flex flex-wrap items-center gap-1.5">
                 {boards.map((b) => (
-                    <BoardChip key={b} board={b} pressed={b === shown} onShow={setWant} />
+                    <BoardChip key={b} board={b} onOpen={(board) => openBrainstormAt(agent.id, { board })} />
                 ))}
             </div>
         );
     };
-    return { block, chip };
+    return { chip };
 }
 
-const DEFAULT_TABS_LABEL = "Boards";
-const MARK_TITLE = "Mark part of the board: opens the canvas";
+const MARK_TITLE = "Mark part of the board: opens it in a window";
 // "updated 40s ago" counts in seconds
 const AGO_TICK_MS = 1000;
 
 const LINK =
-    "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline disabled:cursor-default disabled:opacity-50 disabled:no-underline";
+    "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline";
 
-// the pane at a board, as a tab beside the transcript: a brainstorm's board view, or the agent's canvas
-function openBoard(agentId: string, board: string, mark: boolean): void {
-    if (getBrainstorm(agentId) != null) {
-        openBrainstormAt(agentId, { board, mark });
-    } else {
-        selectCanvasTab(agentId, board);
-        openPaneTab(agentId, "canvas", Date.now());
-        setMarking(agentId, mark);
-    }
-    if (mark) {
-        markFromTranscript(agentId);
-    }
+// the Canvas tab at a board, beside the transcript
+function openCanvasTabAt(agentId: string, board: string): void {
+    selectCanvasTab(agentId, board);
+    openPaneTab(agentId, "canvas", Date.now());
+}
+
+function markBoard(agentId: string, board: string): void {
+    openCanvasTabAt(agentId, board);
+    openCanvasWindow(agentId, { board, mark: true });
 }
 
 function useNow(ms: number): number {
@@ -152,199 +103,30 @@ function useNow(ms: number): number {
 function UpdatedAgo({ ms }: { ms: number | null }) {
     const now = useNow(AGO_TICK_MS);
     const ago = updatedAgo(now, ms);
-    return ago ? <span data-live-boards-ago>{` · ${ago}`}</span> : null;
+    return ago ? (
+        <span data-rendered-mockup-ago className="whitespace-nowrap text-[12px] text-muted">
+            {ago}
+        </span>
+    ) : null;
 }
 
-function BoardTabs(p: {
-    boards: string[];
-    shown: string;
-    unseen: (board: string) => boolean;
-    onShow: (board: string) => void;
-    label: string;
-}) {
-    return (
-        <div
-            role="tablist"
-            aria-label={p.label}
-            className="flex flex-none rounded-[7px] border border-edge-mid bg-surface-raised p-[2px]"
-        >
-            {p.boards.map((b) => {
-                const selected = b === p.shown;
-                return (
-                    <button
-                        key={b}
-                        type="button"
-                        role="tab"
-                        aria-selected={selected}
-                        data-live-board-tab={b}
-                        onClick={() => p.onShow(b)}
-                        className={cn(
-                            "inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] border-0 px-2.5 py-[3px] text-[12px]",
-                            selected
-                                ? "bg-surface-selected font-semibold text-primary"
-                                : "bg-transparent text-ink-mid hover:text-secondary"
-                        )}
-                    >
-                        {boardLabel(b)}
-                        <AnimatePresence initial={false}>
-                            {!selected && p.unseen(b) ? (
-                                <motion.span
-                                    key="unseen"
-                                    data-live-board-unseen
-                                    aria-label="updated since you last looked"
-                                    variants={microFade}
-                                    initial="initial"
-                                    animate="animate"
-                                    exit="exit"
-                                    className="h-1.5 w-1.5 rounded-full bg-accent"
-                                />
-                            ) : null}
-                        </AnimatePresence>
-                    </button>
-                );
-            })}
-        </div>
-    );
-}
-
-// the live board: tabs for the boards given, the shown one scaled to the card's width, and Mark and Open canvas.
-// disabled is the title the actions wear while they can't act (the brainstorm's working tooltip), or null
-export function LiveBoards(p: {
-    agent: AgentVM;
-    canvas: string;
-    cwd: string;
-    boards: string[];
-    shown: string;
-    onShow: (board: string) => void;
-    what: string;
-    disabled: string | null;
-    compact: boolean;
-    tabsLabel?: string;
-}): JSX.Element {
-    const id = p.agent.id;
-    const s = useAtomValue(canvasStateAtom(id));
-    const [measure, , rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
-    const topic = s?.topic;
-    // a card can name a canvas the agent has not attached (a brainstorm's): attaching it is what serves it
-    useEffect(() => {
-        if (getCanvas(id)?.topic !== p.canvas) {
-            attachCanvas(id, { topic: p.canvas, dir: canvasDir(p.cwd, p.canvas), projectDir: p.cwd }, Date.now());
-        }
-    }, [id, p.canvas, p.cwd]);
-    useEffect(() => {
-        if (topic === p.canvas) {
-            showInlineBoard(id, p.shown, Date.now());
-        }
-    }, [id, p.shown, p.canvas, topic]);
-    useEffect(() => () => showInlineBoard(id, null, Date.now()), [id]);
-
-    const ours = s != null && s.topic === p.canvas ? s : null;
-    const board = ours?.boards.find((b) => b.name === p.shown);
-    const w = board?.w ?? DEFAULT_BOARD_W;
-    const h = board?.h ?? DEFAULT_BOARD_H;
-    const scale = fitScale(rect?.width ?? 0, w);
-    const src = ours?.status === "ready" && ours.base != null ? boardUrl(ours.base, ours.topic, p.shown) : null;
-    // 0 is a board served with no Last-Modified, which has no age to give
-    const modified = ours?.boardModifiedMs?.[p.shown] || null;
-    const label = boardLabel(p.shown);
-    const off = p.disabled != null;
-    return (
-        <div data-live-boards className="overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code">
-            <div
-                data-live-boards-bar
-                className={cn(
-                    "flex border-b border-edge-faint py-1.5 pl-2.5 pr-2",
-                    p.compact ? "flex-col items-start gap-2" : "items-center gap-[10px]"
-                )}
-            >
-                {p.boards.length > 1 ? (
-                    <BoardTabs
-                        boards={p.boards}
-                        shown={p.shown}
-                        unseen={(b) => ours != null && boardUnseen(ours, b)}
-                        onShow={p.onShow}
-                        label={p.tabsLabel ?? DEFAULT_TABS_LABEL}
-                    />
-                ) : null}
-                <span className={cn("min-w-0 text-muted", p.compact ? "text-[11.5px]" : "text-[12px]")}>
-                    {p.what} · <span className="font-mono text-[11.5px] text-ink-mid">{p.canvas}</span>
-                    <UpdatedAgo ms={modified} />
-                </span>
-                {p.compact ? null : <span className="flex-1" />}
-                <div data-live-boards-actions className="flex flex-none items-center gap-[10px]">
-                    <button
-                        type="button"
-                        data-live-boards-mark
-                        disabled={off}
-                        title={p.disabled ?? MARK_TITLE}
-                        onClick={() => openBoard(id, p.shown, true)}
-                        className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-edge-mid bg-surface-raised px-2.5 py-1 text-[12px] font-semibold text-primary hover:border-edge-strong disabled:cursor-default disabled:opacity-50"
-                    >
-                        <SquareDashed size={13} strokeWidth={2} aria-hidden />
-                        Mark
-                    </button>
-                    <button
-                        type="button"
-                        data-live-boards-open
-                        disabled={off}
-                        title={p.disabled ?? undefined}
-                        onClick={() => openBoard(id, p.shown, false)}
-                        className={cn(LINK, "px-1")}
-                    >
-                        Open canvas
-                        <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-                    </button>
-                </div>
-            </div>
-            <div ref={measure} className="flex flex-col gap-2 px-3 pb-2.5 pt-3">
-                <ViewSwap swapKey={p.shown}>
-                    <button
-                        type="button"
-                        data-live-board={p.shown}
-                        aria-label={`Open ${label} in the canvas`}
-                        disabled={off}
-                        title={p.disabled ?? undefined}
-                        onClick={() => openBoard(id, p.shown, false)}
-                        className="relative block w-full cursor-zoom-in overflow-hidden rounded-[6px] border border-edge-mid bg-background p-0 disabled:cursor-default"
-                        style={{ height: h * scale }}
-                    >
-                        {src != null && rect != null ? (
-                            <BoardIframe
-                                key={`${ours?.reloadKey ?? 0}:${p.shown}`}
-                                src={src}
-                                title={p.shown}
-                                style={{
-                                    width: w,
-                                    height: h,
-                                    transform: `scale(${scale})`,
-                                    transformOrigin: "0 0",
-                                    pointerEvents: "none",
-                                }}
-                            />
-                        ) : null}
-                    </button>
-                </ViewSwap>
-                <div className="flex items-baseline gap-2 text-[12px] text-ink-mid">
-                    <span className="min-w-0 truncate">{board?.title ?? label}</span>
-                    <span className="flex-1" />
-                    <span className="font-mono text-[10.5px] text-muted">{`${Math.round(scale * 100)}%`}</span>
-                </div>
-            </div>
-        </div>
-    );
-}
-
+// the card's one row: Mockup, its topic and board count, then (with boards to open) when they changed, Open canvas
+// and, for boards served, Mark
 function MockupHead({
     agentId,
     topic,
     count,
     open,
+    updatedMs,
+    markable,
     compact,
 }: {
     agentId: string;
     topic: string;
     count: number;
     open: string | null;
+    updatedMs: number | null;
+    markable: boolean;
     compact: boolean;
 }) {
     return (
@@ -362,19 +144,34 @@ function MockupHead({
                 {count > 0 ? (
                     <span className="whitespace-nowrap text-[12px] text-muted">{boardCount(count)}</span>
                 ) : null}
+                {markable ? <UpdatedAgo ms={updatedMs} /> : null}
             </span>
             {compact ? null : <span className="flex-1" />}
-            {open != null ? (
-                <button
-                    type="button"
-                    data-rendered-mockup-open
-                    onClick={() => openBoard(agentId, open, false)}
-                    className={LINK}
-                >
-                    Open canvas
-                    <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-                </button>
-            ) : null}
+            <span data-rendered-mockup-actions className="flex flex-none items-center gap-[10px]">
+                {open != null ? (
+                    <button
+                        type="button"
+                        data-rendered-mockup-open
+                        onClick={() => openCanvasTabAt(agentId, open)}
+                        className={LINK}
+                    >
+                        Open canvas
+                        <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
+                    </button>
+                ) : null}
+                {markable && open != null ? (
+                    <button
+                        type="button"
+                        data-rendered-mockup-mark
+                        title={MARK_TITLE}
+                        onClick={() => markBoard(agentId, open)}
+                        className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-edge-mid bg-surface-raised px-2.5 py-1 text-[12px] font-semibold text-primary hover:border-edge-strong"
+                    >
+                        <SquareDashed size={13} strokeWidth={2} aria-hidden />
+                        Mark
+                    </button>
+                ) : null}
+            </span>
         </div>
     );
 }
@@ -407,16 +204,9 @@ function RemovedRow({ topic, compact }: { topic: string; compact: boolean }) {
     );
 }
 
-function MockupBody(p: {
-    agent: AgentVM;
-    view: MockupView;
-    projectDir: string;
-    topic: string;
-    shown: string | null;
-    onShow: (board: string) => void;
-    compact: boolean;
-}) {
-    switch (p.view.kind) {
+// the explanation under the row while there is nothing to open; boards served have only the row
+function MockupBody({ view }: { view: MockupView }) {
+    switch (view.kind) {
         case "empty":
             return (
                 <EdgeBody>
@@ -437,29 +227,13 @@ function MockupBody(p: {
                     </span>
                 </EdgeBody>
             );
-        case "boards":
-            return p.shown != null ? (
-                <div className="border-t border-edge-faint p-3">
-                    <LiveBoards
-                        agent={p.agent}
-                        canvas={p.topic}
-                        cwd={p.projectDir}
-                        boards={p.view.boards}
-                        shown={p.shown}
-                        onShow={p.onShow}
-                        what={MOCKUP_WHAT}
-                        disabled={null}
-                        compact={p.compact}
-                    />
-                </div>
-            ) : null;
         default:
             return null;
     }
 }
 
-// the standalone Mockup card, for an agent with a canvas and no brainstorm: the boards as they are written, or why
-// they can't show. The agent has no brainstorm, so no working state holds its actions
+// the standalone Mockup card, for an agent with a canvas and no brainstorm: one row once boards are served, or why
+// they can't show
 export function MockupCard({
     agent,
     compact,
@@ -469,13 +243,12 @@ export function MockupCard({
     compact: boolean;
 }): JSX.Element | null {
     const s = useAtomValue(canvasStateAtom(agent.id));
-    const [want, setWant] = useState<string | null>(null);
     if (s == null) {
         return null;
     }
     const view = mockupView(s);
     const boards = view.kind === "boards" ? view.boards : [];
-    const shown = shownOf(boards, want ?? s.board);
+    const shown = shownOf(boards, s.board);
     const count = view.kind === "boards" ? boards.length : view.kind === "server-down" ? view.count : 0;
     return (
         <div data-rendered-mockup-card className="mt-1 pb-2">
@@ -492,17 +265,11 @@ export function MockupCard({
                             topic={s.topic}
                             count={count}
                             open={shown ?? s.board ?? s.boards[0]?.name ?? null}
+                            updatedMs={boardsUpdatedMs(s)}
+                            markable={view.kind === "boards"}
                             compact={compact}
                         />
-                        <MockupBody
-                            agent={agent}
-                            view={view}
-                            projectDir={s.projectDir}
-                            topic={s.topic}
-                            shown={shown}
-                            onShow={setWant}
-                            compact={compact}
-                        />
+                        <MockupBody view={view} />
                     </div>
                 )}
             </ViewSwap>

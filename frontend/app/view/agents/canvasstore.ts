@@ -30,19 +30,17 @@ export type CanvasState = {
     // drawn and not yet sent; a new box replaces it
     mark: Mark | null;
     reloadKey: number;
-    // each served board's Last-Modified, and when each was last on screen: a card's tab says which one changed
+    // each served board's Last-Modified: the Mockup row's "updated" and which boards are served
     boardModifiedMs?: Record<string, number>;
-    boardViewedMs?: Record<string, number>;
-    // the board a Rendered card draws inline, which the poller counts as on screen
-    inlineBoard?: string | null;
-    // a mark started from the Rendered transcript: once sent, the agent goes back there (canvassend)
-    markFrom?: "transcript" | null;
 };
 
 // cast because a null initial value picks jotai's read-only overload under the non-strict tsconfig
 export const canvasStateAtom = atomFamily(
     (_agentId: string) => atom<CanvasState | null>(null) as PrimitiveAtom<CanvasState | null>
 );
+
+// the agent whose canvas window (the Rendered view's modal over its boards) is open: one window at most
+export const canvasWindowAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
 // atomFamily can't be enumerated, and canvasOwner has to find an agent by topic
 const attached = new Set<string>();
@@ -98,6 +96,9 @@ export function attachCanvas(
 // its workspace tab goes with it: left open, the tab would draw an empty body
 export function detachCanvas(agentId: string): void {
     attached.delete(agentId);
+    if (globalStore.get(canvasWindowAtom) === agentId) {
+        globalStore.set(canvasWindowAtom, null);
+    }
     globalStore.set(canvasStateAtom(agentId), null);
     closeWorkspaceTab(agentId, "canvas");
 }
@@ -118,21 +119,13 @@ export function setCanvasMode(agentId: string, mode: "terminal" | "canvas", now:
     updateCanvas(agentId, (s) =>
         mode === "canvas"
             ? { ...s, mode, lastViewedMs: now }
-            : { ...s, mode, marking: false, mark: null, markFrom: null }
+            : { ...s, mode, marking: false, mark: null }
     );
 }
 
 // showing the canvas, in either view, is a look at it
 export function stampCanvasViewed(agentId: string, now: number): void {
     updateCanvas(agentId, (s) => ({ ...s, lastViewedMs: now }));
-}
-
-export function showInlineBoard(agentId: string, board: string | null, now: number): void {
-    updateCanvas(agentId, (s) => ({
-        ...s,
-        inlineBoard: board,
-        boardViewedMs: board != null ? { ...s.boardViewedMs, [board]: now } : s.boardViewedMs,
-    }));
 }
 
 // a mark is drawn over one board where it sits on screen, so any board or view switch drops it
@@ -155,12 +148,31 @@ export function selectCanvasBoard(agentId: string, board: string): void {
     updateCanvas(agentId, (s) => ({ ...s, board, mark: null }));
 }
 
-export function setMarking(agentId: string, on: boolean): void {
-    updateCanvas(agentId, (s) => (on ? { ...s, marking: true } : { ...s, marking: false, mark: null, markFrom: null }));
+// a window on an agent with no canvas would draw nothing, so it does not open
+export function openCanvasWindow(agentId: string, at: { board?: string; mark?: boolean } = {}): void {
+    if (getCanvas(agentId) == null) {
+        return;
+    }
+    if (at.board != null) {
+        selectCanvasTab(agentId, at.board);
+    }
+    if (at.mark) {
+        updateCanvas(agentId, (s) => ({ ...s, marking: true, mark: null }));
+    }
+    globalStore.set(canvasWindowAtom, agentId);
 }
 
-export function markFromTranscript(agentId: string): void {
-    updateCanvas(agentId, (s) => ({ ...s, marking: true, markFrom: "transcript" }));
+export function closeCanvasWindow(): void {
+    const id = globalStore.get(canvasWindowAtom);
+    if (id == null) {
+        return;
+    }
+    globalStore.set(canvasWindowAtom, null);
+    setMarking(id, false);
+}
+
+export function setMarking(agentId: string, on: boolean): void {
+    updateCanvas(agentId, (s) => (on ? { ...s, marking: true } : { ...s, marking: false, mark: null }));
 }
 
 export function setMark(agentId: string, mark: Mark | null): void {

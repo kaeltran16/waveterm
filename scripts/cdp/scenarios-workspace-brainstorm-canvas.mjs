@@ -30,7 +30,7 @@ const CANVAS_BOARDS = ["Main.dc.html", "States.dc.html"];
 const ASIDE = `document.querySelector('aside[aria-label="Workspace"]')`;
 const TAB = (key) => `${ASIDE}?.querySelector('[data-workspace-tab="${key}"]')`;
 const BS_IN_TAB = `${ASIDE}?.querySelector("[data-brainstorm-pane]")`;
-const CANVAS_IN_TAB = `${ASIDE}?.querySelector("[data-canvas-pane]")`;
+const CANVAS_IN_TAB = `${ASIDE}?.querySelector("[data-canvas-tab]")`;
 const CENTER = `document.querySelector("[data-agent-center]")`;
 const MOCKUP = `${HOST}?.querySelector("[data-rendered-mockup]")`;
 const KEY = {
@@ -203,7 +203,7 @@ const base = scenario(NAME, { file: WORKING }, async (h, ctx, step) => {
         return [gone && !p.tabs.includes("brainstorm"), { gone, ...p }];
     });
 
-    await step("the canvas card's open link opens the Canvas tab with its boards and Mark, beside the transcript (Canvas board)", async () => {
+    await step("the canvas card's open link opens the Canvas tab listing every board stacked at the pane's width, with Mark, beside the transcript (Canvas board)", async () => {
         const topic = `${ctx.topic}-canvas`;
         const dir = writeCanvas(ctx, topic);
         await store(
@@ -214,14 +214,35 @@ const base = scenario(NAME, { file: WORKING }, async (h, ctx, step) => {
         );
         const card = await polishWaitFor(h, `${MOCKUP}?.getAttribute("data-rendered-mockup") === "boards"`, RBS_KIT.BS_POLL_WAIT_MS);
         const clicked = await h.ev(`(() => { const b = ${MOCKUP}?.querySelector("[data-rendered-mockup-open]"); b?.click(); return b != null; })()`);
-        const board = await polishWaitFor(h, `${CANVAS_IN_TAB}?.querySelector("[data-canvas-board] iframe") != null`, WAIT_MS);
+        const loaded = await polishWaitFor(
+            h,
+            `(${CANVAS_IN_TAB}?.querySelectorAll("[data-canvas-tab-preview] iframe").length ?? 0) === ${CANVAS_BOARDS.length}`,
+            WAIT_MS
+        );
         const mark = await h.ev(`[...(${CANVAS_IN_TAB}?.querySelectorAll("button") ?? [])].some((b) => b.textContent.trim() === "Mark")`);
         await polishNap(SETTLE_MS);
+        // the previews in canvas order, one per row at the list's width, none of CanvasPane's board frames
+        const list = await h.ev(`(() => {
+            const tab = ${CANVAS_IN_TAB};
+            const scroll = tab?.querySelector("[data-canvas-tab-scroll]");
+            const inner = scroll ? scroll.clientWidth - parseFloat(getComputedStyle(scroll).paddingLeft) - parseFloat(getComputedStyle(scroll).paddingRight) : 0;
+            const previews = [...(tab?.querySelectorAll("[data-canvas-tab-preview]") ?? [])].map((el) => {
+                const r = el.getBoundingClientRect();
+                return { name: el.getAttribute("data-canvas-tab-preview"), left: Math.round(r.left), top: Math.round(r.top), bottom: Math.round(r.bottom), width: Math.round(r.width) };
+            });
+            return { inner: Math.round(inner), previews, paneFrames: tab?.querySelectorAll("[data-canvas-board], [data-canvas-frame]").length ?? -1 };
+        })()`);
+        const pv = list.previews;
+        const stacked =
+            JSON.stringify(pv.map((x) => x.name)) === JSON.stringify(CANVAS_BOARDS) &&
+            pv.every((x, i) => i === 0 || (x.left === pv[0].left && x.top > pv[i - 1].bottom)) &&
+            pv.every((x) => Math.abs(x.width - list.inner) <= 2) &&
+            list.paneFrames === 0;
         const p = await readPane(h);
         await h.shot(SHOT(4, "canvas-tab"));
         return [
-            card && clicked && board && mark && p.active === "canvas" && (p.label ?? "").startsWith("Canvas") && p.transcript && p.sideways === 0 && p.width === PANE_PX,
-            { card, clicked, board, mark, ...p },
+            card && clicked && loaded && stacked && mark && p.active === "canvas" && (p.label ?? "").startsWith("Canvas") && p.transcript && p.sideways === 0 && p.width === PANE_PX,
+            { card, clicked, loaded, stacked, list, mark, ...p },
         ];
     });
 

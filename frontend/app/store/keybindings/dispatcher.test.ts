@@ -6,6 +6,7 @@ import { registerModal } from "@/app/modals/modalstack";
 import { contextMenuAtom } from "@/app/store/contextmenu";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel, SurfaceKey } from "@/app/view/agents/agents";
+import { canvasWindowAtom } from "@/app/view/agents/canvasstore";
 import { docReviewAtom } from "@/app/view/agents/docreview";
 import { finalShotsViewerOpenAtom } from "@/app/view/jarvis/finalshotsstore";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
@@ -95,6 +96,7 @@ describe("deriveKeyContext", () => {
         globalStore.set(petPeekOpenAtom, false);
         globalStore.set(resmonOpenAtom, false);
         globalStore.set(contextMenuAtom, null);
+        globalStore.set(canvasWindowAtom, null);
         vi.unstubAllGlobals();
     });
 
@@ -186,6 +188,23 @@ describe("deriveKeyContext", () => {
         expect(deriveKeyContext().modalOpen).toBe(false);
         globalStore.set(resmonOpenAtom, true);
         expect(deriveKeyContext().modalOpen).toBe(true);
+        unbind();
+    });
+
+    // the canvas window's m, [ ] and Escape are the agent's canvas keys too, and j/k would step the tree under it
+    it("counts the open canvas window as a modal on the Agent surface", () => {
+        const unbind = bindModel("agent");
+        expect(deriveKeyContext().modalOpen).toBe(false);
+        globalStore.set(canvasWindowAtom, "a1");
+        expect(deriveKeyContext().modalOpen).toBe(true);
+        unbind();
+    });
+
+    // the window draws only on the Agent surface, so its atom left set must not mute another surface's keys
+    it("does not count the canvas window on another surface", () => {
+        const unbind = bindModel("jarvis");
+        globalStore.set(canvasWindowAtom, "a1");
+        expect(deriveKeyContext().modalOpen).toBe(false);
         unbind();
     });
 

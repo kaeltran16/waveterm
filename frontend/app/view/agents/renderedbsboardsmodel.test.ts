@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { BrainstormFile, BrainstormQuestion } from "./brainstormmodel";
 import type { CanvasBoard } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
-import { boardCount, mockupView, questionTabs, shownOf } from "./renderedbsboardsmodel";
+import { boardCount, boardsUpdatedMs, mockupView, questionChips, shownOf } from "./renderedbsboardsmodel";
 
 const BOARDS: CanvasBoard[] = [
     { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 },
@@ -67,6 +67,23 @@ describe("mockupView", () => {
     });
 });
 
+describe("boardsUpdatedMs", () => {
+    it("is the newest Last-Modified among the served boards", () => {
+        expect(boardsUpdatedMs(state({ boardModifiedMs: { "Main.dc.html": 1000, "States.dc.html": 3000 } }))).toBe(
+            3000
+        );
+    });
+
+    it("is null with no board served, or only boards served without a Last-Modified", () => {
+        expect(boardsUpdatedMs(state())).toBeNull();
+        expect(boardsUpdatedMs(state({ boardModifiedMs: { "Main.dc.html": 0 } }))).toBeNull();
+    });
+
+    it("ignores a board file canvas.json no longer names", () => {
+        expect(boardsUpdatedMs(state({ boardModifiedMs: { "Main.dc.html": 1000, "Gone.dc.html": 9000 } }))).toBe(1000);
+    });
+});
+
 describe("shownOf", () => {
     it("keeps the board asked for while it is among the tabs", () => {
         expect(shownOf(["Main.dc.html", "States.dc.html"], "States.dc.html")).toBe("States.dc.html");
@@ -79,7 +96,7 @@ describe("shownOf", () => {
     });
 });
 
-describe("questionTabs", () => {
+describe("questionChips", () => {
     const BASE = "http://127.0.0.1:5005/canvas/tok";
     const MAIN = "Main.dc.html";
     const STATES = "States.dc.html";
@@ -99,27 +116,27 @@ describe("questionTabs", () => {
     const opt = (label: string, boards?: string[]) => ({ label, detail: "", ...(boards ? { boards } : {}) });
     const onCanvas = [MAIN, STATES];
 
-    it("gives Main's tabs in option order and each option's chip board (Main)", () => {
+    it("gives each option's chip boards, in option order (Main)", () => {
         const f = asked({ options: [opt("A queued chip", [MAIN]), opt("Only the banner"), opt("Both", [STATES])] });
-        expect(questionTabs(f, BASE, onCanvas)).toEqual({ tabs: [MAIN, STATES], chips: [[MAIN], [], [STATES]] });
+        expect(questionChips(f, BASE, onCanvas)).toEqual([[MAIN], [], [STATES]]);
     });
 
-    it("puts the asked part's boards no option names after the options' own, with no chip", () => {
+    it("gives a board only an asked part names no chip", () => {
         const f = asked({ options: [opt("A", [STATES]), opt("B")] }, [MAIN, STATES]);
-        expect(questionTabs(f, BASE, onCanvas)).toEqual({ tabs: [STATES, MAIN], chips: [[STATES], []] });
+        expect(questionChips(f, BASE, onCanvas)).toEqual([[STATES], []]);
     });
 
-    it("draws a board two options name as one tab, with a chip on each", () => {
+    it("gives a board two options name a chip on each", () => {
         const f = asked({ options: [opt("A", [MAIN]), opt("B", [MAIN, STATES])] });
-        expect(questionTabs(f, BASE, onCanvas)).toEqual({ tabs: [MAIN, STATES], chips: [[MAIN], [MAIN, STATES]] });
+        expect(questionChips(f, BASE, onCanvas)).toEqual([[MAIN], [MAIN, STATES]]);
     });
 
     it("leaves out a board an option names that the canvas does not have", () => {
         const f = asked({ options: [opt("A", ["Gone.dc.html", MAIN]), opt("B")] }, [MAIN]);
-        expect(questionTabs(f, BASE, [MAIN])).toEqual({ tabs: [MAIN], chips: [[MAIN], []] });
+        expect(questionChips(f, BASE, [MAIN])).toEqual([[MAIN], []]);
     });
 
-    it("lays out the approaches' boards while the judge weighs them", () => {
+    it("chips the approaches' boards while the judge weighs them", () => {
         const f = asked({
             options: [opt("A", [MAIN])],
             approaches: [
@@ -127,14 +144,14 @@ describe("questionTabs", () => {
                 { name: "Banner", description: "", facts: [], boards: [STATES] },
             ],
         });
-        expect(questionTabs(f, BASE, onCanvas, true)).toEqual({ tabs: [STATES, MAIN], chips: [[], [STATES]] });
+        expect(questionChips(f, BASE, onCanvas, true)).toEqual([[], [STATES]]);
     });
 
     it("has nothing to draw until the canvas is served, or with no board named", () => {
         const f = asked({ options: [opt("A", [MAIN])] });
-        expect(questionTabs(f, null, onCanvas)).toBeNull();
-        expect(questionTabs({ ...f, canvas: undefined }, BASE, onCanvas)).toBeNull();
-        expect(questionTabs(asked({ options: [opt("A")] }, []), BASE, onCanvas)).toBeNull();
+        expect(questionChips(f, null, onCanvas)).toBeNull();
+        expect(questionChips({ ...f, canvas: undefined }, BASE, onCanvas)).toBeNull();
+        expect(questionChips(asked({ options: [opt("A")] }, []), BASE, onCanvas)).toBeNull();
     });
 });
 

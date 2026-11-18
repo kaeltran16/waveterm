@@ -22,15 +22,19 @@ import {
     setReviewCursor,
     updateBrainstorm,
 } from "@/app/view/agents/brainstormstore";
+import { ALL_TAB, currentTab } from "@/app/view/agents/canvasmodel";
 import {
     attachCanvas,
+    canvasWindowAtom,
     detachCanvas,
     getCanvas,
+    openCanvasWindow,
     setCanvasMode,
     setMark,
     setMarking,
     updateCanvas,
 } from "@/app/view/agents/canvasstore";
+import { escapeCanvasWindow } from "@/app/view/agents/canvaswindow";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { registerCommentSend } from "@/app/view/agents/commentsend";
 import { compareCwd, refreshCompare } from "@/app/view/agents/comparestore";
@@ -91,6 +95,7 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     buildAgentBindings,
+    buildCanvasWindowBindings,
     buildChannelsAskBindings,
     buildCockpitBindings,
     buildCodeBindings,
@@ -1574,6 +1579,123 @@ describe("final shots viewer bindings", () => {
     });
 });
 
+// The canvas window counts as a modal (deriveKeyContext), so its keys are live with modalOpen and the surface's
+// stand down under it
+describe("canvas window bindings", () => {
+    const key = (k: string) =>
+        ({ key: k, code: "", control: false, shift: false, cmd: false, option: false, meta: false, alt: false }) as any;
+    const under: KeyContext = { surface: "agent", editable: false, modalOpen: true, leader: null };
+    const inNote: KeyContext = { ...under, editable: true };
+    const MARK = { x: 10, y: 10, w: 40, h: 40, note: "" };
+    let model: any;
+    const all = () => [
+        ...buildGlobalBindings(model),
+        ...buildListNavBindings(model),
+        ...buildAgentBindings(model),
+        ...buildCanvasWindowBindings(escapeCanvasWindow),
+    ];
+    const claim = (k: string, c: KeyContext = under) => {
+        const r = matchBinding(key(k), c, all());
+        return r.kind === "run" ? r.binding : null;
+    };
+    const press = (k: string, c: KeyContext = under) => {
+        const b = claim(k, c);
+        expect(b, k).not.toBeNull();
+        b!.run(c);
+    };
+
+    beforeEach(() => {
+        model = {
+            ...stubModel("a1"),
+            surfaceAtom: atom<SurfaceKey>("agent"),
+            agentsAtom: atom<any[]>([{ id: "a1", name: "Agent", blockId: "b1" }]),
+        };
+        attachCanvas("a1", { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
+        updateCanvas("a1", (s) => ({
+            ...s,
+            status: "ready",
+            boards: [
+                { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 },
+                { name: "States.dc.html", x: 0, y: 0, w: 1440, h: 900 },
+            ],
+        }));
+        openCanvasWindow("a1", { board: "Main.dc.html" });
+    });
+
+    afterEach(() => {
+        detachCanvas("a1");
+    });
+
+    it("one Esc drops a drawn mark and keeps the window open; the next closes it", () => {
+        setMarking("a1", true);
+        setMark("a1", MARK);
+        press("Escape");
+        expect(globalStore.get(canvasWindowAtom)).toBe("a1");
+        expect(getCanvas("a1")).toMatchObject({ marking: true, mark: null });
+        press("Escape");
+        expect(globalStore.get(canvasWindowAtom)).toBeNull();
+        expect(getCanvas("a1")!.marking).toBe(false);
+    });
+
+    it("leaves Esc in the focused note to the note, which drops the mark itself", () => {
+        setMarking("a1", true);
+        setMark("a1", MARK);
+        expect(claim("Escape", inNote)).toBeNull();
+        expect(["m", "[", "]"].map((k) => claim(k, inNote))).toEqual([null, null, null]);
+    });
+
+    it("m toggles marking, and [ ] step the tabs with All among them", () => {
+        press("m");
+        expect(getCanvas("a1")!.marking).toBe(true);
+        press("m");
+        expect(getCanvas("a1")!.marking).toBe(false);
+        const tab = () => currentTab(getCanvas("a1")!);
+        press("]");
+        expect(tab()).toBe("States.dc.html");
+        press("]");
+        expect(tab()).toBe(ALL_TAB);
+        press("[");
+        expect(tab()).toBe("States.dc.html");
+    });
+
+    it("[ ] stand down while marking, and m does nothing while the canvas is not served", () => {
+        setMarking("a1", true);
+        expect([claim("["), claim("]")]).toEqual([null, null]);
+        setMarking("a1", false);
+        updateCanvas("a1", (s) => ({ ...s, status: "server-down" }));
+        expect(claim("m")).toBeNull();
+    });
+
+    it("the agent keys do nothing underneath it", () => {
+        for (const k of ["j", "k", "d", "c", "ArrowDown", "ArrowUp"]) {
+            expect(claim(k)?.id ?? null, k).toBeNull();
+        }
+    });
+
+    it("no two live bindings share a key, in any marking state", () => {
+        const check = (c: KeyContext) => {
+            const seen = new Map<string, string>();
+            for (const b of all().filter((x) => (x.when ? x.when(c) : true))) {
+                expect(seen.get(b.keys), `${b.keys}: ${b.id}`).toBeUndefined();
+                seen.set(b.keys, b.id);
+            }
+        };
+        for (const marking of [false, true]) {
+            setMarking("a1", marking);
+            for (const c of [under, inNote, { ...under, leader: "g" }]) {
+                check(c);
+            }
+        }
+    });
+
+    it("stands down once closed, and on another surface", () => {
+        const window = buildCanvasWindowBindings(escapeCanvasWindow);
+        expect(window.some((b) => b.when!({ ...under, surface: "jarvis" }))).toBe(false);
+        globalStore.set(canvasWindowAtom, null);
+        expect(window.some((b) => b.when!(under))).toBe(false);
+    });
+});
+
 // The avatar popup handles its own keys on the panel, but the dispatcher runs on window capture and stops any
 // key it claims, so a surface binding live under the popup would take the key from it.
 describe("the open avatar popup keeps its keys on every surface", () => {
@@ -2422,6 +2544,75 @@ describe("Agent keys, stepping and toggles", () => {
             expect(claiming("Escape")).toEqual(["agent:brainstorm-back"]);
             closeWorkspaceTab("r", "brainstorm");
             expect(claiming("Escape")).toEqual(["agent:back"]);
+        });
+
+        describe("the Canvas tab's list", () => {
+            const LIST = ["Main.dc.html", "States.dc.html", "Cards.dc.html"];
+            const withList = () => {
+                const r = rendered();
+                attachCanvas("r", { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
+                updateCanvas("r", (s) => ({
+                    ...s,
+                    status: "ready",
+                    board: LIST[0],
+                    boards: LIST.map((name) => ({ name, x: 0, y: 0, w: 1440, h: 900 })),
+                }));
+                openWorkspaceTab("r", { kind: "canvas" });
+                return r;
+            };
+            const press = (claiming: (k: string) => string[], find: (id: string) => any, k: string) => {
+                const ids = claiming(k);
+                expect(ids, k).toHaveLength(1);
+                find(ids[0]).run(nav);
+            };
+
+            it("[ and ] move the selection through the boards, wrapping, with no All among them", () => {
+                const { claiming, find } = withList();
+                press(claiming, find, "]");
+                expect(getCanvas("r")!.board).toBe("States.dc.html");
+                press(claiming, find, "]");
+                press(claiming, find, "]");
+                expect(getCanvas("r")).toMatchObject({ board: "Main.dc.html", all: false });
+                press(claiming, find, "[");
+                expect(getCanvas("r")!.board).toBe("Cards.dc.html");
+                expect(globalStore.get(canvasWindowAtom)).toBeNull();
+            });
+
+            it("m opens the window on the selected board with marking on", () => {
+                const { claiming, find } = withList();
+                press(claiming, find, "]");
+                press(claiming, find, "m");
+                expect(globalStore.get(canvasWindowAtom)).toBe("r");
+                expect(getCanvas("r")).toMatchObject({
+                    board: "States.dc.html",
+                    all: false,
+                    marking: true,
+                    mark: null,
+                });
+            });
+
+            it("m opens the window even with marking left on from the Terminal view's canvas", () => {
+                const { claiming, find } = withList();
+                setMarking("r", true);
+                press(claiming, find, "m");
+                expect(globalStore.get(canvasWindowAtom)).toBe("r");
+                expect(getCanvas("r")!.marking).toBe(true);
+            });
+
+            it("stand down under the open window, with the tab hidden, and while the canvas is not served", () => {
+                const { claiming } = withList();
+                const keys = ["m", "[", "]"];
+                expect(keys.map((k) => claiming(k, { ...nav, modalOpen: true }))).toEqual([[], [], []]);
+                updateCanvas("r", (s) => ({ ...s, status: "server-down" }));
+                expect(keys.map((k) => claiming(k))).toEqual([[], [], []]);
+                updateCanvas("r", (s) => ({ ...s, status: "ready" }));
+                openWorkspaceTab("r", { kind: "changes", selected: null });
+                expect(keys.map((k) => claiming(k).filter((id) => id.startsWith("agent:canvas")))).toEqual([
+                    [],
+                    [],
+                    [],
+                ]);
+            });
         });
     });
 

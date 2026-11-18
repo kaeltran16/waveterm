@@ -8,16 +8,17 @@ import type { Mark } from "./canvasmarks";
 import {
     attachCanvas,
     canvasOwner,
+    canvasWindowAtom,
+    closeCanvasWindow,
     detachCanvas,
     focusedCanvas,
     getCanvas,
-    markFromTranscript,
+    openCanvasWindow,
     selectCanvasBoard,
     selectCanvasTab,
     setCanvasMode,
     setMark,
     setMarking,
-    showInlineBoard,
     stepCanvasBoard,
     updateCanvas,
 } from "./canvasstore";
@@ -219,43 +220,6 @@ describe("marking", () => {
     });
 });
 
-describe("inline board", () => {
-    it("showing a board in a card puts it on screen and clears its unseen mark at once", () => {
-        attachCanvas("a1", A, 0);
-        updateCanvas("a1", (s) => ({ ...s, boards: BOARDS, boardModifiedMs: { "States.dc.html": 50 } }));
-        showInlineBoard("a1", "States.dc.html", 80);
-        expect(getCanvas("a1")!.inlineBoard).toBe("States.dc.html");
-        expect(getCanvas("a1")!.boardViewedMs).toEqual({ "States.dc.html": 80 });
-    });
-
-    it("a card going away takes its board off screen and keeps when each was seen", () => {
-        attachCanvas("a1", A, 0);
-        showInlineBoard("a1", "Main.dc.html", 80);
-        showInlineBoard("a1", null, 90);
-        expect(getCanvas("a1")!.inlineBoard).toBeNull();
-        expect(getCanvas("a1")!.boardViewedMs).toEqual({ "Main.dc.html": 80 });
-    });
-});
-
-describe("a mark from the transcript", () => {
-    it("turns marking on and remembers where it started", () => {
-        attachCanvas("a1", A, 0);
-        markFromTranscript("a1");
-        expect(getCanvas("a1")!.marking).toBe(true);
-        expect(getCanvas("a1")!.markFrom).toBe("transcript");
-    });
-
-    it("forgets where it started once marking ends or the canvas closes", () => {
-        attachCanvas("a1", A, 0);
-        markFromTranscript("a1");
-        setMarking("a1", false);
-        expect(getCanvas("a1")!.markFrom).toBeNull();
-        markFromTranscript("a1");
-        setCanvasMode("a1", "terminal", 5);
-        expect(getCanvas("a1")!.markFrom).toBeNull();
-    });
-});
-
 describe("ownership", () => {
     it("finds the agent holding a topic, and forgets it on detach", () => {
         attachCanvas("a2", A, 100);
@@ -281,6 +245,66 @@ describe("ownership", () => {
         attachCanvas("a2", A, 100);
         expect(canvasOwner("t", new Set(["a2"]))).toBe("a2");
         expect(canvasOwner("t", new Set())).toBeNull();
+    });
+});
+
+describe("canvas window", () => {
+    const open = () => globalStore.get(canvasWindowAtom);
+
+    afterEach(() => {
+        globalStore.set(canvasWindowAtom, null);
+    });
+
+    it("opens on the named board's tab with marking on and nothing drawn", () => {
+        attachCanvas("a1", A, 0);
+        updateCanvas("a1", (s) => ({ ...s, boards: BOARDS, all: true, mark: MARK }));
+        openCanvasWindow("a1", { board: "States.dc.html", mark: true });
+        expect(open()).toBe("a1");
+        expect(getCanvas("a1")).toMatchObject({ board: "States.dc.html", all: false, marking: true, mark: null });
+    });
+
+    it("keeps the current tab when no board is named", () => {
+        attachCanvas("a1", A, 0);
+        updateCanvas("a1", (s) => ({ ...s, boards: BOARDS, board: "States.dc.html" }));
+        openCanvasWindow("a1");
+        expect(open()).toBe("a1");
+        expect(getCanvas("a1")).toMatchObject({ board: "States.dc.html", all: false, marking: false });
+        openCanvasWindow("a1", { mark: true });
+        expect(getCanvas("a1")).toMatchObject({ board: "States.dc.html", marking: true, mark: null });
+    });
+
+    it("closing clears the window, marking and the mark", () => {
+        attachCanvas("a1", A, 0);
+        withMark("a1");
+        openCanvasWindow("a1");
+        updateCanvas("a1", (s) => ({ ...s, mark: MARK }));
+        closeCanvasWindow();
+        expect(open()).toBeNull();
+        expect(getCanvas("a1")).toMatchObject({ marking: false, mark: null });
+    });
+
+    it("closing leaves another agent's canvas alone", () => {
+        attachCanvas("a1", A, 0);
+        attachCanvas("a2", A, 0);
+        withMark("a2");
+        openCanvasWindow("a1");
+        closeCanvasWindow();
+        expect(getCanvas("a2")).toMatchObject({ marking: true, mark: MARK });
+    });
+
+    it("detaching the open agent's canvas closes the window, another's does not", () => {
+        attachCanvas("a1", A, 0);
+        attachCanvas("a2", A, 0);
+        openCanvasWindow("a1");
+        detachCanvas("a2");
+        expect(open()).toBe("a1");
+        detachCanvas("a1");
+        expect(open()).toBeNull();
+    });
+
+    it("does not open for an agent with no canvas", () => {
+        openCanvasWindow("a1", { mark: true });
+        expect(open()).toBeNull();
     });
 });
 

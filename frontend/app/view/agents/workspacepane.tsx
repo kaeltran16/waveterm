@@ -25,23 +25,26 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { createPortal } from "react-dom";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { BrainstormPane } from "./brainstormpane";
 import { brainstormAtom, brainstormWaitOf } from "./brainstormstore";
-import { CanvasPane } from "./canvaspane";
 import { canvasStateAtom } from "./canvasstore";
 import { childAsksAtom } from "./childaskstore";
 import { useRunInfo } from "./runlineagestore";
 import { useRunAsks } from "./runrailsections";
+import { WorkspaceCanvasTab } from "./workspacecanvastab";
 import { ChangesTab } from "./workspacechangestab";
 import { FileTab } from "./workspacefiletab";
 import {
     DEFAULT_PANE_PX,
+    iconOnlyTabs,
     paneShape,
     paneWidth,
     STRIP_PX,
+    TAB_GAP_PX,
     tabKey,
     tabLabel,
     tabWaiting,
@@ -68,6 +71,14 @@ const TAB_ICON: Record<WorkspaceTab["kind"], LucideIcon> = {
 };
 
 const MIDDLE_BUTTON = 1;
+
+// a tab's box, shared by the tab and its hidden full-label copy so the measured width is the one it would draw
+const TAB_FACE = "flex items-center gap-[7px] pl-[10px] pr-[4px] text-[12.5px] font-semibold";
+const TAB_LABEL = "min-w-0 max-w-[200px] truncate";
+const TAB_CLOSE_BOX = "mr-[6px] h-[18px] w-[18px] flex-none";
+const DOT_INLINE = "h-[6px] w-[6px] flex-none rounded-full bg-asking";
+const DOT_CORNER =
+    "absolute left-[20px] top-[6px] box-content h-[6px] w-[6px] rounded-full border-2 border-surface bg-asking";
 
 // 6b on the horizontal axis: paneReveal's opacity and timing, with width in place of height
 const REVEAL = { duration: MOTION.durMacro, ease: MOTION.easeFluid };
@@ -218,21 +229,72 @@ function ResizeHandle({
     );
 }
 
+type StripFit = { room: number; widths: Record<string, number> };
+
+// the strip's room and every tab's full width, read from the hidden measure row the tabs portal into
+function useStripFit(tablist: HTMLDivElement | null, measureRow: HTMLDivElement | null): StripFit {
+    const [fit, setFit] = useState<StripFit>({ room: Number.POSITIVE_INFINITY, widths: {} });
+    useLayoutEffect(() => {
+        if (tablist == null || measureRow == null) {
+            return;
+        }
+        const read = () => {
+            const widths: Record<string, number> = {};
+            for (const el of measureRow.querySelectorAll<HTMLElement>("[data-workspace-tab-measure]")) {
+                widths[el.dataset.workspaceTabMeasure] = el.getBoundingClientRect().width;
+            }
+            const room = tablist.clientWidth;
+            setFit((prev) => (prev.room === room && shallowEqual(prev.widths, widths) ? prev : { room, widths }));
+        };
+        read();
+        const ro = new ResizeObserver(read);
+        ro.observe(tablist);
+        ro.observe(measureRow);
+        return () => ro.disconnect();
+    }, [tablist, measureRow]);
+    return fit;
+}
+
+function shallowEqual(a: Record<string, number>, b: Record<string, number>): boolean {
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
+}
+
 function TabStrip({ agentId, ws, waits }: { agentId: string; ws: WorkspaceState; waits: WaitInput }) {
     const expanded = ws.expanded;
     const expandLabel = expanded ? "Restore the transcript beside it" : "Expand to full width";
+    const [tablist, setTablist] = useState<HTMLDivElement | null>(null);
+    const [measureRow, setMeasureRow] = useState<HTMLDivElement | null>(null);
+    const fit = useStripFit(tablist, measureRow);
+    const iconOnly = iconOnlyTabs(
+        ws.tabs.map((t) => fit.widths[tabKey(t)] ?? 0),
+        fit.room,
+        ws.tabs.findIndex((t) => tabKey(t) === ws.active)
+    );
     return (
-        <div className="flex h-[44px] flex-none items-center gap-[2px] border-b border-border px-2">
-            <div role="tablist" aria-label="Workspace tabs" className="flex min-w-0 flex-1 items-center gap-[2px]">
+        <div className="relative flex h-[44px] flex-none items-center gap-[2px] border-b border-border px-2">
+            {/* every tab at its full label, out of sight: the rule reads these widths, never the compacted ones */}
+            <div aria-hidden className="pointer-events-none invisible absolute left-0 top-0 h-0 w-0 overflow-hidden">
+                <div ref={setMeasureRow} className="flex w-max" />
+            </div>
+            <div
+                ref={setTablist}
+                role="tablist"
+                aria-label="Workspace tabs"
+                className="flex min-w-0 flex-1 items-center"
+                style={{ gap: TAB_GAP_PX }}
+            >
                 <LayoutGroup id={`workspace-tabs:${agentId}`}>
                     <AnimatePresence initial={false} mode="popLayout">
-                        {ws.tabs.map((t) => (
+                        {ws.tabs.map((t, i) => (
                             <TabButton
                                 key={tabKey(t)}
                                 agentId={agentId}
                                 tab={t}
                                 active={ws.active === tabKey(t)}
                                 waiting={tabWaiting(t, waits) > 0}
+                                iconOnly={iconOnly[i]}
+                                measureRow={measureRow}
                             />
                         ))}
                     </AnimatePresence>
@@ -268,11 +330,15 @@ function TabButton({
     tab,
     active,
     waiting,
+    iconOnly,
+    measureRow,
 }: {
     agentId: string;
     tab: WorkspaceTab;
     active: boolean;
     waiting: boolean;
+    iconOnly: boolean;
+    measureRow: HTMLDivElement | null;
 }) {
     const key = tabKey(tab);
     const label = tabLabel(tab, useTabName(agentId, tab));
@@ -294,8 +360,25 @@ function TabButton({
                     close();
                 }
             }}
-            className="group relative flex h-[30px] min-w-0 items-center rounded-[7px]"
+            // an icon-only tab holds its size, so the shown tab is the one that shrinks when room is still short
+            className={cn(
+                "group relative flex h-[30px] items-center rounded-[7px]",
+                iconOnly ? "flex-none" : "min-w-0"
+            )}
         >
+            {measureRow != null
+                ? createPortal(
+                      <div data-workspace-tab-measure={key} className="flex flex-none items-center">
+                          <span className={TAB_FACE}>
+                              <Icon size={13} className="flex-none" />
+                              <span className={TAB_LABEL}>{label}</span>
+                              {waiting ? <span className={DOT_INLINE} /> : null}
+                          </span>
+                          <span className={TAB_CLOSE_BOX} />
+                      </div>,
+                      measureRow
+                  )
+                : null}
             {active ? (
                 <motion.span
                     layoutId="workspace-tab-indicator"
@@ -309,21 +392,24 @@ function TabButton({
                 type="button"
                 role="tab"
                 aria-selected={active}
+                aria-label={label}
                 title={label}
                 onClick={() => activateWorkspaceTab(agentId, key)}
                 className={cn(
-                    "relative flex h-full min-w-0 cursor-pointer items-center gap-[7px] pl-[10px] pr-[4px] text-[12.5px] font-semibold",
+                    "relative h-full min-w-0 cursor-pointer",
+                    TAB_FACE,
                     active ? "text-primary" : "text-muted hover:text-secondary"
                 )}
             >
                 <Icon size={13} className="flex-none" aria-hidden />
-                <span className="min-w-0 max-w-[200px] truncate">{label}</span>
+                {iconOnly ? null : <span className={TAB_LABEL}>{label}</span>}
                 {waiting ? (
                     <span
                         role="img"
                         aria-label="waiting on you"
                         data-workspace-tab-waiting
-                        className="h-[6px] w-[6px] flex-none rounded-full bg-asking"
+                        // icon-only, the dot sits on the icon's top-right corner, ringed in the strip's background
+                        className={iconOnly ? DOT_CORNER : DOT_INLINE}
                     />
                 ) : null}
             </button>
@@ -334,7 +420,8 @@ function TabButton({
                 onClick={close}
                 data-workspace-tab-close
                 className={cn(
-                    "relative mr-[6px] flex h-[18px] w-[18px] flex-none cursor-pointer items-center justify-center rounded-[4px] text-muted hover:bg-surface-hover hover:text-secondary",
+                    "relative flex cursor-pointer items-center justify-center rounded-[4px] text-muted hover:bg-surface-hover hover:text-secondary",
+                    TAB_CLOSE_BOX,
                     !active && "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
                 )}
             >
@@ -377,7 +464,7 @@ function TabBody({ model, agent, ws }: { model: AgentsViewModel; agent: AgentVM;
             ) : tab.kind === "brainstorm" ? (
                 <BrainstormPane model={model} agent={agent} />
             ) : (
-                <CanvasPane model={model} agent={agent} />
+                <WorkspaceCanvasTab model={model} agent={agent} />
             )}
         </ViewSwap>
     );

@@ -20,10 +20,9 @@ import {
     CANVAS_POLL_MS,
     canvasDesignDir,
     canvasProjectDir,
-    shownBoards,
     type CanvasBoard,
 } from "./canvasmodel";
-import { canvasStateAtom, updateCanvas, type CanvasState } from "./canvasstore";
+import { canvasStateAtom, canvasWindowAtom, updateCanvas, type CanvasState } from "./canvasstore";
 
 const CANVAS_JSON = "canvas.json";
 const HTTP_OK = 200;
@@ -66,12 +65,6 @@ async function readServer(s: CanvasState, io: CanvasIO, base: string): Promise<S
     return { boards, lastModifiedMs, boardModifiedMs };
 }
 
-// the boards on screen: the pane's shown ones (every one under All), and a Rendered card's inline board
-function boardsOnScreen(s: CanvasState, boards: CanvasBoard[], onScreen: boolean): string[] {
-    const pane = onScreen ? shownBoards({ ...s, boards }).map((b) => b.name) : [];
-    return s.inlineBoard != null ? [...pane, s.inlineBoard] : pane;
-}
-
 // whether the agent surface is drawing the canvas's boards: its own pane or tab, or a brainstorm's full-size board,
 // which draws the same pane while the canvas itself is not the one shown. shown is agentpanes.ts's paneShown
 export function canvasOnScreen(shown: PaneKind | null, brainstorm: Pick<BrainstormState, "board"> | null): boolean {
@@ -100,21 +93,12 @@ export async function pollCanvasOnce(
         lastModifiedMs: read.lastModifiedMs,
         boardModifiedMs: read.boardModifiedMs,
     };
-    const seen = boardsOnScreen(s, read.boards, onScreen);
-    if (seen.length > 0) {
-        patch.boardViewedMs = { ...s.boardViewedMs, ...Object.fromEntries(seen.map((b) => [b, now])) };
-    }
     if (onScreen) {
         patch.lastViewedMs = now;
-    }
-    // the pane shows every board, so any file passing the previous newest reloads them; a card reloads only for
-    // its own board's file
-    const was = s.inlineBoard != null ? s.boardModifiedMs?.[s.inlineBoard] : undefined;
-    const is = s.inlineBoard != null ? read.boardModifiedMs[s.inlineBoard] : undefined;
-    const inlineMoved = was != null && is != null && is > was;
-    const paneMoved = read.lastModifiedMs != null && s.lastModifiedMs != null && read.lastModifiedMs > s.lastModifiedMs;
-    if (inlineMoved || (onScreen && paneMoved)) {
-        patch.reloadKey = s.reloadKey + 1;
+        // the pane shows every board, so any file passing the previous newest reloads them
+        if (read.lastModifiedMs != null && s.lastModifiedMs != null && read.lastModifiedMs > s.lastModifiedMs) {
+            patch.reloadKey = s.reloadKey + 1;
+        }
     }
     return patch;
 }
@@ -177,24 +161,19 @@ export async function pollAndMerge(
     if (s == null) {
         return;
     }
-    const onScreen = canvasOnScreen(paneShown(model, agentId), getBrainstorm(agentId));
+    const onScreen =
+        globalStore.get(canvasWindowAtom) === agentId ||
+        canvasOnScreen(paneShown(model, agentId), getBrainstorm(agentId));
     const patch = await pollCanvasOnce(s, io, Date.now(), onScreen);
     updateCanvas(agentId, (cur) => (cur.topic === s.topic && cur.dir === s.dir ? mergePoll(cur, patch) : cur));
 }
 
-// the patch's viewed times come from the poll's snapshot, so a show or mode switch that landed while it was reading
-// is newer: viewed times only move forward
+// the patch's viewed time comes from the poll's snapshot, so a mode switch that landed while it was reading is newer:
+// the viewed time only moves forward
 function mergePoll(cur: CanvasState, patch: Partial<CanvasState>): CanvasState {
     const next = { ...cur, ...patch };
     if (patch.lastViewedMs != null) {
         next.lastViewedMs = Math.max(cur.lastViewedMs, patch.lastViewedMs);
-    }
-    if (patch.boardViewedMs != null) {
-        const viewed = { ...cur.boardViewedMs };
-        for (const [board, ms] of Object.entries(patch.boardViewedMs)) {
-            viewed[board] = Math.max(viewed[board] ?? ms, ms);
-        }
-        next.boardViewedMs = viewed;
     }
     return next;
 }
