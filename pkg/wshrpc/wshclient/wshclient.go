@@ -822,6 +822,12 @@ func GitListWorktreesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitListWorktr
 	return resp, err
 }
 
+// command "gitpatch", wshserver.GitPatchCommand
+func GitPatchCommand(w *wshutil.WshRpc, data wshrpc.CommandGitPatchData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitPatchRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitPatchRtnData](w, "gitpatch", data, opts)
+	return resp, err
+}
+
 // command "gitpush", wshserver.GitPushCommand
 func GitPushCommand(w *wshutil.WshRpc, data wshrpc.CommandGitPushData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitPushRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitPushRtnData](w, "gitpush", data, opts)

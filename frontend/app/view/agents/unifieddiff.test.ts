@@ -121,11 +121,31 @@ describe("parseUnifiedDiff", () => {
         ]);
     });
 
-    it("keeps no lines for a binary file", () => {
+    it("keeps no lines for a binary file and marks it", () => {
         const files = parseUnifiedDiff(
             "diff --git a/img.png b/img.png\nindex 1..2 100644\nBinary files a/img.png and b/img.png differ"
         );
-        expect(files).toEqual([{ path: "img.png", badge: "M", adds: 0, dels: 0, lines: [] }]);
+        expect(files).toEqual([{ path: "img.png", badge: "M", adds: 0, dels: 0, lines: [], binary: true }]);
+    });
+
+    it("marks a new binary file, and only the binary one", () => {
+        const diff = [
+            "diff --git a/img.png b/img.png",
+            "new file mode 100644",
+            "index 0000000..2222222",
+            "Binary files /dev/null and b/img.png differ",
+            "diff --git a/x b/x",
+            "--- a/x",
+            "+++ b/x",
+            "@@ -1 +1 @@",
+            "-a",
+            "+b",
+        ].join("\n");
+        const files = parseUnifiedDiff(diff);
+        expect(files?.map((f) => [f.path, f.binary])).toEqual([
+            ["img.png", true],
+            ["x", undefined],
+        ]);
     });
 
     it("strips ANSI colors", () => {

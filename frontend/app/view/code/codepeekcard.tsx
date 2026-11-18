@@ -56,7 +56,7 @@ const DIFF_OPTIONS: MonacoTypes.editor.IDiffEditorOptions = {
     scrollbar: { useShadows: false, verticalScrollbarSize: 5, horizontalScrollbarSize: 5 },
 };
 
-// the File tab draws its diff as the Diff surface does, wrapped as the pane's Changes tab is, since the column is narrow
+// the File tab draws its diff as the Diff surface does, wrapped since the column is narrow
 const TAB_DIFF_OPTIONS = paneOptions(false, false, true);
 
 // repo-relative inside a repository, else the absolute path (or what was clicked, when nothing resolved)

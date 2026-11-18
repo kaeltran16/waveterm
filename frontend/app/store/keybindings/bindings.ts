@@ -99,6 +99,7 @@ import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageBackStep } from "@/app/view/agents/usagenav";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
 import { stepListBoard } from "@/app/view/agents/workspacecanvastabmodel";
+import { stepChangesHunk } from "@/app/view/agents/workspacechangesstore";
 import { rendersNow, toggleWorkspaceCollapsed, workspaceAtom } from "@/app/view/agents/workspacestore";
 import { boardOwnsEscapeAtom, runBoardEscape } from "@/app/view/boards/boardstore";
 import { toggleBlame } from "@/app/view/code/codeblamestore";
@@ -1064,6 +1065,23 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         const id = focusId();
         return id == null ? 0 : globalStore.get(workspaceAtom(id)).tabs.length;
     };
+    // the focused agent's open pane (not the strip) shows the Changes tab
+    const changesShown = (): string | null => {
+        const id = focusId();
+        if (id == null || !rendered()) {
+            return null;
+        }
+        const ws = globalStore.get(workspaceAtom(id));
+        return ws.active === "changes" && !ws.collapsed ? id : null;
+    };
+    // strict: a bare Shift+letter typed in a field is text, and the Terminal view's xterm is editable
+    const onChanges = (ctx: KeyContext) => agentNavStrict(ctx) && changesShown() != null;
+    const stepChanges = (dir: "next" | "previous") => (): boolean | void => {
+        const id = changesShown();
+        if (id == null || !stepChangesHunk(id, dir)) {
+            return false;
+        }
+    };
     const codePeekFocused = () => globalStore.get(codePeekFocusedAtom);
     // the Rendered view's ask dock draws only for an asking agent, and only the focused agent's view is mounted, so a
     // dock in the DOM is the renderable focused agent's
@@ -1333,6 +1351,32 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             run: () => {
                 toggleWorkspaceCollapsed(focusId()!);
             },
+        },
+        {
+            // Shift+N/P/W match the Diff surface's keys for the same actions; the Changes tab walks every file's hunks
+            id: "agent:changes-next",
+            keys: "Shift:n",
+            group: "Agent",
+            label: "Next change",
+            when: onChanges,
+            // no hunk to walk — decline the key
+            run: stepChanges("next"),
+        },
+        {
+            id: "agent:changes-prev",
+            keys: "Shift:p",
+            group: "Agent",
+            label: "Previous change",
+            when: onChanges,
+            run: stepChanges("previous"),
+        },
+        {
+            id: "agent:changes-whitespace",
+            keys: "Shift:w",
+            group: "Agent",
+            label: "Ignore whitespace",
+            when: onChanges,
+            run: () => globalStore.set(ignoreWsAtom, !globalStore.get(ignoreWsAtom)),
         },
         {
             id: "agent:fullscreen",

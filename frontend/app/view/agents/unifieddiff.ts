@@ -66,6 +66,10 @@ export function parseUnifiedDiff(output: string): EditFile[] | null {
             file.path = raw.slice("rename to ".length);
             continue;
         }
+        if (raw.startsWith("Binary files ") || raw === "GIT binary patch") {
+            file.binary = true;
+            continue;
+        }
         const hunk = HUNK_HEADER.exec(raw);
         if (hunk) {
             oldNo = Number(hunk[1]);

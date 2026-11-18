@@ -52,7 +52,7 @@ export const DIFF_EDITOR_LOOK = {
     renderIndicators: false,
 } satisfies MonacoTypes.editor.IDiffEditorOptions;
 
-// wrap is the workspace pane's Changes tab: its column is narrow, so a long line would scroll sideways
+// wrap is the workspace pane's File tab: its column is narrow, so a long line would scroll sideways
 export function paneOptions(split: boolean, ignoreWs: boolean, wrap = false): MonacoTypes.editor.IDiffEditorOptions {
     return {
         ...DIFF_EDITOR_LOOK,
