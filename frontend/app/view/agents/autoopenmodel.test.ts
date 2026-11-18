@@ -44,6 +44,7 @@ function input(over: Partial<OfferInput> = {}): OfferInput {
         canvas: null,
         lastEditMs: null,
         hasChanges: false,
+        leadRun: null,
         ...over,
     };
 }
@@ -99,6 +100,12 @@ describe("offers", () => {
         ]);
         expect(offers(input({ lastEditMs: AFTER, hasChanges: false }))).toEqual([]);
         expect(offers(input({ lastEditMs: SINCE - 1, hasChanges: true }))).toEqual([]);
+    });
+
+    it("offers a lead its own run, and not its tree's changes", () => {
+        const own = [{ kind: "run", id: "r-lead", tab: { kind: "run", runId: "r-lead", view: "tasks" } }];
+        expect(offers(input({ leadRun: "r-lead", lastEditMs: AFTER, hasChanges: true }))).toEqual(own);
+        expect(offers(input({ leadRun: "r-lead", entries: [bash(START, STARTED)] }))).toEqual(own);
     });
 });
 

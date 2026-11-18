@@ -42,6 +42,8 @@ export type OfferInput = {
     // the agent's last file edit (agent:lasteditts) and whether its checkout has changes
     lastEditMs: number | null;
     hasChanges: boolean;
+    // the run the agent leads: its own, so it counts from the lead's first turn, whenever the run started
+    leadRun: string | null;
 };
 
 export function offers(input: OfferInput): Arrival[] {
@@ -58,11 +60,14 @@ export function offers(input: OfferInput): Arrival[] {
         out.push({ kind: "canvas", id: topic, tab: { kind: "canvas" } });
     }
     const start = lastCall(input.entries, "runs-start");
-    const runId = start != null && (start.ts ?? 0) > input.since ? startedRunId(start) : null;
+    const started = start != null && (start.ts ?? 0) > input.since ? startedRunId(start) : null;
+    const runId = input.leadRun ?? started;
     if (runId != null) {
         out.push({ kind: "run", id: runId, tab: { kind: "run", runId, view: "tasks" } });
     }
-    if (input.hasChanges && input.lastEditMs != null && input.lastEditMs > input.since) {
+    // a lead's checkout is its run's tree, so its diff is the workers' work, which the run tab already shows
+    const ownDiff = input.leadRun == null;
+    if (ownDiff && input.hasChanges && input.lastEditMs != null && input.lastEditMs > input.since) {
         out.push({ kind: "changes", id: `${input.lastEditMs}`, tab: { kind: "changes", selected: null } });
     }
     return out;

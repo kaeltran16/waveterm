@@ -1,13 +1,14 @@
 // Scenario `workspace-auto-open`: what the Rendered view opens beside the transcript by itself when a turn ends
 // (autoopenmodel.ts). One fixture claude agent with a canvas and no brainstorm (RBS_KIT), whose project is a git repo
 // with an uncommitted change. Each step appends a turn to its transcript, or stamps its block's last edit, as the agent
-// would; the run ids are fixtures no store knows, so a Run tab shows its id.
+// would; the started run ids are fixtures no store knows, so a Run tab shows its id. The last step makes the agent a
+// lead of a held run (arrangeHeldRun), which no model ever starts.
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assistantText, toolResult, toolUse } from "./agent-page-fixtures.mjs";
 import { RBS_KIT } from "./scenarios-rendered-brainstorm.mjs";
-import { git } from "./scenarios-shared.mjs";
+import { arrangeHeldRun, git, teardownHeldRuns } from "./scenarios-shared.mjs";
 
 const NAME = "workspace-auto-open";
 const TOPIC = `auto-open-${Date.now().toString(36)}`;
@@ -166,6 +167,16 @@ const base = RBS_KIT.scenario(NAME, { noBrainstorm: true, topic: TOPIC }, async 
         const p = await readPane(h, ctx);
         return [closed && gone && p.tabs.length === 0, p];
     });
+
+    await step("a lead's turn end opens its own run", async () => {
+        const run = await arrangeHeldRun(h, ctx, { key: "auto-open-lead", title: "Auto-open lead fixture", tasks: [{ id: "t-1", label: "do nothing" }] });
+        await patchAgent(h, ctx, { runId: run.runId });
+        const opened = await waitPane(h, ctx, `s.active === ${JSON.stringify(`run:${run.runId}`)}`);
+        await polishNap(700);
+        const p = await readPane(h, ctx);
+        await h.shot(SHOT(5, "lead-run"));
+        return [opened && p.shape === "open" && p.tabs.join() === `run:${run.runId}`, p];
+    });
 });
 
 export const workspaceAutoOpen = {
@@ -177,6 +188,7 @@ export const workspaceAutoOpen = {
         } catch (e) {
             console.error(`${NAME} teardown: close the pane and the canvas failed: ${e?.message ?? e}`);
         }
+        await teardownHeldRuns(h, ctx, NAME);
         await base.teardown(h, ctx);
     },
 };

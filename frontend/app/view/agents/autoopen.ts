@@ -42,6 +42,8 @@ export function useAutoOpen(model: AgentsViewModel, agent: AgentVM, entries: Age
     );
     useRailGit(agent);
     const hasChanges = useCheckoutFacts(model, agent).chip != null;
+    const role = useAtomValue(model.lineageAtom).roles[agent.id];
+    const leadRun = role?.kind === "lead" ? role.runId : null;
     const lastEditMs = block?.meta?.["agent:lasteditts"] ?? null;
     const wait = brainstormWaitOf(bs, agent)?.key ?? null;
     const working = agent.state === "working";
@@ -57,8 +59,9 @@ export function useAutoOpen(model: AgentsViewModel, agent: AgentVM, entries: Age
                     bs == null && canvas != null ? { topic: canvas.topic, removed: canvas.status === "removed" } : null,
                 lastEditMs,
                 hasChanges,
+                leadRun,
             }),
-        [entries, bs, wait, canvas, lastEditMs, hasChanges]
+        [entries, bs, wait, canvas, lastEditMs, hasChanges, leadRun]
     );
     useEffect(() => {
         if (working || surface !== "agent" || !rendersNow(model, agent.id)) {
