@@ -19,6 +19,7 @@ export const WSH_BOOL_FLAGS: ReadonlySet<string> = new Set([
     "continue",
     "force",
     "force-land",
+    "help",
     "hold-land",
     "inject",
     "json",
@@ -165,9 +166,13 @@ const DISPLAY_FLAGS: ReadonlySet<string> = new Set([
     "title",
 ]);
 
-// an unresolved card call is the generic change row (argv, timing, output; no fetch); an unresolved view call has no key
+// an unresolved card call is the generic change row (argv, timing, output; no fetch); an unresolved view call has no
+// key, and nor does a help call: it changes nothing, so a card would claim a change that never happened
 export function wshKey(call: WshCall): WshKey | null {
     const chain = call.path.join(" ");
+    if (call.flags["help"] === true || call.flags["h"] === true) {
+        return null;
+    }
     if (!Object.prototype.hasOwnProperty.call(KEYS, chain)) {
         return null;
     }

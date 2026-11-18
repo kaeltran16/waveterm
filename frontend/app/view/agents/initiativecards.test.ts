@@ -5,11 +5,13 @@ import { describe, expect, it } from "vitest";
 import {
     bareEffortId,
     buildInitiativeCard,
+    chunkRowText,
     effortListModel,
     effortListRequest,
     effortShowModel,
     LIST_ROWS_SHOWN,
     SHOW_CHUNKS_SHOWN,
+    type ChunkRowCard,
 } from "./initiativecards";
 import { firstWshCall, type WshCall } from "./wshcall";
 
@@ -158,6 +160,68 @@ describe("chunk-add and chunk-note cards", () => {
             kind: "chunk-noted",
             chunk: { number: 2, label: "Add jitter" },
             note: "see the fork commit",
+        });
+    });
+});
+
+describe("chunkRowText", () => {
+    const row = (command: string, key: string, effortRecord?: Effort, error?: string) =>
+        chunkRowText(buildInitiativeCard(key, callOf(command), { effort: effortRecord, error }) as ChunkRowCard);
+
+    it("a numbered chunk reads Chunk N, its label the subject", () => {
+        expect(row("wsh effort chunk status e1 2 active", "chunk-status", THREE)).toEqual({
+            label: "Chunk 2 active",
+            subject: "Add jitter",
+        });
+    });
+
+    // specimen 108: a chunk named by its label, with no record to number it, put the whole title in the label span
+    it("a chunk with no number keeps its title out of the label", () => {
+        const title = "LLM 1: one verdict rubric plus attack_result and scope enums on finish";
+        expect(row(`wsh effort chunk status e1 "${title}" active`, "chunk-status", undefined, "not found")).toEqual({
+            label: "Chunk active",
+            subject: title,
+        });
+    });
+
+    it("a note on a numbered chunk names it", () => {
+        expect(row('wsh effort chunk note e1 2 --note "see the fork"', "chunk-note", THREE)).toEqual({
+            label: "Noted on chunk 2",
+            subject: "see the fork",
+        });
+    });
+
+    it("a note on a chunk named by label puts the label in the subject", () => {
+        expect(row('wsh effort chunk note e1 "Ship later" --note "after the bench"', "chunk-note")).toEqual({
+            label: "Noted on",
+            subject: "Ship later",
+            trailing: "after the bench",
+        });
+    });
+
+    it("a note with no chunk drops the noun", () => {
+        expect(row('wsh effort chunk note e1 --note "x"', "chunk-note")).toEqual({ label: "Noted", subject: "x" });
+    });
+
+    // specimen 50: the record did not load and wsh printed "appendNote applied to effort effort:<id>"
+    it("a change summary reads from argv, not wsh's output, so no word doubles", () => {
+        const id = "25e5eb18-863e-4e80-b585-60124822822b";
+        const text = row(
+            `wsh effort chunk note effort:${id} 1 --note "Design approved 2026-11-16"`,
+            "chunk-note",
+            undefined,
+            `effort ${id}: not found`
+        );
+        expect(text).toEqual({ label: "Noted on chunk 1", subject: "Design approved 2026-11-16" });
+        expect(JSON.stringify(text)).not.toMatch(/effort effort|applied to/);
+    });
+
+    it("an added chunk reads its number and label, the initiative trailing", () => {
+        const e = effort([chunk("A"), chunk("Decide the tone")]);
+        expect(row('wsh effort chunk add e1 "Decide the tone"', "chunk-add", e)).toEqual({
+            label: "Added chunk",
+            subject: "2. Decide the tone",
+            trailing: "Retry rework",
         });
     });
 });

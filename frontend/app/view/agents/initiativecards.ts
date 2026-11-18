@@ -165,6 +165,43 @@ export function buildInitiativeCard(key: string, call: WshCall, src: CardSource)
     return { ...base, kind: "chunk-status", chunk, status };
 }
 
+// a one-line chunk card's words: the label holds only short fixed words and a number, so a chunk known by its title
+// alone puts the title in the truncating subject
+export interface ChunkRowText {
+    label: string;
+    subject?: string;
+    trailing?: string;
+}
+
+export function chunkSubject(chunk: ChunkFacts): string {
+    if (chunk.number != null && chunk.label) return `${chunk.number}. ${chunk.label}`;
+    return chunk.label ?? (chunk.number != null ? `#${chunk.number}` : "");
+}
+
+const withSubject = (label: string, subject?: string, trailing?: string): ChunkRowText => ({
+    label,
+    ...(subject ? { subject } : {}),
+    ...(trailing ? { trailing } : {}),
+});
+
+export type ChunkRowCard = Extract<InitiativeCard, { kind: "chunk-status" | "chunk-added" | "chunk-noted" }>;
+
+export function chunkRowText(card: ChunkRowCard): ChunkRowText {
+    const { number, label } = card.chunk;
+    switch (card.kind) {
+        case "chunk-status":
+            return number != null
+                ? withSubject(`Chunk ${number} ${card.status}`, label)
+                : withSubject(`Chunk ${card.status}`, label);
+        case "chunk-added":
+            return withSubject("Added chunk", chunkSubject(card.chunk), card.initiative);
+        case "chunk-noted":
+            if (number != null) return withSubject(`Noted on chunk ${number}`, card.note);
+            if (label) return withSubject("Noted on", label, card.note);
+            return withSubject("Noted", card.note);
+    }
+}
+
 function doneCard(base: CardBase, chunk: ChunkFacts, note: string | undefined, effort?: Effort): InitiativeCard {
     return {
         ...base,

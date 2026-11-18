@@ -21,6 +21,7 @@ import type { AgentActionEntry } from "./agentsviewmodel";
 import {
     dagActionOf,
     dagRunIds,
+    pickedLabel,
     type DagActionIcon,
     type DagActionRow,
     type DagAnswerCard,
@@ -30,7 +31,7 @@ import { LoadFailure } from "./recordedoutput";
 import { useRunEventsState } from "./runeventstore";
 import { openRunBeside } from "./runrailsections";
 import type { WshCardKey } from "./wshcall";
-import { CallFacts } from "./wshchangerow";
+import { CallFacts, WshVerbRow } from "./wshchangerow";
 import type { WshRendererProps, WshRenderers } from "./wshrenderers";
 
 const RETRY_TEXT = "a fresh worker starts when a slot is free";
@@ -83,20 +84,16 @@ function ActionRow({ row, action, compact }: { row: DagActionRow; action: AgentA
     const Icon = ROW_ICON[row.icon];
     const text = rowText(row);
     return (
-        <div
-            data-dag-action={row.icon}
-            className={cn(
-                "flex items-center font-sans text-ink-mid",
-                compact ? "gap-[7px] py-0.5 text-[12.5px]" : "gap-2.5 px-0.5 py-1 text-[13.5px]"
-            )}
+        <WshVerbRow
+            icon={<Icon size={compact ? 12 : 14} strokeWidth={2} className="shrink-0" aria-hidden />}
+            verb={ROW_VERBS[row.icon]}
+            action={action}
+            compact={compact}
+            attrs={{ "data-dag-action": row.icon }}
         >
-            <Icon size={compact ? 12 : 14} strokeWidth={2} className="shrink-0" aria-hidden />
-            <span className="shrink-0">{ROW_VERBS[row.icon]}</span>
             <TaskId id={row.taskId} compact={compact} />
             {text ? <span className={cn("min-w-0 truncate", row.quoted && "text-secondary")}>{text}</span> : null}
-            <span className="flex-1" />
-            <CallFacts action={action} compact={compact} />
-        </div>
+        </WshVerbRow>
     );
 }
 
@@ -231,11 +228,6 @@ function AnswerRow({
     );
 }
 
-function extraLabel(picked: number[]): string {
-    const nums = picked.map((n) => n + 1).join(", ");
-    return picked.length === 1 ? `Picked option ${nums}` : `Picked options ${nums}`;
-}
-
 // the worker's question as the lead answered it: the options with the picked one checked
 function AnswerCardView({
     card,
@@ -246,25 +238,23 @@ function AnswerCardView({
     action: AgentActionEntry;
     compact: boolean;
 }) {
-    const context = [card.label, card.header].filter(Boolean);
+    // the task's label rides on its ask; without one the verb still says what the id is
+    const context = [card.label, card.header].filter(Boolean).join(" · ");
     return (
         <div data-dag-action="answer" className="overflow-hidden rounded-[10px] border border-edge-mid font-sans">
             <div className={compact ? "px-3 py-2.5" : "px-3.5 py-3"}>
                 <div
+                    data-answer-head
                     className={cn(
                         "mb-1.5 flex items-center gap-2 text-muted",
                         compact ? "text-[12px]" : "text-[12.5px]"
                     )}
                 >
-                    <span className={cn("font-mono text-ink-mid", compact ? "text-[11px]" : "text-[11.5px]")}>
+                    <span className="shrink-0">Answered</span>
+                    <span className={cn("shrink-0 font-mono text-ink-mid", compact ? "text-[11px]" : "text-[11.5px]")}>
                         {card.taskId}
                     </span>
-                    {context.map((c, i) => (
-                        <span key={i} className="flex gap-2">
-                            <span>·</span>
-                            <span>{c}</span>
-                        </span>
-                    ))}
+                    {context ? <span className="min-w-0 truncate">· {context}</span> : null}
                     <span className="flex-1" />
                     <CallFacts action={action} compact={compact} />
                 </div>
@@ -286,7 +276,7 @@ function AnswerCardView({
                 "text" in x ? (
                     <AnswerRow key={`x${i}`} picked label={x.text} compact={compact} />
                 ) : (
-                    <AnswerRow key={`x${i}`} picked label={extraLabel(x.picked)} compact={compact} />
+                    <AnswerRow key={`x${i}`} picked label={pickedLabel(x.picked)} compact={compact} />
                 )
             )}
             <div

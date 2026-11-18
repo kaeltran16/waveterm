@@ -76,6 +76,21 @@ describe("wshKey", () => {
         expect(firstWshCall("wsh frob")).toBeNull();
     });
 
+    // a help call changes nothing, so it draws as the Bash step it is, never as "Amended" or "Plan submitted"
+    it.each([
+        "wsh jarvis dag amend --help 2>&1 | head -15",
+        "wsh jarvis dag submit --help",
+        "wsh effort chunk note -h",
+        "wsh effort chunk --help 2>&1 | sed -n 1,30p; wsh effort chunk note --help 2>&1 | sed -n 1,20p",
+        "wsh jarvis dag retry --help 2>&1 | head -20; wsh jarvis dag tell --help 2>&1 | head -12",
+    ])("a help call has no key: %s", (cmd) => {
+        expect(firstWshCall(cmd)).toBeNull();
+    });
+
+    it("a help call beside a real one keys the real one", () => {
+        expect(keyOf("wsh jarvis dag submit --help; wsh jarvis dag submit --plan p.md")).toBe("dag-submit");
+    });
+
     it("separates views from cards", () => {
         expect(isCardKey("effort-show")).toBe(false);
         expect(isCardKey("dag-status")).toBe(false);

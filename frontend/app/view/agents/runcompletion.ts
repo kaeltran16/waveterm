@@ -4,18 +4,28 @@
 // Pure view derivations for a run's evidence: duration, size and clock formatting, verification counts and
 // whether the evidence still needs sealing. No React, no jotai — unit-tested in runcompletion.test.ts.
 
-// under a second reads "<1s" before rounding, or 500-999 ms would read "1s"
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+// under a second reads "<1s" before rounding, or 500-999 ms would read "1s"; past an hour the seconds drop, past a day
+// the minutes
 export function fmtDuration(ms: number): string {
     if (ms > 0 && ms < 1000) {
         return "<1s";
     }
     const s = Math.max(0, Math.round(ms / 1000));
     const m = Math.floor(s / 60);
-    const rem = s % 60;
-    if (m === 0) {
-        return `${rem}s`;
+    const h = Math.floor(m / 60);
+    const d = Math.floor(h / 24);
+    if (d > 0) {
+        return `${d}d ${h % 24}h`;
     }
-    return `${m}m ${String(rem).padStart(2, "0")}s`;
+    if (h > 0) {
+        return `${h}h ${pad2(m % 60)}m`;
+    }
+    if (m > 0) {
+        return `${m}m ${pad2(s % 60)}s`;
+    }
+    return `${s}s`;
 }
 
 export function fmtBytes(n: number): string {
