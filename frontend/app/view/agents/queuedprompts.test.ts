@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { footList, waitingPrompts } from "./queuedprompts";
+import { footList, SEND_TO_ENQUEUE_MS, waitingPrompts } from "./queuedprompts";
 
 const T = Date.UTC(2026, 10, 17, 9, 0, 0);
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -34,8 +34,8 @@ describe("waitingPrompts (Claude Code's own queue)", () => {
         expect(texts([enqueue("x", T), enqueue("y", T + 1), op("popAll", T + 2, { content: "x\ny" })])).toEqual([]);
     });
 
-    it("a content-less enqueue is never drawn and still shifts the FIFO", () => {
-        expect(texts([enqueue(undefined, T)])).toEqual([]);
+    it("a content-less enqueue waits with no text and still shifts the FIFO", () => {
+        expect(waitingPrompts([enqueue(undefined, T)])).toEqual([{ key: expect.any(String), ts: T }]);
         expect(texts([enqueue(undefined, T), enqueue("x", T + 1), op("dequeue", T + 2)])).toEqual(["x"]);
     });
 
@@ -67,6 +67,41 @@ describe("footList", () => {
         expect(items[0].command).toEqual({ name: "/review", args: "the branch" });
         expect(items[1].command).toBeUndefined();
         expect(items[2].command).toEqual({ name: "/clear" });
+    });
+
+    // claude records a message typed during a compaction as an enqueue with no content
+    it("fills a content-less enqueue with the message sent from the box just before it", () => {
+        const waiting = waitingPrompts([enqueue(undefined, T + 300)]);
+        expect(footList(waiting, [{ text: "banana", ts: T }]).map((i) => i.text)).toEqual(["banana"]);
+    });
+
+    // seen live: the /compact sent just before it runs at once and is never queued, so it must not take the message's place
+    it("fills it with the latest send before it, not the /compact that started the compaction", () => {
+        const waiting = waitingPrompts([enqueue(undefined, T + 1600)]);
+        const sent = [
+            { text: "/compact", ts: T },
+            { text: "banana", ts: T + 1500 },
+        ];
+        expect(footList(waiting, sent).map((i) => i.text)).toEqual(["banana"]);
+    });
+
+    it("draws nothing for a content-less enqueue no send from the box explains", () => {
+        const waiting = waitingPrompts([enqueue(undefined, T + SEND_TO_ENQUEUE_MS + 1)]);
+        expect(footList(waiting, [{ text: "old", ts: T }])).toEqual([]);
+        expect(footList(waiting)).toEqual([]);
+    });
+
+    it("gives each send to one content-less enqueue, in order", () => {
+        const waiting = waitingPrompts([
+            enqueue(undefined, T + 100),
+            enqueue("typed", T + 150),
+            enqueue(undefined, T + 200),
+        ]);
+        const sent = [
+            { text: "first", ts: T },
+            { text: "second", ts: T + 50 },
+        ];
+        expect(footList(waiting, sent).map((i) => i.text)).toEqual(["first", "typed", "second"]);
     });
 
     it("gives every item a distinct key", () => {

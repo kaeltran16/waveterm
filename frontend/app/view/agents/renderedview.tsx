@@ -20,6 +20,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { interruptAgent } from "./agentactions";
 import type { AgentComposerHandle } from "./agentcomposer";
 import type { AgentsViewModel } from "./agents";
+import { sentPromptsAtom } from "./agentsend";
 import { askSentKey, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
 import { useAutoOpen } from "./autoopen";
@@ -242,7 +243,8 @@ function QueuedFoot({ items }: { items: FootItem[] }) {
 // the foot's list for the agent
 function useQueuedFoot(agent: AgentVM): FootItem[] {
     const waiting = useAtomValue(waitingAtomFor(agent.id));
-    return useMemo(() => footList(waiting), [waiting]);
+    const sent = useAtomValue(sentPromptsAtom(agent.blockId ?? ""));
+    return useMemo(() => footList(waiting, sent), [waiting, sent]);
 }
 
 export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
@@ -281,8 +283,10 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     const askShown = askDocked(agent);
     const openFileLink = useReplyFileLink(model, agent);
     const entryRow = useRenderedEntryRow(model, agent, rowOf);
-    // the picker only exists in the TUI, so the flip lands before the command is typed
+    // the picker only exists in the TUI, so the flip lands before the command is typed; a send re-sticks a feed
+    // scrolled up into its history, so the message and its answer come into view
     const onSubmitText = (text: string) => {
+        jumpToBottom();
         if (isPickerCommand(text)) {
             globalStore.set(pickerFlipAtom(agent.id), Date.now());
         }
