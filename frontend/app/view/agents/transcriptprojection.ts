@@ -22,11 +22,15 @@ import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords
 
 const READ_MODAL_MAX_LINES = 400; // bound stored Read body (modal view); inline uses the per-kind budget
 
+// the tools that run a shell command: each draws as a command with its output and exit
+const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
+
 const VERB_BY_TOOL: Record<string, string> = {
     Read: "read",
     Edit: "edited",
     Write: "wrote",
     Bash: "ran",
+    PowerShell: "ran",
     Grep: "grep",
     Glob: "glob",
     Task: "spawned",
@@ -34,14 +38,30 @@ const VERB_BY_TOOL: Record<string, string> = {
     AskUserQuestion: "asked",
 };
 
+const MCP_PREFIX = "mcp__";
+
+// an unmapped tool name as words: an MCP tool's own name ("mcp__server__update_plan"), camelCase and snake_case spaced
+export function readableVerb(name: string): string {
+    const own = name.startsWith(MCP_PREFIX) ? name.split("__").slice(2).join("_") || name : name;
+    return own
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/[_\s]+/g, " ")
+        .trim()
+        .toLowerCase();
+}
+
 function verbFor(name: string): string {
-    return VERB_BY_TOOL[name] ?? name.toLowerCase();
+    return VERB_BY_TOOL[name] ?? readableVerb(name);
 }
 
 function baseName(p: string): string {
     const parts = p.split(/[/\\]/);
     return parts[parts.length - 1] || p;
 }
+
+// the input fields that name what any other tool acts on (a search's query, a fetch's url, a stopped task, a wakeup's
+// reason over its prompt), in priority order
+const TARGET_FIELDS = ["title", "query", "url", "task_id", "shell_id", "reason", "prompt"];
 
 // the most salient input field, in priority order
 function targetFor(input: any): string {
@@ -66,7 +86,8 @@ function targetFor(input: any): string {
     if (typeof input.questions?.[0]?.question === "string") {
         return input.questions[0].question;
     }
-    return "";
+    const field = TARGET_FIELDS.find((k) => typeof input[k] === "string" && input[k].trim() !== "");
+    return field != null ? input[field] : "";
 }
 
 type ActionEntry = AgentEntry & { kind: "action" };
@@ -91,6 +112,78 @@ function parseCommand(content: string): { name: string; args?: string } | null {
 export function bashNeverRan(body: string): boolean {
     const t = body.trimStart();
     return t !== "" && !/^Exit code \d+/.test(t) && !/^(Interrupted\b|\[Tool call interrupted)/.test(t);
+}
+
+// Claude Code's words when the user rejects a call at its permission prompt. Each refusal opens the result, so a
+// command that ran and printed one is no refusal
+const USER_REJECTED_RE = /^(?:The user doesn't want to proceed with this tool use|The tool use was rejected)\b/;
+// a permission rule or check denying a call; its own words name the rule
+const PERMISSION_DENIED_RE =
+    /^(?:Permission (?:to|for) [^\n]*?\b(?:has been|was) denied\b|[^\n]*\bdenied by your permission settings\b)/;
+// the record's mark of a call refused at the permission prompt, whose text is the prompt's reason ("Command contains
+// subexpressions $()")
+const USER_REJECTED_KIND = "user-rejected";
+const DECLINED_QUESTION = "You declined the question, so Claude stopped and waited for you.";
+const DECLINED_CALL = "You declined this call, so Claude stopped and waited for you.";
+
+function firstSentence(text: string): string {
+    const line = text.trim().split("\n")[0];
+    return /^[^]*?[.!?](?=\s|$)/.exec(line)?.[0] ?? line;
+}
+
+// the reason line of a call the user declined or a permission denied, else null: the user's refusal boilerplate gives
+// way to a line of ours, and a denial keeps its first sentence
+function declinedReason(tool: string | undefined, error: string, rec: any): string | null {
+    if (USER_REJECTED_RE.test(error)) {
+        return tool === "AskUserQuestion" ? DECLINED_QUESTION : DECLINED_CALL;
+    }
+    if (PERMISSION_DENIED_RE.test(error) || rec?.toolDenialKind === USER_REJECTED_KIND) {
+        return firstSentence(error);
+    }
+    return null;
+}
+
+// an InputValidationError is its message, then a paragraph of advice and the tool's whole JSON schema
+function toolError(body: string): string {
+    const error = unwrapToolError(body);
+    return /^InputValidationError\b/.test(error) ? error.split(/\n\s*\n/)[0].trim() : error;
+}
+
+// lines the harness appends to a tool's result, about the session rather than the call
+const HARNESS_LINES = [
+    /^Shell cwd was reset to /,
+    /^\[This command modified \d+ files? you've previously read\b/,
+    /^Command running in background with ID: /,
+];
+
+// a line a carriage return rewrote (a progress bar) as it was left
+function lastState(line: string): string {
+    const states = line.split("\r").filter((s) => s !== "");
+    return states.length > 0 ? states[states.length - 1] : "";
+}
+
+// a tool result as the panel shows it: no ANSI escapes, each line at its last state, and no harness lines
+function cleanToolBody(body: string): string {
+    return stripAnsi(body)
+        .replace(/\r\n/g, "\n")
+        .split("\n")
+        .map(lastState)
+        .filter((line) => !HARNESS_LINES.some((re) => re.test(line)))
+        .join("\n");
+}
+
+const XML_ENTITIES: Record<string, string> = {
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&apos;": "'",
+    "&#39;": "'",
+    "&amp;": "&",
+};
+
+// one pass, so an escaped entity ("&amp;lt;") decodes to its text ("&lt;") and no further
+function decodeXml(text: string): string {
+    return text.replace(/&(?:lt|gt|quot|apos|#39|amp);/g, (m) => XML_ENTITIES[m]);
 }
 
 // Claude interruption marker, both "[Request interrupted by user]" and the "...for tool use]" variant.
@@ -123,9 +216,10 @@ function parseTaskNotification(content: string): NotificationEntry | null {
     if (!opensWith(content, "<task-notification>")) {
         return null;
     }
+    // claude code escapes the fields' XML
     const grab = (tag: string): string | undefined => {
         const m = new RegExp(`<${tag}>([^]*?)</${tag}>`).exec(content);
-        return m ? m[1].trim() : undefined;
+        return m ? decodeXml(m[1].trim()) : undefined;
     };
     const result = grab("result");
     const summary = grab("summary") ?? "";
@@ -270,6 +364,10 @@ function noteEntry(rec: any): AgentEntry | null {
     return { kind: "user", text: unwrapPasted(text), queued: true, ...recTs(rec) };
 }
 
+// the harness note Claude Code writes into a compaction summary (the tools used before it); as raw HTML it swallows the
+// markdown after it
+const SYSTEM_REMINDER_RE = /<system-reminder>[^]*?<\/system-reminder>\n?/g;
+
 function mergeCompaction(entries: AgentEntry[], patch: Partial<Extract<AgentEntry, { kind: "compaction" }>>): void {
     const last = entries[entries.length - 1];
     if (last != null && last.kind === "compaction") {
@@ -362,7 +460,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                         target: targetFor(block.input),
                         ...recTs(rec),
                     };
-                    if (block.name === "Bash" && typeof block.input?.command === "string") {
+                    if (SHELL_TOOLS.has(block.name) && typeof block.input?.command === "string") {
                         action.command = block.input.command;
                     }
                     const cwd = typeof rec.cwd === "string" ? rec.cwd : undefined;
@@ -419,7 +517,8 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                                 .map((b: any) => b.text)
                                 .join("\n")
                           : "";
-                mergeCompaction(entries, summary.trim() !== "" ? { summary } : {});
+                const shown = summary.replace(SYSTEM_REMINDER_RE, "");
+                mergeCompaction(entries, shown.trim() !== "" ? { summary: shown } : {});
                 continue;
             }
             const content = rec?.message?.content;
@@ -473,7 +572,8 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     continue;
                 }
                 (action as any)._done = true;
-                const body = toolResultText(block.content);
+                const raw = toolResultText(block.content);
+                const body = cleanToolBody(raw);
                 const images = toolResultImages(block.content);
                 if (images.length > 0) {
                     action.images = images;
@@ -482,11 +582,17 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 const input = (action as any)._input;
                 const cwd = (action as any)._cwd as string | undefined;
                 const failed = block.is_error === true;
-                const blocked = tool === "Bash" && failed && bashNeverRan(body);
-                // a Bash call that ran and failed tells why in its output, so only one that never ran carries an error
-                const error = failed && (tool !== "Bash" || blocked) ? unwrapToolError(body) : "";
+                const shell = tool != null && SHELL_TOOLS.has(tool);
+                const declined = failed ? declinedReason(tool, unwrapToolError(body), rec) : null;
+                const blocked = declined == null && shell && failed && bashNeverRan(body);
+                // a command that ran and failed tells why in its output, so only one that never ran carries an error
+                const error = declined ?? (failed && (!shell || blocked) ? toolError(body) : "");
                 if (error !== "") {
                     action.error = error;
+                }
+                // a failed edit changed nothing, so it shows no diff
+                if (failed && action.detail?.kind === "edit") {
+                    delete action.detail;
                 }
                 if (tool === "Grep" && body && !failed) {
                     const matches = parseGrep(body).map((m) => (m.loc ? { ...m, loc: relativePath(m.loc, cwd) } : m));
@@ -509,13 +615,15 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     };
                     const lineCount = body.split("\n").length;
                     action.summary = `${lineCount} line${lineCount === 1 ? "" : "s"}`;
-                } else if (tool === "Bash" && body) {
+                } else if (shell && raw) {
+                    // a background launch's result is only a harness line: the call keeps its command panel
+                    const ran = !blocked && declined == null;
                     action.detail = {
                         kind: "bash",
                         command: action.command,
                         // a call that never ran has no output; its reason is the error
-                        output: blocked ? "" : stripAnsi(body),
-                        exit: blocked ? null : failed ? 1 : 0,
+                        output: ran ? body : "",
+                        exit: !ran ? null : failed ? 1 : 0,
                     };
                 } else if (action.detail?.kind === "edit") {
                     // the file's own hunks, numbered; the tool_use's old/new strings stay when the result has none
@@ -532,7 +640,9 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 if (Number.isFinite(resTs) && Number.isFinite(useTs) && resTs >= useTs) {
                     action.durationMs = resTs - useTs;
                 }
-                if (blocked) {
+                if (declined != null) {
+                    action.outcome = "declined";
+                } else if (blocked) {
                     action.outcome = "blocked";
                 } else if (block.is_error === true) {
                     action.outcome = "fail";

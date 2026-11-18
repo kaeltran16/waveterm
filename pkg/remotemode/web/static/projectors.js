@@ -465,24 +465,32 @@ function stripAnsi(s) {
 
 // frontend/app/view/agents/transcriptprojection.ts
 var READ_MODAL_MAX_LINES2 = 400;
+var SHELL_TOOLS = /* @__PURE__ */ new Set(["Bash", "PowerShell"]);
 var VERB_BY_TOOL2 = {
   Read: "read",
   Edit: "edited",
   Write: "wrote",
   Bash: "ran",
+  PowerShell: "ran",
   Grep: "grep",
   Glob: "glob",
   Task: "spawned",
   Skill: "skill",
   AskUserQuestion: "asked"
 };
+var MCP_PREFIX = "mcp__";
+function readableVerb(name) {
+  const own = name.startsWith(MCP_PREFIX) ? name.split("__").slice(2).join("_") || name : name;
+  return own.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_\s]+/g, " ").trim().toLowerCase();
+}
 function verbFor2(name) {
-  return VERB_BY_TOOL2[name] ?? name.toLowerCase();
+  return VERB_BY_TOOL2[name] ?? readableVerb(name);
 }
 function baseName2(p) {
   const parts = p.split(/[/\\]/);
   return parts[parts.length - 1] || p;
 }
+var TARGET_FIELDS = ["title", "query", "url", "task_id", "shell_id", "reason", "prompt"];
 function targetFor2(input) {
   if (input == null) {
     return "";
@@ -505,7 +513,8 @@ function targetFor2(input) {
   if (typeof input.questions?.[0]?.question === "string") {
     return input.questions[0].question;
   }
-  return "";
+  const field = TARGET_FIELDS.find((k) => typeof input[k] === "string" && input[k].trim() !== "");
+  return field != null ? input[field] : "";
 }
 var HANDBACK_TOOL = "SubagentHandback";
 function parseCommand(content) {
@@ -522,6 +531,51 @@ function parseCommand(content) {
 function bashNeverRan(body) {
   const t = body.trimStart();
   return t !== "" && !/^Exit code \d+/.test(t) && !/^(Interrupted\b|\[Tool call interrupted)/.test(t);
+}
+var USER_REJECTED_RE = /^(?:The user doesn't want to proceed with this tool use|The tool use was rejected)\b/;
+var PERMISSION_DENIED_RE = /^(?:Permission (?:to|for) [^\n]*?\b(?:has been|was) denied\b|[^\n]*\bdenied by your permission settings\b)/;
+var USER_REJECTED_KIND = "user-rejected";
+var DECLINED_QUESTION = "You declined the question, so Claude stopped and waited for you.";
+var DECLINED_CALL = "You declined this call, so Claude stopped and waited for you.";
+function firstSentence(text) {
+  const line = text.trim().split("\n")[0];
+  return /^[^]*?[.!?](?=\s|$)/.exec(line)?.[0] ?? line;
+}
+function declinedReason(tool, error, rec) {
+  if (USER_REJECTED_RE.test(error)) {
+    return tool === "AskUserQuestion" ? DECLINED_QUESTION : DECLINED_CALL;
+  }
+  if (PERMISSION_DENIED_RE.test(error) || rec?.toolDenialKind === USER_REJECTED_KIND) {
+    return firstSentence(error);
+  }
+  return null;
+}
+function toolError(body) {
+  const error = unwrapToolError(body);
+  return /^InputValidationError\b/.test(error) ? error.split(/\n\s*\n/)[0].trim() : error;
+}
+var HARNESS_LINES = [
+  /^Shell cwd was reset to /,
+  /^\[This command modified \d+ files? you've previously read\b/,
+  /^Command running in background with ID: /
+];
+function lastState(line) {
+  const states = line.split("\r").filter((s) => s !== "");
+  return states.length > 0 ? states[states.length - 1] : "";
+}
+function cleanToolBody(body) {
+  return stripAnsi(body).replace(/\r\n/g, "\n").split("\n").map(lastState).filter((line) => !HARNESS_LINES.some((re) => re.test(line))).join("\n");
+}
+var XML_ENTITIES = {
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&apos;": "'",
+  "&#39;": "'",
+  "&amp;": "&"
+};
+function decodeXml(text) {
+  return text.replace(/&(?:lt|gt|quot|apos|#39|amp);/g, (m) => XML_ENTITIES[m]);
 }
 function isInterrupted(text) {
   return text.trimStart().startsWith("[Request interrupted by user");
@@ -544,7 +598,7 @@ function parseTaskNotification(content) {
   }
   const grab = (tag) => {
     const m = new RegExp(`<${tag}>([^]*?)</${tag}>`).exec(content);
-    return m ? m[1].trim() : void 0;
+    return m ? decodeXml(m[1].trim()) : void 0;
   };
   const result = grab("result");
   const summary = grab("summary") ?? "";
@@ -648,6 +702,7 @@ function noteEntry(rec) {
   }
   return { kind: "user", text: unwrapPasted(text), queued: true, ...recTs(rec) };
 }
+var SYSTEM_REMINDER_RE = /<system-reminder>[^]*?<\/system-reminder>\n?/g;
 function mergeCompaction(entries, patch) {
   const last = entries[entries.length - 1];
   if (last != null && last.kind === "compaction") {
@@ -723,7 +778,7 @@ function projectTranscriptRecords(records) {
             target: targetFor2(block.input),
             ...recTs(rec)
           };
-          if (block.name === "Bash" && typeof block.input?.command === "string") {
+          if (SHELL_TOOLS.has(block.name) && typeof block.input?.command === "string") {
             action.command = block.input.command;
           }
           const cwd = typeof rec.cwd === "string" ? rec.cwd : void 0;
@@ -766,7 +821,8 @@ function projectTranscriptRecords(records) {
       if (rec.isCompactSummary === true) {
         const raw = rec?.message?.content;
         const summary = typeof raw === "string" ? raw : Array.isArray(raw) ? raw.filter((b) => b?.type === "text").map((b) => b.text).join("\n") : "";
-        mergeCompaction(entries, summary.trim() !== "" ? { summary } : {});
+        const shown = summary.replace(SYSTEM_REMINDER_RE, "");
+        mergeCompaction(entries, shown.trim() !== "" ? { summary: shown } : {});
         continue;
       }
       const content = rec?.message?.content;
@@ -814,7 +870,8 @@ function projectTranscriptRecords(records) {
           continue;
         }
         action._done = true;
-        const body = toolResultText(block.content);
+        const raw = toolResultText(block.content);
+        const body = cleanToolBody(raw);
         const images2 = toolResultImages(block.content);
         if (images2.length > 0) {
           action.images = images2;
@@ -823,10 +880,15 @@ function projectTranscriptRecords(records) {
         const input = action._input;
         const cwd = action._cwd;
         const failed = block.is_error === true;
-        const blocked = tool === "Bash" && failed && bashNeverRan(body);
-        const error = failed && (tool !== "Bash" || blocked) ? unwrapToolError(body) : "";
+        const shell = tool != null && SHELL_TOOLS.has(tool);
+        const declined = failed ? declinedReason(tool, unwrapToolError(body), rec) : null;
+        const blocked = declined == null && shell && failed && bashNeverRan(body);
+        const error = declined ?? (failed && (!shell || blocked) ? toolError(body) : "");
         if (error !== "") {
           action.error = error;
+        }
+        if (failed && action.detail?.kind === "edit") {
+          delete action.detail;
         }
         if (tool === "Grep" && body && !failed) {
           const matches = parseGrep(body).map((m) => m.loc ? { ...m, loc: relativePath(m.loc, cwd) } : m);
@@ -847,13 +909,14 @@ function projectTranscriptRecords(records) {
           };
           const lineCount = body.split("\n").length;
           action.summary = `${lineCount} line${lineCount === 1 ? "" : "s"}`;
-        } else if (tool === "Bash" && body) {
+        } else if (shell && raw) {
+          const ran = !blocked && declined == null;
           action.detail = {
             kind: "bash",
             command: action.command,
             // a call that never ran has no output; its reason is the error
-            output: blocked ? "" : stripAnsi(body),
-            exit: blocked ? null : failed ? 1 : 0
+            output: ran ? body : "",
+            exit: !ran ? null : failed ? 1 : 0
           };
         } else if (action.detail?.kind === "edit") {
           const numbered = editFromPatch(action.detail.files[0].path, rec.toolUseResult?.structuredPatch);
@@ -868,7 +931,9 @@ function projectTranscriptRecords(records) {
         if (Number.isFinite(resTs) && Number.isFinite(useTs) && resTs >= useTs) {
           action.durationMs = resTs - useTs;
         }
-        if (blocked) {
+        if (declined != null) {
+          action.outcome = "declined";
+        } else if (blocked) {
           action.outcome = "blocked";
         } else if (block.is_error === true) {
           action.outcome = "fail";

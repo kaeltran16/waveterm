@@ -378,3 +378,44 @@ describe("extractCodexTasks", () => {
         ).toBeUndefined();
     });
 });
+
+// the census's A5 for Codex rollouts (specimens 76, 77, 150): a code-mode exec reads the command it runs, and a tool
+// with no mapped verb reads as words
+describe("projectCodexTranscript exec and unmapped tools", () => {
+    const exec = (input: string, call_id = "x1") => ri({ type: "custom_tool_call", name: "exec", call_id, input });
+
+    it("reads an exec that runs a command as that command", () => {
+        const input =
+            'text(await tools.exec_command({cmd:"Get-Content C:\\\\Users\\\\kael02\\\\SKILL.md; Get-Content DESIGN.md","max_output_tokens":16000}));\n';
+        const out = projectCodexTranscript([
+            exec(input),
+            ri({ type: "custom_tool_call_output", call_id: "x1", output: "ok" }),
+        ]);
+        expect(out).toEqual([
+            {
+                kind: "action",
+                verb: "ran",
+                target: "Get-Content C:\\Users\\kael02\\SKILL.md; Get-Content DESIGN.md",
+                outcome: "ok",
+            },
+        ]);
+    });
+
+    it("reads an exec that applies a patch as the file it edits", () => {
+        const input =
+            "text(await tools.apply_patch(\"*** Begin Patch\\n*** Add File: C:/x/record-popup/build.mjs\\n+import fs from 'node:fs';\\n*** End Patch\"));\n";
+        expect(projectCodexTranscript([exec(input)])).toEqual([
+            { kind: "action", verb: "edited", target: "build.mjs" },
+        ]);
+    });
+
+    it("leaves an exec that runs neither as a bare exec, never a fragment of its code", () => {
+        const input = "text(ALL_TOOLS.filter(x=>/file|shell/i.test(x.name)).map(x=>x.name));\n";
+        expect(projectCodexTranscript([exec(input)])).toEqual([{ kind: "action", verb: "exec", target: "" }]);
+    });
+
+    it("spaces an unmapped snake_case tool name", () => {
+        const call = ri({ type: "function_call", name: "request_user_input_async", arguments: "{}", call_id: "r1" });
+        expect(projectCodexTranscript([call])[0]).toMatchObject({ verb: "request user input async" });
+    });
+});

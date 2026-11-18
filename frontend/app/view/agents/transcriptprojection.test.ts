@@ -76,14 +76,14 @@ describe("projectTranscript", () => {
         expect(projectTranscript(["garbage", "{bad"])).toEqual([]);
     });
 
-    it("maps unknown tools to a lowercased verb and the salient input", () => {
+    it("maps unknown tools to a spaced lowercase verb and the salient input", () => {
         const out = projectTranscript([
             JSON.stringify({
                 type: "assistant",
                 message: { content: [{ type: "tool_use", id: "x", name: "WebFetch", input: { pattern: "abc" } }] },
             }),
         ]);
-        expect(out).toEqual([{ kind: "action", verb: "webfetch", target: "abc", pending: true }]);
+        expect(out).toEqual([{ kind: "action", verb: "web fetch", target: "abc", pending: true }]);
     });
 
     it("emits an action with no outcome when tool_use has no id (result can't be matched)", () => {
@@ -1166,9 +1166,23 @@ describe("projectTranscript AskUserQuestion", () => {
         expect(action.detail.questions[0].typed).toBe(long);
     });
 
-    it("fails a rejected question and leaves it unanswered", () => {
-        const [action] = projectTranscript([ask([store]), result("User rejected tool use", true)]) as any[];
-        expect(action.outcome).toBe("fail");
+    it("reads a rejected question as declined and leaves it unanswered", () => {
+        const rejected = JSON.stringify({
+            type: "user",
+            toolUseResult: "User rejected tool use",
+            message: {
+                content: [
+                    {
+                        type: "tool_result",
+                        tool_use_id: "q1",
+                        is_error: true,
+                        content: "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+                    },
+                ],
+            },
+        });
+        const [action] = projectTranscript([ask([store]), rejected]) as any[];
+        expect(action.outcome).toBe("declined");
         expect(action.summary).toBeUndefined();
         expect(action.detail.questions[0].picked).toEqual([]);
     });
@@ -1934,14 +1948,15 @@ describe("projectTranscript fix round 2", () => {
         expect(out[0]).not.toHaveProperty("error");
     });
 
-    it("puts a failed Edit's error beside its attempted diff", () => {
+    it("puts a failed Edit's error on it, with no attempted diff shown as applied", () => {
         const msg = "No changes to make: old_string and new_string are exactly the same.";
         const file = `${CWD}\\frontend\\app\\view\\agents\\transcriptprojection.ts`;
         const out = projectTranscript([
             use("e1", "Edit", { file_path: file, old_string: "// a", new_string: "// a" }),
             result("e1", `<tool_use_error>${msg}</tool_use_error>`, { is_error: true, toolUseResult: `Error: ${msg}` }),
         ]);
-        expect(out[0]).toMatchObject({ outcome: "fail", error: msg, detail: { kind: "edit" } });
+        expect(out[0]).toMatchObject({ outcome: "fail", error: msg });
+        expect(out[0]).not.toHaveProperty("detail");
     });
 
     it("puts a failed Monitor call's multi-line error on the action", () => {
@@ -2076,5 +2091,273 @@ describe("projectTranscript fix round 2", () => {
     it("does not leak the scratch fields it keeps for the result", () => {
         const out = projectTranscript([use("g1", "Grep", { pattern: "x" }), result("g1", "a.ts:1:x")]);
         expect(Object.keys(out[0]).filter((k) => k.startsWith("_"))).toEqual([]);
+    });
+});
+
+// the census's projection findings (findings.md A1-A8, C7, F5, decision 1), each from trimmed records of the specimen
+// it names
+describe("projectTranscript census fixes", () => {
+    const L = (o: unknown) => JSON.stringify(o);
+    const use = (id: string, name: string, input: unknown) =>
+        L({ type: "assistant", message: { content: [{ type: "tool_use", id, name, input }] } });
+    const result = (id: string, content: unknown, opts: { is_error?: boolean; extra?: object } = {}) =>
+        L({
+            type: "user",
+            ...opts.extra,
+            message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error: opts.is_error ?? false }] },
+        });
+    const REJECTED =
+        "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the " +
+        "new_string was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
+
+    // #143
+    it("A1: projects a PowerShell call as a shell command with its command, output and exit", () => {
+        const command = "Get-ChildItem env: | Where-Object { $_.Name -match 'ARC|RUN' } | Format-Table -AutoSize";
+        const output =
+            "Exit code 1\nName          Value\r\n----          -----\r\nARC_RUN_AGENT 1\r\n\r\nError: in no Arc project";
+        const out = projectTranscript([
+            use("p1", "PowerShell", { command, description: "Inspect run-related env vars and list runs" }),
+            result("p1", output, { is_error: true }),
+            use("p2", "PowerShell", { command: "Get-Location" }),
+            result("p2", "Path\n----\nC:\\x"),
+        ]);
+        expect(out[0]).toMatchObject({
+            verb: "ran",
+            target: "Inspect run-related env vars and list runs",
+            command,
+            outcome: "fail",
+            detail: {
+                kind: "bash",
+                command,
+                output: "Exit code 1\nName          Value\n----          -----\nARC_RUN_AGENT 1\n\nError: in no Arc project",
+                exit: 1,
+            },
+        });
+        expect(out[0]).not.toHaveProperty("error");
+        expect(out[1]).toMatchObject({ verb: "ran", outcome: "ok", detail: { kind: "bash", exit: 0 } });
+    });
+
+    // #75, #8, #126
+    it("A2: decodes XML entities in a task-notification's fields, once", () => {
+        const content = [
+            "<task-notification>",
+            "<task-id>b1</task-id>",
+            '<summary>Background command "mkdir -p out &amp;&amp; node final-verify.mjs agent-rendered 2&gt;&amp;1" completed (exit code 0)</summary>',
+            "<status>completed</status>",
+            "<result>flows: `a --&gt; b`, quoted &quot;x&quot; and &#39;y&#39;, a literal &amp;lt;tag&amp;gt;</result>",
+            "</task-notification>",
+        ].join("\n");
+        const [note] = projectTranscript([L({ type: "user", message: { content } })]) as any[];
+        expect(note.summary).toBe(
+            'Background command "mkdir -p out && node final-verify.mjs agent-rendered 2>&1" completed (exit code 0)'
+        );
+        expect(note.result).toBe("flows: `a --> b`, quoted \"x\" and 'y', a literal &lt;tag&gt;");
+    });
+
+    // #16
+    it("A3: drops Claude Code's system-reminder block from a compaction summary", () => {
+        const summary =
+            "This session is being continued from a previous conversation that ran out of context.\n\n" +
+            "<system-reminder>\n<tools-used-before-summary>Bash, Grep</tools-used-before-summary>\n</system-reminder>\n" +
+            "Summary:\n1. Primary Request and Intent:\n   - **Spec:** docs/x.md";
+        const [c] = projectTranscript([
+            L({ type: "user", isCompactSummary: true, message: { content: summary } }),
+        ]) as any[];
+        expect(c.summary).toBe(
+            "This session is being continued from a previous conversation that ran out of context.\n\n" +
+                "Summary:\n1. Primary Request and Intent:\n   - **Spec:** docs/x.md"
+        );
+    });
+
+    // #51
+    it("A4: keeps no diff on a failed Edit or Write, only its error", () => {
+        const msg = "String to replace not found in file.\nString: \t\torchestrate.MarkInterruptedRuns(ctx)";
+        const out = projectTranscript([
+            use("e1", "Edit", { file_path: "/p/main-server.go", old_string: "a\nb", new_string: "a\nb\nc" }),
+            result("e1", `<tool_use_error>${msg}</tool_use_error>`, { is_error: true }),
+            use("w1", "Write", { file_path: "/p/new.md", content: "x\ny" }),
+            result("w1", "<tool_use_error>File has not been read yet.</tool_use_error>", { is_error: true }),
+        ]);
+        expect(out[0]).toMatchObject({ verb: "edited", outcome: "fail", error: msg });
+        expect(out[0]).not.toHaveProperty("detail");
+        expect(out[1]).toMatchObject({ verb: "wrote", outcome: "fail", error: "File has not been read yet." });
+        expect(out[1]).not.toHaveProperty("detail");
+    });
+
+    // #70, #74, #75, #84, #87, #145, #150
+    it.each([
+        ["SendFeedback", { type: "bug", title: "Lead stalled", details: "long" }, "send feedback", "Lead stalled"],
+        ["ListAgents", {}, "list agents", ""],
+        ["TaskStop", { task_id: "b1ggaf2wk" }, "task stop", "b1ggaf2wk"],
+        ["KillShell", { shell_id: "s42" }, "kill shell", "s42"],
+        ["ToolSearch", { query: "select:Monitor", max_results: 1 }, "tool search", "select:Monitor"],
+        ["WebSearch", { query: "vitest related flag" }, "web search", "vitest related flag"],
+        ["WebFetch", { url: "https://example.com/a", prompt: "summarise" }, "web fetch", "https://example.com/a"],
+        [
+            "ScheduleWakeup",
+            { delaySeconds: 1200, reason: "fallback check", prompt: "Check the run" },
+            "schedule wakeup",
+            "fallback check",
+        ],
+        ["mcp__ccd_turn__update_plan", { prompt: "next step" }, "update plan", "next step"],
+        ["request_user_input_async", {}, "request user input async", ""],
+    ])("A5: reads the unmapped tool %s as a spaced verb and its salient input", (name, input, verb, target) => {
+        expect(projectTranscript([use("x1", name, input)])[0]).toMatchObject({ verb, target });
+    });
+
+    // #31, #47, #124
+    it("A7: drops the harness's boilerplate lines from a tool result", () => {
+        const background =
+            "Command running in background with ID: b4j6qw37i. Output is being written to: C:\\T\\b4j6qw37i.output. " +
+            "You will be notified when it completes — do not poll that file or sleep while waiting.";
+        const out = projectTranscript([
+            use("b1", "Bash", { command: "node final-verify.mjs", run_in_background: true }),
+            result("b1", background),
+            use("b2", "Bash", { command: "wsh runs show 2ef30fc3" }),
+            result(
+                "b2",
+                "Error: no run 2ef30fc3 in any project\nShell cwd was reset to C:\\Users\\kael02\\IdeaProjects\\waveterm"
+            ),
+            use("b3", "Bash", { command: "sed -i s/a/b/ Taskfile.yml" }),
+            result(
+                "b3",
+                "done\n[This command modified 1 file you've previously read: Taskfile.yml. Call Read before editing.]"
+            ),
+        ]) as any[];
+        expect(out.map((e) => e.detail.output)).toEqual(["", "Error: no run 2ef30fc3 in any project", "done"]);
+    });
+
+    // #123
+    it("A8: collapses carriage-return progress to each line's last state", () => {
+        const out = projectTranscript([
+            use("b1", "Bash", { command: "git checkout --detach HEAD" }),
+            result(
+                "b1",
+                "Preparing files (detached HEAD 1a2b)\nUpdating files:  57% (1784/3093)\rUpdating files:  58% (1794/3093)\r" +
+                    "Updating files: 100% (3093/3093), done.\r\nHEAD is now at 1a2b fix\r"
+            ),
+        ]) as any[];
+        expect(out[0].detail.output).toBe(
+            "Preparing files (detached HEAD 1a2b)\nUpdating files: 100% (3093/3093), done.\nHEAD is now at 1a2b fix"
+        );
+    });
+
+    // #141, #53
+    it("C7: strips ANSI escapes from a Read body", () => {
+        const body = "109\tconst OUT = `\x1b[1m${LINES[0]}\x1b[0m\n110\t\x1b[32mdone\x1b[0m`;";
+        const [action] = projectTranscript([
+            use("r1", "Read", { file_path: "/p/scenarios.mjs" }),
+            result("r1", body),
+        ]) as any[];
+        expect(action.detail.snippet).toBe("109\tconst OUT = `${LINES[0]}\n110\tdone`;");
+    });
+
+    // #31
+    it("F5: reads an InputValidationError as its message, without the schema the harness appends", () => {
+        const msg =
+            "InputValidationError: Monitor failed due to the following issue:\nThe required parameter `description` is missing\n\n" +
+            "This tool's schema was not sent to the API. For reference, this tool's input schema is: " +
+            '{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}';
+        const [action] = projectTranscript([
+            use("m1", "Monitor", { command: "tail -f x" }),
+            result("m1", `<tool_use_error>${msg}</tool_use_error>`, { is_error: true }),
+        ]) as any[];
+        expect(action).toMatchObject({
+            outcome: "fail",
+            error: "InputValidationError: Monitor failed due to the following issue:\nThe required parameter `description` is missing",
+        });
+    });
+
+    describe("decision 1: declined", () => {
+        // #4
+        it("reads a question the user declined as declined, with the question's own line", () => {
+            const [action] = projectTranscript([
+                use("q1", "AskUserQuestion", {
+                    questions: [{ question: "What do you dislike?", options: [{ label: "A" }] }],
+                }),
+                result("q1", REJECTED, {
+                    is_error: true,
+                    extra: { toolUseResult: "User rejected tool use", toolDenialKind: "user-rejected" },
+                }),
+            ]) as any[];
+            expect(action).toMatchObject({
+                outcome: "declined",
+                error: "You declined the question, so Claude stopped and waited for you.",
+                detail: { kind: "ask" },
+            });
+            expect(action).not.toHaveProperty("summary");
+        });
+
+        // #84
+        it("reads any other call the user declined as declined, with the call's line", () => {
+            const [action] = projectTranscript([
+                use("w1", "WebSearch", { query: "x" }),
+                result("w1", REJECTED, { is_error: true }),
+            ]) as any[];
+            expect(action).toMatchObject({
+                outcome: "declined",
+                error: "You declined this call, so Claude stopped and waited for you.",
+            });
+        });
+
+        it("tells a user-rejected Bash (declined) from a hook-refused one (blocked), neither having run", () => {
+            const out = projectTranscript([
+                use("b1", "Bash", { command: "rm -rf build" }),
+                result("b1", REJECTED, { is_error: true }),
+                use("b2", "Bash", { command: "task build > log" }),
+                result(
+                    "b2",
+                    "<tool_use_error>Refused by Arc: Claude Code already saves a background command's output.</tool_use_error>",
+                    { is_error: true }
+                ),
+            ]);
+            expect(out[0]).toMatchObject({
+                outcome: "declined",
+                error: "You declined this call, so Claude stopped and waited for you.",
+                detail: { kind: "bash", exit: null, output: "" },
+            });
+            expect(out[1]).toMatchObject({ outcome: "blocked", detail: { kind: "bash", exit: null, output: "" } });
+        });
+
+        it("keeps a permission denial's first sentence, which names the rule", () => {
+            const out = projectTranscript([
+                use("r1", "Read", { file_path: "C:\\Users\\kael02\\Downloads\\bench" }),
+                result("r1", "Permission to read C:\\Users\\kael02\\Downloads\\bench has been denied.", {
+                    is_error: true,
+                }),
+                use("b1", "Bash", { command: "rm -rf $X/" }),
+                result(
+                    "b1",
+                    "Permission for this command was denied by a built-in Claude Code safety check, not by the user. The check stops removals.",
+                    { is_error: true }
+                ),
+                use("b2", "PowerShell", { command: "Get-Item $(pwd)" }),
+                result("b2", "Command contains subexpressions $(). Approve only if you trust it.", {
+                    is_error: true,
+                    extra: { toolDenialKind: "user-rejected" },
+                }),
+            ]);
+            expect(out.map((e: any) => [e.outcome, e.error])).toEqual([
+                ["declined", "Permission to read C:\\Users\\kael02\\Downloads\\bench has been denied."],
+                [
+                    "declined",
+                    "Permission for this command was denied by a built-in Claude Code safety check, not by the user.",
+                ],
+                ["declined", "Command contains subexpressions $()."],
+            ]);
+        });
+
+        it("keeps a real error a failure, and a command that printed a refusal phrase a failed run", () => {
+            const out = projectTranscript([
+                use("b1", "Bash", { command: "grep -h 'rejected' *.jsonl" }),
+                result("b1", `Exit code 1\n${REJECTED}`, { is_error: true }),
+                use("r1", "Read", { file_path: "/p/missing.ts" }),
+                result("r1", "<tool_use_error>File does not exist.</tool_use_error>", { is_error: true }),
+                use("e1", "Edit", { file_path: "/p/a.ts", old_string: "a", new_string: "b" }),
+                result("e1", "<tool_use_error>File not found: /p/a.ts</tool_use_error>", { is_error: true }),
+            ]);
+            expect(out.map((e: any) => e.outcome)).toEqual(["fail", "fail", "fail"]);
+            expect(out[0]).toMatchObject({ detail: { kind: "bash", exit: 1 } });
+        });
     });
 });
