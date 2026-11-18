@@ -9,6 +9,7 @@ import {
     briefView,
     builderCountsOf,
     failingLogLine,
+    finalDefectCount,
     finalRoundOf,
     judgeResultOf,
     LEAD_ASK_DEADLINE_MS,
@@ -299,6 +300,32 @@ describe("failingLogLine", () => {
         "196/197 steps passed",
     ])("passes: %s", (line) => {
         expect(failingLogLine(line)).toBe(false);
+    });
+});
+
+describe("finalDefectCount", () => {
+    const head = "wake: the final stage failed on the merged result in round 1 of 3. Write a fix plan:";
+
+    it("counts the verifier's defects, one per line", () => {
+        const p = one(`${head}
+boards-draw · step 4: the arrow stays
+boards-surface · step 2: text runs under`);
+        expect(finalDefectCount(p)).toBe(2);
+    });
+
+    it.each([
+        "Final `sh scripts/final.sh` failed (exit 1):",
+        "Verify `go test ./...` failed on the merged result (exit 1):",
+        "Check `go build ./...` failed (exit 2):",
+    ])("names no count for a failed command's log: %s", (cmdHead) => {
+        const p = one(`${head}
+${cmdHead}
+  ok 1 a
+  x  2 b
+    Error: boom
+  1 failed`);
+        expect(p.items).toHaveLength(5);
+        expect(finalDefectCount(p)).toBeUndefined();
     });
 });
 

@@ -1,5 +1,5 @@
 // Scenario `transcript-census-steps`: the census's step-row and tool-body fixes (steprows.tsx, tooldetailbody.tsx,
-// toolrenderers.tsx, recordedoutput.tsx, tooldetailmodal.tsx; plan 2026-11-18-transcript-census-fixes, Task 4), at the
+// toolrenderers.tsx, recordedoutput.tsx, tooldetailmodal.tsx), at the
 // census's two hosts. Each fixture is trimmed from the census specimen named beside it (#N): the declined look, title
 // truncation (B1), the compact answer (B2), no repeated command (B3), the 20-line body cap (C1), the compact Tests card
 // (C2), the wsh fallback (C3), wrapping (C5), segment-cut paths (C6), the command-output gap (C8), Open full view inside

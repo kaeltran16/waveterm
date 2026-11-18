@@ -153,8 +153,8 @@ const GROUPS: ReadonlySet<string> = new Set(
 
 // a word that still holds a variable or a command substitution after expansion: the call's real id is unknown
 const UNRESOLVED = /[$`]/;
-// flags whose value a card shows but never fetches by (jarvis complete's sha, a note's text), so a substitution there
-// is harmless
+// flags whose value a card shows or ignores but never fetches by (jarvis complete's sha and report file, a note's
+// text), so a substitution there is harmless
 const DISPLAY_FLAGS: ReadonlySet<string> = new Set([
     "body",
     "commit",
@@ -162,6 +162,7 @@ const DISPLAY_FLAGS: ReadonlySet<string> = new Set([
     "message",
     "note",
     "reason",
+    "report",
     "summary",
     "title",
 ]);

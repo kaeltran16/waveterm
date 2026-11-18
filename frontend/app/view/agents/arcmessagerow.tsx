@@ -32,6 +32,7 @@ import {
     briefView,
     builderCountsOf,
     failingLogLine,
+    finalDefectCount,
     finalRoundOf,
     fmtGap,
     judgeResultOf,
@@ -298,6 +299,7 @@ function partWords(p: WakePart, ev: WakeEvents, run: BriefRun | undefined): Part
             return { tone: "warn", headline: `${t}'s worker exited`, meta: "without reporting complete" };
         case "final-failed": {
             const r = finalRoundOf(p);
+            const defects = finalDefectCount(p);
             const rounds = r
                 ? `round ${r.round}${r.of != null ? ` of ${r.of}` : ""}${p.last ? ", the last" : ""}`
                 : undefined;
@@ -307,7 +309,7 @@ function partWords(p: WakePart, ev: WakeEvents, run: BriefRun | undefined): Part
                 meta: join(
                     rounds,
                     p.sha ? `on the merged result ${p.sha}` : "on the merged result",
-                    plural(p.items?.length ?? 0, "defect")
+                    defects != null && plural(defects, "defect")
                 ),
                 body: "items",
             };

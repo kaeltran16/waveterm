@@ -234,6 +234,16 @@ export function failingLogLine(line: string): boolean {
     return FAILING_LINE.some((re) => re.test(line));
 }
 
+// the engine's head over a failed command's log (final.go): "Final `<cmd>` failed (exit 1):"
+const COMMAND_FAILED_HEAD = /^(?:Check|Verify|Final) `[^`]*` failed\b/;
+
+// how many defects a failed final stage names: the verifier writes one per line, while a failed command's body is
+// its log, whose line count is no defect count, so it has none
+export function finalDefectCount(part: WakePart): number | undefined {
+    const items = part.items ?? [];
+    return items.length > 0 && COMMAND_FAILED_HEAD.test(items[0]) ? undefined : items.length;
+}
+
 // a wake split into its lines (composeWake): each `wake:` line is a part, the lines under it its body (a failed final
 // stage's defects, the land's holds), and the Unverified and Since-your-last-wake sections parts of their own
 export function wakeParts(text: string): WakePart[] {

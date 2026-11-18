@@ -154,6 +154,11 @@ describe("shell variable ids", () => {
         expect(firstWshCall("wsh jarvis complete --commit $SHA --report C:/tmp/r.md")?.key).toBe("jarvis-complete");
     });
 
+    it("a report file substitution leaves jarvis complete resolved: the card never reads the file", () => {
+        expect(firstWshCall('wsh jarvis complete --report "$X"')?.key).toBe("jarvis-complete");
+        expect(firstWshCall("wsh jarvis complete --report=$(mktemp)")?.key).toBe("jarvis-complete");
+    });
+
     it("an unresolved fetch flag value is unresolved too", () => {
         expect(firstWshCall("wsh jarvis dag status --runid $R")).toBeNull();
         expect(firstWshCall("wsh jarvis dag review t-1 pass --channel=$C")?.key).toBe("other-change");

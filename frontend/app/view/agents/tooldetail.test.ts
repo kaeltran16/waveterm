@@ -181,6 +181,11 @@ describe("formatDuration", () => {
     });
     it("minutes past 60s", () => {
         expect(formatDuration(720000)).toBe("12m");
+        expect(formatDuration(3_599_000)).toBe("59m");
+    });
+    it("hours and days past an hour, not thousands of minutes", () => {
+        expect(formatDuration(3_660_000)).toBe("1h 01m");
+        expect(formatDuration(86_400_000)).toBe("1d 0h");
     });
     it("undefined → empty", () => {
         expect(formatDuration(undefined)).toBe("");

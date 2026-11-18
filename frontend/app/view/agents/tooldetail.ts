@@ -6,6 +6,7 @@
 // structuredPatch replaces it with the file's own numbered hunks.
 
 import type { AskQuestionDetail, DiffLine, EditFile, GrepMatch, ToolImage } from "./agentsviewmodel";
+import { fmtDuration } from "./runcompletion";
 
 // A Claude tool_result `content` is either a string or an array of { type:"text", text }.
 export function toolResultText(content: unknown): string {
@@ -212,5 +213,6 @@ export function answerAsk(questions: AskQuestionDetail[], answers: Record<string
 export function formatDuration(ms?: number): string {
     if (ms == null) return "";
     if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${Math.floor(ms / 60_000)}m`;
+    if (ms < 60 * 60_000) return `${Math.floor(ms / 60_000)}m`;
+    return fmtDuration(ms);
 }

@@ -155,6 +155,7 @@ const FINAL_LOG = probe(`
     }));
     return {
         logs: logs.length,
+        meta: root.querySelector('[data-wake-part="final-failed"] [data-event-meta]')?.textContent ?? null,
         whiteSpace: getComputedStyle(log).whiteSpace,
         mono: getComputedStyle(log).fontFamily === mono,
         indented: lines.filter((l) => /^\\s{2,}\\S/.test(l.text)).length,
@@ -310,10 +311,13 @@ export const transcriptCensusRows = {
                 const log = await h.ev(FINAL_LOG);
                 await h.shot(`cdp-shots/transcript-census-rows-final-${id}-${name}.png`);
                 steps.push({
-                    step: `E1 ${name} #${id}: the Final log is one mono block keeping its indentation, ${failing ? "its failing lines in the error tone and " : ""}its passing lines not`,
+                    step: `E1 ${name} #${id}: the Final log is one mono block keeping its indentation, ${failing ? "its failing lines in the error tone and " : ""}its passing lines not; the head counts no log lines as defects`,
                     ok:
                         log != null &&
                         log.logs === 1 &&
+                        log.meta != null &&
+                        log.meta.includes("round 1") &&
+                        !log.meta.includes("defect") &&
                         log.whiteSpace === "pre-wrap" &&
                         log.mono &&
                         log.indented >= 2 &&
