@@ -51,6 +51,7 @@ import {
     shownBoards,
     updatedAgo,
     type BoardFrame,
+    type CanvasBoard,
     type CanvasLayout,
 } from "./canvasmodel";
 import { sendCanvasMark } from "./canvassend";
@@ -80,13 +81,19 @@ const LABEL_OFFSET = 22;
 const NOTE_GAP = 6;
 
 // a run waiting on this session takes the canvas as its prototype and the sheet opens on it; any other session
-// opens New run as an orchestrator run on the agent's project, with this canvas as the run's prototype
-async function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasState): Promise<void> {
-    const prototype = prototypePath(s.dir, shownBoards(s));
+// opens New run as an orchestrator run on the agent's project, with this canvas as the run's prototype. boards: the
+// ones it builds, the shown tab's in the canvas, every board from the workspace pane's list
+export async function openBuildRun(
+    model: AgentsViewModel,
+    agent: AgentVM,
+    s: CanvasState,
+    boards: CanvasBoard[]
+): Promise<void> {
+    const prototype = prototypePath(s.dir, boards);
     const openLauncher = () => {
         globalStore.set(newRunPrefillAtom, {
             projectName: projectOf(agent),
-            goal: buildGoal(s.dir, shownBoards(s)),
+            goal: buildGoal(s.dir, boards),
             shape: "orchestrator",
             prototype,
         });
@@ -177,7 +184,7 @@ export function CanvasPane({
 
     return (
         <div data-canvas-pane className="flex min-h-0 flex-1 flex-col">
-            {/* wraps in a narrow pane (the workspace's Canvas tab): unwrapped, the board tabs shrank to nothing and
+            {/* wraps in a narrow pane (a board in the workspace's Brainstorm tab): unwrapped, the board tabs shrank to nothing and
                 keeping the picked one in view scrolled the whole pane sideways */}
             <div
                 className={cn(
@@ -258,7 +265,7 @@ export function CanvasPane({
                                 onClick={() => {
                                     // the launcher opens over the surface, so the window makes way for it
                                     onClose?.();
-                                    void openBuildRun(model, agent, s);
+                                    void openBuildRun(model, agent, s, shownList);
                                 }}
                                 className={CANVAS_BTN}
                             >
@@ -657,7 +664,7 @@ export const SERVER_DOWN = {
     explainer: "The canvas files are on disk, but Arc got no answer serving them. It tries again every few seconds.",
 };
 
-function ServerDown() {
+export function ServerDown() {
     return (
         <EdgeState>
             <span className="flex items-center gap-[8px] text-[14px] font-semibold text-primary">
@@ -669,7 +676,7 @@ function ServerDown() {
     );
 }
 
-function Removed({
+export function Removed({
     agent,
     topic,
     onBack,

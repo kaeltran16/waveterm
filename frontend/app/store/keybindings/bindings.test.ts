@@ -2545,6 +2545,75 @@ describe("Agent keys, stepping and toggles", () => {
             closeWorkspaceTab("r", "brainstorm");
             expect(claiming("Escape")).toEqual(["agent:back"]);
         });
+
+        describe("the Canvas tab's list", () => {
+            const LIST = ["Main.dc.html", "States.dc.html", "Cards.dc.html"];
+            const withList = () => {
+                const r = rendered();
+                attachCanvas("r", { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
+                updateCanvas("r", (s) => ({
+                    ...s,
+                    status: "ready",
+                    board: LIST[0],
+                    boards: LIST.map((name) => ({ name, x: 0, y: 0, w: 1440, h: 900 })),
+                }));
+                openWorkspaceTab("r", { kind: "canvas" });
+                return r;
+            };
+            const press = (claiming: (k: string) => string[], find: (id: string) => any, k: string) => {
+                const ids = claiming(k);
+                expect(ids, k).toHaveLength(1);
+                find(ids[0]).run(nav);
+            };
+
+            it("[ and ] move the selection through the boards, wrapping, with no All among them", () => {
+                const { claiming, find } = withList();
+                press(claiming, find, "]");
+                expect(getCanvas("r")!.board).toBe("States.dc.html");
+                press(claiming, find, "]");
+                press(claiming, find, "]");
+                expect(getCanvas("r")).toMatchObject({ board: "Main.dc.html", all: false });
+                press(claiming, find, "[");
+                expect(getCanvas("r")!.board).toBe("Cards.dc.html");
+                expect(globalStore.get(canvasWindowAtom)).toBeNull();
+            });
+
+            it("m opens the window on the selected board with marking on", () => {
+                const { claiming, find } = withList();
+                press(claiming, find, "]");
+                press(claiming, find, "m");
+                expect(globalStore.get(canvasWindowAtom)).toBe("r");
+                expect(getCanvas("r")).toMatchObject({
+                    board: "States.dc.html",
+                    all: false,
+                    marking: true,
+                    mark: null,
+                });
+            });
+
+            it("m opens the window even with marking left on from the Terminal view's canvas", () => {
+                const { claiming, find } = withList();
+                setMarking("r", true);
+                press(claiming, find, "m");
+                expect(globalStore.get(canvasWindowAtom)).toBe("r");
+                expect(getCanvas("r")!.marking).toBe(true);
+            });
+
+            it("stand down under the open window, with the tab hidden, and while the canvas is not served", () => {
+                const { claiming } = withList();
+                const keys = ["m", "[", "]"];
+                expect(keys.map((k) => claiming(k, { ...nav, modalOpen: true }))).toEqual([[], [], []]);
+                updateCanvas("r", (s) => ({ ...s, status: "server-down" }));
+                expect(keys.map((k) => claiming(k))).toEqual([[], [], []]);
+                updateCanvas("r", (s) => ({ ...s, status: "ready" }));
+                openWorkspaceTab("r", { kind: "changes", selected: null });
+                expect(keys.map((k) => claiming(k).filter((id) => id.startsWith("agent:canvas")))).toEqual([
+                    [],
+                    [],
+                    [],
+                ]);
+            });
+        });
     });
 
     it("toggles the rail and fullscreen, and F11 toggles fullscreen too", () => {

@@ -31,11 +31,11 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { BrainstormPane } from "./brainstormpane";
 import { brainstormAtom, brainstormWaitOf } from "./brainstormstore";
-import { CanvasPane } from "./canvaspane";
 import { canvasStateAtom } from "./canvasstore";
 import { childAsksAtom } from "./childaskstore";
 import { useRunInfo } from "./runlineagestore";
 import { useRunAsks } from "./runrailsections";
+import { WorkspaceCanvasTab } from "./workspacecanvastab";
 import { ChangesTab } from "./workspacechangestab";
 import { FileTab } from "./workspacefiletab";
 import {
@@ -464,7 +464,7 @@ function TabBody({ model, agent, ws }: { model: AgentsViewModel; agent: AgentVM;
             ) : tab.kind === "brainstorm" ? (
                 <BrainstormPane model={model} agent={agent} />
             ) : (
-                <CanvasPane model={model} agent={agent} />
+                <WorkspaceCanvasTab model={model} agent={agent} />
             )}
         </ViewSwap>
     );

@@ -155,7 +155,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 ### Agent: canvas mode
 
-`c` works when the focused agent has a canvas. In Terminal the canvas takes over the center (canvas mode), and there `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas. In Rendered the canvas is the workspace pane's Canvas tab beside the transcript: `c` and `Ctrl`+`Shift`+`B` open and close the tab, and the board keys below work while it is the shown tab.
+`c` works when the focused agent has a canvas. In Terminal the canvas takes over the center (canvas mode), and there `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas. In Rendered the canvas is the workspace pane's Canvas tab beside the transcript, every board stacked as a preview: `c` and `Ctrl`+`Shift`+`B` open and close the tab, and while it is the shown tab `[` / `]` move the selection among the boards (no All) and `m` opens the canvas window on the selected board with marking on.
 
 | Keys | Action |
 |---|---|

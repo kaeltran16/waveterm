@@ -38,8 +38,16 @@ import {
     shownBrainstormFile,
     toggleReviewRow,
 } from "@/app/view/agents/brainstormstore";
-import { paneState } from "@/app/view/agents/canvasmodel";
-import { canvasWindowAtom, focusedCanvas, getCanvas, setMarking, stepCanvasBoard } from "@/app/view/agents/canvasstore";
+import { paneState, shownBoard } from "@/app/view/agents/canvasmodel";
+import {
+    canvasWindowAtom,
+    focusedCanvas,
+    getCanvas,
+    openCanvasWindow,
+    selectCanvasBoard,
+    setMarking,
+    stepCanvasBoard,
+} from "@/app/view/agents/canvasstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sendPendingComments } from "@/app/view/agents/commentsend";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
@@ -90,6 +98,7 @@ import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageBackStep } from "@/app/view/agents/usagenav";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
+import { stepListBoard } from "@/app/view/agents/workspacecanvastabmodel";
 import { rendersNow, toggleWorkspaceCollapsed, workspaceAtom } from "@/app/view/agents/workspacestore";
 import { boardOwnsEscapeAtom, runBoardEscape } from "@/app/view/boards/boardstore";
 import { toggleBlame } from "@/app/view/code/codeblamestore";
@@ -267,6 +276,15 @@ const clickThrough = (selector: string): boolean | void => {
 function focusedShown(model: AgentsViewModel): PaneKind | null {
     const id = globalStore.get(model.focusIdAtom);
     return id ? paneShown(model, id) : null;
+}
+
+// the Canvas tab's [ and ]: only the selection moves among the boards; the canvas's All or single-board view stays
+function selectListBoard(agentId: string, delta: number): void {
+    const s = getCanvas(agentId);
+    const next = s != null ? stepListBoard(s, delta) : null;
+    if (next != null) {
+        selectCanvasBoard(agentId, next);
+    }
 }
 
 // the canvas of the board the focused agent's brainstorm pane shows full size; null while it shows anything else
@@ -1014,7 +1032,13 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     const centerFree = () => shown() == null || rendered();
     const nav = (ctx: KeyContext) => agentNav(ctx) && centerFree();
     const inCanvas = (ctx: KeyContext) => agentNav(ctx) && shown() === "canvas";
-    const boardReady = (ctx: KeyContext) => inCanvas(ctx) && !canvas()!.marking && paneState(canvas()!) === "board";
+    // the Terminal view's canvas center marks in place; the Rendered view's Canvas tab is a list that marks in the
+    // canvas window, so the two get their own [ ] and m
+    const inCanvasCenter = (ctx: KeyContext) => inCanvas(ctx) && !rendered();
+    const boardReady = (ctx: KeyContext) =>
+        inCanvasCenter(ctx) && !canvas()!.marking && paneState(canvas()!) === "board";
+    // agentNav stands down under the open window, whose own keys take over there
+    const listReady = (ctx: KeyContext) => inCanvas(ctx) && rendered() && paneState(canvas()!) === "board";
     // a brainstorm's board opened full size steps with [ and ] as the canvas does
     const stepReady = (ctx: KeyContext) => {
         const c = agentNav(ctx) ? brainstormBoard(model) : null;
@@ -1557,8 +1581,32 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "m",
             group: "Agent",
             label: "Stop marking",
-            when: (ctx) => inCanvas(ctx) && canvas()!.marking,
+            when: (ctx) => inCanvasCenter(ctx) && canvas()!.marking,
             run: () => setMarking(focusId(), false),
+        },
+        {
+            id: "agent:canvas-list-prev",
+            keys: "[",
+            group: "Agent",
+            label: "Previous board",
+            when: listReady,
+            run: () => selectListBoard(focusId()!, -1),
+        },
+        {
+            id: "agent:canvas-list-next",
+            keys: "]",
+            group: "Agent",
+            label: "Next board",
+            when: listReady,
+            run: () => selectListBoard(focusId()!, 1),
+        },
+        {
+            id: "agent:canvas-list-mark",
+            keys: "m",
+            group: "Agent",
+            label: "Mark part of the board in the canvas window",
+            when: listReady,
+            run: () => openCanvasWindow(focusId()!, { board: shownBoard(canvas()!).name, mark: true }),
         },
     ];
 }
