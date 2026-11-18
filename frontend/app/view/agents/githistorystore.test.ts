@@ -1058,3 +1058,49 @@ describe("the first file opened", () => {
         expect(globalStore.get(selectedFileAtom)).toBe("retry/policy.go");
     });
 });
+
+// B and H are synthetic commits: the edits range lists the scope's own row and no commits
+describe("a history load with noCommits", () => {
+    const EDITS = scopeKey({
+        repo: { origin: { kind: "agent", id: "a1" }, label: "a1" },
+        range: { kind: "edits", agentId: "a1" },
+    });
+    const EDITS_OPTS = { noCommits: true, rowLabel: "Agent's edits" };
+
+    it("issues no git history read and shows only the scope's own row", async () => {
+        await loadHistory(CWD, EDITS_OPTS, EDITS);
+        await settle();
+
+        expect(gitHistory).not.toHaveBeenCalled();
+        const rows = globalStore.get(historyRowsAtom) ?? [];
+        expect(rows.map((r) => r.workingTree === true)).toEqual([true]);
+        expect(rows[0].subject).toBe("Agent's edits");
+        expect(globalStore.get(selectedCommitAtom)).toBe(WORKING_TREE);
+        expect(globalStore.get(selectedFileAtom)).toBe("docs/open-issues.md");
+        expect(globalStore.get(historyHasMoreAtom)).toBe(false);
+    });
+
+    it("issues none on a poll tick whose head moved", async () => {
+        await loadHistory(CWD, EDITS_OPTS, EDITS);
+        await settle();
+
+        refreshHistoryIfMoved("ccc3333");
+        refreshHistory();
+        await loadMoreHistory();
+        await settle();
+
+        expect(gitHistory).not.toHaveBeenCalled();
+    });
+
+    it("lists commits again once the range walks a ref", async () => {
+        await loadHistory(CWD, EDITS_OPTS, EDITS);
+        await settle();
+
+        await loadHistory(CWD, { ref: "HEAD", rowLabel: "Since session start" });
+
+        expect(gitHistory).toHaveBeenCalledTimes(1);
+        expect(commitCountOf()).toBe(2);
+    });
+});
+
+const commitCountOf = () => (globalStore.get(historyRowsAtom) ?? []).filter((r) => !r.workingTree).length;

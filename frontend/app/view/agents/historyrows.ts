@@ -165,6 +165,9 @@ export function worktreeCaption(range: DiffRange, branch: string, head: string, 
             return ref
                 ? `${on}, measured from session start ${ref.slice(0, 7)}`
                 : `${on}, measured from HEAD (no session start yet)`;
+        // B is synthetic, so its sha would name nothing the reader can find
+        case "edits":
+            return `${on}, only this agent's Edit and Write calls`;
         case "run":
             return range.headCommit
                 ? `${on}, measured from run base ${range.baseCommit.slice(0, 7)} to its landed tip ${range.headCommit.slice(0, 7)}`

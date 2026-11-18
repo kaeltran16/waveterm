@@ -10,6 +10,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { Copy } from "lucide-react";
 import { formatAgo } from "./agentsviewmodel";
 import { ChangedFileList, ReviewProgress, TreeModeToggle } from "./changedfilelist";
+import type { EditFlag } from "./filesstore";
 import { type GitChanges } from "./gitstatus";
 import { WORKING_TREE, refChipClass, type HistoryRow } from "./historyrows";
 import type { ReviewSubject } from "./reviewmarks";
@@ -118,6 +119,7 @@ export function CommitPane({
     onRetry,
     lineCounts = true,
     header = "full",
+    flags,
 }: {
     row: HistoryRow;
     changes: GitChanges | null;
@@ -133,6 +135,8 @@ export function CommitPane({
     lineCounts?: boolean;
     // "line" under the history column, whose selected row already says the rest
     header?: "full" | "line";
+    // the edits range's per-file caveats, by path
+    flags?: Record<string, EditFlag>;
 }) {
     const isWorkingTree = row.hash === WORKING_TREE;
     const count = changes?.files.length ?? 0;
@@ -176,6 +180,7 @@ export function CommitPane({
                     failure={failure}
                     onRetry={onRetry}
                     lineCounts={lineCounts}
+                    flags={flags}
                 />
             </div>
         </div>

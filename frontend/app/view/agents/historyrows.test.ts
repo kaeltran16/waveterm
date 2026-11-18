@@ -285,6 +285,12 @@ describe("worktreeCaption", () => {
             "On main, measured from HEAD (no session start yet)"
         );
     });
+    // B is a synthetic commit, so its sha would name nothing the reader can find
+    it("says the agent's edits come from its own Edit and Write calls", () => {
+        expect(worktreeCaption({ kind: "edits", agentId: "a" }, "main", "3eaffac1234", "b0b0b0b0000")).toBe(
+            "On main, only this agent's Edit and Write calls"
+        );
+    });
     it("bounds a landed run at its tip", () => {
         expect(
             worktreeCaption(
