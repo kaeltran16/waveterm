@@ -48,14 +48,16 @@ import { filesStateAtom, reloadChanges } from "@/app/view/agents/filesstore";
 import { treeModeAtom } from "@/app/view/agents/filetree";
 import { graphOnAtom, historyFiltersAtom, historyScrollAtom, refreshHistory } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
-import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
+import { railStateAtom, railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
 import { pickerFlipAtom, viewModeAtom } from "@/app/view/agents/renderedmode";
 import { activeReviewAtom, reviewMarksAtom } from "@/app/view/agents/reviewmarks";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { parseUnifiedDiff } from "@/app/view/agents/unifieddiff";
 import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
+import { changesAtAtom, changesPatchAtom } from "@/app/view/agents/workspacechangesstore";
 import {
     closeWorkspaceTab,
     openWorkspaceTab,
@@ -2425,6 +2427,118 @@ describe("Agent keys, stepping and toggles", () => {
             openWorkspaceTab("r", { kind: "changes", selected: null });
             globalStore.set(focusSubagentAtom, { parentId: "r", agentId: "s1" } as any);
             expect(d()).toEqual(["agent:toggle-rail"]);
+        });
+    });
+
+    describe("Shift+N, Shift+P and Shift+W on the Changes tab", () => {
+        const IDS = ["agent:changes-next", "agent:changes-prev", "agent:changes-whitespace"];
+        const patch = [
+            "diff --git a/a.ts b/a.ts",
+            "--- a/a.ts",
+            "+++ b/a.ts",
+            "@@ -1,1 +1,1 @@",
+            "-x",
+            "+y",
+            "@@ -9,1 +9,1 @@",
+            "-p",
+            "+q",
+        ].join("\n");
+        const setup = () => {
+            const { model, find } = build("r");
+            globalStore.set(model.agentsAtom, [{ id: "r", state: "idle", agent: "claude", blockId: "blk-r" }]);
+            globalStore.set(viewModeAtom("r"), "rendered");
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            return { model, find, active: (ctx: KeyContext = nav) => IDS.filter((id) => find(id).when!(ctx)) };
+        };
+        const loadWalk = () => {
+            globalStore.set(railStateAtom, {
+                cwd: "/repo",
+                branch: "main",
+                isRepo: true,
+                changes: { files: [{ path: "a.ts", status: "M", adds: 2, dels: 2 }], adds: 2, dels: 2 },
+                ref: "",
+            });
+            globalStore.set(changesPatchAtom, {
+                agentId: "r",
+                files: parseUnifiedDiff(patch),
+                truncated: false,
+                ignoreWs: false,
+            });
+        };
+
+        afterEach(() => {
+            closeWorkspaceTab("r", "changes");
+            closeWorkspaceTab("r", "canvas");
+            globalStore.set(viewModeAtom("r"), "rendered");
+            globalStore.set(ignoreWsAtom, false);
+            globalStore.set(changesPatchAtom, null);
+            globalStore.set(railStateAtom, null);
+            globalStore.set(changesAtAtom("r"), 0);
+        });
+
+        it("is active with the Changes tab shown in an open pane of a Rendered agent", () => {
+            expect(setup().active()).toEqual(IDS);
+        });
+
+        it("is inactive with another tab active, the pane collapsed, the Terminal view, an editable focus or a modal", () => {
+            const { active } = setup();
+            openWorkspaceTab("r", { kind: "canvas" });
+            expect(active()).toEqual([]);
+            closeWorkspaceTab("r", "canvas");
+            expect(active()).toEqual(IDS);
+
+            setWorkspaceCollapsed("r", true);
+            expect(active()).toEqual([]);
+            setWorkspaceCollapsed("r", false);
+
+            expect(active({ ...nav, editable: true })).toEqual([]);
+            expect(active({ ...nav, modalOpen: true })).toEqual([]);
+            expect(active({ ...nav, surface: "cockpit" })).toEqual([]);
+
+            globalStore.set(viewModeAtom("r"), "terminal");
+            expect(active()).toEqual([]);
+        });
+
+        it("Shift+N and Shift+P step the focused agent's counter, wrapping at both ends", () => {
+            const { find } = setup();
+            loadWalk();
+            const next = find("agent:changes-next");
+            const prev = find("agent:changes-prev");
+            expect([next.keys, prev.keys]).toEqual(["Shift:n", "Shift:p"]);
+            const at = () => globalStore.get(changesAtAtom("r"));
+            next.run(nav);
+            next.run(nav);
+            expect(at()).toBe(2);
+            next.run(nav);
+            expect(at()).toBe(1);
+            prev.run(nav);
+            expect(at()).toBe(2);
+        });
+
+        it("declines the key on an empty walk", () => {
+            const { find } = setup();
+            expect(find("agent:changes-next").run(nav)).toBe(false);
+            expect(find("agent:changes-prev").run(nav)).toBe(false);
+            expect(globalStore.get(changesAtAtom("r"))).toBe(0);
+        });
+
+        it("Shift+W flips Hide whitespace", () => {
+            const { find } = setup();
+            const w = find("agent:changes-whitespace");
+            expect(w.keys).toBe("Shift:w");
+            w.run(nav);
+            expect(globalStore.get(ignoreWsAtom)).toBe(true);
+            w.run(nav);
+            expect(globalStore.get(ignoreWsAtom)).toBe(false);
+        });
+
+        it("labels them as the Diff surface's are", () => {
+            const { find } = setup();
+            expect(IDS.map((id) => [find(id).label, find(id).group])).toEqual([
+                ["Next change", "Agent"],
+                ["Previous change", "Agent"],
+                ["Ignore whitespace", "Agent"],
+            ]);
         });
     });
 

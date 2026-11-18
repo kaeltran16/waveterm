@@ -5,15 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { GitChange } from "./gitstatus";
 import type { RailGitState } from "./railstore";
 import { parseUnifiedDiff } from "./unifieddiff";
-import {
-    changesGroups,
-    changesLine,
-    changesShown,
-    changesView,
-    fileOpen,
-    hunkWalk,
-    stepHunk,
-} from "./workspacechangesmodel";
+import { changesGroups, changesLine, changesView, fileOpen, hunkWalk, stepHunk } from "./workspacechangesmodel";
 
 const file = (path: string, adds: number, dels = 0): GitChange => ({ path, status: "M", adds, dels });
 const repo = (files: GitChange[], extra: Partial<RailGitState> = {}): RailGitState => ({
@@ -38,26 +30,6 @@ describe("what the Changes tab shows", () => {
     it("is clean with no changed files, and lists them otherwise", () => {
         expect(changesView(repo([]))).toBe("clean");
         expect(changesView(repo([file("a.ts", 1)]))).toBe("files");
-    });
-});
-
-describe("the file whose diff shows", () => {
-    const files = [file("src/b.ts", 1), file("a.ts", 2)];
-
-    it("is the tab's selection while the list still has it", () => {
-        expect(changesShown(files, "a.ts", false)).toBe("a.ts");
-    });
-
-    it("falls back to the list's first file when unset or gone", () => {
-        expect(changesShown(files, null, false)).toBe("src/b.ts");
-        expect(changesShown(files, "gone.ts", false)).toBe("src/b.ts");
-        // the tree draws directories first
-        expect(changesShown(files, null, true)).toBe("src/b.ts");
-        expect(changesShown([file("z.ts", 1), file("lib/a.ts", 1)], null, true)).toBe("lib/a.ts");
-    });
-
-    it("is none with no files", () => {
-        expect(changesShown([], "a.ts", false)).toBeNull();
     });
 });
 
@@ -204,7 +176,8 @@ describe("a file's body", () => {
     const patchA = patchOf(modified("a.go", "@@ -1 +1 @@", "-a", "+b"));
     const binary = patchOf("diff --git a/a.go b/a.go", "Binary files a/a.go and b/a.go differ");
     const noHunks = patchOf("diff --git a/a.go b/a.go", "old mode 100644", "new mode 100755");
-    const other = patchOf(modified("other.go", "@@ -1 +1 @@", "-a", "+b"));
+    // sorts before a.go, so a cut after it leaves a.go out
+    const before = patchOf(modified("0.go", "@@ -1 +1 @@", "-a", "+b"));
 
     it("is loading while the first read is pending", () => {
         expect(bodyOf(null)).toBe("loading");
@@ -216,8 +189,24 @@ describe("a file's body", () => {
     });
 
     it("is too large for a file past the cut, never loading", () => {
-        expect(bodyOf(other, { ...opts, truncated: true })).toBe("toolarge");
+        expect(bodyOf(before, { ...opts, truncated: true })).toBe("toolarge");
         expect(bodyOf([], { ...opts, truncated: true })).toBe("toolarge");
+    });
+
+    // git -w leaves a whitespace-only file out of the patch altogether, so a missing file is cut only when it would
+    // come after the patch's last entry: the tracked diff by path, then the untracked files by path
+    it("is whitespace, not too large, for a file the cut did not reach", () => {
+        const files = [change("a.go"), change("b.go"), change("z.go", "?")];
+        const patch = patchOf(modified("b.go", "@@ -1 +1 @@", "-a", "+b"));
+        const bodies = changesGroups(files, patch, { truncated: true, ignoreWs: true })[0].files.map((f) => f.body);
+        expect(bodies).toEqual(["whitespace", "hunks", "toolarge"]);
+    });
+
+    it("orders untracked files after every tracked one when placing the cut", () => {
+        const files = [change("z.go"), change("a.go", "?")];
+        const patch = patchOf(modified("z.go", "@@ -1 +1 @@", "-a", "+b"));
+        const bodies = changesGroups(files, patch, { truncated: true, ignoreWs: false })[0].files.map((f) => f.body);
+        expect(bodies).toEqual(["toolarge", "hunks"]);
     });
 
     it("is whitespace when hiding it leaves no hunks, and empty otherwise", () => {

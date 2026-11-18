@@ -292,7 +292,7 @@ function MarkedLine({ code, ranges }: { code: string; ranges: [number, number][]
 
 // one diff line: the shared diff look (tailwindsetup.css) marks the side, the gutter holds the line's number (the new
 // side's, a removed line's old one), or its sign when the diff carries no numbers
-function DiffRow({ line, numbered, wrap }: { line: DiffLine; numbered: boolean; wrap: string }) {
+export function DiffRow({ line, numbered, wrap }: { line: DiffLine; numbered: boolean; wrap: string }) {
     const tint = line.sign === "+" ? "diff-line-added" : line.sign === "-" ? "diff-line-removed" : undefined;
     const gutter = numbered ? (line.sign === "-" ? line.oldNo : (line.newNo ?? line.oldNo)) : line.sign;
     return (

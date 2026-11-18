@@ -6,7 +6,6 @@
 
 import { fileTotals } from "./agentrailmodel";
 import type { DiffLine, EditFile } from "./agentsviewmodel";
-import { firstInList } from "./filetree";
 import type { GitChange } from "./gitstatus";
 import type { RailGitState } from "./railstore";
 
@@ -23,14 +22,6 @@ export function changesView(rail: RailGitState | null): ChangesView {
         return "norepo";
     }
     return rail.changes.files.length === 0 ? "clean" : "files";
-}
-
-// the tab's selection while the list has it, else the first file the list draws
-export function changesShown(files: GitChange[], selected: string | null, tree: boolean): string | null {
-    if (selected != null && files.some((f) => f.path === selected)) {
-        return selected;
-    }
-    return firstInList(files, tree) ?? null;
 }
 
 export type ChangesBody = "loading" | "hunks" | "binary" | "whitespace" | "toolarge" | "empty";
@@ -79,7 +70,7 @@ function splitHunks(lines: DiffLine[], isNew: boolean): ChangesHunk[] {
 function bodyOf(
     entry: EditFile | undefined,
     hunks: ChangesHunk[],
-    o: { truncated: boolean; ignoreWs: boolean }
+    o: { pastCut: boolean; ignoreWs: boolean }
 ): ChangesBody {
     if (entry?.binary) {
         return "binary";
@@ -87,7 +78,7 @@ function bodyOf(
     if (hunks.length > 0) {
         return "hunks";
     }
-    if (entry == null && o.truncated) {
+    if (entry == null && o.pastCut) {
         return "toolarge";
     }
     return o.ignoreWs ? "whitespace" : "empty";
@@ -97,7 +88,7 @@ function changesFile(
     change: GitChange,
     entry: EditFile | undefined,
     patch: EditFile[] | null,
-    o: { truncated: boolean; ignoreWs: boolean }
+    o: { pastCut: boolean; ignoreWs: boolean }
 ): ChangesFile {
     const isNew = NEW_FILE_STATUSES.includes(change.status);
     const hunks = entry ? splitHunks(entry.lines, isNew) : [];
@@ -113,6 +104,9 @@ function changesFile(
 
 const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
+// where a file sits in the patch: git writes the tracked diff by path, then the untracked files by path
+const patchOrder = (path: string, status: string | undefined) => `${status === "?" ? 1 : 0}:${path}`;
+
 // root files first, then one group per parent directory by path, files by name; patch is null while the first read
 // is pending
 export function changesGroups(
@@ -121,11 +115,20 @@ export function changesGroups(
     o: { truncated: boolean; ignoreWs: boolean }
 ): ChangesGroup[] {
     const entries = new Map((patch ?? []).map((e) => [e.path, e]));
+    // the cap cuts at a whole file, so a file with no entry is past the cut only when it would follow the last entry;
+    // one before it was left out by git itself (-w drops a whitespace-only file)
+    const statuses = new Map(files.map((f) => [f.path, f.status]));
+    const last = (patch ?? [])
+        .map((e) => patchOrder(e.path, statuses.get(e.path)))
+        .reduce((a, b) => (b > a ? b : a), "");
+    const pastCut = (c: GitChange) => o.truncated && patchOrder(c.path, c.status) > last;
     const dirs = new Map<string, ChangesFile[]>();
     for (const change of files) {
         const dir = change.path.includes("/") ? change.path.slice(0, change.path.lastIndexOf("/")) : "";
         const list = dirs.get(dir) ?? [];
-        list.push(changesFile(change, entries.get(change.path), patch, o));
+        list.push(
+            changesFile(change, entries.get(change.path), patch, { pastCut: pastCut(change), ignoreWs: o.ignoreWs })
+        );
         dirs.set(dir, list);
     }
     return [...dirs.entries()]
@@ -138,7 +141,7 @@ export function changesGroups(
 }
 
 // a new file starts closed, any other open; the toggled flag flips that
-export function fileOpen(f: ChangesFile, toggled: boolean): boolean {
+export function fileOpen(f: Pick<ChangesFile, "isNew">, toggled: boolean): boolean {
     return f.isNew === toggled;
 }
 

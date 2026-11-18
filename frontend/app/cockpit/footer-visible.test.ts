@@ -11,6 +11,8 @@ import {
 import { listNavAtom } from "@/app/store/keybindings/listnav";
 import type { Binding, KeyContext, SurfaceKey } from "@/app/store/keybindings/types";
 import { attachCanvas, detachCanvas, setCanvasMode, setMarking, updateCanvas } from "@/app/view/agents/canvasstore";
+import { viewModeAtom } from "@/app/view/agents/renderedmode";
+import { closeWorkspaceTab, openWorkspaceTab } from "@/app/view/agents/workspacestore";
 import type { OpenTarget } from "@/app/view/jarvis/address";
 import { atom, type PrimitiveAtom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -113,6 +115,38 @@ describe("agent canvas mode chips", () => {
             "c terminal",
             ...globals(),
         ]);
+    });
+});
+
+describe("change chip", () => {
+    const model = {
+        focusIdAtom: atom<string | undefined>("r1") as PrimitiveAtom<string | undefined>,
+        surfaceAtom: atom<SurfaceKey>("agent"),
+        terminalsAtom: atom([]),
+        agentsAtom: atom([{ id: "r1", state: "idle", agent: "claude", blockId: "blk" }]),
+    } as any;
+    const real = [...buildGlobalBindings(model), ...buildAgentBindings(model)];
+    const labels = () => visibleHints(rest, real, SURFACE_HINTS.agent!, GLOBAL_HINTS).map((c) => c.label);
+
+    afterEach(() => {
+        closeWorkspaceTab("r1", "changes");
+        closeWorkspaceTab("r1", "canvas");
+        globalStore.set(viewModeAtom("r1"), "rendered");
+    });
+
+    it("shows while the Changes tab shows, and not while another workspace tab does", () => {
+        globalStore.set(viewModeAtom("r1"), "rendered");
+        openWorkspaceTab("r1", { kind: "changes", selected: null });
+        expect(labels()).toContain("change");
+        openWorkspaceTab("r1", { kind: "canvas" });
+        expect(labels()).not.toContain("change");
+    });
+
+    it("hides with no pane, and in the Terminal view", () => {
+        expect(labels()).not.toContain("change");
+        openWorkspaceTab("r1", { kind: "changes", selected: null });
+        globalStore.set(viewModeAtom("r1"), "terminal");
+        expect(labels()).not.toContain("change");
     });
 });
 
