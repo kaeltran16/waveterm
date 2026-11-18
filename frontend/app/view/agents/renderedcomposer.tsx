@@ -1,7 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Rendered mode's message box (the boards' pill): the text, then attach, the model and permission-mode chips, the
+// Rendered mode's message box (the boards' pill): the checkout's changes when it has any, the text, then attach, the
+// model and permission-mode chips, the
 // context ring and one button, Send or (while a turn is live and the box is empty) Stop. Attachments sit above
 // the text and reach the agent as paths appended to the prompt, as an agent picked with @ (filemention.tsx) does.
 // While Claude's question is shown Send is held, since typing into the pty would land in its picker. In ! bash mode the text runs in the agent's shell instead, and the
@@ -16,7 +17,7 @@ import { PopoverReveal } from "@/app/element/popoverreveal";
 import { useEscapeClose } from "@/app/hook/useEscapeClose";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, ChevronRight, FileDiff } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
     forwardRef,
@@ -29,6 +30,8 @@ import {
     type RefObject,
 } from "react";
 import { canSendComposer, useAgentComposer, useComposerHandle, type AgentComposerHandle } from "./agentcomposer";
+import { FilesSummary } from "./agentdetailsrail";
+import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { ContextFacts } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import { sendAgentBash } from "./agentsend";
@@ -42,6 +45,7 @@ import { appendAttachments, pickFilePaths, useComposerAttachments } from "./comp
 import { MIRRORED_TEXTAREA, useAgentCwd, useFileMention } from "./filemention";
 import { BoxControls } from "./headercontrols";
 import { entriesAtomFor } from "./livetranscriptatoms";
+import { useCheckoutFacts, useRailGit } from "./railgit";
 import {
     answersLabel,
     boxButton,
@@ -54,6 +58,7 @@ import {
 import { ContextLine, SessionLine, useSessionLoaders, useSessionView } from "./sessionfacts";
 import { useSlashPanel } from "./slashpanel";
 import { TokenUsageSection } from "./tokenusagesection";
+import { openBeside } from "./workspacestore";
 
 const BoxMinH = 22; // one line of 14px text
 const BoxMaxShare = 0.4; // of the window: grows to here, then the textarea scrolls
@@ -173,6 +178,51 @@ function ContextRing({
                 </div>
             </PopoverReveal>
         </>
+    );
+}
+
+// the checkout's changes as the box's first row, where the next message is decided; no row while there are none
+function ChangesRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+    useRailGit(agent);
+    const chip = useCheckoutFacts(model, agent).chip;
+    return (
+        <AnimatePresence initial={false}>
+            {chip ? (
+                <motion.div
+                    key="changes"
+                    variants={composerReveal}
+                    initial="initial"
+                    animate="animate"
+                    exit="exit"
+                    className="overflow-hidden"
+                >
+                    <button
+                        type="button"
+                        data-composer-changes
+                        onClick={(e) => {
+                            if (!openBeside(model, agent.id, { kind: "changes", selected: null }, e)) {
+                                openDiff(model, agentDiffScope(agent.id, agent.name));
+                            }
+                        }}
+                        title={chip.title ? `${chip.title} · Open the Changes tab` : "Open the Changes tab"}
+                        className="group mb-2.5 flex w-full cursor-pointer items-center gap-[9px] border-b border-edge-mid pb-2.5 text-left text-ink-mid"
+                    >
+                        <FileDiff size={13} strokeWidth={2} aria-hidden className="shrink-0" />
+                        <span
+                            data-composer-changes-summary
+                            className="min-w-0 truncate font-mono text-[11px] font-semibold text-secondary"
+                        >
+                            <FilesSummary chip={chip} />
+                        </span>
+                        <span className="flex-1" />
+                        <span className="inline-flex shrink-0 items-center gap-[3px] rounded-[6px] px-[6px] py-[2px] text-[12px] font-semibold text-accent-soft group-hover:bg-surface-hover">
+                            Review changes
+                            <ChevronRight size={12} strokeWidth={2} aria-hidden />
+                        </span>
+                    </button>
+                </motion.div>
+            ) : null}
+        </AnimatePresence>
     );
 }
 
@@ -312,6 +362,7 @@ export const RenderedComposer = forwardRef<
         >
             {slash.panel}
             {mention.panel}
+            <ChangesRow model={model} agent={agent} />
             {box.askBlocks ? (
                 <div data-composer-notice className="flex items-center gap-[7px] pb-2 text-[12px] text-muted">
                     <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-warning" />

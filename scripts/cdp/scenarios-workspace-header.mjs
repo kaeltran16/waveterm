@@ -36,7 +36,8 @@ const CHIP_TITLE = "Open the Changes tab";
 const ask = (n) => ({ taskid: "t-1", askid: `fx-header-ask-${n}`, owner: "user", questions: [], blockoref: "", ts: n });
 
 const HEADER = `document.querySelector("[data-agent-header]")`;
-const CHIP = `${HEADER}?.querySelector("[data-header-files-chip]")`;
+// the checkout's changes moved from the header to the first row of the message box
+const CHIP = `document.querySelector("[data-rendered-composer] [data-composer-changes]")`;
 const RUN_LINK = `${HEADER}?.querySelector("[data-header-run-link]")`;
 
 const LIB = `
@@ -60,9 +61,10 @@ const headerFacts = (h) =>
             subline: flat(hd?.querySelector("[data-agent-subline]")),
             branchIcon: hd?.querySelector("[data-agent-subline] svg.lucide-git-branch") != null,
             worktree: wt ? { text: flat(wt), title: slash(wt.title), dir: wt.getAttribute("dir") } : null,
+            actions: flat(hd?.querySelector("[data-agent-actions]")),
             link: link ? flat(link) : null,
             asks: asks ? { label: asks.getAttribute("aria-label"), text: flat(asks), dot: asks.querySelector(".bg-warning") != null } : null,
-            chip: chip ? { text: flat(chip), title: chip.title, on: chip.hasAttribute("data-on") } : null,
+            chip: chip ? { text: flat(chip.querySelector("[data-composer-changes-summary]")), title: chip.title } : null,
         };`
     );
 
@@ -254,13 +256,13 @@ export const workspaceHeader = {
             return [r.spans.includes(2) && r.spans.at(-1) === 1 && r.text === "2", r];
         });
 
-        await step(`the files chip reads the worktree's changes, "${CHIP_TEXT}"`, async () => {
+        await step(`the message box's changes row reads the worktree's changes, "${CHIP_TEXT}"`, async () => {
             await polishWaitFor(h, `${CHIP} != null`, WAIT_MS);
             const f = await headerFacts(h);
-            return [f.chip?.text === CHIP_TEXT && f.chip.title === CHIP_TITLE && !f.chip.on, f.chip];
+            return [f.chip?.text === CHIP_TEXT && f.chip.title === CHIP_TITLE && !/file/.test(f.actions), { chip: f.chip, actions: f.actions }];
         });
 
-        await step("a plain click on the chip opens the Changes tab beside the transcript", async () => {
+        await step("a plain click on the changes row opens the Changes tab beside the transcript, and the row stays", async () => {
             await h.ev(`${CHIP}.click()`);
             await polishNap(SETTLE_MS);
             const r = await page(
@@ -270,10 +272,10 @@ export const workspaceHeader = {
                     pane: document.querySelector("[data-workspace-pane]")?.dataset.workspacePane ?? null,
                     tab: document.querySelector('[data-workspace-tab="changes"]') != null,
                     active: ws(${L}).active,
-                    on: ${CHIP}?.hasAttribute("data-on"),
+                    row: ${CHIP} != null,
                 };`
             );
-            return [r.surface === "agent" && r.pane === "open" && r.tab && r.active === "changes" && r.on === true, r];
+            return [r.surface === "agent" && r.pane === "open" && r.tab && r.active === "changes" && r.row, r];
         });
 
         await step("a plain click on the run link opens the Run tab beside the transcript", async () => {
@@ -331,7 +333,7 @@ export const workspaceHeader = {
             return [labels.length > 0 && !labels.some((l) => /details/i.test(l)), labels];
         });
 
-        await step("a clean checkout shows its branch and no files chip", async () => {
+        await step("a clean checkout shows its branch and no changes row", async () => {
             await focusRendered(h, ctx.cleanId, ctx.cleanName);
             const loaded = await polishWaitFor(h, `(${HEADER}?.querySelector("[data-agent-subline]")?.textContent ?? "").includes("main")`, WAIT_MS);
             await polishNap(SETTLE_MS);

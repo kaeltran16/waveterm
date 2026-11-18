@@ -2,14 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The focused agent's branch, worktree and changed files, read once for every view that shows them (the details
-// rail, the header, the Changes tab) into railStateAtom.
+// rail, the header, the message box's changes row, the Changes tab) into railStateAtom.
 
 import * as WOS from "@/app/store/wos";
 import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { useEffect } from "react";
-import { railReloadKey } from "./agentrailmodel";
+import { checkoutFacts, railReloadKey, type CheckoutFacts } from "./agentrailmodel";
+import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
+import { leadLandFacts } from "./leadland";
 import { loadRailForAgent, railStateAtom, type RailGitState } from "./railstore";
 
 const NO_BLOCK: Atom<Block | undefined> = atom(undefined as Block | undefined);
@@ -44,4 +47,16 @@ export function useRailGit(agent: AgentVM): RailGitState | null {
     const key = railReloadKey(agent, block?.meta?.["agent:lasteditts"]);
     useEffect(() => holdRailGit(agent, key), [key]);
     return useAtomValue(railStateAtom);
+}
+
+// what the Rendered view says about the agent's checkout (the header's subline, the message box's changes row); it
+// only reads, so a caller that shows it holds useRailGit while it does
+export function useCheckoutFacts(model: AgentsViewModel, agent: AgentVM): CheckoutFacts {
+    const lineage = useAtomValue(model.lineageAtom);
+    const git = useAtomValue(railStateAtom);
+    const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
+    const role = lineage.roles[agent.id];
+    // a land removes the run's worktree, so a landed lead reads its run's landing, as the rail does
+    const landed = role?.kind === "lead" ? leadLandFacts(lineage.runs[role.runId]) : null;
+    return checkoutFacts({ git, landed, sharedBy });
 }

@@ -20,7 +20,6 @@ import { useAtomValue } from "jotai";
 import {
     ChevronLeft,
     CircleStop,
-    File as FileIcon,
     FileText,
     GitBranch,
     Maximize2,
@@ -35,27 +34,23 @@ import { motion } from "motion/react";
 import { Fragment, useEffect, useRef } from "react";
 import { confirmCloseSession, interruptAgent } from "./agentactions";
 import { getLastOutputAtom } from "./agentcontrollerstore";
-import { FilesSummary } from "./agentdetailsrail";
-import { agentDiffScope, openDiff } from "./agentdiffnav";
 import { hungSilenceMs } from "./agenthung";
 import { showPane, usePaneShown } from "./agentpanes";
-import { checkoutFacts, contextLevel, contextTokens } from "./agentrailmodel";
+import { contextLevel, contextTokens } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import { agentStateView, STATE_TONE_COLOR } from "./agentstateview";
 import { agentRunDone, type AgentVM } from "./agentsviewmodel";
 import { brainstormAtom, brainstormWaitOf } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom } from "./canvasstore";
-import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick } from "./committick";
 import { DOC_REVIEW_COPY, docReviewAtom, parseDocReview } from "./docreview";
 import { isFinalStageId } from "./finalstage";
 import { canHandToPhone, isHandedOver } from "./handtophone";
 import { HeaderControls } from "./headercontrols";
-import { leadLandFacts } from "./leadland";
-import { useRailGit } from "./railgit";
-import { railStateAtom, railVisibleAtom, terminalFullscreenAtom } from "./railstore";
+import { useCheckoutFacts, useRailGit } from "./railgit";
+import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { remoteStatusAtom, toggleHandToPhone } from "./remotestore";
 import { canRender, effectiveViewMode, pickerFlipAtom, toggleViewMode, viewModeAtom } from "./renderedmode";
 import { useRoleAsks } from "./roleasks";
@@ -66,7 +61,7 @@ import { isStandingBy } from "./shelltasks";
 import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
 import { subagentsByIdAtom } from "./subagentsstore";
-import { openBeside, workspaceAtom } from "./workspacestore";
+import { openBeside } from "./workspacestore";
 
 // header context chip color by context level (mirrors the rail gauge, as text not fill)
 const CTX_TEXT: Record<"ok" | "warn" | "hot", string> = {
@@ -145,18 +140,12 @@ function RailGitHold({ agent }: { agent: AgentVM }) {
     return null;
 }
 
-// useCheckoutFacts is what the Rendered header says about the agent's checkout (the rail's Details and Files touched
-// in Terminal), and the asks on its run waiting on you; null outside Rendered, where the rail says it
-function useCheckoutFacts(model: AgentsViewModel, agent: AgentVM, rendered: boolean) {
-    const { role, roleRun, yours } = useRoleAsks(model, agent);
-    const git = useAtomValue(railStateAtom);
-    const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
-    if (!rendered) {
-        return { facts: null, yours: 0 };
-    }
-    // a land removes the run's worktree, so a landed lead reads its run's landing, as the rail does
-    const landed = role?.kind === "lead" ? leadLandFacts(roleRun) : null;
-    return { facts: checkoutFacts({ git, landed, sharedBy }), yours: yours.length };
+// useHeaderFacts is what the Rendered header says about the agent's checkout (the rail's Details in Terminal), and
+// the asks on its run waiting on you; null outside Rendered, where the rail says it
+function useHeaderFacts(model: AgentsViewModel, agent: AgentVM, rendered: boolean) {
+    const { yours } = useRoleAsks(model, agent);
+    const facts = useCheckoutFacts(model, agent);
+    return rendered ? { facts, yours: yours.length } : { facts: null, yours: 0 };
 }
 
 export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
@@ -226,9 +215,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const viewToggleKeys = brainstorm != null || canvas != null ? formatChordString("v") : viewKeys("v");
     const viewToggleTitle = `${rendered ? "Show the terminal" : "Show rendered"} (${viewToggleKeys})`;
     // in Rendered the rail is gone, so its checkout facts and the run's asks waiting on you read here
-    const { facts, yours } = useCheckoutFacts(model, agent, rendered);
-    const ws = useAtomValue(workspaceAtom(agent.id));
-    const changesOn = ws.active === "changes" && !ws.collapsed;
+    const { facts, yours } = useHeaderFacts(model, agent, rendered);
     // only the facts this session has: a background terminal often has none, and then the line goes
     const subline: React.ReactNode[] = [];
     if (project) {
@@ -461,30 +448,6 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
             </div>
             {rendered ? <RailGitHold agent={agent} /> : null}
             <div data-agent-actions className="flex shrink-0 items-center gap-[7px]">
-                {facts?.chip ? (
-                    <button
-                        type="button"
-                        data-header-files-chip
-                        onClick={(e) => {
-                            if (!openBeside(model, agent.id, { kind: "changes", selected: null }, e)) {
-                                openDiff(model, agentDiffScope(agent.id, agent.name));
-                            }
-                        }}
-                        title={facts.chip.title ? `${facts.chip.title} · Open the Changes tab` : "Open the Changes tab"}
-                        data-on={changesOn || undefined}
-                        className={cn(
-                            "inline-flex cursor-pointer items-center gap-[6px] whitespace-nowrap rounded-[7px] border px-[9px] py-[5px] font-mono text-[11px] font-semibold",
-                            changesOn
-                                ? "border-edge-strong bg-surface-selected text-primary"
-                                : "border-edge-mid bg-surface-raised text-ink-mid hover:border-edge-strong"
-                        )}
-                    >
-                        <FileIcon size={12} strokeWidth={2} aria-hidden />
-                        <span>
-                            <FilesSummary chip={facts.chip} />
-                        </span>
-                    </button>
-                ) : null}
                 {review && !reviewOpen ? (
                     <button
                         type="button"
