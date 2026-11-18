@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Run tab's Tasks view: one box of step rows, Plan review, a row per task in plan order, Final verification. A
-// task's row opens to its body: what it came to, its files, and Open agent / Open changes. What each says is
-// workspaceruntabmodel.ts'.
+// task's row opens to its body: what it came to, its open question, its files and answered questions, a running
+// worker's latest steps, and Open agent / Open changes. What each says is workspaceruntabmodel.ts'.
 
 import { easeFluidCss, MOTION } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
@@ -12,15 +12,21 @@ import { openTaskWorker, resolveTaskWorker } from "@/app/view/orchestrate/taskco
 import { cn } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import { ArrowUpRight, LoaderCircle } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { runAtom } from "./channelsstore";
 import { ChildAskEntry } from "./childaskcard";
 import { ASK_OWNER_USER, childAskKey } from "./childaskmodel";
-import { runFinished } from "./runlineage";
-import { AddsDels, TurnChevron } from "./steprows";
+import { childAskErrorAtom, takeOverChildAsk } from "./childaskstore";
+import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
+import { entriesAtomFor } from "./livetranscriptatoms";
+import { runFinished, type RunInfo } from "./runlineage";
+import { loadRunTranscriptPath, runTranscriptPathsAtom } from "./runlineagestore";
+import { AddsDels, StepBox, TurnChevron } from "./steprows";
 import type { RunViewProps } from "./workspaceruntab";
 import {
     finalRow,
+    latestSteps,
+    leadAskView,
     planReviewRow,
     ROW_DOT,
     taskBody,
@@ -59,11 +65,27 @@ function useChildRuns(dag: TaskGroup | undefined): Record<string, Run | undefine
     return useAtomValue(runsAtom);
 }
 
+// the tasks whose open question has not opened its row yet, marked as opened. A taken-over question keeps its key, so
+// it does not reopen a row the user closed; one forwarded to you opens like the lead's, since it lives in the body
+function arrivedAsks(asks: DagAskItem[], seen: Set<string>): string[] {
+    const fresh = asks.filter((a) => !seen.has(childAskKey(a)));
+    fresh.forEach((a) => seen.add(childAskKey(a)));
+    return fresh.map((a) => a.taskid);
+}
+
 export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
     const now = useAtomValue(model.nowAtom);
     const children = useChildRuns(run.dag);
     const evidence: TaskEvidence = Object.fromEntries(Object.entries(children).map(([id, r]) => [id, r?.evidence]));
-    const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+    // an open question opens its row once, on arrival; closing it after is the user's call
+    const [seenAsks] = useState(() => new Set<string>());
+    const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(arrivedAsks(asks, seenAsks)));
+    useEffect(() => {
+        const arrived = arrivedAsks(asks, seenAsks);
+        if (arrived.length > 0) {
+            setOpen((prev) => new Set([...prev, ...arrived]));
+        }
+    }, [asks, seenAsks]);
     const rows = taskRows(run.dag, run.digest, now, evidence);
     if (rows.length === 0) {
         return (
@@ -83,7 +105,6 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
     const ctx = { dag: run.dag, digest: run.digest, evidence, events, now, live: !runFinished(run) };
     const review = planReviewRow(run.dag);
     const final = finalRow(run.dag, events, now);
-    const yours = asks.filter((a) => a.owner === ASK_OWNER_USER);
     return (
         <div className="px-[18px] pb-[18px] pt-[4px]">
             <div
@@ -94,6 +115,7 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
                 {rows.map((r) => {
                     const task = run.dag.tasks.find((t) => t.id === r.id);
                     const body = taskBody(task, ctx);
+                    const ask = asks.find((a) => a.taskid === r.id);
                     return (
                         <TaskRow
                             key={r.id}
@@ -101,6 +123,10 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
                             open={open.has(r.id)}
                             onToggle={() => toggle(r.id)}
                             body={body}
+                            ask={ask ? <RowAsk run={run} ask={ask} events={events} now={now} /> : null}
+                            steps={
+                                task.state === "running" && task.runid ? <LatestSteps run={run} task={task} /> : null
+                            }
                             actions={
                                 <TaskActions
                                     task={task}
@@ -116,24 +142,7 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
                                     }
                                 />
                             }
-                        >
-                            {yours
-                                .filter((a) => a.taskid === r.id)
-                                .map((a) => (
-                                    <div
-                                        key={childAskKey(a)}
-                                        data-workspace-run-ask={a.taskid}
-                                        className="mx-[14px] mb-[12px] rounded-[10px] border border-warning/45 bg-warning/[0.12] px-[12px] py-[11px]"
-                                    >
-                                        <ChildAskEntry
-                                            channelId={run.channelId}
-                                            runId={run.runId}
-                                            ask={a}
-                                            events={events}
-                                        />
-                                    </div>
-                                ))}
-                        </TaskRow>
+                        />
                     );
                 })}
                 {final ? <StageRow stage="final" row={final} /> : null}
@@ -194,15 +203,17 @@ function TaskRow({
     open,
     onToggle,
     body,
+    ask,
+    steps,
     actions,
-    children,
 }: {
     row: TaskRowView;
     open: boolean;
     onToggle: () => void;
     body: TaskBodyView;
+    ask: ReactNode;
+    steps: ReactNode;
     actions: ReactNode;
-    children: ReactNode;
 }) {
     return (
         <div data-workspace-run-task={row.id}>
@@ -224,14 +235,23 @@ function TaskRow({
                 </span>
             </button>
             <PaneReveal open={open}>
-                <TaskBody body={body} actions={actions} />
+                <TaskBody body={body} ask={ask} steps={steps} actions={actions} />
             </PaneReveal>
-            {children}
         </div>
     );
 }
 
-function TaskBody({ body, actions }: { body: TaskBodyView; actions: ReactNode }) {
+function TaskBody({
+    body,
+    ask,
+    steps,
+    actions,
+}: {
+    body: TaskBodyView;
+    ask: ReactNode;
+    steps: ReactNode;
+    actions: ReactNode;
+}) {
     return (
         <div data-task-body className="flex flex-col gap-[10px] pb-[14px] pl-[38px] pr-[14px]">
             {body.lead ? (
@@ -239,6 +259,7 @@ function TaskBody({ body, actions }: { body: TaskBodyView; actions: ReactNode })
                     {body.lead}
                 </span>
             ) : null}
+            {ask}
             {body.ran ? <RanStep ran={body.ran} /> : null}
             {body.files.length > 0 ? (
                 <div className="flex flex-col gap-[4px]">
@@ -250,6 +271,16 @@ function TaskBody({ body, actions }: { body: TaskBodyView; actions: ReactNode })
                     ))}
                 </div>
             ) : null}
+            {body.asked.map((a) => (
+                <div
+                    key={a.key}
+                    data-body-asked
+                    className="flex flex-col gap-[3px] rounded-[8px] border border-edge-faint px-[10px] py-[8px]"
+                >
+                    <span className={META}>{a.line}</span>
+                    <span className="text-[12.5px] leading-[1.45] text-secondary">{a.question}</span>
+                </div>
+            ))}
             {body.failure ? (
                 <div
                     data-body-failure
@@ -278,7 +309,109 @@ function TaskBody({ body, actions }: { body: TaskBodyView; actions: ReactNode })
                     {body.depends}
                 </span>
             ) : null}
+            {steps}
             {actions}
+        </div>
+    );
+}
+
+const ASK_HEAD = "flex items-center gap-[7px] font-mono text-[11px] text-muted";
+const ASK_DOT = "h-[7px] w-[7px] flex-none rounded-full bg-warning";
+
+// an open question in its task's row: the lead's, read-only with Take over, or yours, answerable inline
+function RowAsk({ run, ask, events, now }: { run: RunInfo; ask: DagAskItem; events: RunEvent[]; now: number }) {
+    const error = useAtomValue(childAskErrorAtom)[childAskKey(ask)];
+    if (ask.owner === ASK_OWNER_USER) {
+        return (
+            <div
+                data-row-ask="you"
+                data-workspace-run-ask={ask.taskid}
+                className="rounded-[10px] border border-warning/45 bg-warning/[0.08] px-[14px] py-[12px]"
+            >
+                <div className={cn(ASK_HEAD, "mb-[4px]")}>
+                    <span className={ASK_DOT} />
+                    <span className="text-secondary">{ask.taskid} asks you</span>
+                </div>
+                <ChildAskEntry channelId={run.channelId} runId={run.runId} ask={ask} events={events} />
+            </div>
+        );
+    }
+    const v = leadAskView(ask, now);
+    return (
+        <div
+            data-row-ask="lead"
+            className="flex flex-col gap-[9px] rounded-[10px] border border-edge-mid bg-surface-raised px-[14px] py-[12px]"
+        >
+            <div className={ASK_HEAD}>
+                <span className={ASK_DOT} />
+                <span className="text-secondary">{v.who}</span> <span data-ask-when>· {v.when}</span>
+            </div>
+            {v.questions.map((q, i) => (
+                <div key={i} className="flex flex-col gap-[9px]">
+                    {q.header ? (
+                        <span
+                            data-ask-header
+                            className="font-mono text-[10.5px] font-bold uppercase tracking-[0.1em] text-ink-mid"
+                        >
+                            {q.header}
+                        </span>
+                    ) : null}
+                    <span data-ask-question className="text-[13.5px] leading-[1.45] text-primary">
+                        {q.question}
+                    </span>
+                    {q.options ? (
+                        <span data-ask-options className="text-[12.5px] text-muted">
+                            {q.options}
+                        </span>
+                    ) : null}
+                </div>
+            ))}
+            <div className="flex items-center gap-[8px]">
+                <span data-ask-until className="flex-1 font-mono text-[11px] text-muted">
+                    {v.until}
+                </span>
+                <button
+                    type="button"
+                    data-take-over
+                    title="Answer it yourself; the lead leaves it to you"
+                    onClick={() => takeOverChildAsk(run.channelId, run.runId, ask)}
+                    className={ACTION}
+                >
+                    Take over
+                </button>
+            </div>
+            {error ? <span className="text-[11px] text-warning">{error}</span> : null}
+        </div>
+    );
+}
+
+const LATEST_STEPS = 3;
+const NO_CTX = {};
+
+// a running task's worker, its last steps, through a stream the tab owns under its own id, so closing the row never
+// stops the worker's stream in another view. The body unmounts on close, which stops it.
+function LatestSteps({ run, task }: { run: RunInfo; task: TaskNode }) {
+    const id = `runtab-steps:${run.runId}:${task.id}`;
+    const path = useAtomValue(runTranscriptPathsAtom)[task.runid];
+    const entries = useAtomValue(entriesAtomFor(id));
+    const steps = useMemo(() => latestSteps(entries, LATEST_STEPS), [entries]);
+    const runtime = task.runspec?.runtime;
+    useEffect(() => {
+        loadRunTranscriptPath(run.channelId, task.runid);
+    }, [run.channelId, task.runid]);
+    useEffect(() => {
+        if (!path) {
+            return;
+        }
+        startTranscriptStream(id, path, runtime);
+        return () => stopTranscriptStream(id);
+    }, [id, path, runtime]);
+    if (steps.length === 0) {
+        return null;
+    }
+    return (
+        <div data-body-steps className="[&>[data-steps]]:my-0">
+            <StepBox steps={steps} latest={false} ctx={NO_CTX} compact />
         </div>
     );
 }

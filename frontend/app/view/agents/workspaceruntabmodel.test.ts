@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import type { AgentEntry } from "./agentsviewmodel";
 import type { RunInfo } from "./runlineage";
 import { STRIP_MAX } from "./runstrip";
 import {
     answeredAsks,
     finalRow,
     headStrip,
+    latestSteps,
+    leadAskView,
     planReviewRow,
     runHead,
     runTabCounts,
@@ -257,18 +260,104 @@ describe("headStrip", () => {
 });
 
 describe("answeredAsks", () => {
-    it("pairs each question with the answer that followed it, newest answer first", () => {
+    it("lists each task's answered questions by task; a task-forwarded between ask and answer makes it yours", () => {
         const events = [
             event("e1", "child-ask", NOW - 9 * MIN, { taskid: "t-2", question: "Count untagged bookmarks?" }),
             event("e2", "child-answered", NOW - 8 * MIN, { taskid: "t-2" }),
             event("e3", "child-ask", NOW - 4 * MIN, { taskid: "t-1", question: "Keep the notes?" }),
-            event("e4", "child-answered", NOW - 3 * MIN, { taskid: "t-1" }),
-            event("e5", "child-ask", NOW - MIN, { taskid: "t-3", question: "Trailing slash?" }),
+            event("e4", "task-forwarded", NOW - 3.5 * MIN, { taskid: "t-1", askid: "a-1", note: "taken over" }),
+            event("e5", "child-answered", NOW - 3 * MIN, { taskid: "t-1" }),
         ];
-        expect(answeredAsks(events)).toEqual([
-            { key: "e3", taskId: "t-1", question: "Keep the notes?", answeredTs: NOW - 3 * MIN },
-            { key: "e1", taskId: "t-2", question: "Count untagged bookmarks?", answeredTs: NOW - 8 * MIN },
+        expect(answeredAsks(events)).toEqual({
+            "t-1": [{ key: "e3", question: "Keep the notes?", answeredTs: NOW - 3 * MIN, by: "you" }],
+            "t-2": [{ key: "e1", question: "Count untagged bookmarks?", answeredTs: NOW - 8 * MIN, by: "the lead" }],
+        });
+    });
+
+    it("a task asked twice lists both, newest last; a forward on another task or before the ask does not count", () => {
+        const events = [
+            event("e0", "task-forwarded", NOW - 10 * MIN, { taskid: "t-1" }),
+            event("e1", "child-ask", NOW - 9 * MIN, { taskid: "t-1", question: "First?" }),
+            event("e2", "task-forwarded", NOW - 8.5 * MIN, { taskid: "t-2" }),
+            event("e3", "child-answered", NOW - 8 * MIN, { taskid: "t-1" }),
+            event("e4", "child-ask", NOW - 4 * MIN, { taskid: "t-1", question: "Second?" }),
+            event("e5", "task-forwarded", NOW - 3.5 * MIN, { taskid: "t-1" }),
+            event("e6", "child-answered", NOW - 3 * MIN, { taskid: "t-1" }),
+        ];
+        expect(answeredAsks(events)["t-1"]).toEqual([
+            { key: "e1", question: "First?", answeredTs: NOW - 8 * MIN, by: "the lead" },
+            { key: "e4", question: "Second?", answeredTs: NOW - 3 * MIN, by: "you" },
         ]);
+    });
+
+    it("an open question is not listed as answered, even after a forward", () => {
+        const events = [
+            event("e1", "child-ask", NOW - 2 * MIN, { taskid: "t-3", question: "Trailing slash?" }),
+            event("e2", "task-forwarded", NOW - MIN, { taskid: "t-3" }),
+        ];
+        expect(answeredAsks(events)).toEqual({});
+    });
+});
+
+describe("leadAskView", () => {
+    const ask = (extra: Partial<DagAskItem> = {}): DagAskItem =>
+        ({
+            taskid: "t-3",
+            askid: "a-3",
+            owner: "lead",
+            questions: [
+                {
+                    question: "Trailing slash?",
+                    header: "Duplicates",
+                    options: [{ label: "Yes, the same URL" }, { label: "No, different URLs" }],
+                },
+            ],
+            ts: NOW - 4 * MIN,
+            ...extra,
+        }) as DagAskItem;
+
+    it("counts down to the ask's deadline in the head and the take-over line", () => {
+        const v = leadAskView(ask({ deadline: NOW + 2 * MIN + 20_000 }), NOW);
+        expect(v.who).toBe("t-3 asked the lead");
+        expect(v.when).toBe("lead is answering · 2m left");
+        expect(v.until).toBe("the lead answers in 2m unless you take over");
+        expect(v.questions).toEqual([
+            { header: "Duplicates", question: "Trailing slash?", options: "Yes, the same URL · No, different URLs" },
+        ]);
+    });
+
+    it("no deadline, no countdown", () => {
+        const v = leadAskView(ask(), NOW);
+        expect(v.when).not.toMatch(/left/);
+        expect(v.until).not.toMatch(/\d/);
+    });
+});
+
+describe("latestSteps", () => {
+    const read = (target: string): AgentEntry => ({ kind: "action", verb: "read", target, outcome: "ok" });
+    const ran = (command: string, pending = false): AgentEntry =>
+        pending
+            ? { kind: "action", verb: "ran", target: command, command, pending: true, startedTs: NOW }
+            : { kind: "action", verb: "ran", target: command, command, outcome: "ok", durationMs: 200 };
+
+    it("the worker's last steps, oldest first, the running one included", () => {
+        const entries: AgentEntry[] = [
+            { kind: "user", text: "Build the stats command." },
+            read("internal/stats/a.go"),
+            read("internal/stats/counters.go"),
+            { kind: "message", text: "Now the command." },
+            read("cmd/linkshelf/stats.go"),
+            ran("go build ./...", true),
+        ];
+        expect(latestSteps(entries, 3).map((s) => [s.action.target, s.status])).toEqual([
+            ["internal/stats/counters.go", "ok"],
+            ["cmd/linkshelf/stats.go", "ok"],
+            ["go build ./...", "running"],
+        ]);
+    });
+
+    it("no steps, none", () => {
+        expect(latestSteps([{ kind: "user", text: "hi" }], 3)).toEqual([]);
     });
 });
 
@@ -440,6 +529,14 @@ describe("taskBody", () => {
         expect(body.changes).toBe("internal/stats/counters.go");
         expect(body.ran).toBeUndefined();
         expect(body.failure).toBe("");
+    });
+
+    it("a task's answered questions: who answered and when, with the question; a task never asked has none", () => {
+        const body = taskBody(byId("t-1"), ctx());
+        expect(body.asked).toEqual([{ key: "e1", line: "asked · answered by the lead 16:19", question: "Untagged?" }]);
+        const forwarded = [...EVENTS, event("f1", "task-forwarded", ANSWERED_AT - 30_000, { taskid: "t-1" })];
+        expect(taskBody(byId("t-1"), ctx({ events: forwarded })).asked[0].line).toBe("asked · answered by you 16:19");
+        expect(taskBody(byId("t-2"), ctx()).asked).toEqual([]);
     });
 
     it("a merged task with no report reads Merged., and one merged with no review event reads only merged at", () => {

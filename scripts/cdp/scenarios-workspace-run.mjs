@@ -2,17 +2,23 @@
 // 2026-11-18-run-tab-polish.md; boards Main and Done). The run and the lead that links it are the shared fixture's
 // (workspace-run-fixture.mjs).
 
-import { CTRL, polishNap } from "./scenarios-shared.mjs";
+import { toolResult, toolUse, userText, writeTranscript } from "./agent-page-fixtures.mjs";
+import { CTRL, polishNap, polishWaitFor } from "./scenarios-shared.mjs";
 import {
+    ANSWERED_Q,
     arrange,
+    childRunId,
     clickAt,
     FINAL_SHOTS,
     MAIN_DOTS,
     OPEN_RUN,
     openRunTab,
+    OPTIONS,
     page,
     PANE,
     pickView,
+    QUESTION,
+    QUESTION_HEADER,
     readHead,
     reseed,
     RUN_ID,
@@ -20,12 +26,14 @@ import {
     SHORT_ID,
     stepper,
     T6_FAIL,
+    TAB_DOT,
     TAB_KEY,
     TASK_IDS,
     TASKS,
     teardown,
     TITLE,
     VERIFY_CMD,
+    WAIT_MS,
 } from "./workspace-run-fixture.mjs";
 
 const NAME = "workspace-run";
@@ -72,10 +80,36 @@ const readTasks = (h) =>
         };`
     );
 
-// opens a task's row by a real click, and reads its body once the reveal settles
-async function openTask(h, id) {
+const rowSel = (id) => `document.querySelector('[data-workspace-run] [data-workspace-run-task="${id}"]')`;
+
+// the question in a task's row as drawn, and the row's own dot and word
+const readAsk = (h, id) =>
+    page(
+        h,
+        `const row = ${rowSel(id)};
+        const box = row?.querySelector("[data-row-ask]");
+        const q = (sel) => flat(box?.querySelector(sel));
+        return {
+            expanded: row?.querySelector(":scope > button")?.getAttribute("aria-expanded") ?? null,
+            dot: row?.querySelector(":scope > button [data-row-dot]")?.dataset.rowDot ?? null,
+            word: flat(row?.querySelector(":scope > button [data-task-state]")),
+            owner: box?.dataset.rowAsk ?? null,
+            head: flat(box?.firstElementChild),
+            header: q("[data-ask-header]"),
+            question: q("[data-ask-question]"),
+            options: q("[data-ask-options]"),
+            until: q("[data-ask-until]"),
+            takeOver: box?.querySelector("[data-take-over]") != null,
+            optionButtons: [...(box?.querySelectorAll("button") ?? [])].map((b) => flat(b)).filter((t) => ${JSON.stringify(OPTIONS)}.some((o) => t.includes(o))).length,
+            tabDot: ${TAB_DOT} != null,
+        };`
+    );
+
+// opens a task's row by a real click, and reads its body once the reveal settles; keepOpen leaves an open row as it is
+async function openTask(h, id, { keepOpen = false } = {}) {
     const row = `document.querySelector('[data-workspace-run] [data-workspace-run-task="${id}"] > button')`;
-    const clicked = await clickAt(h, row);
+    const isOpen = keepOpen && (await h.ev(`${row}?.getAttribute("aria-expanded") === "true"`));
+    const clicked = isOpen || (await clickAt(h, row));
     await polishNap(SETTLE_MS);
     const body = await page(
         h,
@@ -92,6 +126,8 @@ async function openTask(h, id) {
             reviewer: q("[data-body-reviewer]"),
             merged: q("[data-body-merged]"),
             depends: q("[data-body-depends]"),
+            asked: [...(b?.querySelectorAll("[data-body-asked]") ?? [])].map((a) => [...a.children].map((c) => flat(c))),
+            steps: [...(b?.querySelectorAll("[data-body-steps] [data-steps] > div") ?? [])].map((s) => flat(s)),
             openAgent: b?.querySelector("[data-open-agent]") != null,
             openChanges: b?.querySelector("[data-open-changes]") != null,
         };`
@@ -207,6 +243,23 @@ export const workspaceRun = {
             return [ok, t];
         });
 
+        await step("t-3 is open on arrival with the lead's question, its options, the countdown and Take over", async () => {
+            const a = await readAsk(h, "t-3");
+            await h.shot(SHOT(8, "t3-lead-ask"));
+            const ok =
+                a.expanded === "true" &&
+                a.owner === "lead" &&
+                /^t-3 asked the lead · lead is answering · \dm left$/.test(a.head) &&
+                a.header === QUESTION_HEADER &&
+                a.question === QUESTION &&
+                a.options === OPTIONS.join(" · ") &&
+                /^the lead answers in \dm unless you take over$/.test(a.until) &&
+                a.takeOver &&
+                a.optionButtons === 0 &&
+                !a.tabDot;
+            return [ok, a];
+        });
+
         await step("t-1 opens to its summary, two files with counts, review passed · merged, Open agent and Open changes; Open changes opens the Changes tab", async () => {
             const b = await openTask(h, "t-1");
             await h.shot(SHOT(4, "t1-open"));
@@ -234,6 +287,16 @@ export const workspaceRun = {
                 tabs.selected === T1_FILES[0][0] &&
                 tabs.drawn;
             return [ok, { body: b, tabs }];
+        });
+
+        await step("t-1 lists asked · answered by the lead with its question", async () => {
+            const b = await openTask(h, "t-1", { keepOpen: true });
+            const ok =
+                b.expanded === "true" &&
+                b.asked.length === 1 &&
+                /^asked · answered by the lead \d\d:\d\d$/.test(b.asked[0][0]) &&
+                b.asked[0][1] === ANSWERED_Q;
+            return [ok, { expanded: b.expanded, asked: b.asked }];
         });
 
         await step("t-2 opens to the merged-and-verifying body with its running Ran step; t-5 to the reviewing body with reviewer started … ago", async () => {
@@ -268,6 +331,130 @@ export const workspaceRun = {
                 t8.lead === desc("t-8") &&
                 t8.depends === "depends on t-1 · waits for a free worker";
             return [ok, { t6, t7, t8 }];
+        });
+
+        await step("t-4 opens to its worker's latest steps, read from a stubbed RunTranscriptPathCommand pointing at a fixture transcript", async () => {
+            const T4 = JSON.stringify(childRunId("t-4"));
+            const worker = writeTranscript(ctx.dir, `${NAME}-t4-worker`, [
+                userText("Add linkshelf stats over internal/stats."),
+                toolUse("toolu_t4_1", "Read", { file_path: "internal/stats/doc.go" }),
+                toolResult("toolu_t4_1", "package stats"),
+                toolUse("toolu_t4_2", "Read", { file_path: "internal/stats/counters.go" }),
+                toolResult("toolu_t4_2", "package stats"),
+                toolUse("toolu_t4_3", "Edit", { file_path: "cmd/linkshelf/stats.go", old_string: "", new_string: "package main\n" }),
+                toolResult("toolu_t4_3", "The file cmd/linkshelf/stats.go has been updated."),
+                toolUse("toolu_t4_4", "Bash", { command: "go build ./...", description: "build" }),
+            ]);
+            // only t-4's run has a transcript; a cached lookup is dropped, so the row asks again
+            await page(
+                h,
+                `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                const L = await mod("app/view/agents/runlineagestore.ts");
+                RpcApi.RunTranscriptPathCommand = async (_client, data) => (data.runid === ${T4} ? ${JSON.stringify(worker)} : "");
+                globalStore.set(L.runTranscriptPathsAtom, (prev) => { const next = { ...prev }; delete next[${T4}]; return next; });
+                return true;`
+            );
+            ctx.cleanups.push((h) =>
+                page(
+                    h,
+                    `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                    const L = await mod("app/view/agents/runlineagestore.ts");
+                    delete RpcApi.RunTranscriptPathCommand;
+                    const ids = ${JSON.stringify(TASK_IDS.map(childRunId))};
+                    globalStore.set(L.runTranscriptPathsAtom, (prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => !ids.includes(id))));
+                    return true;`
+                )
+            );
+            await openTask(h, "t-4");
+            const drawn = await polishWaitFor(h, `${rowSel("t-4")}?.querySelectorAll("[data-body-steps] [data-steps] > div").length === 3`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const b = await openTask(h, "t-4", { keepOpen: true });
+            await h.shot(SHOT(9, "t4-steps"));
+            const ok =
+                drawn &&
+                b.expanded === "true" &&
+                b.steps.length === 3 &&
+                b.steps[0].includes("counters.go") &&
+                b.steps[1].includes("stats.go") &&
+                b.steps[2].includes("go build") &&
+                b.openAgent;
+            return [ok, { drawn, expanded: b.expanded, steps: b.steps }];
+        });
+
+        await step("Take over (the dag action RPCs stubbed as today's answer step stubs them) makes the question answerable inline; picking an option and sending returns t-3 to working and the tab's waiting dot goes", async () => {
+            // the engine's side: a take-over moves the ask to you, an answer clears it, and the digest follows each
+            await page(
+                h,
+                `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                const L = await mod("app/view/agents/runlineagestore.ts");
+                const RUN = ${JSON.stringify(RUN_ID)};
+                const asks = () => globalStore.get(C.childAsksAtom)[RUN] ?? [];
+                const t3Waits = (waitreason) =>
+                    globalStore.set(L.runDigestsAtom, (prev) => ({ ...prev, [RUN]: { ...prev[RUN], tasks: prev[RUN].tasks.map((t) => (t.taskid === "t-3" ? { ...t, waitreason } : t)) } }));
+                window.__wrActions = [];
+                window.__wrAnswers = [];
+                RpcApi.DagActionCommand = async (_client, data) => {
+                    window.__wrActions.push(data);
+                    globalStore.set(C.childAsksAtom, (prev) => ({ ...prev, [RUN]: asks().map((a) => (a.taskid === data.taskid ? { ...a, owner: "user", note: "You took this over from the lead." } : a)) }));
+                    t3Waits("ask");
+                };
+                RpcApi.DagAsksCommand = async () => ({ asks: asks() });
+                RpcApi.DagAnswerCommand = async (_client, data) => {
+                    window.__wrAnswers.push(data);
+                    globalStore.set(C.childAsksAtom, (prev) => ({ ...prev, [RUN]: [] }));
+                    t3Waits("");
+                };
+                return true;`
+            );
+            ctx.cleanups.push((h) =>
+                page(
+                    h,
+                    `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                    delete RpcApi.DagActionCommand;
+                    delete RpcApi.DagAsksCommand;
+                    delete RpcApi.DagAnswerCommand;
+                    delete window.__wrActions;
+                    delete window.__wrAnswers;
+                    return true;`
+                )
+            );
+            const took = await clickAt(h, `${rowSel("t-3")}?.querySelector("[data-take-over]")`);
+            const yours = await polishWaitFor(h, `${rowSel("t-3")}?.querySelector('[data-row-ask="you"]') != null`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const taken = await readAsk(h, "t-3");
+            await h.shot(SHOT(10, "t3-yours"));
+            const picked = await clickAt(
+                h,
+                `[...(${rowSel("t-3")}?.querySelectorAll('[data-row-ask="you"] button') ?? [])].find((b) => b.innerText.includes(${JSON.stringify(OPTIONS[0])}))`
+            );
+            // a single-select pick sends on click; Send answer covers a bar that waits for it
+            await polishNap(SETTLE_MS);
+            await clickAt(h, `[...(${rowSel("t-3")}?.querySelectorAll('[data-row-ask="you"] button:not([disabled])') ?? [])].find((b) => b.innerText.trim() === "Send answer")`);
+            const gone = await polishWaitFor(h, `${TAB_DOT} == null && ${rowSel("t-3")}?.querySelector("[data-row-ask]") == null`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const after = await readAsk(h, "t-3");
+            const sent = await h.ev(`({ actions: window.__wrActions, answers: window.__wrAnswers })`);
+            await h.shot(SHOT(11, "t3-answered"));
+            const ok =
+                took &&
+                yours &&
+                sent.actions?.length === 1 &&
+                sent.actions[0].action === "takeover" &&
+                sent.actions[0].taskid === "t-3" &&
+                taken.owner === "you" &&
+                taken.word === "asking you" &&
+                taken.optionButtons >= OPTIONS.length &&
+                taken.tabDot &&
+                picked &&
+                gone &&
+                sent.answers?.length === 1 &&
+                sent.answers[0].taskid === "t-3" &&
+                sent.answers[0].runid === RUN_ID &&
+                after.owner === null &&
+                after.dot === "working" &&
+                after.word === "" &&
+                !after.tabDot;
+            return [ok, { took, yours, taken, picked, gone, after, sent }];
         });
 
         // Done board

@@ -8,16 +8,17 @@
 
 import { reportHeadline } from "@/app/view/jarvis/recordrunrow";
 import { formatElapsed } from "@/app/view/orchestrate/dagdigest";
-import { formatTokens } from "./agentsviewmodel";
+import { formatTokens, type AgentEntry } from "./agentsviewmodel";
 import { shortRunId } from "./brainstormrunmodel";
 import { finalStageView, type FinalStageView } from "./finalstage";
 import { fmtClock } from "./runcompletion";
-import { runFinished, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
+import { formatLeft, runFinished, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
 import { runStatusView } from "./runmodel";
 import { runElapsedMs } from "./runrail";
 import { STRIP_MAX } from "./runstrip";
 import { detailOf } from "./runtimeline";
 import { summarizeUsage } from "./runusage";
+import { layoutTranscript, type LayoutItem, type Step } from "./transcriptlayout";
 import { usd } from "./usagestats";
 
 export type RunHeadTone = "live" | "done" | "muted";
@@ -144,35 +145,78 @@ export function spendLine(usage: UsageRow[] | undefined, workerMs: number | unde
     return facts.length > 0 ? facts.join(" · ") : null;
 }
 
+export type AskAnswerer = "you" | "the lead";
+
 export interface AnsweredAsk {
     // the question's event row
     key: string;
-    taskId: string;
     question: string;
     answeredTs: number;
+    by: AskAnswerer;
 }
 
-// answeredAsks pairs each worker question with the answer that followed it on the same task, newest answer first.
-// A question with no answer yet is still open, and the open list comes from the asks themselves.
-export function answeredAsks(events: RunEvent[]): AnsweredAsk[] {
+// answeredAsks pairs each worker question with the answer that followed it on the same task, by task, oldest first.
+// child-answered does not record who answered: a task-forwarded between the two (a lead forward or a take-over) put
+// the question with you, else the lead answered it. A question with no answer yet is still open, and not listed.
+export function answeredAsks(events: RunEvent[]): Record<string, AnsweredAsk[]> {
     const sorted = [...events].sort((a, b) => a.ts - b.ts);
-    const open = new Map<string, { key: string; question: string }>();
-    const out: AnsweredAsk[] = [];
+    const open = new Map<string, { key: string; question: string; forwarded: boolean }>();
+    const out: Record<string, AnsweredAsk[]> = {};
     for (const e of sorted) {
         const d = detailOf<{ taskid?: string; question?: string }>(e);
         const taskId = d?.taskid;
         if (!taskId) {
             continue;
         }
+        const asked = open.get(taskId);
         if (e.kind === "child-ask") {
-            open.set(taskId, { key: e.id, question: d.question ?? "" });
-        } else if (e.kind === "child-answered" && open.has(taskId)) {
-            const asked = open.get(taskId);
+            open.set(taskId, { key: e.id, question: d.question ?? "", forwarded: false });
+        } else if (e.kind === "task-forwarded" && asked) {
+            asked.forwarded = true;
+        } else if (e.kind === "child-answered" && asked) {
             open.delete(taskId);
-            out.push({ key: asked.key, taskId, question: asked.question, answeredTs: e.ts });
+            const by: AskAnswerer = asked.forwarded ? "you" : "the lead";
+            (out[taskId] ??= []).push({ key: asked.key, question: asked.question, answeredTs: e.ts, by });
         }
     }
-    return out.reverse();
+    return out;
+}
+
+export interface LeadAskView {
+    // "t-3 asked the lead"
+    who: string;
+    // "lead is answering · 2m left", without the countdown when the ask has no deadline
+    when: string;
+    // the options read-only, joined
+    questions: { header: string; question: string; options: string }[];
+    // "the lead answers in 2m unless you take over"
+    until: string;
+}
+
+// leadAskView is a question the lead holds, as its task's row draws it
+export function leadAskView(ask: DagAskItem, now: number): LeadAskView {
+    const left = ask.deadline ? formatLeft(Math.max(0, ask.deadline - now)) : "";
+    return {
+        who: `${ask.taskid} asked the lead`,
+        when: ["lead is answering", left].filter(Boolean).join(" · "),
+        questions: (ask.questions ?? []).map((q) => ({
+            header: q.header ?? "",
+            question: q.question,
+            options: (q.options ?? []).map((o) => o.label).join(" · "),
+        })),
+        until: left
+            ? `the lead answers in ${left.replace(/ left$/, "")} unless you take over`
+            : "the lead answers unless you take over",
+    };
+}
+
+// latestSteps is the last n steps of a worker's transcript, oldest first, as the transcript's step rows lay them out
+export function latestSteps(entries: AgentEntry[], n: number): Step[] {
+    const stepsOf = (items: LayoutItem[]): Step[] =>
+        items.flatMap((i) =>
+            i.kind === "steps" ? i.steps : i.kind === "card" ? [i.step] : i.kind === "turn" ? stepsOf(i.items) : []
+        );
+    return stepsOf(layoutTranscript(entries, { active: true })).slice(-n);
 }
 
 export interface RunTabCounts {
@@ -337,6 +381,8 @@ export interface TaskBodyView {
     // a merged task's running Verify
     ran?: { command: string; time: string; lastLine?: string };
     files: EvidenceFile[];
+    // its answered questions, oldest first: "asked · answered by the lead 16:19" and the question
+    asked: { key: string; line: string; question: string }[];
     // "reviewer started 30s ago" while a reviewer judges it
     reviewer: string;
     // "review passed · merged 16:20" once merged
@@ -422,6 +468,11 @@ export function taskBody(task: TaskNode, ctx: TaskBodyContext): TaskBodyView {
               }
             : undefined,
         files,
+        asked: (answeredAsks(ctx.events)[task.id] ?? []).map((a) => ({
+            key: a.key,
+            line: `asked · answered by ${a.by} ${fmtClock(a.answeredTs)}`,
+            question: a.question,
+        })),
         reviewer:
             task.state === "reviewing" && task.reviewspawnedts
                 ? `reviewer started ${formatElapsed(Math.max(0, ctx.now - task.reviewspawnedts))} ago`
