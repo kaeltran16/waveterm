@@ -9,11 +9,23 @@ import { Markdown } from "@/app/element/markdown";
 import { ViewSwap } from "@/app/element/viewswap";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
+import { paneOptions } from "@/app/view/agents/diffoptions";
 import { CodeEditor } from "@/app/view/codeeditor/codeeditor";
 import { cn, fireAndForget } from "@/util/util";
-import { ArrowUpRight, X } from "lucide-react";
+import {
+    ArrowUpRight,
+    CircleAlert,
+    File as FileIcon,
+    FileX,
+    Folder,
+    ImageIcon,
+    LoaderCircle,
+    X,
+    type LucideIcon,
+} from "lucide-react";
 import type * as MonacoTypes from "monaco-editor";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
+import { isImagePath } from "./codeclassify";
 import { binaryPeekMessage, peekModes, peekStat, type PeekFile, type PeekMode } from "./codepeekmodel";
 import { closePeek, codePeekFocusedAtom, openPeekInCode, setPeekMode, type CodePeek } from "./codepeekstore";
 
@@ -43,6 +55,9 @@ const DIFF_OPTIONS: MonacoTypes.editor.IDiffEditorOptions = {
     minimap: { enabled: false },
     scrollbar: { useShadows: false, verticalScrollbarSize: 5, horizontalScrollbarSize: 5 },
 };
+
+// the File tab draws its diff as the Diff surface does, wrapped as the pane's Changes tab is, since the column is narrow
+const TAB_DIFF_OPTIONS = paneOptions(false, false, true);
 
 // repo-relative inside a repository, else the absolute path (or what was clicked, when nothing resolved)
 function headerPath(peek: CodePeek): string {
@@ -76,6 +91,32 @@ function stateMessage(peek: CodePeek): string | null {
     }
 }
 
+// the File tab's notice for a file it cannot draw: the card's message, its path on a line of its own where it has one
+function tabNotice(peek: CodePeek): { Icon: LucideIcon; text: string; path?: string } {
+    const file = peek.file;
+    const text = stateMessage(peek) ?? "";
+    switch (file.kind) {
+        case "loading":
+            return { Icon: LoaderCircle, text: "Reading…", path: peek.abs ?? peek.raw };
+        case "missing":
+            return { Icon: FileX, text: "No such file", path: peek.abs ?? peek.raw };
+        case "folder":
+            return { Icon: Folder, text };
+        case "binary":
+            return { Icon: isImagePath(file.open.rel) ? ImageIcon : FileIcon, text };
+        case "toolarge":
+            return { Icon: FileIcon, text };
+        default:
+            return { Icon: CircleAlert, text };
+    }
+}
+
+// at the last separator of either kind: outside a repo the header shows a Windows absolute path
+function splitHeaderPath(p: string): { dir: string; file: string } {
+    const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+    return { dir: p.slice(0, i + 1), file: p.slice(i + 1) };
+}
+
 export function Kbd({ children }: { children: string }) {
     return (
         <kbd className="rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10.5px] text-ink-mid">
@@ -90,10 +131,10 @@ function PeekStat({ file }: { file: PeekFile }) {
         return null;
     }
     return (
-        <span data-peek-stat className="flex items-center gap-[8px] font-mono text-[11px]">
+        <span data-peek-stat className="flex flex-none items-center gap-[8px] font-mono text-[11px]">
             {stat.label ? <span className="text-muted">{stat.label}</span> : null}
-            {stat.adds ? <span className="text-success">+{stat.adds}</span> : null}
-            {stat.dels ? <span className="text-error">−{stat.dels}</span> : null}
+            {stat.adds ? <span className="text-diff-added">+{stat.adds}</span> : null}
+            {stat.dels ? <span className="text-diff-removed">−{stat.dels}</span> : null}
         </span>
     );
 }
@@ -107,17 +148,29 @@ function SourceView({ peek, blockId, text }: { peek: CodePeek; blockId: string; 
             fileName={MODEL_PREFIX + (peek.abs ?? peek.raw)}
             readonly
             onMount={(ed) => {
-                if (line != null) {
-                    ed.revealLineInCenter(line);
-                    ed.setPosition({ lineNumber: line, column: 1 });
+                if (line == null) {
+                    return () => {};
                 }
-                return () => {};
+                ed.revealLineInCenter(line);
+                ed.setPosition({ lineNumber: line, column: 1 });
+                // the cited line keeps its mark once the cursor moves off it
+                const cited = ed.createDecorationsCollection([
+                    {
+                        range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+                        options: {
+                            isWholeLine: true,
+                            className: "peek-cited-line",
+                            lineNumberClassName: "peek-cited-line-number",
+                        },
+                    },
+                ]);
+                return () => cited.clear();
             }}
         />
     );
 }
 
-function DiffView({ peek, text }: { peek: CodePeek; text: string }) {
+function DiffView({ peek, text, inTab }: { peek: CodePeek; text: string; inTab: boolean }) {
     const git = peek.file.kind === "text" ? peek.file.git : null;
     if (git?.kind !== "repo") {
         return null;
@@ -126,8 +179,10 @@ function DiffView({ peek, text }: { peek: CodePeek; text: string }) {
         return <PeekMessage text={git.head.message} />;
     }
     const absent = git.head.kind === "absent";
+    const options = inTab ? TAB_DIFF_OPTIONS : DIFF_OPTIONS;
     return (
-        <div className="flex h-full flex-col bg-surface-code">
+        // in the tab a new file reads as the plain file, as the Diff surface draws one
+        <div data-diff-new-file={(inTab && absent) || undefined} className="flex h-full flex-col bg-surface-code">
             {absent ? (
                 <div className="flex-none px-[14px] pt-[10px] pb-[8px] text-[11px] text-muted">
                     New file, not in HEAD
@@ -139,14 +194,14 @@ function DiffView({ peek, text }: { peek: CodePeek; text: string }) {
                         <MonacoInsertedText
                             path={INSERTED_PREFIX + (peek.abs ?? peek.raw)}
                             text={text}
-                            options={DIFF_OPTIONS}
+                            options={options}
                         />
                     ) : (
                         <MonacoDiffViewer
                             path={MODEL_PREFIX + (peek.abs ?? peek.raw)}
                             original={git.head.kind === "text" ? git.head.text : ""}
                             modified={text}
-                            options={DIFF_OPTIONS}
+                            options={options}
                         />
                     )}
                 </Suspense>
@@ -163,10 +218,28 @@ function PeekMessage({ text }: { text: string }) {
     );
 }
 
-function PeekBody({ peek, blockId }: { peek: CodePeek; blockId: string }) {
+function PeekNotice({ peek }: { peek: CodePeek }) {
+    const { Icon, text, path } = tabNotice(peek);
+    return (
+        <div
+            data-peek-message
+            className="flex h-full flex-col items-center justify-center gap-[10px] px-[40px] pb-[40px] text-center"
+        >
+            <Icon size={20} strokeWidth={1.8} className="text-muted" aria-hidden />
+            <div className="max-w-[420px] text-[13px] leading-[1.5] [overflow-wrap:anywhere] text-ink-mid">{text}</div>
+            {path ? (
+                <div className="max-w-[460px] font-mono text-[11.5px] leading-[1.5] [overflow-wrap:anywhere] text-muted">
+                    {path}
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
+function PeekBody({ peek, blockId, inTab }: { peek: CodePeek; blockId: string; inTab: boolean }) {
     const file = peek.file;
     if (file.kind !== "text") {
-        return <PeekMessage text={stateMessage(peek) ?? ""} />;
+        return inTab ? <PeekNotice peek={peek} /> : <PeekMessage text={stateMessage(peek) ?? ""} />;
     }
     // keyed by the file, so a moved card never shows the previous file's models
     const key = `${peek.abs}|${peek.mode}`;
@@ -176,9 +249,52 @@ function PeekBody({ peek, blockId }: { peek: CodePeek; blockId: string }) {
         );
     }
     if (peek.mode === "diff") {
-        return <DiffView key={key} peek={peek} text={file.text} />;
+        return <DiffView key={key} peek={peek} text={file.text} inTab={inTab} />;
     }
     return <SourceView key={`${key}|${peek.line}`} peek={peek} blockId={blockId} text={file.text} />;
+}
+
+// the card offers every mode, a disabled one titled with why; the tab shows only the ones the file has, and none
+// when there is a single one to pick
+function ModeSwitch({
+    peek,
+    modes,
+    enabledOnly,
+}: {
+    peek: CodePeek;
+    modes: Record<PeekMode, { enabled: boolean; reason?: string }>;
+    enabledOnly: boolean;
+}) {
+    const shown = enabledOnly ? MODES.filter(({ mode }) => modes[mode].enabled) : MODES;
+    if (enabledOnly && shown.length < 2) {
+        return null;
+    }
+    return (
+        <div className="flex flex-none items-center gap-[2px] rounded-[6px] border border-border p-[2px]">
+            {shown.map(({ mode, label }) => {
+                const state = modes[mode];
+                const pressed = peek.mode === mode && state.enabled;
+                return (
+                    <button
+                        key={mode}
+                        type="button"
+                        data-peek-mode={mode}
+                        aria-pressed={pressed}
+                        disabled={!state.enabled}
+                        title={state.reason}
+                        onClick={() => setPeekMode(mode)}
+                        className={cn(
+                            "rounded-[4px] px-[8px] py-[2px] text-[11px]",
+                            pressed ? "bg-accentbg text-accent-soft" : "text-muted",
+                            state.enabled ? "cursor-pointer hover:text-secondary" : "cursor-default opacity-50"
+                        )}
+                    >
+                        {label}
+                    </button>
+                );
+            })}
+        </div>
+    );
 }
 
 // "card" floats over the terminal with its own close and a footer; "tab" fills a workspace File tab, whose tab closes
@@ -204,6 +320,8 @@ export function CodePeekCard({
     const inTab = variant === "tab";
     const openLabel = isFolder ? "Open folder in Code" : "Open in Code";
     const openInCode = () => fireAndForget(() => openPeekInCode(model));
+    const { dir, file } = splitHeaderPath(path);
+    const citedLine = peek.file.kind === "text" ? peek.line : null;
 
     // a new anchor is a new card: it takes focus so Enter and Esc reach it
     useEffect(() => {
@@ -231,23 +349,24 @@ export function CodePeekCard({
                 !inTab && "rounded-[8px] border border-edge-strong shadow-popover-md"
             )}
         >
-            <div
-                className={cn(
-                    "flex flex-none items-center gap-[10px] border-b border-border pl-[14px]",
-                    inTab ? "min-h-[40px] pr-[12px]" : "min-h-[44px] pr-[8px]"
-                )}
-            >
-                <span className="font-mono text-[10.5px] font-bold tracking-[0.1em] text-accent-soft uppercase">
-                    {isFolder ? "Folder" : inTab ? "Code" : "File"}
-                </span>
-                <span
-                    data-peek-path
-                    title={peek.abs ?? peek.raw}
-                    className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-secondary"
-                >
-                    {path}
-                </span>
-                {inTab ? (
+            {inTab ? (
+                <div className="flex min-h-[40px] flex-none items-center gap-[10px] overflow-hidden border-b border-border pr-[12px] pl-[14px]">
+                    <span
+                        data-peek-path
+                        title={peek.abs ?? peek.raw}
+                        className="flex min-w-0 flex-1 items-center overflow-hidden font-mono text-[11.5px] whitespace-nowrap"
+                    >
+                        {isFolder ? <Folder size={13} className="mr-[6px] flex-none text-ink-mid" aria-hidden /> : null}
+                        {/* rtl cuts the folder from the left, so the name always shows; the bdi keeps the text
+                            itself left-to-right (the Diff pane's header) */}
+                        <span className="min-w-0 truncate text-muted [direction:rtl]">
+                            <bdi dir="ltr">{dir}</bdi>
+                        </span>
+                        <span className="max-w-full min-w-0 flex-none truncate text-primary">{file}</span>
+                        {citedLine != null ? <span className="flex-none text-muted">:{citedLine}</span> : null}
+                    </span>
+                    <PeekStat file={peek.file} />
+                    <ModeSwitch peek={peek} modes={modes} enabledOnly />
                     <button
                         type="button"
                         data-peek-open
@@ -258,50 +377,41 @@ export function CodePeekCard({
                         {openLabel}
                         <ArrowUpRight size={11} aria-hidden />
                     </button>
-                ) : (
-                    <button
-                        type="button"
-                        aria-label="Close the peek"
-                        onClick={closePeek}
-                        className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[7px] text-muted hover:bg-surface-raised hover:text-secondary"
-                    >
-                        <X size={14} aria-hidden />
-                    </button>
-                )}
-            </div>
-            <div className="flex flex-none items-center gap-[8px] border-b border-border px-[12px] py-[6px]">
-                <div className="flex items-center gap-[2px] rounded-[6px] border border-border p-[2px]">
-                    {MODES.map(({ mode, label }) => {
-                        const state = modes[mode];
-                        const pressed = peek.mode === mode && state.enabled;
-                        return (
-                            <button
-                                key={mode}
-                                type="button"
-                                data-peek-mode={mode}
-                                aria-pressed={pressed}
-                                disabled={!state.enabled}
-                                title={state.reason}
-                                onClick={() => setPeekMode(mode)}
-                                className={cn(
-                                    "rounded-[4px] px-[8px] py-[2px] text-[11px]",
-                                    pressed ? "bg-accentbg text-accent-soft" : "text-muted",
-                                    state.enabled ? "cursor-pointer hover:text-secondary" : "cursor-default opacity-50"
-                                )}
-                            >
-                                {label}
-                            </button>
-                        );
-                    })}
                 </div>
-                <PeekStat file={peek.file} />
-                <span className="flex-1" />
-                <span className="text-[11px] text-muted">Read-only</span>
-            </div>
+            ) : (
+                <>
+                    <div className="flex min-h-[44px] flex-none items-center gap-[10px] border-b border-border pr-[8px] pl-[14px]">
+                        <span className="font-mono text-[10.5px] font-bold tracking-[0.1em] text-accent-soft uppercase">
+                            {isFolder ? "Folder" : "File"}
+                        </span>
+                        <span
+                            data-peek-path
+                            title={peek.abs ?? peek.raw}
+                            className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-secondary"
+                        >
+                            {path}
+                        </span>
+                        <button
+                            type="button"
+                            aria-label="Close the peek"
+                            onClick={closePeek}
+                            className="flex h-[28px] w-[28px] flex-none cursor-pointer items-center justify-center rounded-[7px] text-muted hover:bg-surface-raised hover:text-secondary"
+                        >
+                            <X size={14} aria-hidden />
+                        </button>
+                    </div>
+                    <div className="flex flex-none items-center gap-[8px] border-b border-border px-[12px] py-[6px]">
+                        <ModeSwitch peek={peek} modes={modes} enabledOnly={false} />
+                        <PeekStat file={peek.file} />
+                        <span className="flex-1" />
+                        <span className="text-[11px] text-muted">Read-only</span>
+                    </div>
+                </>
+            )}
             <div className="min-h-0 flex-1 overflow-hidden">
                 {/* the file landing over its "Reading…" line, or another mode's view, fades in rather than cutting */}
                 <ViewSwap swapKey={`${peek.file.kind}|${peek.mode}`} className="h-full">
-                    <PeekBody peek={peek} blockId={blockId} />
+                    <PeekBody peek={peek} blockId={blockId} inTab={inTab} />
                 </ViewSwap>
             </div>
             {inTab ? null : (

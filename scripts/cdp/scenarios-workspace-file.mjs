@@ -165,6 +165,8 @@ export const workspaceFile = {
                     source: card?.querySelector('[data-peek-mode="source"]')?.getAttribute("aria-pressed") ?? null,
                     readOnly: (card?.textContent ?? "").includes("Read-only"),
                     stat: card?.querySelector("[data-peek-stat]")?.textContent ?? null,
+                    preview: card?.querySelector('[data-peek-mode="preview"]') != null,
+                    cited: card?.querySelector(".peek-cited-line") != null,
                     activeLine: active?.textContent.trim() ?? null,
                     inView: box != null && row != null && row.top >= box.top && row.bottom <= box.bottom,
                     highlighted: highlight != null && highlight.getBoundingClientRect().height > 0,
@@ -185,14 +187,16 @@ export const workspaceFile = {
                 f.shown.includes(statsKey) &&
                 f.tabLabel === "stats.go" &&
                 f.state === "text" &&
-                f.label === "Code" &&
-                f.path === STATS_REL &&
+                f.label == null &&
+                f.path === `${STATS_REL}:${STATS_LINE}` &&
                 samePath(f.title, ctx.stats) &&
                 f.openInHeader === "Open in Code" &&
                 !f.closeButton &&
                 f.footerKeys.length === 0 &&
                 f.source === "true" &&
-                f.readOnly &&
+                !f.readOnly &&
+                !f.preview &&
+                f.cited &&
                 (f.stat ?? "").includes("new file") &&
                 f.activeLine === String(STATS_LINE) &&
                 f.inView &&
@@ -201,6 +205,28 @@ export const workspaceFile = {
             return [ok, { clicked, landed, ...f }];
         });
         await h.shot("cdp-shots/workspace-file-board.png");
+
+        await step("Diff on a file new since HEAD reads as the plain file, as the Diff surface draws one; Source lands back on the line", async () => {
+            const diff = await page(
+                h,
+                `const card = () => ${CARD};
+                card()?.querySelector('[data-peek-mode="diff"]')?.click();
+                const drawn = await until(() => card()?.querySelector("[data-diff-new-file] .monaco-editor .view-line") != null, ${WAIT_MS});
+                await nap(400);
+                const insert = card()?.querySelector("[data-diff-new-file] .view-overlays .line-insert");
+                return {
+                    drawn,
+                    caption: (card()?.textContent ?? "").includes("New file, not in HEAD"),
+                    pressed: card()?.querySelector('[data-peek-mode="diff"]')?.getAttribute("aria-pressed") ?? null,
+                    band: insert ? getComputedStyle(insert).backgroundColor : null,
+                };`
+            );
+            await h.shot("cdp-shots/workspace-file-newfile-diff.png");
+            await h.ev(`(${CARD})?.querySelector('[data-peek-mode="source"]')?.click()`);
+            const back = await landedOn(STATS_LINE);
+            const ok = diff.drawn && diff.caption && diff.pressed === "true" && diff.band === "rgba(0, 0, 0, 0)" && back;
+            return [ok, { ...diff, back }];
+        });
 
         await step("a second click on the same link keeps the one tab and its card open", async () => {
             await clickLink(ctx.stats);
@@ -213,7 +239,7 @@ export const workspaceFile = {
             const clicked = await clickLink(ctx.dedupe);
             const landed = await landedOn(DEDUPE_LINE);
             const f = await facts();
-            const ok = clicked && landed && f.tabs.length === 2 && f.active === dedupeKey && f.tabLabel === "dedupe.go" && f.path === DEDUPE_REL;
+            const ok = clicked && landed && f.tabs.length === 2 && f.active === dedupeKey && f.tabLabel === "dedupe.go" && f.path === `${DEDUPE_REL}:${DEDUPE_LINE}`;
             return [ok, { clicked, landed, ...f }];
         });
 
@@ -221,7 +247,7 @@ export const workspaceFile = {
             await h.ev(`document.querySelector('${tabSel(statsKey)} [role="tab"]')?.click()`);
             const landed = await landedOn(STATS_LINE);
             const f = await facts();
-            return [landed && f.active === statsKey && f.path === STATS_REL, { landed, ...f }];
+            return [landed && f.active === statsKey && f.path === `${STATS_REL}:${STATS_LINE}`, { landed, ...f }];
         });
 
         await step("Esc in the card closes its tab, and the other File tab shows its file", async () => {
@@ -231,7 +257,7 @@ export const workspaceFile = {
             const closed = await polishWaitFor(h, `document.querySelector('${tabSel(statsKey)}') == null`, WAIT_MS);
             const landed = await landedOn(DEDUPE_LINE);
             const f = await facts();
-            return [focused && closed && landed && f.tabs.length === 1 && f.active === dedupeKey && f.path === DEDUPE_REL, { focused, closed, landed, ...f }];
+            return [focused && closed && landed && f.tabs.length === 1 && f.active === dedupeKey && f.path === `${DEDUPE_REL}:${DEDUPE_LINE}`, { focused, closed, landed, ...f }];
         });
 
         await step("Open in Code lands on the Code surface at the cited line", async () => {

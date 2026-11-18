@@ -373,7 +373,8 @@ body .monaco-diff-editor .monaco-editor {
    the removed one. Each editor reads monaco's theme vars from its own .monaco-editor rule, hence both.
    It reads as the plain file, as the transcript previews one, so the edges go too. */
 [data-diff-new-file] .monaco-diff-editor,
-[data-diff-new-file] .monaco-diff-editor .monaco-editor {
+[data-diff-new-file] .monaco-diff-editor .monaco-editor,
+[data-diff-new-file] .monaco-editor {
     --diff-added-edge: none;
     --diff-removed-edge: none;
     --vscode-diffEditor-insertedLineBackground: transparent;
@@ -389,6 +390,14 @@ body .monaco-diff-editor .monaco-editor {
 }
 .monaco-editor .diff-comment-range {
     box-shadow: inset 3px 0 0 var(--color-accent);
+}
+/* The line a reply cited, in the Code peek's Source view (codepeekcard.tsx). body outranks monaco's own
+   active-line-number color, since the cursor lands on the same line. */
+.monaco-editor .peek-cited-line {
+    background-color: var(--color-accentbg);
+}
+body .monaco-editor .line-numbers.peek-cited-line-number {
+    color: var(--color-accent-soft);
 }
 /* Code surface review comments (codeviewer.tsx): a bar in the line-decorations gutter. */
 .monaco-editor .code-comment-marker {
