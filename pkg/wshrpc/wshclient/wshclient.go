@@ -750,6 +750,12 @@ func GetWorkflowScanCommand(w *wshutil.WshRpc, data wshrpc.CommandGetWorkflowSca
 	return resp, err
 }
 
+// command "gitagentedits", wshserver.GitAgentEditsCommand
+func GitAgentEditsCommand(w *wshutil.WshRpc, data wshrpc.CommandGitAgentEditsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitAgentEditsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitAgentEditsRtnData](w, "gitagentedits", data, opts)
+	return resp, err
+}
+
 // command "gitblame", wshserver.GitBlameCommand
 func GitBlameCommand(w *wshutil.WshRpc, data wshrpc.CommandGitBlameData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitBlameRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitBlameRtnData](w, "gitblame", data, opts)
@@ -813,6 +819,12 @@ func GitListFilesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitListFilesData,
 // command "gitlistworktrees", wshserver.GitListWorktreesCommand
 func GitListWorktreesCommand(w *wshutil.WshRpc, data wshrpc.CommandGitListWorktreesData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitListWorktreesRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitListWorktreesRtnData](w, "gitlistworktrees", data, opts)
+	return resp, err
+}
+
+// command "gitpatch", wshserver.GitPatchCommand
+func GitPatchCommand(w *wshutil.WshRpc, data wshrpc.CommandGitPatchData, opts *wshrpc.RpcOpts) (*wshrpc.CommandGitPatchRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandGitPatchRtnData](w, "gitpatch", data, opts)
 	return resp, err
 }
 

@@ -141,6 +141,8 @@ A link inside an item view does a full open, even with `Ctrl` held.
 |---|---|
 | `j` / `k` (or `↓` / `↑`, `→` / `←`) | Next / previous row in the tree: agents, workers and terminals |
 | `d` | Toggle the agent rail (Terminal), or collapse the workspace pane (Rendered, with tabs open; while a shown Brainstorm tab asks with a fourth answer, `d` picks it) |
+| `Shift`+`N` / `Shift`+`P` | In Rendered, with the workspace pane open on its Changes tab: next / previous change, walking every hunk of every changed file (wraps at both ends; opens a collapsed file) |
+| `Shift`+`W` | The same scope: hide whitespace in the Changes tab (the Diff surface's setting) |
 | `f` | Toggle terminal fullscreen (in Rendered it hides the tree and keeps the workspace pane) |
 | `v` | Toggle the focused Claude Code agent between Terminal and Rendered |
 | `Ctrl`+`Shift`+`B` | The same toggle, also while typing in the terminal or the composer, when the agent has no brainstorm or canvas (with one, it switches to that instead) |

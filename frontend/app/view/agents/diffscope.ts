@@ -14,9 +14,10 @@ import type { HistoryFilters } from "./historyquery";
 // A project's path comes from the config registry and a run's directory and base commit were captured
 // when the run started, so both answer synchronously. An agent's directory is read from its live
 // transcript and can fail, so an agent origin carries only its id and the loader resolves the rest.
-// A run's headCommit is its landed tip; absent, the run is live and reads up to HEAD.
+// A run's headCommit is its landed tip; absent, the run is live and reads up to HEAD. An agent's runtime is
+// the AgentVM's `agent` field (absent = claude), which decides whether its edits range can exist.
 export type DiffOrigin =
-    | { kind: "agent"; id: string }
+    | { kind: "agent"; id: string; runtime?: string }
     | { kind: "project"; name: string; path: string }
     | { kind: "run"; runId: string; cwd: string; baseCommit: string; headCommit?: string };
 
@@ -28,6 +29,8 @@ export interface DiffRepo {
 export type DiffRange =
     | { kind: "working" }
     | { kind: "session"; agentId: string }
+    // the agent's own Edit/Write calls, rebuilt by the backend into two synthetic commits
+    | { kind: "edits"; agentId: string }
     | { kind: "run"; runId: string; baseCommit: string; headCommit?: string }
     // `from` is the range comparison interrupted. Escape restores it instead of guessing, which is
     // also what lets the old compareAnchorAtom and its invalidation effect go away. `form` is which
@@ -59,7 +62,11 @@ export interface LoadHistoryOpts {
     anchorLabel?: string;
     rowLabel?: string;
     ref?: string;
+    // no commit list at all, only the scope's own row: the edits range's commits are synthetic
+    noCommits?: boolean;
 }
+
+export const EDITS_LABEL = "Agent's edits";
 
 export function originKey(o: DiffOrigin): string {
     switch (o.kind) {
@@ -78,6 +85,8 @@ export function rangeKey(r: DiffRange): string {
             return "working";
         case "session":
             return `session:${r.agentId}`;
+        case "edits":
+            return `edits:${r.agentId}`;
         case "run":
             // the tip is appended only when bounded, so an unbounded run keeps the key its review
             // marks were saved under
@@ -114,7 +123,7 @@ export function originCwd(o: DiffOrigin): string | null {
 export function defaultRangeFor(o: DiffOrigin): DiffRange {
     switch (o.kind) {
         case "agent":
-            return { kind: "session", agentId: o.id };
+            return editsApply(o) ? { kind: "edits", agentId: o.id } : { kind: "session", agentId: o.id };
         case "project":
             return { kind: "working" };
         case "run":
@@ -122,6 +131,11 @@ export function defaultRangeFor(o: DiffOrigin): DiffRange {
                 ? { kind: "run", runId: o.runId, baseCommit: o.baseCommit, headCommit: o.headCommit }
                 : { kind: "run", runId: o.runId, baseCommit: o.baseCommit };
     }
+}
+
+// Only Claude Code writes the file-history backups the edits range is rebuilt from.
+function editsApply(o: Extract<DiffOrigin, { kind: "agent" }>): boolean {
+    return (o.runtime || "claude") === "claude";
 }
 
 export interface RangeCtx {
@@ -136,6 +150,9 @@ export interface RangeCtx {
 export function availableRanges(scope: DiffScope, ctx: RangeCtx): RangeOption[] {
     const out: RangeOption[] = [{ range: { kind: "working" }, label: "Working tree", detail: "", available: true }];
     const origin = scope.repo.origin;
+    if (origin.kind === "agent" && editsApply(origin)) {
+        out.push({ range: { kind: "edits", agentId: origin.id }, label: EDITS_LABEL, detail: "", available: true });
+    }
     if (origin.kind === "agent") {
         // Active without a start, the range measures from HEAD and says so, so the chip stays enabled:
         // the start usually resolves once the first prompt writes a transcript.
@@ -191,6 +208,8 @@ export function historyOptsFor(range: DiffRange, resolvedRef: string): LoadHisto
                 ? { anchor: range.baseCommit, anchorLabel: "run base", rowLabel: "Run changes", ref }
                 : { ref };
         }
+        case "edits":
+            return { noCommits: true, rowLabel: EDITS_LABEL };
         case "working":
         case "compare":
             return {};
@@ -225,6 +244,10 @@ export interface SummaryInput {
     // false while git could not count lines (the working tree's numstat failed): the delta is then
     // unknown, not zero, so the caption stops at the file count. Omitted = known.
     lineCounts?: boolean;
+    // the edits range's reply: Bash calls that may have changed files it cannot show, and why there is
+    // nothing to show when its base is empty
+    bashCalls?: number;
+    reason?: string;
 }
 
 // The subject row's right-hand caption. It follows the selection: a caption that kept describing the
@@ -246,6 +269,15 @@ export function summaryLine(i: SummaryInput): string {
             return i.mergeBase ? `since ${shortSha(i.mergeBase)} · ${counts}` : counts;
         case "run":
             return `${shortSha(i.range.baseCommit)} … ${shortSha(i.range.headCommit ?? "") || "HEAD"} · ${counts}`;
+        case "edits": {
+            if (!i.ref) {
+                return i.reason || "no edits to show";
+            }
+            const bash = i.bashCalls ?? 0;
+            const tail =
+                bash > 0 ? ` · ${bash} Bash ${bash === 1 ? "call" : "calls"} may have changed files not shown` : "";
+            return `${files} by this agent${delta}${tail}`;
+        }
         case "session":
             return i.ref
                 ? `worktree against ${shortSha(i.ref)} · ${counts}`

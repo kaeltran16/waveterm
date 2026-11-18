@@ -119,6 +119,14 @@ func (ws *WshServer) GitFileAtRefCommand(ctx context.Context, data wshrpc.Comman
 	}, nil
 }
 
+func (ws *WshServer) GitPatchCommand(ctx context.Context, data wshrpc.CommandGitPatchData) (*wshrpc.CommandGitPatchRtnData, error) {
+	p, err := gitinfo.GetPatch(ctx, data.Cwd, data.Ref, data.IgnoreWs)
+	if err != nil {
+		return nil, err
+	}
+	return &wshrpc.CommandGitPatchRtnData{Patch: p.Patch, IsRepo: p.IsRepo, Truncated: p.Truncated}, nil
+}
+
 func (ws *WshServer) GitFetchCommand(ctx context.Context, data wshrpc.CommandGitFetchData) (*wshrpc.CommandGitFetchRtnData, error) {
 	r, err := gitinfo.Fetch(ctx, data.Cwd, data.Remote)
 	if err != nil {

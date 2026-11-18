@@ -82,7 +82,8 @@ A range is *which slice of history* the surface is showing. Which chips appear d
 | Chip | Shown when | Means |
 |---|---|---|
 | **Working tree** | Always | Uncommitted work against `HEAD` |
-| **Since session start** | Source is an agent | The worktree against the commit that was `HEAD` when the agent's session began |
+| **Agent's edits** | Source is a Claude agent (no recorded runtime counts as Claude); its default range | Only the files this agent changed with Edit/Write/MultiEdit, rebuilt from its transcript and file-history backups into two synthetic commits (pre-images … post-images). A file with no backup is marked approximate; a file something else changed between its edits is marked changed outside this agent; the caption counts Bash calls that may have changed files not shown. The history shows only the scope's own row |
+| **Since session start** | Source is an agent (the default for pi, codex and opencode) | The worktree against the commit that was `HEAD` when the agent's session began |
 | **This run** | Source is a run | The run's base commit … `HEAD` |
 | **Compare** | Always | Two refs against each other — see [section 6](#6-compare-two-refs) |
 
@@ -319,7 +320,7 @@ Three places in the cockpit open this surface pre-scoped, and one of them can pr
 
 | From | Gesture | Lands on |
 |---|---|---|
-| Cockpit agent card | Row menu → **Review changes** | That agent, "Since session start" |
+| Cockpit agent card | Row menu → **Review changes** | That agent, on its default range ("Agent's edits" for Claude, else "Since session start") |
 | Agent details rail | Click a changed file | That agent, **with that file already selected** |
 | Agent details rail | Click **+N more** under the file list | That agent, no file preselected |
 | Run completion / evidence | The diff link on a finished run | That run, "This run" range, base commit … HEAD |

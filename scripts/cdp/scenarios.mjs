@@ -74,6 +74,7 @@ import {
 } from "./scenarios-files.mjs";
 import { diffPush } from "./scenarios-files-push.mjs";
 import { diffScope } from "./scenarios-files-scope.mjs";
+import { diffAgentEdits } from "./scenarios-files-edits.mjs";
 import { diffStates } from "./scenarios-files-states.mjs";
 import {
     codeBlame,
@@ -235,6 +236,7 @@ export const SCENARIOS = [
     diffComments,
     diffSourceRow,
     diffScope,
+    diffAgentEdits,
     diffStates,
     diffPush,
     surfaceSmoke,

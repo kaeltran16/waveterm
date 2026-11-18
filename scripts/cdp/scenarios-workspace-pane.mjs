@@ -247,69 +247,63 @@ export const workspacePane = {
             return [f.footer.includes("d pane") && !f.footer.includes("d rail"), f.footer];
         });
 
-        // the Changes tab wraps (Task 2): the long line is several visual rows, each in its insert band and with the
-        // added edge in the margin, the line's number on the first row, no +/- signs (the shared diff look has none),
-        // and a sideways wheel moving nothing
+        // the Changes tab wraps: the long line is one diff row of several visual lines, each inside the row's added tint
+        // and edge, the line's number on the first of them, and a sideways wheel moving nothing
         await step("the Changes tab's diff wraps a long line, its band, edge and number kept, with no sideways scroll", async () => {
-            const ED = `(() => { const p = document.querySelector("[data-workspace-changes] [data-diff-pane]"); return p?.querySelector(".editor.modified .monaco-editor") ?? [...(p?.querySelectorAll(".monaco-editor") ?? [])].at(-1) ?? null; })()`;
-            const shown = await polishWaitFor(
-                h,
-                `[...(${ED}?.querySelectorAll(".view-line") ?? [])].some((l) => l.textContent.includes("word0"))`,
-                GIT_WAIT_MS
-            );
+            const ROW = `[...document.querySelectorAll("[data-workspace-changes] [data-diff-line]")].find((r) => r.textContent.includes("word0")) ?? null`;
+            const SCROLLER = `document.querySelector("[data-workspace-changes-scroll]")`;
+            const shown = await polishWaitFor(h, `(${ROW}) != null`, GIT_WAIT_MS);
             await polishNap(SETTLE_MS);
-            const r = await h.ev(`(() => {
-                const ed = ${ED};
-                const long = ${JSON.stringify(LONG_LINE)};
-                const box = (el) => { const b = el.getBoundingClientRect(); return { top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(b.right) }; };
-                const text = (el) => el.textContent.replace(/\\u00a0/g, " ").trim();
-                const rows = [...(ed?.querySelectorAll(".view-lines .view-line") ?? [])]
-                    .filter((l) => text(l) !== "" && long.includes(text(l)))
-                    .map((l) => ({ text: text(l), ...box(l) }))
-                    .sort((a, b) => a.top - b.top);
-                const bands = [...(ed?.querySelectorAll(".view-overlays .line-insert") ?? [])].map(box);
-                const numbers = [...(ed?.querySelectorAll(".margin .line-numbers") ?? [])].filter((n) => text(n) === "2").map(box);
-                const signs = ed?.querySelectorAll(".margin [class*='diff-insert'], .margin [class*='diff-remove']").length ?? 0;
-                const edges = [...(ed?.querySelectorAll(".margin .gutter-insert") ?? [])]
-                    .filter((el) => getComputedStyle(el).boxShadow.includes("inset"))
-                    .map(box);
-                const first = rows[0];
-                const near = (b) => first != null && Math.abs(b.top - first.top) <= 2;
-                const edBox = ed ? box(ed) : null;
+            const measure = `(() => {
+                const row = ${ROW};
+                const scroller = ${SCROLLER};
+                if (row == null || scroller == null) return null;
+                const box = (b) => ({ top: Math.round(b.top), bottom: Math.round(b.bottom), left: Math.round(b.left), right: Math.round(b.right) });
+                const no = row.querySelector("[data-diff-no]");
+                const code = no?.nextElementSibling;
+                const range = document.createRange();
+                range.selectNodeContents(code);
+                // one visual line per distinct top among the text's fragments
+                const lines = [...range.getClientRects()].map(box).filter((b) => b.right > b.left);
+                const tops = [...new Set(lines.map((b) => b.top))].sort((a, b) => a - b);
+                const rowBox = box(row.getBoundingClientRect());
+                const css = getComputedStyle(row);
                 return {
-                    rows: rows.length,
-                    joined: rows.map((x) => x.text).join(" ").replace(/\\s+/g, " ") === long,
-                    banded: rows.every((x) => bands.some((b) => b.top <= x.top + 1 && b.bottom >= x.bottom - 1)),
-                    bands: bands.length,
-                    number: numbers.length === 1 && near(numbers[0]),
-                    edged: rows.every((x) => edges.some((b) => b.top <= x.top + 1 && b.bottom >= x.bottom - 1)),
-                    edges: edges.length,
-                    signs,
-                    insideEditor: edBox != null && rows.every((x) => x.right <= edBox.right + 1),
-                    lefts: rows.map((x) => x.left),
+                    lines: tops.length,
+                    joined: code.textContent.replace(/\\s+/g, " ").trim() === ${JSON.stringify(LONG_LINE)},
+                    added: row.classList.contains("diff-line-added"),
+                    tinted: css.backgroundColor !== "rgba(0, 0, 0, 0)" && css.backgroundColor !== "transparent",
+                    edge: css.boxShadow.includes("inset"),
+                    // the row's box, which carries the tint and the edge, holds every visual line
+                    spans: lines.every((b) => b.top >= rowBox.top - 1 && b.bottom <= rowBox.bottom + 1 && b.right <= rowBox.right + 1),
+                    number: flat(no) === "2" && tops.length > 0 && Math.abs(Math.round(no.getBoundingClientRect().top) - tops[0]) <= 2,
+                    sideways: scroller.scrollWidth > scroller.clientWidth,
+                    scrollLeft: scroller.scrollLeft,
+                    left: rowBox.left,
                 };
-            })()`);
+            })()`;
+            const flatDef = `const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();`;
+            const r = await h.ev(`(() => { ${flatDef} return ${measure}; })()`);
             await h.shot("cdp-shots/workspace-pane-changes-wrap.png");
-            // monaco draws its own scrollbars, so a real sideways wheel over the editor is what shows it cannot scroll
-            const at = await centreOf(h, ED);
+            // a real sideways wheel over the row is what shows nothing can scroll sideways
+            const at = await centreOf(h, ROW);
             if (at != null) await h.cdp("Input.dispatchMouseEvent", { type: "mouseWheel", x: at.x, y: at.y, deltaX: 600, deltaY: 0 });
             await polishNap(SETTLE_MS);
-            const lefts = await h.ev(`[...(${ED}?.querySelectorAll(".view-lines .view-line") ?? [])]
-                .filter((l) => { const t = l.textContent.replace(/\\u00a0/g, " ").trim(); return t !== "" && ${JSON.stringify(LONG_LINE)}.includes(t); })
-                .map((l) => Math.round(l.getBoundingClientRect().left))
-                .sort((a, b) => a - b)`);
-            const unmoved = at != null && JSON.stringify(lefts) === JSON.stringify([...r.lefts].sort((a, b) => a - b));
+            const after = await h.ev(`(() => { ${flatDef} return ${measure}; })()`);
+            const unmoved = at != null && after != null && after.left === r?.left && after.scrollLeft === 0;
             const ok =
                 shown &&
-                r.rows > 1 &&
+                r != null &&
+                r.lines > 1 &&
                 r.joined &&
-                r.banded &&
+                r.added &&
+                r.tinted &&
+                r.edge &&
+                r.spans &&
                 r.number &&
-                r.edged &&
-                r.signs === 0 &&
-                r.insideEditor &&
+                !r.sideways &&
                 unmoved;
-            return [ok, { shown, ...r, afterWheel: lefts, unmoved }];
+            return [ok, { shown, ...r, afterWheel: after && { left: after.left, scrollLeft: after.scrollLeft }, unmoved }];
         });
 
         // 1: a tab added fades and scales in

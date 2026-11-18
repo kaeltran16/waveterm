@@ -1387,6 +1387,21 @@ declare global {
         scan: WorkflowScan;
     };
 
+    // wshrpc.CommandGitAgentEditsData
+    type CommandGitAgentEditsData = {
+        cwd: string;
+        transcriptpath: string;
+    };
+
+    // wshrpc.CommandGitAgentEditsRtnData
+    type CommandGitAgentEditsRtnData = {
+        base: string;
+        end: string;
+        files: GitAgentEditFile[];
+        bashcalls: number;
+        reason?: string;
+    };
+
     // wshrpc.CommandGitBlameData
     type CommandGitBlameData = {
         cwd: string;
@@ -1562,6 +1577,20 @@ declare global {
     // wshrpc.CommandGitListWorktreesRtnData
     type CommandGitListWorktreesRtnData = {
         worktrees: GitWorktree[];
+    };
+
+    // wshrpc.CommandGitPatchData
+    type CommandGitPatchData = {
+        cwd: string;
+        ref?: string;
+        ignorews?: boolean;
+    };
+
+    // wshrpc.CommandGitPatchRtnData
+    type CommandGitPatchRtnData = {
+        patch: string;
+        isrepo: boolean;
+        truncated?: boolean;
     };
 
     // wshrpc.CommandGitPushData
@@ -2719,6 +2748,12 @@ declare global {
         configerrors: ConfigError[];
         version: string;
         buildtime: string;
+    };
+
+    // wshrpc.GitAgentEditFile
+    type GitAgentEditFile = {
+        path: string;
+        flag?: string;
     };
 
     // wshrpc.GitBlameHunk

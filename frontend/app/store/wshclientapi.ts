@@ -756,6 +756,12 @@ export class RpcApiType {
         return client.wshRpcCall("getworkflowscan", data, opts);
     }
 
+    // command "gitagentedits" [call]
+    GitAgentEditsCommand(client: WshClient, data: CommandGitAgentEditsData, opts?: RpcOpts): Promise<CommandGitAgentEditsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitagentedits", data, opts);
+        return client.wshRpcCall("gitagentedits", data, opts);
+    }
+
     // command "gitblame" [call]
     GitBlameCommand(client: WshClient, data: CommandGitBlameData, opts?: RpcOpts): Promise<CommandGitBlameRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitblame", data, opts);
@@ -820,6 +826,12 @@ export class RpcApiType {
     GitListWorktreesCommand(client: WshClient, data: CommandGitListWorktreesData, opts?: RpcOpts): Promise<CommandGitListWorktreesRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitlistworktrees", data, opts);
         return client.wshRpcCall("gitlistworktrees", data, opts);
+    }
+
+    // command "gitpatch" [call]
+    GitPatchCommand(client: WshClient, data: CommandGitPatchData, opts?: RpcOpts): Promise<CommandGitPatchRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "gitpatch", data, opts);
+        return client.wshRpcCall("gitpatch", data, opts);
     }
 
     // command "gitpush" [call]

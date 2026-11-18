@@ -201,7 +201,7 @@ function ChangesRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }
                         data-composer-changes
                         onClick={(e) => {
                             if (!openBeside(model, agent.id, { kind: "changes", selected: null }, e)) {
-                                openDiff(model, agentDiffScope(agent.id, agent.name));
+                                openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent));
                             }
                         }}
                         title={chip.title ? `${chip.title} · Open the Changes tab` : "Open the Changes tab"}

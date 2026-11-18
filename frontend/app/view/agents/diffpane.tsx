@@ -22,7 +22,7 @@ import { DiffCommentZones } from "./diffcommentcard";
 import { commentSplitAtom, mountCommentLayer } from "./diffcommentlayer";
 import { activeCommentSourceAtom, relocateComments } from "./diffcomments";
 import { firstDifferingLine } from "./diffcontent";
-import { diffSurfacePair, type DiffPairSource } from "./diffcontentstore";
+import { diffSurfacePair } from "./diffcontentstore";
 import { emptyDiffState } from "./diffempty";
 import { changePosition, clearDiffNav, diffNavPosAtom, gotoChange, setDiffNav } from "./diffnav";
 import {
@@ -65,8 +65,6 @@ export function DiffPane({
     nothingToCompare = null,
     noCommit = false,
     lineCounts = true,
-    source = diffSurfacePair,
-    wrap = false,
 }: {
     path: string | null;
     adds: number;
@@ -79,14 +77,9 @@ export function DiffPane({
     nothingToCompare?: { base: string; head: string } | null;
     // no commit is open; the surface drops the commit pane, so this pane asks for one
     noCommit?: boolean;
-    // the pair this pane shows: the Diff surface's unless a host keeps its own (the workspace pane's Changes tab)
-    source?: DiffPairSource;
-    // wrap long lines instead of scrolling sideways
-    wrap?: boolean;
 }) {
-    const pair = useAtomValue(source.pairAtom);
-    const failure = useAtomValue(source.failureAtom);
-    const commentable = source === diffSurfacePair;
+    const pair = useAtomValue(diffSurfacePair.pairAtom);
+    const failure = useAtomValue(diffSurfacePair.failureAtom);
     const split = useAtomValue(splitViewAtom);
     const ignoreWs = useAtomValue(ignoreWsAtom);
     const navPos = useAtomValue(diffNavPosAtom);
@@ -133,7 +126,7 @@ export function DiffPane({
     const layout = paneHeaderLayout(width);
     const splitShown = split && layout.split;
     const newFile = pair != null && isNewFile(pair.original, pair.modified);
-    const options = useMemo(() => paneOptions(splitShown, ignoreWs, wrap), [splitShown, ignoreWs, wrap]);
+    const options = useMemo(() => paneOptions(splitShown, ignoreWs), [splitShown, ignoreWs]);
     useEffect(() => {
         globalStore.set(commentSplitAtom, splitShown);
     }, [splitShown]);
@@ -163,7 +156,7 @@ export function DiffPane({
                                           Retry
                                       </>
                                   ),
-                                  onClick: () => fireAndForget(source.retry),
+                                  onClick: () => fireAndForget(diffSurfacePair.retry),
                                   data: { "data-diff-retry": "" },
                               }
                             : undefined
@@ -185,8 +178,7 @@ export function DiffPane({
                     // and mounts the comment layer on it
                     onMount={(diff, monacoApi) => {
                         setDiffNav(diff);
-                        // comments anchor to the Diff surface's pair, so another source's editor draws none
-                        const unmountComments = commentable ? mountCommentLayer(diff, monacoApi) : () => {};
+                        const unmountComments = mountCommentLayer(diff, monacoApi);
                         const update = () =>
                             globalStore.set(
                                 diffNavPosAtom,
@@ -210,7 +202,7 @@ export function DiffPane({
                         };
                     }}
                 />
-                {commentable ? <DiffCommentZones /> : null}
+                <DiffCommentZones />
             </Suspense>
         );
     };

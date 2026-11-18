@@ -10,6 +10,7 @@ import { cn, fireAndForget } from "@/util/util";
 import { Copy } from "lucide-react";
 import { formatAgo } from "./agentsviewmodel";
 import { ChangedFileList, ReviewProgress, TreeModeToggle } from "./changedfilelist";
+import type { EditFlag } from "./filesstore";
 import { type GitChanges } from "./gitstatus";
 import { WORKING_TREE, refChipClass, type HistoryRow } from "./historyrows";
 import type { ReviewSubject } from "./reviewmarks";
@@ -19,14 +20,16 @@ function initials(name: string): string {
     return name.slice(0, 2).toUpperCase();
 }
 
-function WorkingTreeHeader({ row, caption }: { row: HistoryRow; caption?: string }) {
+function WorkingTreeHeader({ row, caption, heading }: { row: HistoryRow; caption?: string; heading: string }) {
     return (
         <>
             <div className={cn(REGION_LABEL, "mb-[8px] flex items-center gap-[7px] text-warning")}>
                 <span className="h-[9px] w-[9px] rounded-full border border-dashed border-warning" />
-                Working tree
+                {heading}
             </div>
-            <div className="text-[14px] font-semibold leading-[1.4] text-ink-hi">{row.subject}</div>
+            {row.subject !== heading ? (
+                <div className="text-[14px] font-semibold leading-[1.4] text-ink-hi">{row.subject}</div>
+            ) : null}
             {caption ? <div className="mt-[6px] text-[12px] text-ink-mid">{caption}</div> : null}
         </>
     );
@@ -47,12 +50,12 @@ function CopyHashButton({ hash }: { hash: string }) {
 
 // the column header: the history row right above already shows the author, refs and age, so only what
 // names the commit stays, on one line
-function LineHeader({ row, caption }: { row: HistoryRow; caption?: string }) {
+function LineHeader({ row, caption, heading }: { row: HistoryRow; caption?: string; heading: string }) {
     if (row.hash === WORKING_TREE) {
         return (
             <div className="flex min-w-0 items-center gap-[8px]">
                 <span className="h-[9px] w-[9px] flex-none rounded-full border border-dashed border-warning" />
-                <span className="flex-none text-[12.5px] font-semibold text-ink-hi">Working tree</span>
+                <span className="flex-none text-[12.5px] font-semibold text-ink-hi">{heading}</span>
                 {caption ? <span className="min-w-0 truncate text-[12px] text-ink-mid">{caption}</span> : null}
             </div>
         );
@@ -113,11 +116,13 @@ export function CommitPane({
     selectedFile,
     onSelectFile,
     caption,
+    heading = "Working tree",
     review,
     failure = null,
     onRetry,
     lineCounts = true,
     header = "full",
+    flags,
 }: {
     row: HistoryRow;
     changes: GitChanges | null;
@@ -126,6 +131,8 @@ export function CommitPane({
     review: ReviewSubject | null;
     // the working-tree row's "measured from what" line; worktreeCaption builds it
     caption?: string;
+    // the working-tree row's name; worktreeHeading builds it
+    heading?: string;
     // the file list's read failed
     failure?: string | null;
     onRetry?: () => void;
@@ -133,18 +140,24 @@ export function CommitPane({
     lineCounts?: boolean;
     // "line" under the history column, whose selected row already says the rest
     header?: "full" | "line";
+    // the edits range's per-file caveats, by path
+    flags?: Record<string, EditFlag>;
 }) {
     const isWorkingTree = row.hash === WORKING_TREE;
     const count = changes?.files.length ?? 0;
     return (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div data-commit-pane className="flex min-h-0 flex-1 flex-col">
             {header === "line" ? (
                 <div className="flex-none px-[15px] pb-[2px] pt-[10px]">
-                    <LineHeader row={row} caption={caption} />
+                    <LineHeader row={row} caption={caption} heading={heading} />
                 </div>
             ) : (
                 <div className="flex-none border-b border-edge-faint px-[15px] pb-[12px] pt-[14px]">
-                    {isWorkingTree ? <WorkingTreeHeader row={row} caption={caption} /> : <CommitHeader row={row} />}
+                    {isWorkingTree ? (
+                        <WorkingTreeHeader row={row} caption={caption} heading={heading} />
+                    ) : (
+                        <CommitHeader row={row} />
+                    )}
                 </div>
             )}
             <div className="flex-none px-[15px] pb-[8px] pt-[10px]">
@@ -176,6 +189,7 @@ export function CommitPane({
                     failure={failure}
                     onRetry={onRetry}
                     lineCounts={lineCounts}
+                    flags={flags}
                 />
             </div>
         </div>
