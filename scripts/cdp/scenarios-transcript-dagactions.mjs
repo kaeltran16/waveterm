@@ -234,7 +234,7 @@ export const transcriptDagActions = {
             detail: JSON.stringify(opened),
         });
 
-        const compact =only(await show(h, "compactAmended"), "amend");
+        const compact = only(await show(h, "compactAmended"), "amend");
         await h.shot("cdp-shots/transcript-dagactions-compact-amended.png");
         steps.push({
             step: "compact Amended at 380 px: two rows that fit the card width",

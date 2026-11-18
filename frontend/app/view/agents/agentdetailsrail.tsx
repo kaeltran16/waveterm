@@ -189,16 +189,7 @@ function SealedFiles({ files }: { files: EvidenceFile[] }) {
 // The collapsed strip reads only the context % and the ask count. The panel and its loaders (the 1 s clock, usage
 // and cache status every 15 s, the git read) mount only while the rail is open on the Agent surface, which stays
 // mounted off-screen under every other surface.
-// askInView: the agent's question is answerable in the center (the Rendered view's ask dock), not only in its terminal
-export function AgentDetailsRail({
-    model,
-    agent,
-    askInView,
-}: {
-    model: AgentsViewModel;
-    agent: AgentVM;
-    askInView: boolean;
-}) {
+export function AgentDetailsRail({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const open = useAtomValue(railVisibleAtom);
     const onAgent = useAtomValue(model.surfaceAtom) === "agent";
     const focusSub = useAtomValue(focusSubagentAtom);
@@ -218,7 +209,7 @@ export function AgentDetailsRail({
             openAtom={railVisibleAtom}
             ariaLabel="Agent details"
             sections={[]}
-            panel={open && onAgent ? <AgentDetailsPanel model={model} agent={agent} askInView={askInView} /> : null}
+            panel={open && onAgent ? <AgentDetailsPanel model={model} agent={agent} /> : null}
             strip={{
                 content: (
                     <RailStrip needs={yours.length} ctxPct={inSub ? undefined : ctxPct} ctxMax={usage?.contextmax} />
@@ -229,15 +220,7 @@ export function AgentDetailsRail({
     );
 }
 
-function AgentDetailsPanel({
-    model,
-    agent,
-    askInView,
-}: {
-    model: AgentsViewModel;
-    agent: AgentVM;
-    askInView: boolean;
-}) {
+function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const focusSub = useAtomValue(focusSubagentAtom);
@@ -281,7 +264,6 @@ function AgentDetailsPanel({
               standingBy,
               interrupted: lastTurnInterrupted(ownEntries),
               silentMs,
-              askInView,
           });
 
     const subHead: RailSection[] =

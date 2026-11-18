@@ -43,7 +43,7 @@ import { finalRowFocusId } from "./finalstage";
 import { FinalStagePane } from "./finalstagepane";
 import { rosterSeededAtom } from "./liveagents";
 import { terminalFullscreenAtom } from "./railstore";
-import { askDocked, canRender, effectiveViewMode, pickerFlipAtom, viewModeAtom } from "./renderedmode";
+import { canRender, effectiveViewMode, pickerFlipAtom, viewModeAtom } from "./renderedmode";
 import { RenderedView, useUnflipOnPrompt } from "./renderedview";
 import { isEndedWorkerId } from "./runlineage";
 import { SubagentInterior } from "./subagentinterior";
@@ -311,7 +311,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     </AnimatePresence>
                 </div>
                 {!fullscreen && !paneMode && !inRendered && agent.kind !== "terminal" ? (
-                    <AgentDetailsRail model={model} agent={agent} askInView={inRendered && askDocked(agent)} />
+                    <AgentDetailsRail model={model} agent={agent} />
                 ) : null}
             </div>
         </MotionConfig>

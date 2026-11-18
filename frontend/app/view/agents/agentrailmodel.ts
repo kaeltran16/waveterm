@@ -111,8 +111,8 @@ const MS_PER_MINUTE = 60_000;
 
 // railAction is the rail footer's one control: Resume nudges an agent whose last turn was interrupted, Stop
 // interrupts a turn. An agent with no live terminal has nothing to drive, and one standing by is waiting on its
-// shell tasks, not on a nudge. An asking agent is answered in its terminal's own picker, so the footer only says so,
-// unless the center already shows the question's choices; an idle agent that finished its turn has nothing left to nudge.
+// shell tasks, not on a nudge. An asking agent is answered in its terminal's own picker, so the footer only says so;
+// an idle agent that finished its turn has nothing left to nudge.
 export function railAction(input: {
     state: AgentState;
     age: string;
@@ -120,14 +120,13 @@ export function railAction(input: {
     standingBy: boolean;
     interrupted: boolean;
     silentMs: number | null;
-    askInView?: boolean;
 }): RailAction | null {
-    const { state, age, live, standingBy, interrupted, silentMs, askInView } = input;
+    const { state, age, live, standingBy, interrupted, silentMs } = input;
     if (!live || standingBy) {
         return null;
     }
     if (state === "asking") {
-        return { kind: "none", hint: askInView ? "waiting on you" : "waiting on you · answer in the terminal" };
+        return { kind: "none", hint: "waiting on you · answer in the terminal" };
     }
     if (state === "idle") {
         return interrupted ? { kind: "resume", hint: `idle ${age} · nudge to continue` } : null;
