@@ -7,10 +7,13 @@
 
 import { ASK_OWNER_USER } from "./childaskmodel";
 
-export type RunView = "tasks" | "asks" | "activity" | "graph";
+export type RunView = "tasks" | "activity" | "graph";
+
+// the Graph view's mode, its one selected task, and the Focus back trail; kept on the tab so a view swap keeps it
+export type RunGraphState = { mode: "lanes" | "focus"; focus: string | null; trail: string[] };
 
 export type WorkspaceTab =
-    | { kind: "run"; runId: string; view: RunView }
+    | { kind: "run"; runId: string; view: RunView; graph?: RunGraphState }
     | { kind: "changes"; selected: string | null }
     | { kind: "file"; path: string; line: number | null }
     | { kind: "brainstorm" }

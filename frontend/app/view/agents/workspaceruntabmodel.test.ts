@@ -3,7 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 import type { RunInfo } from "./runlineage";
-import { answeredAsks, runHead, runTabCounts, taskRows } from "./workspaceruntabmodel";
+import { STRIP_MAX } from "./runstrip";
+import { answeredAsks, headStrip, runHead, runTabCounts, spendLine, taskDots, taskRows } from "./workspaceruntabmodel";
 
 const NOW = Date.UTC(2026, 10, 17, 14, 31, 0);
 const MIN = 60_000;
@@ -43,9 +44,6 @@ const runOf = (dag: TaskGroup | undefined, extra: Partial<RunInfo> = {}): RunInf
     ...extra,
 });
 
-const ask = (taskid: string, owner: string): DagAskItem =>
-    ({ taskid, askid: `${taskid}-ask`, owner, questions: [], blockoref: "", ts: NOW - MIN }) as DagAskItem;
-
 const event = (id: string, kind: string, ts: number, detail: object): RunEvent =>
     ({ id, runid: RUN_ID, channelid: "ch-1", kind, ts, detail: JSON.stringify(detail) }) as RunEvent;
 
@@ -61,54 +59,190 @@ const ASKING_DIGEST = {
     tasks: [{ taskid: "t-3", waitreason: "ask", mergestate: "", cleanupstate: "" }],
 } as DagStatusDigest;
 
+// the Main board's run: t-1 merged, t-2 merged and verifying, t-3 asking the lead, t-4 working, t-5 reviewing, t-6
+// failed, t-7 waiting on t-3 and t-4, t-8 waiting for a free worker
+const MAIN = dagOf(
+    [
+        task("t-1", "internal/stats counters", "done", { merged: true }),
+        task("t-2", "internal/importer URL normalizing", "verifying", { merged: true }),
+        task("t-3", "internal/dedupe groups", "running", { deps: ["t-1"] }),
+        task("t-4", "cmd/linkshelf stats command", "running", { deps: ["t-1"] }),
+        task("t-5", "web bookmarks list view", "reviewing"),
+        task("t-6", "importer: Pocket export", "failed"),
+        task("t-7", "go test and go vet", "pending", { deps: ["t-3", "t-4"] }),
+        task("t-8", "docs/cli.md stats section", "ready", { deps: ["t-1"] }),
+    ],
+    { createdts: NOW - 9 * MIN - 10_000 }
+);
+const MAIN_DIGEST = {
+    tasks: [
+        { taskid: "t-3", waitreason: "lead-ask", askdeadline: NOW + 2 * MIN, mergestate: "", cleanupstate: "" },
+        { taskid: "t-8", waitreason: "parallelism", mergestate: "", cleanupstate: "" },
+    ],
+} as DagStatusDigest;
+const LAND_COMMIT = "4c1e9a2b7d0e5f3a9c8b6d4e2f1a0b9c8d7e6f5a";
+
 describe("runHead", () => {
-    it("running with a user ask: Live, the progress line with its plan, and Needs you then the next task", () => {
-        const head = runHead(runOf(RUNNING, { digest: ASKING_DIGEST }), [ask("t-3", "user")], NOW);
-        expect(head.title).toBe("stats and dedupe packages");
-        expect(head.state).toEqual({ text: "Live", tone: "live" });
-        expect(head.line).toBe("2/5 tasks · 6m · 7f3a91c2 · plan 2026-11-17-stats-dedupe.md");
-        expect(head.needsYou).toEqual({ then: "t-4 · go test and go vet" });
+    it("the Main board: Live, merged tasks counted (t-2 merged and verifying is one), elapsed, id and plan", () => {
+        const head = runHead(runOf(MAIN, { digest: MAIN_DIGEST }), NOW);
+        expect(head).toEqual({
+            title: "stats and dedupe packages",
+            state: { text: "Live", tone: "live" },
+            line: "2/8 tasks · 9m · 7f3a91c2 · plan 2026-11-17-stats-dedupe.md",
+        });
     });
 
-    it("a question the lead holds is not one waiting on you", () => {
-        expect(runHead(runOf(RUNNING), [ask("t-3", "lead")], NOW).needsYou).toBeNull();
+    it("a task done but not merged yet is not counted", () => {
+        const dag = dagOf([task("t-1", "a", "done"), task("t-2", "b", "done", { merged: true })], { planpath: "" });
+        expect(runHead(runOf(dag), NOW).line).toBe("1/2 tasks · 6m · 7f3a91c2");
     });
 
-    it("all merged while the final stage runs: every task counted, still live, nothing waiting", () => {
+    it("all merged while the final stage runs: every task counted, still live, nothing landed yet", () => {
         const dag = dagOf(
             RUNNING.tasks.map((t) => ({ ...t, state: "done", merged: true })),
             { status: "finalizing" }
         );
-        const head = runHead(runOf(dag), [], NOW);
+        const head = runHead(runOf(dag, { land: { state: "pending", commit: LAND_COMMIT } }), NOW);
         expect(head.state).toEqual({ text: "Live", tone: "live" });
         expect(head.line).toBe("5/5 tasks · 6m · 7f3a91c2 · plan 2026-11-17-stats-dedupe.md");
-        expect(head.needsYou).toBeNull();
     });
 
     it("no dag yet: the run's own status, its id, and that no plan was submitted", () => {
-        const head = runHead(runOf(undefined), [], NOW);
+        const head = runHead(runOf(undefined), NOW);
         expect(head.state).toEqual({ text: "Planning", tone: "muted" });
         expect(head.line).toBe("7f3a91c2 · no plan submitted");
-        expect(head.needsYou).toBeNull();
     });
 
-    it("done: the settled elapsed time, not the clock since it started", () => {
+    it("done and landed: the settled elapsed time, then the landed commit's short form", () => {
         const dag = dagOf(
-            RUNNING.tasks.map((t) => ({ ...t, state: "done", merged: true })),
+            MAIN.tasks.map((t) => ({ ...t, state: "done", merged: true })),
             { status: "done", createdts: NOW - 90 * MIN }
         );
-        const digest = { next: { kind: "terminal" }, durations: { elapsedms: 12 * MIN } } as DagStatusDigest;
-        const head = runHead(runOf(dag, { status: "done", digest }), [], NOW);
+        const digest = { next: { kind: "terminal" }, durations: { elapsedms: 31 * MIN } } as DagStatusDigest;
+        const head = runHead(
+            runOf(dag, { status: "done", digest, land: { state: "landed", commit: LAND_COMMIT } }),
+            NOW
+        );
         expect(head.state).toEqual({ text: "Done", tone: "done" });
-        expect(head.line).toBe("5/5 tasks · 12m · 7f3a91c2 · plan 2026-11-17-stats-dedupe.md");
-        expect(head.needsYou).toBeNull();
+        expect(head.line).toBe("8/8 tasks · 31m · 7f3a91c2 · plan 2026-11-17-stats-dedupe.md · landed 4c1e9a2");
+    });
+
+    it("done with no landed commit names none", () => {
+        const dag = dagOf(
+            RUNNING.tasks.map((t) => ({ ...t, state: "done", merged: true })),
+            { status: "done" }
+        );
+        const digest = { next: { kind: "terminal" }, durations: { elapsedms: 12 * MIN } } as DagStatusDigest;
+        expect(runHead(runOf(dag, { status: "done", digest }), NOW).line).toBe(
+            "5/5 tasks · 12m · 7f3a91c2 · plan 2026-11-17-stats-dedupe.md"
+        );
     });
 
     it("a cancelled run reads Cancelled, and a dag with no plan file leaves the plan out", () => {
         const dag = dagOf(RUNNING.tasks, { status: "cancelled", planpath: undefined });
-        const head = runHead(runOf(dag), [], NOW);
+        const head = runHead(runOf(dag), NOW);
         expect(head.state).toEqual({ text: "Cancelled", tone: "muted" });
         expect(head.line).toBe("2/5 tasks · 6m · 7f3a91c2");
+    });
+});
+
+const usageRow = (model: string, extra: Partial<UsageRow> = {}): UsageRow => ({
+    role: "worker",
+    model,
+    input: 0,
+    output: 0,
+    cacheread: 0,
+    cachewrite: 0,
+    cachewrite1h: 0,
+    msgs: 1,
+    ...extra,
+});
+
+describe("spendLine", () => {
+    it("joins spend, tokens and worker time when all are known", () => {
+        // opus 5.5 per 1M: input $4, output $20, 5m cache write $5, cache read $0.20 -> 0.80 + 1.00 + 0.25 + 0.18
+        const rows = [
+            usageRow("claude-opus-5-5", { input: 200_000, output: 50_000, cachewrite: 50_000, cacheread: 900_000 }),
+        ];
+        expect(spendLine(rows, 14 * MIN + 20_000)).toBe("Spent ~$2.23 · Tokens 1.2M · Worker time 14m");
+    });
+
+    it("leaves out what is not known: no price, no spend; no worker time reported, none", () => {
+        expect(spendLine([usageRow("unpriced-model", { input: 40_000 })], undefined)).toBe("Tokens 40k");
+        expect(spendLine(undefined, 3 * MIN)).toBe("Worker time 3m");
+    });
+
+    it("null with nothing known", () => {
+        expect(spendLine(undefined, undefined)).toBeNull();
+        expect(spendLine([], 0)).toBeNull();
+    });
+});
+
+describe("taskDots", () => {
+    it("the Main board: merged, verifying-after-merge working, the lead's question asked, failed, waits", () => {
+        expect(taskDots(MAIN, MAIN_DIGEST)).toEqual({
+            "t-1": "merged",
+            "t-2": "working",
+            "t-3": "asked",
+            "t-4": "working",
+            "t-5": "working",
+            "t-6": "failed",
+            "t-7": "waits",
+            "t-8": "waits",
+        });
+    });
+
+    it("a question with you is asked too, and a done task awaiting its merge is working", () => {
+        const dag = dagOf([task("t-1", "a", "running"), task("t-2", "b", "done")]);
+        const digest = {
+            tasks: [{ taskid: "t-1", waitreason: "ask", mergestate: "", cleanupstate: "" }],
+        } as DagStatusDigest;
+        expect(taskDots(dag, digest)).toEqual({ "t-1": "asked", "t-2": "working" });
+    });
+
+    it("every failing state is failed; not started, skipped and cancelled wait", () => {
+        const dag = dagOf([
+            task("t-1", "", "verify-failed"),
+            task("t-2", "", "review-failed"),
+            task("t-3", "", "blocked-merge"),
+            task("t-4", "", "pending"),
+            task("t-5", "", "ready"),
+            task("t-6", "", "skipped"),
+            task("t-7", "", "cancelled"),
+        ]);
+        expect(Object.values(taskDots(dag, undefined))).toEqual([
+            "failed",
+            "failed",
+            "failed",
+            "waits",
+            "waits",
+            "waits",
+            "waits",
+        ]);
+    });
+
+    it("no dag, no dots", () => {
+        expect(taskDots(undefined, undefined)).toEqual({});
+    });
+});
+
+describe("headStrip", () => {
+    it("one segment per task in plan order, from the dots: t-3 is amber as on the Main board", () => {
+        expect(headStrip(MAIN, MAIN_DIGEST)).toEqual({
+            kind: "segments",
+            dots: ["merged", "working", "asked", "working", "working", "failed", "waits", "waits"],
+        });
+    });
+
+    it("past the strip's limit one bar of merged tasks against the total", () => {
+        const tasks = Array.from({ length: STRIP_MAX + 1 }, (_, i) =>
+            task(`t-${i + 1}`, "", i < 3 ? "done" : "pending", { merged: i < 3 })
+        );
+        expect(headStrip(dagOf(tasks), undefined)).toEqual({ kind: "bar", done: 3, total: STRIP_MAX + 1 });
+    });
+
+    it("no tasks, no strip", () => {
+        expect(headStrip(undefined, undefined)).toBeUndefined();
     });
 });
 
@@ -129,21 +263,17 @@ describe("answeredAsks", () => {
 });
 
 describe("runTabCounts", () => {
-    it("counts the tasks, the open and answered questions, and the run's events", () => {
+    it("counts the tasks and the run's events, and no questions", () => {
         const events = [
             event("e1", "child-ask", NOW - 9 * MIN, { taskid: "t-2", question: "Count untagged?" }),
             event("e2", "child-answered", NOW - 8 * MIN, { taskid: "t-2" }),
             event("e3", "task-merged", NOW - 7 * MIN, { taskid: "t-2" }),
         ];
-        expect(runTabCounts(runOf(RUNNING), [ask("t-3", "user"), ask("t-4", "lead")], events)).toEqual({
-            tasks: 5,
-            asks: 3,
-            activity: 3,
-        });
+        expect(runTabCounts(runOf(RUNNING), events)).toEqual({ tasks: 5, activity: 3 });
     });
 
     it("a run with no dag has no tasks", () => {
-        expect(runTabCounts(runOf(undefined), [], []).tasks).toBe(0);
+        expect(runTabCounts(runOf(undefined), []).tasks).toBe(0);
     });
 });
 

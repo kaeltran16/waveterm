@@ -1,31 +1,91 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pure: what the workspace pane's Run tab says about a run: its head (state, progress line, Needs you), the counts on
-// its sub-tabs, a row per task, and the questions already answered. Read from the dag, the digest, the open asks and
-// the run's event rows, with the rail's helpers, so the tab and the rail cannot disagree about a run.
+// Pure: what the workspace pane's Run tab says about a run: its head (state, facts line, spend line, strip), the
+// counts on its views, each task's dot, a row per task, and the questions already answered. Read from the dag, the
+// digest and the run's event rows, with the rail's helpers where the two must agree about a run.
 
 import { formatElapsed } from "@/app/view/orchestrate/dagdigest";
+import { formatTokens } from "./agentsviewmodel";
 import { shortRunId } from "./brainstormrunmodel";
-import { ASK_OWNER_USER } from "./childaskmodel";
-import { runFinished, runProgress, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
+import { runFinished, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
 import { runStatusView } from "./runmodel";
-import { runElapsedMs, runSegments, thenTask, type LaneState } from "./runrail";
+import { runElapsedMs, runSegments, type LaneState } from "./runrail";
+import { STRIP_MAX } from "./runstrip";
 import { detailOf } from "./runtimeline";
+import { summarizeUsage } from "./runusage";
+import { usd } from "./usagestats";
 
 export type RunHeadTone = "live" | "done" | "muted";
 
 export interface RunHeadView {
     title: string;
     state: { text: string; tone: RunHeadTone };
-    // "done/total tasks · elapsed · run id · plan <file>"
+    // "merged/total tasks · elapsed · run id · plan <file>", then "landed <commit>" once a finished run landed
     line: string;
-    // while a question waits on you: what the run moves on to once it is answered
-    needsYou: { then?: string } | null;
 }
 
 const NO_TIME = "—";
 const NOT_STARTED = new Set(["pending", "ready"]);
+const SHORT_COMMIT = 7;
+
+// a task's dot: merged, working (pulsing), asked (pulsing, with the lead or with you), failed, or waits
+export type RowDot = "merged" | "working" | "asked" | "failed" | "waits";
+
+// unpulsed fills, for the head strip; waits is the strip's empty track as the rail's strip draws it
+export const STRIP_FILL: Record<RowDot, string> = {
+    merged: "bg-success",
+    working: "bg-accent",
+    asked: "bg-warning",
+    failed: "bg-error",
+    waits: "bg-edge-strong",
+};
+
+export const ROW_DOT: Record<RowDot, string> = {
+    merged: "bg-success",
+    working: "bg-accent pulse-dot",
+    asked: "bg-warning pulse-dot",
+    failed: "bg-error",
+    waits: "bg-ink-faint",
+};
+
+const FAILED_STATES = new Set(["failed", "verify-failed", "review-failed", "blocked-merge"]);
+const WORKING_STATES = new Set(["running", "verifying", "reviewing", "done"]);
+
+function taskDot(task: TaskNode, digest: DagStatusDigest | undefined): RowDot {
+    if (FAILED_STATES.has(task.state)) {
+        return "failed";
+    }
+    // a merged task re-verifying the checkout is still at work
+    if (task.merged && task.state !== "verifying") {
+        return "merged";
+    }
+    if (workerAsk(digest, task.id) != null) {
+        return "asked";
+    }
+    // done here is done awaiting its merge
+    return WORKING_STATES.has(task.state) ? "working" : "waits";
+}
+
+// taskDots is the tab's own dot per task, not runSegments', which reads a lead-held question as working and both
+// merged and done-awaiting-merge as done
+export function taskDots(dag: TaskGroup | undefined, digest: DagStatusDigest | undefined): Record<string, RowDot> {
+    return Object.fromEntries((dag?.tasks ?? []).map((t) => [t.id, taskDot(t, digest)]));
+}
+
+export type HeadStrip = { kind: "segments"; dots: RowDot[] } | { kind: "bar"; done: number; total: number };
+
+// headStrip is the head's task strip from the dots, so strip and rows agree; past STRIP_MAX one bar of merged tasks
+export function headStrip(dag: TaskGroup | undefined, digest: DagStatusDigest | undefined): HeadStrip | undefined {
+    const dots = Object.values(taskDots(dag, digest));
+    if (dots.length === 0) {
+        return undefined;
+    }
+    if (dots.length > STRIP_MAX) {
+        return { kind: "bar", done: dots.filter((d) => d === "merged").length, total: dots.length };
+    }
+    return { kind: "segments", dots };
+}
 
 function sentence(text: string): string {
     return text.charAt(0).toUpperCase() + text.slice(1);
@@ -44,27 +104,40 @@ function headState(run: RunInfo): RunHeadView["state"] {
     return { text: "Live", tone: "live" };
 }
 
-export function runHead(run: RunInfo, asks: DagAskItem[], now: number): RunHeadView {
+// the facts line counts merged tasks, not runProgress' state-done ones: a merged task still verifying is landed work
+export function runHead(run: RunInfo, now: number): RunHeadView {
     const dag = run.dag;
     const id = shortRunId(run.runId);
-    const yours = asks.some((a) => a.owner === ASK_OWNER_USER);
     let line: string;
     if (dag == null) {
         line = `${id} · no plan submitted`;
     } else {
-        const { done, total } = runProgress(dag);
+        const merged = dag.tasks.filter((t) => t.merged).length;
         const elapsed = runElapsedMs(dag, run.digest, now);
         const plan = dag.planpath?.split(/[\\/]/).pop();
-        line = [`${done}/${total} tasks`, elapsed > 0 ? formatElapsed(elapsed) : "", id, plan ? `plan ${plan}` : ""]
+        const landed = runFinished(run) && run.land?.commit ? `landed ${run.land.commit.slice(0, SHORT_COMMIT)}` : "";
+        line = [
+            `${merged}/${dag.tasks.length} tasks`,
+            elapsed > 0 ? formatElapsed(elapsed) : "",
+            id,
+            plan ? `plan ${plan}` : "",
+            landed,
+        ]
             .filter(Boolean)
             .join(" · ");
     }
-    return {
-        title: run.title,
-        state: headState(run),
-        line,
-        needsYou: yours ? { then: thenTask(dag) } : null,
-    };
+    return { title: run.title, state: headState(run), line };
+}
+
+// spendLine is the head's second line, "Spent ~$2.10 · Tokens 1.2M · Worker time 14m", each fact only when known
+export function spendLine(usage: UsageRow[] | undefined, workerMs: number | undefined): string | null {
+    const spent = summarizeUsage(usage);
+    const facts = [
+        spent?.estimateUsd != null ? `Spent ~${usd(spent.estimateUsd)}` : "",
+        spent ? `Tokens ${formatTokens(spent.total)}` : "",
+        workerMs ? `Worker time ${formatElapsed(workerMs)}` : "",
+    ].filter(Boolean);
+    return facts.length > 0 ? facts.join(" · ") : null;
 }
 
 export interface AnsweredAsk {
@@ -100,17 +173,12 @@ export function answeredAsks(events: RunEvent[]): AnsweredAsk[] {
 
 export interface RunTabCounts {
     tasks: number;
-    asks: number;
     activity: number;
 }
 
-// the sub-tabs' counts: Asks holds the open questions and the answered ones, Activity every event row
-export function runTabCounts(run: RunInfo, asks: DagAskItem[], events: RunEvent[]): RunTabCounts {
-    return {
-        tasks: run.dag?.tasks?.length ?? 0,
-        asks: asks.length + answeredAsks(events).length,
-        activity: events.length,
-    };
+// the views' counts: Tasks the dag's tasks, Activity every event row
+export function runTabCounts(run: RunInfo, events: RunEvent[]): RunTabCounts {
+    return { tasks: run.dag?.tasks?.length ?? 0, activity: events.length };
 }
 
 export interface TaskRowView {
