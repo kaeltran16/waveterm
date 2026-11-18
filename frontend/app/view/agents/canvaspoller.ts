@@ -23,7 +23,7 @@ import {
     shownBoards,
     type CanvasBoard,
 } from "./canvasmodel";
-import { canvasStateAtom, updateCanvas, type CanvasState } from "./canvasstore";
+import { canvasStateAtom, canvasWindowAtom, updateCanvas, type CanvasState } from "./canvasstore";
 
 const CANVAS_JSON = "canvas.json";
 const HTTP_OK = 200;
@@ -177,7 +177,9 @@ export async function pollAndMerge(
     if (s == null) {
         return;
     }
-    const onScreen = canvasOnScreen(paneShown(model, agentId), getBrainstorm(agentId));
+    const onScreen =
+        globalStore.get(canvasWindowAtom) === agentId ||
+        canvasOnScreen(paneShown(model, agentId), getBrainstorm(agentId));
     const patch = await pollCanvasOnce(s, io, Date.now(), onScreen);
     updateCanvas(agentId, (cur) => (cur.topic === s.topic && cur.dir === s.dir ? mergePoll(cur, patch) : cur));
 }

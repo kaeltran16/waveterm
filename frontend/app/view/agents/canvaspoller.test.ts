@@ -13,8 +13,10 @@ import { boardUnseen } from "./canvasmodel";
 import { canvasOnScreen, pollAndMerge, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
 import {
     attachCanvas,
+    canvasWindowAtom,
     detachCanvas,
     getCanvas,
+    openCanvasWindow,
     setCanvasMode,
     showInlineBoard,
     updateCanvas,
@@ -370,6 +372,59 @@ describe("pollAndMerge", () => {
         expect(getCanvas(AGENT).lastViewedMs).toBe(NOW);
         expect(getCanvas(AGENT).boardViewedMs).toEqual({ "States.dc.html": NOW });
         closeWorkspaceTab(AGENT, "canvas");
+    });
+});
+
+describe("pollAndMerge with the canvas window", () => {
+    const AGENT = "agent-window";
+    const BASED = { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" };
+
+    function served(): CanvasIO {
+        return fakeIO({
+            files: { "Main.dc.html": 1000, "States.dc.html": 5000, "canvas.json": 500 },
+            json: JSON_TWO,
+        });
+    }
+
+    // a canvas whose last read saw the boards older than they are now, in the Terminal view with the canvas not shown
+    function attachedStale(): void {
+        attachCanvas(AGENT, BASED, 0);
+        updateCanvas(AGENT, (s) => ({
+            ...s,
+            mode: "terminal",
+            base: BASE,
+            status: "ready",
+            lastModifiedMs: 4000,
+            lastViewedMs: 7,
+        }));
+    }
+
+    afterEach(() => {
+        globalStore.set(canvasWindowAtom, null);
+        detachCanvas(AGENT);
+    });
+
+    it("reloads the boards when one got newer while the window is open, with no pane shown", async () => {
+        attachedStale();
+        openCanvasWindow(AGENT);
+        await pollAndMerge(TERMINAL, AGENT, served());
+        expect(getCanvas(AGENT).reloadKey).toBe(1);
+        expect(getCanvas(AGENT).lastViewedMs).toBeGreaterThan(7);
+    });
+
+    it("does not reload with the window closed", async () => {
+        attachedStale();
+        await pollAndMerge(TERMINAL, AGENT, served());
+        expect(getCanvas(AGENT).reloadKey).toBe(0);
+    });
+
+    it("does not count a window open on another agent", async () => {
+        attachedStale();
+        attachCanvas("other", BASED, 0);
+        openCanvasWindow("other");
+        await pollAndMerge(TERMINAL, AGENT, served());
+        expect(getCanvas(AGENT).reloadKey).toBe(0);
+        detachCanvas("other");
     });
 });
 

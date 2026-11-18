@@ -44,6 +44,9 @@ export const canvasStateAtom = atomFamily(
     (_agentId: string) => atom<CanvasState | null>(null) as PrimitiveAtom<CanvasState | null>
 );
 
+// the agent whose canvas window (the Rendered view's modal over its boards) is open: one window at most
+export const canvasWindowAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
 // atomFamily can't be enumerated, and canvasOwner has to find an agent by topic
 const attached = new Set<string>();
 
@@ -98,6 +101,9 @@ export function attachCanvas(
 // its workspace tab goes with it: left open, the tab would draw an empty body
 export function detachCanvas(agentId: string): void {
     attached.delete(agentId);
+    if (globalStore.get(canvasWindowAtom) === agentId) {
+        globalStore.set(canvasWindowAtom, null);
+    }
     globalStore.set(canvasStateAtom(agentId), null);
     closeWorkspaceTab(agentId, "canvas");
 }
@@ -153,6 +159,29 @@ export function selectCanvasTab(agentId: string, tab: string): void {
 
 export function selectCanvasBoard(agentId: string, board: string): void {
     updateCanvas(agentId, (s) => ({ ...s, board, mark: null }));
+}
+
+// a window on an agent with no canvas would draw nothing, so it does not open
+export function openCanvasWindow(agentId: string, at: { board?: string; mark?: boolean } = {}): void {
+    if (getCanvas(agentId) == null) {
+        return;
+    }
+    if (at.board != null) {
+        selectCanvasTab(agentId, at.board);
+    }
+    if (at.mark) {
+        updateCanvas(agentId, (s) => ({ ...s, marking: true, mark: null }));
+    }
+    globalStore.set(canvasWindowAtom, agentId);
+}
+
+export function closeCanvasWindow(): void {
+    const id = globalStore.get(canvasWindowAtom);
+    if (id == null) {
+        return;
+    }
+    globalStore.set(canvasWindowAtom, null);
+    setMarking(id, false);
 }
 
 export function setMarking(agentId: string, on: boolean): void {
