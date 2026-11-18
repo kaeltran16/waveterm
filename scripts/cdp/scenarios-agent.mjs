@@ -1336,7 +1336,7 @@ export const canvasSwap = {
         await step("leave the canvas", () =>
             h.ev(`(() => {
                 const b = [...(${CANVAS_PANE}?.querySelectorAll("button") ?? [])]
-                    .find((x) => (x.textContent || "").trim() === "Back to terminal");
+                    .find((x) => (x.textContent || "").trim() === "Close the canvas");
                 if (b) b.click();
                 return true;
             })()`)

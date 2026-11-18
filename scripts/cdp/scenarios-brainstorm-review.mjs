@@ -135,7 +135,7 @@ const CR_CHANGED_LINKS = [
     "Changed What the forecast adds",
     "Changed Forecast grain",
 ];
-const CR_HINTS = "j k Next or previous decision Enter Open or close the decision y Keep the change u Put mine back b Back to the terminal";
+const CR_HINTS = "j k Next or previous decision Enter Open or close the decision y Keep the change u Put mine back b Close the brainstorm";
 const CR_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 const CR_MIN_MAIN = 400;
 // verify.mjs pins 1600x950; clearing the override would leave the next scenario the real, smaller window

@@ -189,16 +189,21 @@ const base = scenario(NAME, { file: WORKING }, async (h, ctx, step) => {
         return [terminal && noPane && clicked && center && left && rendered && kept, { terminal, noPane, clicked, center, left, rendered, kept }];
     });
 
-    await step("the canvas card's open link opens the Canvas tab with its boards and Mark, beside the transcript (Canvas board)", async () => {
-        // the agent's brainstorm ends, so its canvas is the one shown
+    await step("the brainstorm detaching takes its tab with it, the pane going too, rather than leaving an empty tab", async () => {
+        // the agent's brainstorm ends, so its canvas is the one shown next
         await store(
             h,
             ctx,
-            `W.closeWorkspaceTab(id, "brainstorm");
-            window.__cockpitRosterFixture?.patch(id, { brainstormFile: undefined });
+            `window.__cockpitRosterFixture?.patch(id, { brainstormFile: undefined });
             S.detachBrainstorm(id);
             return true;`
         );
+        const gone = await polishWaitFor(h, `${ASIDE} == null && ${RV} != null`, WAIT_MS);
+        const p = await readPane(h);
+        return [gone && !p.tabs.includes("brainstorm"), { gone, ...p }];
+    });
+
+    await step("the canvas card's open link opens the Canvas tab with its boards and Mark, beside the transcript (Canvas board)", async () => {
         const topic = `${ctx.topic}-canvas`;
         const dir = writeCanvas(ctx, topic);
         await store(

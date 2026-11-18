@@ -1363,7 +1363,7 @@ export const brainstormMode = {
         const gone = await h.ev(`(${BS_PANE}?.querySelector("[data-brainstorm-gone]")?.innerText ?? "").replace(/\\s+/g, " ").trim()`);
         rec(
             "12c. the gone view says only what the path shows: no longer at the file's path, no feature shipped",
-            gone === `It is no longer at ${ctx.file}. The switch disappears once you go back to the terminal.`,
+            gone === `It is no longer at ${ctx.file}. The switch disappears once you close it.`,
             { gone, file: ctx.file }
         );
         // the one-poll gap of a delete-then-rename write is pinned by the poller's unit tests: timed here it would flake
@@ -1373,7 +1373,7 @@ export const brainstormMode = {
         rec("12d. restoring brainstorm.json returns from the gone view to the design", s12r.ok, bsBrief(s12r));
         rmSync(ctx.file, { force: true });
         const s12g = await bsUntil(h, ctx, (s) => s.view === "removed");
-        const backed = s12g.ok ? await bsClick(h, BS_PANE, "Back to terminal") : `never gone again: ${s12g.view}`;
+        const backed = s12g.ok ? await bsClick(h, BS_PANE, "Close the brainstorm") : `never gone again: ${s12g.view}`;
         const s12b = await bsUntil(h, ctx, (s) => s.view == null && s.switch == null && s.terminal === true, 3000);
         // Back detaches at once but does not await clearing the meta, so the clear can land after the UI settles
         let meta3;
@@ -1383,7 +1383,7 @@ export const brainstormMode = {
         }
         await h.shot("cdp-shots/brainstorm-mode-12-back.png");
         rec(
-            "12b. Back to terminal: no pane, the terminal visible, no brainstorm switcher, the tab meta cleared",
+            "12b. Close the brainstorm: no pane, the terminal visible, no brainstorm switcher, the tab meta cleared",
             backed === "clicked" && s12b.ok && meta3 == null,
             { backed, view: s12b.view, switch: s12b.switch, terminal: s12b.terminal, meta3 }
         );

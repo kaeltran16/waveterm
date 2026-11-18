@@ -89,7 +89,7 @@ const REVIEW_KEYS: [string, string][] = [
     ["Enter", "Open or close the decision"],
     ["y", "Keep the change"],
     ["u", "Put mine back"],
-    ["b", "Back to the terminal"],
+    ["b", "Close the brainstorm"],
 ];
 
 export function CheckReview({

@@ -1183,14 +1183,14 @@ function Removed({ agent, topic, path }: { agent: AgentVM; topic: string; path: 
         <EdgeState>
             <span className="text-[14px] font-semibold text-primary">{topic}'s brainstorm file is gone</span>
             <span data-brainstorm-gone className={cn(EXPLAINER, "break-words")}>
-                {brainstormGoneText(path)} The switch disappears once you go back to the terminal.
+                {brainstormGoneText(path)} The switch disappears once you close it.
             </span>
             <button
                 type="button"
                 onClick={() => void dismissBrainstorm(agent.id)}
                 className={cn("mt-[4px]", CANVAS_BTN)}
             >
-                Back to terminal
+                Close the brainstorm
             </button>
         </EdgeState>
     );

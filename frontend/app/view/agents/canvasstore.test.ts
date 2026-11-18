@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Mark } from "./canvasmarks";
@@ -20,6 +21,7 @@ import {
     stepCanvasBoard,
     updateCanvas,
 } from "./canvasstore";
+import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "./workspacestore";
 
 const IDS = ["a1", "a2"];
 const A = { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" };
@@ -263,6 +265,15 @@ describe("ownership", () => {
         detachCanvas("a2");
         expect(getCanvas("a2")).toBeNull();
         expect(canvasOwner("t", live)).toBeNull();
+    });
+
+    it("closes the agent's Canvas tab on detach, and leaves its other tabs", () => {
+        attachCanvas("a1", A, 100);
+        openWorkspaceTab("a1", { kind: "changes", selected: null });
+        openWorkspaceTab("a1", { kind: "canvas" });
+        detachCanvas("a1");
+        expect(globalStore.get(workspaceAtom("a1")).tabs.map((t) => t.kind)).toEqual(["changes"]);
+        closeWorkspaceTab("a1", "changes");
     });
 
     it("skips an agent no longer in the roster", () => {

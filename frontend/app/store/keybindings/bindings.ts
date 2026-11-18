@@ -1461,7 +1461,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             id: "agent:canvas-close",
             keys: "c",
             group: "Agent",
-            label: "Back to the terminal",
+            label: "Close the canvas",
             when: inCanvas,
             run: () => showPane(model, focusId()!, "canvas", false, Date.now()),
         },
@@ -1477,7 +1477,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             id: "agent:brainstorm-close",
             keys: "b",
             group: "Agent",
-            label: "Back to the terminal from the brainstorm",
+            label: "Close the brainstorm",
             // while the question offers a B, b picks it
             when: (ctx) => inBrainstorm(ctx) && pickable() < 2,
             run: () => showPane(model, focusId()!, "brainstorm", false, Date.now()),

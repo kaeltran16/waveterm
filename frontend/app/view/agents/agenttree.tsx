@@ -59,7 +59,6 @@ import { CommitTick, useCommitDone } from "./committick";
 import { loadRecentSessions, recentSessionsAtom } from "./recentsessionsstore";
 import { renamingRowAtom } from "./rowrenameatom";
 import { RuntimeMark } from "./runtimemark";
-import { rendersNow } from "./workspacestore";
 import { terminalStatus } from "./terminalstatus";
 import { duplicateSession, renameSession, sessionCustomLabel, togglePin } from "./session-models/sessionsidebarmodel";
 import { agentRunDone, displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
@@ -240,15 +239,13 @@ function FoldChip({
     );
 }
 
-// One click from anywhere on the surface to an agent's brainstorm or canvas, and back to its terminal when that pane
-// is the one showing. The click must not reach the row, which would only focus the agent in whatever mode it was left
+// One click from anywhere on the surface to an agent's brainstorm or canvas, and closes it when that pane is the one
+// showing. The click must not reach the row, which would only focus the agent in whatever mode it was left
 function PaneTag({ model, id }: { model: AgentsViewModel; id: string }) {
     const canvas = useAtomValue(canvasStateAtom(id));
     const brainstorm = useAtomValue(brainstormAtom(id));
     const focused = useAtomValue(model.focusIdAtom) === id;
     const shown = usePaneShown(model, id);
-    // in Rendered the pane is a tab beside the transcript; usePaneShown already redraws on what rendersNow reads
-    const back = rendersNow(model, id) ? "Close the tab" : "Back to the terminal";
     // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
     if (brainstorm != null) {
         const showing = focused && shown === "brainstorm";
@@ -256,7 +253,7 @@ function PaneTag({ model, id }: { model: AgentsViewModel; id: string }) {
             <PaneChip
                 label="brainstorm"
                 showing={showing}
-                title={showing ? back : "Show the brainstorm"}
+                title={showing ? "Close the brainstorm" : "Show the brainstorm"}
                 onClick={() => {
                     globalStore.set(model.focusIdAtom, id);
                     showPane(model, id, "brainstorm", !showing, Date.now());
@@ -272,7 +269,7 @@ function PaneTag({ model, id }: { model: AgentsViewModel; id: string }) {
         <PaneChip
             label="canvas"
             showing={showing}
-            title={showing ? back : "Show the canvas"}
+            title={showing ? "Close the canvas" : "Show the canvas"}
             onClick={() => {
                 globalStore.set(model.focusIdAtom, id);
                 showPane(model, id, "canvas", !showing, Date.now());

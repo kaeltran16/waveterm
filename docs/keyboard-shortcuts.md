@@ -159,7 +159,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 | Keys | Action |
 |---|---|
-| `c` | Show the agent's canvas; from the canvas, back to the terminal (in Rendered: open or close its tab) |
+| `c` | Show or close the agent's canvas (in Rendered, its tab) |
 | `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal |
 | `[` / `]` | Previous / next board |
 | `m` | Mark part of the board; in mark mode, stop marking |
@@ -171,7 +171,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 | Keys | Action |
 |---|---|
-| `b` | Show the agent's brainstorm; from the brainstorm, back to the terminal (in Rendered: open or close its tab). While the question offers a B, `b` picks it instead |
+| `b` | Show or close the agent's brainstorm (in Rendered, its tab). While the question offers a B, `b` picks it instead |
 | `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal or while `b` picks an answer |
 | `a` / `b` / `c` / `d` | While the brainstorm asks a question with answers to pick from: focus that answer; `Enter` sends it |
 | `Esc` | Back one level, as the pane's back control does: from a full-size board to the question or design it was opened from; from the design opened over the question (or over the agent writing) back to it. A focused field keeps its own `Esc`, and on a board with a drawn mark `Esc` stays the mark note's |

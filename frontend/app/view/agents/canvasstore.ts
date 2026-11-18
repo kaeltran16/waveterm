@@ -10,6 +10,7 @@ import { atomFamily } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
 import type { Mark } from "./canvasmarks";
 import { ALL_TAB, canvasTabs, currentTab, stepTab, type CanvasBoard } from "./canvasmodel";
+import { closeWorkspaceTab } from "./workspacestore";
 
 export type CanvasState = {
     topic: string;
@@ -94,9 +95,11 @@ export function attachCanvas(
     globalStore.set(canvasStateAtom(agentId), next);
 }
 
+// its workspace tab goes with it: left open, the tab would draw an empty body
 export function detachCanvas(agentId: string): void {
     attached.delete(agentId);
     globalStore.set(canvasStateAtom(agentId), null);
+    closeWorkspaceTab(agentId, "canvas");
 }
 
 // live is the roster's ids: a closed agent's canvas is never detached (only the removed-canvas button does that), so

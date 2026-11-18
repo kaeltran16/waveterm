@@ -275,8 +275,8 @@ describe("board tabs", () => {
 });
 
 describe("removedExit", () => {
-    it("detaches a plain canvas and goes back to the terminal", () => {
-        expect(removedExit(undefined)).toEqual({ label: "Back to terminal", detach: true });
+    it("detaches a plain canvas, which closes it", () => {
+        expect(removedExit(undefined)).toEqual({ label: "Close the canvas", detach: true });
     });
     it("inside a brainstorm takes the brainstorm's own way back: its board view has no canvas to fall back to", () => {
         expect(removedExit("Back to the question")).toEqual({ label: "Back to the question", detach: false });

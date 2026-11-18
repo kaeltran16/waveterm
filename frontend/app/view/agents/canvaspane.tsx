@@ -652,7 +652,7 @@ function Removed({
             <span className="text-[14px] font-semibold text-primary">{topic} was removed</span>
             <span className={EXPLAINER}>
                 Its folder under .superpowers/design is gone, usually because the feature shipped.
-                {exit.detach ? " The swap control disappears once you go back to the terminal." : ""}
+                {exit.detach ? " The swap control disappears once you close it." : ""}
             </span>
             <button
                 type="button"

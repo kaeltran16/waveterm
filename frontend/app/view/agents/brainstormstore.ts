@@ -26,7 +26,7 @@ import {
 } from "./brainstormmodel";
 import { canvasDir, type CanvasBoard } from "./canvasmodel";
 import { attachCanvas, setMarking } from "./canvasstore";
-import { openWorkspaceTab } from "./workspacestore";
+import { closeWorkspaceTab, openWorkspaceTab } from "./workspacestore";
 
 export type BrainstormState = {
     topic: string;
@@ -170,11 +170,13 @@ export function attachBrainstorm(
     globalStore.set(brainstormsAtom, { ...globalStore.get(brainstormsAtom), [agentId]: next });
 }
 
+// its workspace tab goes with it: left open, the tab would draw an empty body
 export function detachBrainstorm(agentId: string): void {
     const all = globalStore.get(brainstormsAtom);
     if (agentId in all) {
         const { [agentId]: _gone, ...rest } = all;
         globalStore.set(brainstormsAtom, rest);
+        closeWorkspaceTab(agentId, "brainstorm");
     }
 }
 

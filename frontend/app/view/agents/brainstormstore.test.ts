@@ -27,7 +27,7 @@ import {
     updateBrainstorm,
 } from "./brainstormstore";
 import { detachCanvas, getCanvas } from "./canvasstore";
-import { closeWorkspaceTab, workspaceAtom } from "./workspacestore";
+import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "./workspacestore";
 
 const IDS = ["a1", "a2"];
 const LAG = { topic: "lag", cwd: "/p" };
@@ -305,5 +305,15 @@ describe("dismissBrainstorm", () => {
         expect(getBrainstorm("a1")).toBeNull();
         expect(warn).toHaveBeenCalled();
         warn.mockRestore();
+    });
+
+    it("closes the agent's Brainstorm tab, and leaves its other tabs", async () => {
+        rpc.SetMetaCommand.mockResolvedValue(undefined);
+        attachBrainstorm("a1", LAG, 100);
+        openWorkspaceTab("a1", { kind: "changes", selected: null });
+        openWorkspaceTab("a1", { kind: "brainstorm" });
+        await dismissBrainstorm("a1");
+        expect(globalStore.get(workspaceAtom("a1")).tabs.map((t) => t.kind)).toEqual(["changes"]);
+        closeWorkspaceTab("a1", "changes");
     });
 });
