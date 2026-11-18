@@ -129,8 +129,12 @@ func buildAgentEdits(ctx context.Context, cwd string, co agentedits.Checkout, l 
 	if anchor == "" {
 		anchor = co.Head
 	}
+	spell, err := agentedits.TreeSpelling(ctx, co.Root, anchor)
+	if err != nil {
+		return nil, err
+	}
 	base, closeBase := agentedits.BaseReader(ctx, co.Root, anchor)
-	files, err := agentedits.Replay(l, co.Root, base, agentedits.WorktreeReader(co.Root))
+	files, err := agentedits.Replay(l, co.Root, spell, base, agentedits.WorktreeReader(co.Root))
 	if cerr := closeBase(); err == nil && cerr != nil {
 		err = cerr
 	}

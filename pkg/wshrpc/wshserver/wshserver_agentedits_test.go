@@ -258,3 +258,75 @@ func TestGitAgentEditsLogsTheErrorOnAFailure(t *testing.T) {
 		t.Errorf("log lines = %q, want one ending in err=%q", got, err.Error())
 	}
 }
+
+// caseRepo is a repository holding src/Foo.txt with core.ignorecase set as given, plus a transcript whose
+// Edit names it as SRC/foo.txt; withBackup adds the file-history-delta and its backup file.
+func caseRepo(t *testing.T, ignorecase string, withBackup bool) (repo, transcript string) {
+	t.Helper()
+	repo = editsRepo(t, map[string]string{"src/Foo.txt": "one\ntwo\n"})
+	editsGit(t, repo, "config", "core.ignorecase", ignorecase)
+	transcript = editsTranscript(t)
+	spelled := filepath.Join(repo, "SRC", "foo.txt")
+	var extra []map[string]any
+	if withBackup {
+		dir := filepath.Join(filepath.Dir(filepath.Dir(filepath.Dir(transcript))), "file-history", editsSessionID)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "foo@v1"), []byte("one\ntwo\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		extra = append(extra, map[string]any{"type": "file-history-delta", "trackingPath": spelled,
+			"backup": map[string]any{"backupFileName": "foo@v1", "version": 1}})
+	}
+	appendTranscript(t, transcript, transcriptLines(t, repo, []transcriptCall{
+		{"Edit", map[string]any{"file_path": spelled, "old_string": "two", "new_string": "TWO"}},
+	}, extra...))
+	return repo, transcript
+}
+
+func TestGitAgentEditsMapsAnotherCaseOntoTheTreeSpelling(t *testing.T) {
+	cases := map[string]struct {
+		backup bool
+		flag   string
+	}{
+		"with a backup":    {true, ""},
+		"without a backup": {false, "approximate"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			repo, transcript := caseRepo(t, "true", c.backup)
+			rtn := agentEdits(t, repo, transcript)
+			if rtn.Base == "" {
+				t.Fatalf("base is empty, reason %q", rtn.Reason)
+			}
+			if want := []wshrpc.GitAgentEditFile{{Path: "src/Foo.txt", Flag: c.flag}}; !reflect.DeepEqual(rtn.Files, want) {
+				t.Errorf("files = %+v, want %+v", rtn.Files, want)
+			}
+			if got := editsGit(t, repo, "diff", "--name-status", rtn.Base, rtn.End); got != "M\tsrc/Foo.txt" {
+				t.Errorf("diff --name-status B H = %q, want one M line for src/Foo.txt", got)
+			}
+		})
+	}
+}
+
+func TestGitAgentEditsKeepsTheSpellingWithoutIgnorecase(t *testing.T) {
+	repo, transcript := caseRepo(t, "false", true)
+	rtn := agentEdits(t, repo, transcript)
+	if want := []wshrpc.GitAgentEditFile{{Path: "SRC/foo.txt"}}; !reflect.DeepEqual(rtn.Files, want) {
+		t.Errorf("files = %+v, want %+v", rtn.Files, want)
+	}
+}
+
+func TestGitAgentEditsCreatedFileKeepsTheAgentSpelling(t *testing.T) {
+	repo := editsRepo(t, map[string]string{"src/Foo.txt": "one\n"})
+	editsGit(t, repo, "config", "core.ignorecase", "true")
+	transcript := editsTranscript(t)
+	appendTranscript(t, transcript, transcriptLines(t, repo, []transcriptCall{
+		{"Write", map[string]any{"file_path": filepath.Join(repo, "SRC", "New.txt"), "content": "new\n"}},
+	}))
+	rtn := agentEdits(t, repo, transcript)
+	if want := []wshrpc.GitAgentEditFile{{Path: "SRC/New.txt", Flag: "approximate"}}; !reflect.DeepEqual(rtn.Files, want) {
+		t.Errorf("files = %+v, want %+v", rtn.Files, want)
+	}
+}

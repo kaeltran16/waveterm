@@ -85,6 +85,36 @@ func WorktreeReader(repoRoot string) Reader {
 	}
 }
 
+// TreeSpelling maps a repo-relative path onto the spelling rev's tree holds when the repository's
+// core.ignorecase is true, so a path the agent spelled in another case reads, commits and reports as git's
+// own entry. A path the tree lacks, or any path with core.ignorecase false or unset, stays as spelled.
+func TreeSpelling(ctx context.Context, repoRoot, rev string) (func(string) string, error) {
+	asSpelled := func(p string) string { return p }
+	ic, err := git(ctx, repoRoot, nil, nil, "config", "--type=bool", "--default=false", "core.ignorecase")
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(ic) != "true" {
+		return asSpelled, nil
+	}
+	out, err := git(ctx, repoRoot, nil, nil, "ls-tree", "-r", "-z", "--name-only", rev)
+	if err != nil {
+		return nil, err
+	}
+	tree := map[string]string{}
+	for p := range strings.SplitSeq(out, "\x00") {
+		if p != "" {
+			tree[strings.ToLower(p)] = p
+		}
+	}
+	return func(p string) string {
+		if t, ok := tree[strings.ToLower(p)]; ok {
+			return t
+		}
+		return p
+	}, nil
+}
+
 // BaseReader reads files at rev through one `cat-file --batch`, started on the first read. close ends it.
 func BaseReader(ctx context.Context, repoRoot, rev string) (r Reader, close func() error) {
 	c := &catFile{ctx: ctx, root: repoRoot, rev: rev}

@@ -24,7 +24,7 @@ func benchReplay(b *testing.B, transcript, historyDir, repo string, base Reader)
 		if root == "" {
 			root = l.SessionCwd
 		}
-		if _, err := Replay(l, root, base, none); err != nil {
+		if _, err := Replay(l, root, nil, base, none); err != nil {
 			b.Fatal(err)
 		}
 	}

@@ -349,9 +349,10 @@ func repoRel(abs, root string) (string, bool) {
 	return abs[len(root)+1:], true
 }
 
-// Replay rebuilds each file the agent changed inside repoRoot. base reads the file at the session start
+// Replay rebuilds each file the agent changed inside repoRoot. spell maps a repo-relative path onto the
+// spelling every read and the result use (nil keeps it as recorded); base reads the file at the session start
 // (for paths with no file-history record), worktree reads it now (for files changed outside the agent).
-func Replay(l *Log, repoRoot string, base, worktree Reader) ([]File, error) {
+func Replay(l *Log, repoRoot string, spell func(string) string, base, worktree Reader) ([]File, error) {
 	type group struct {
 		rel   string
 		key   string
@@ -363,6 +364,9 @@ func Replay(l *Log, repoRoot string, base, worktree Reader) ([]File, error) {
 		rel, ok := repoRel(c.path, repoRoot)
 		if !ok {
 			continue
+		}
+		if spell != nil {
+			rel = spell(rel)
 		}
 		k := pathKey(rel)
 		g := groups[k]

@@ -154,7 +154,7 @@ func replay(t testing.TB, s session, base, worktree Reader) (*Log, []File) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, err := Replay(l, s.repo, base, worktree)
+	files, err := Replay(l, s.repo, nil, base, worktree)
 	if err != nil {
 		t.Fatal(err)
 	}
