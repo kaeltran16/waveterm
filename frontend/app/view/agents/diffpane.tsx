@@ -15,7 +15,6 @@ import { splitRepoPath } from "@/util/paths";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Check, ChevronDown, ChevronUp, Code, FileText, Pilcrow, RotateCw } from "lucide-react";
-import type * as MonacoTypes from "monaco-editor";
 import { motion } from "motion/react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -33,7 +32,6 @@ import {
     paneOptions,
     splitAvailableAtom,
     splitViewAtom,
-    wrapSignLines,
 } from "./diffoptions";
 import { activeReviewAtom, markState, noteOpenPair, pairHash, reviewMarksAtom, toggleOpenFile } from "./reviewmarks";
 import { fmtBytes } from "./runcompletion";
@@ -44,41 +42,6 @@ const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m)
 const headerBtn = "flex h-[28px] flex-none items-center gap-[6px] rounded-[8px] px-[10px] text-[11.5px] font-semibold";
 const boxedBtn = cn(headerBtn, "border border-edge-mid");
 const navBtn = "flex h-full w-[28px] flex-none items-center justify-center text-muted hover:text-ink-hi";
-
-// monaco's own sign classes, so the pane's signs look like the unwrapped Diff surface's
-const INSERT_SIGN = "insert-sign codicon codicon-diff-insert";
-const DELETE_SIGN = "delete-sign codicon codicon-diff-remove";
-
-function signAt(className: string) {
-    return (line: number): MonacoTypes.editor.IModelDeltaDecoration => ({
-        range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
-        // first line only: a wrapped line gets one sign, on its first row
-        options: { firstLineDecorationClassName: className },
-    });
-}
-
-// With wrap, paneOptions turns monaco's indicators off (it repeats them on every wrapped row) and the
-// pane signs each changed line once. Deleted lines in the unified view are monaco's view zones, which
-// take no decorations, so only their band marks them.
-function mountWrapSigns(diff: MonacoTypes.editor.IStandaloneDiffEditor): () => void {
-    const inserted = diff.getModifiedEditor().createDecorationsCollection();
-    const deleted = diff.getOriginalEditor().createDecorationsCollection();
-    const refresh = () => {
-        const model = diff.getModel();
-        // read per update: the editor outlives a change of file, so the new-file state can change under it
-        const newFile = model != null && isNewFile(model.original.getValue(), model.modified.getValue());
-        const lines = wrapSignLines(diff.getLineChanges() ?? [], newFile);
-        inserted.set(lines.inserted.map(signAt(INSERT_SIGN)));
-        deleted.set(lines.deleted.map(signAt(DELETE_SIGN)));
-    };
-    const sub = diff.onDidUpdateDiff(refresh);
-    refresh();
-    return () => {
-        sub.dispose();
-        inserted.clear();
-        deleted.clear();
-    };
-}
 
 function PaneSkeleton() {
     return (
@@ -170,10 +133,7 @@ export function DiffPane({
     const layout = paneHeaderLayout(width);
     const splitShown = split && layout.split;
     const newFile = pair != null && isNewFile(pair.original, pair.modified);
-    const options = useMemo(
-        () => paneOptions(splitShown, ignoreWs, newFile, wrap),
-        [splitShown, ignoreWs, newFile, wrap]
-    );
+    const options = useMemo(() => paneOptions(splitShown, ignoreWs, wrap), [splitShown, ignoreWs, wrap]);
     useEffect(() => {
         globalStore.set(commentSplitAtom, splitShown);
     }, [splitShown]);
@@ -227,7 +187,6 @@ export function DiffPane({
                         setDiffNav(diff);
                         // comments anchor to the Diff surface's pair, so another source's editor draws none
                         const unmountComments = commentable ? mountCommentLayer(diff, monacoApi) : () => {};
-                        const unmountSigns = wrap ? mountWrapSigns(diff) : () => {};
                         const update = () =>
                             globalStore.set(
                                 diffNavPosAtom,
@@ -246,7 +205,6 @@ export function DiffPane({
                         return () => {
                             subs.forEach((s) => s.dispose());
                             unmountComments();
-                            unmountSigns();
                             clearDiffNav(diff);
                             globalStore.set(diffNavPosAtom, null);
                         };

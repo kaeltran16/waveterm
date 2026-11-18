@@ -245,10 +245,10 @@ export const workspacePane = {
             return [f.footer.includes("d pane") && !f.footer.includes("d rail"), f.footer];
         });
 
-        // the Changes tab wraps (Task 2): the long line is several visual rows, each in its insert band, with the
-        // line's number and its one + sign on the first row (monaco's own indicator signed every row), and a
-        // sideways wheel moving nothing
-        await step("the Changes tab's diff wraps a long line, its band, number and sign kept, with no sideways scroll", async () => {
+        // the Changes tab wraps (Task 2): the long line is several visual rows, each in its insert band and with the
+        // added edge in the margin, the line's number on the first row, no +/- signs (the shared diff look has none),
+        // and a sideways wheel moving nothing
+        await step("the Changes tab's diff wraps a long line, its band, edge and number kept, with no sideways scroll", async () => {
             const ED = `(() => { const p = document.querySelector("[data-workspace-changes] [data-diff-pane]"); return p?.querySelector(".editor.modified .monaco-editor") ?? [...(p?.querySelectorAll(".monaco-editor") ?? [])].at(-1) ?? null; })()`;
             const shown = await polishWaitFor(
                 h,
@@ -267,11 +267,12 @@ export const workspacePane = {
                     .sort((a, b) => a.top - b.top);
                 const bands = [...(ed?.querySelectorAll(".view-overlays .line-insert") ?? [])].map(box);
                 const numbers = [...(ed?.querySelectorAll(".margin .line-numbers") ?? [])].filter((n) => text(n) === "2").map(box);
-                const signs = [...(ed?.querySelectorAll(".margin [class*='diff-insert'], .margin [class*='diff-remove']") ?? [])].map((el) => ({ ...box(el), insert: el.className.includes("diff-insert") }));
+                const signs = ed?.querySelectorAll(".margin [class*='diff-insert'], .margin [class*='diff-remove']").length ?? 0;
+                const edges = [...(ed?.querySelectorAll(".margin .gutter-insert") ?? [])]
+                    .filter((el) => getComputedStyle(el).boxShadow.includes("inset"))
+                    .map(box);
                 const first = rows[0];
-                const last = rows.at(-1);
                 const near = (b) => first != null && Math.abs(b.top - first.top) <= 2;
-                const lineSigns = signs.filter((b) => last != null && b.top >= first.top - 2 && b.top < last.bottom);
                 const edBox = ed ? box(ed) : null;
                 return {
                     rows: rows.length,
@@ -279,9 +280,9 @@ export const workspacePane = {
                     banded: rows.every((x) => bands.some((b) => b.top <= x.top + 1 && b.bottom >= x.bottom - 1)),
                     bands: bands.length,
                     number: numbers.length === 1 && near(numbers[0]),
-                    sign: lineSigns.length === 1 && lineSigns[0].insert && near(lineSigns[0]),
-                    signs: lineSigns.length,
-                    continuationSigns: rows.slice(1).filter((x) => signs.some((b) => Math.abs(b.top - x.top) <= 2)).length,
+                    edged: rows.every((x) => edges.some((b) => b.top <= x.top + 1 && b.bottom >= x.bottom - 1)),
+                    edges: edges.length,
+                    signs,
                     insideEditor: edBox != null && rows.every((x) => x.right <= edBox.right + 1),
                     lefts: rows.map((x) => x.left),
                 };
@@ -302,8 +303,8 @@ export const workspacePane = {
                 r.joined &&
                 r.banded &&
                 r.number &&
-                r.sign &&
-                r.continuationSigns === 0 &&
+                r.edged &&
+                r.signs === 0 &&
                 r.insideEditor &&
                 unmoved;
             return [ok, { shown, ...r, afterWheel: lefts, unmoved }];

@@ -84,8 +84,8 @@ const TONE_DOT: Record<Tone, string> = { ok: "bg-success", warn: "bg-warning", n
 const TONE_TEXT: Record<Tone, string> = { ok: "text-ink-mid", warn: "text-warning-soft", none: "text-muted" };
 
 const DIFF_LINE: Record<string, string> = {
-    "-": "bg-diff-removed/10 text-diff-removed",
-    "+": "bg-diff-added/10 text-diff-added",
+    "-": "bg-(--diff-removed-tint) text-diff-removed",
+    "+": "bg-(--diff-added-tint) text-diff-added",
 };
 
 function toTone(s: string): Tone {

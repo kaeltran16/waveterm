@@ -1460,7 +1460,7 @@ export function ChangeDiff({ part }: { part: BrainstormPart }) {
                     key={i}
                     className={cn(
                         "rounded-[6px] px-[10px] py-[6px] text-[13px] leading-[1.5] text-secondary",
-                        d.kind === "added" ? "bg-diff-added/10" : "bg-diff-removed/10"
+                        d.kind === "added" ? "bg-(--diff-added-tint)" : "bg-(--diff-removed-tint)"
                     )}
                 >
                     <span className={cn("font-mono", d.kind === "added" ? "text-diff-added" : "text-diff-removed")}>

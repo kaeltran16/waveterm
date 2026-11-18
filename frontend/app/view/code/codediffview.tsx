@@ -9,6 +9,7 @@
 // Split is gated on this pane's own measured width, not the window's: the app opens at 1000x700 and
 // a 280px tree leaves about 45 columns a side, which is unreadable.
 
+import { DIFF_EDITOR_LOOK } from "@/app/view/agents/diffoptions";
 import { SurfaceEmptyState } from "@/app/view/agents/surfacescaffold";
 import { cn, fireAndForget } from "@/util/util";
 import useResizeObserver from "@react-hook/resize-observer";
@@ -116,6 +117,7 @@ export function CodeDiffView({ path, text, fixedTarget }: { path: string; text: 
 
     const options = useMemo<MonacoTypes.editor.IDiffEditorOptions>(
         () => ({
+            ...DIFF_EDITOR_LOOK,
             readOnly: true,
             originalEditable: false,
             renderSideBySide: width >= SPLIT_MIN_PX,

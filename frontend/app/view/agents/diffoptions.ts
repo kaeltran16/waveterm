@@ -38,50 +38,30 @@ export function splitHintText(splitAvailable: boolean): string {
 // was opened from. Off by default so the two agree; on is the opt-in for reading through a reformat.
 export const ignoreWsAtom = atom<boolean>(false);
 
-// a new file (empty original) is one hunk that every line belongs to, so neither its + markers nor
-// its bands ([data-diff-new-file] in tailwindsetup.css) tell the reader anything
+// a new file (empty original) is one hunk that every line belongs to, so its bands
+// ([data-diff-new-file] in tailwindsetup.css) tell the reader nothing
 export function isNewFile(original: string, modified: string): boolean {
     return original === "" && modified !== "";
 }
 
-type LineChange = Pick<
-    MonacoTypes.editor.ILineChange,
-    "originalStartLineNumber" | "originalEndLineNumber" | "modifiedStartLineNumber" | "modifiedEndLineNumber"
->;
-
-function lineRange(start: number, end: number): number[] {
-    // monaco marks a side with no lines in the change by an end of 0
-    return end === 0 ? [] : Array.from({ length: end - start + 1 }, (_, i) => start + i);
-}
-
-// The lines the wrapped pane signs itself: inserted lines in the modified editor, deleted lines in the
-// original. A new file signs none, as its indicators are off without wrap too.
-export function wrapSignLines(changes: LineChange[], newFile: boolean): { inserted: number[]; deleted: number[] } {
-    if (newFile) {
-        return { inserted: [], deleted: [] };
-    }
-    return {
-        inserted: changes.flatMap((c) => lineRange(c.modifiedStartLineNumber, c.modifiedEndLineNumber)),
-        deleted: changes.flatMap((c) => lineRange(c.originalStartLineNumber, c.originalEndLineNumber)),
-    };
-}
+// Every Monaco diff editor's half of the shared diff look (the colors are tailwindsetup.css's): rows as
+// tall as the transcript's diff rows (12.5px at 1.6), and no +/- column, since the edge marks the side
+// as it does on the transcript's numbered rows.
+export const DIFF_EDITOR_LOOK = {
+    lineHeight: 20,
+    renderIndicators: false,
+} satisfies MonacoTypes.editor.IDiffEditorOptions;
 
 // wrap is the workspace pane's Changes tab: its column is narrow, so a long line would scroll sideways
-export function paneOptions(
-    split: boolean,
-    ignoreWs: boolean,
-    newFile = false,
-    wrap = false
-): MonacoTypes.editor.IDiffEditorOptions {
+export function paneOptions(split: boolean, ignoreWs: boolean, wrap = false): MonacoTypes.editor.IDiffEditorOptions {
     return {
+        ...DIFF_EDITOR_LOOK,
         wordWrap: wrap ? "on" : "off",
         diffWordWrap: wrap ? "on" : "off",
         readOnly: true,
         originalEditable: false,
         renderSideBySide: split,
         ignoreTrimWhitespace: ignoreWs,
-        // monaco repeats its indicator on every row of a wrapped line, so with wrap DiffPane draws its own
-        renderIndicators: !newFile && !wrap,
         hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 3, revealLineCount: 20 },
         scrollBeyondLastLine: false,
         minimap: { enabled: false },

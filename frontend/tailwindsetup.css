@@ -235,6 +235,28 @@
 :root {
     --zoomfactor: 1;
     --zoomfactor-inv: 1;
+    /* The one diff look, shared by every diff the app draws: the transcript's rows (tooldetailbody.tsx) and
+       Monaco's diff editors (the Monaco block below). A changed line is its side's token at a tenth with a
+       3px edge of it; a hunk break is the accent at 6%. Derived here rather than in @theme so a runtime
+       theme's token, written on this element, carries through. */
+    --diff-added-tint: color-mix(in oklab, var(--color-diff-added) 10%, transparent);
+    --diff-removed-tint: color-mix(in oklab, var(--color-diff-removed) 10%, transparent);
+    --diff-hunk-tint: color-mix(in oklab, var(--color-accent) 6%, transparent);
+    --diff-added-edge: inset 3px 0 0 var(--color-diff-added);
+    --diff-removed-edge: inset 3px 0 0 var(--color-diff-removed);
+}
+
+.diff-line-added {
+    background-color: var(--diff-added-tint);
+    box-shadow: var(--diff-added-edge);
+}
+.diff-line-removed {
+    background-color: var(--diff-removed-tint);
+    box-shadow: var(--diff-removed-edge);
+}
+.diff-hunk {
+    background-color: var(--diff-hunk-tint);
+    color: var(--color-muted);
 }
 
 /* Tailwind v4 preflight dropped `button { cursor: pointer }`; restore it app-wide so bespoke
@@ -320,11 +342,40 @@ svg [aria-label="tip"] g path {
 .monaco-editor .diff-comment-plus:hover > svg {
     background: var(--color-accenthover);
 }
+/* Monaco's diff editors in the shared diff look (:root above). Monaco declares its theme vars on
+   .monaco-editor and .monaco-diff-editor, so each needs a rule that outranks that one; body does it. The
+   changed-text fill is Monaco's alone (the transcript has no word diff): the same tint stacked on the line's,
+   so a changed word reads at about twice it. */
+body .monaco-diff-editor,
+body .monaco-diff-editor .monaco-editor {
+    --vscode-diffEditor-insertedLineBackground: var(--diff-added-tint);
+    --vscode-diffEditor-removedLineBackground: var(--diff-removed-tint);
+    --vscode-diffEditorGutter-insertedLineBackground: var(--diff-added-tint);
+    --vscode-diffEditorGutter-removedLineBackground: var(--diff-removed-tint);
+    --vscode-diffEditor-insertedTextBackground: var(--diff-added-tint);
+    --vscode-diffEditor-removedTextBackground: var(--diff-removed-tint);
+    --vscode-diffEditor-unchangedRegionBackground: var(--diff-hunk-tint);
+    --vscode-diffEditor-unchangedRegionForeground: var(--color-muted);
+}
+/* The edge goes on each editor's margin, as on a transcript row's left. Unified draws the old side's
+   numbers as a column before the modified editor, which holds both the added rows and the removed ones (as
+   view zones), so the old column's own .gutter-delete takes an edge only in split. */
+.monaco-diff-editor .gutter-insert,
+.monaco-diff-editor .inline-added-margin-view-zone {
+    box-shadow: var(--diff-added-edge);
+}
+.monaco-diff-editor.side-by-side .gutter-delete,
+.monaco-diff-editor .inline-deleted-margin-view-zone {
+    box-shadow: var(--diff-removed-edge);
+}
 /* A new file in the Diff pane: monaco draws an empty original as "replace line 1 with everything", so
    every line wears the inserted line and text bands (stacked, which drowns the syntax colors) and line 1
-   the removed one. Each editor reads monaco's theme vars from its own .monaco-editor rule, hence both. */
+   the removed one. Each editor reads monaco's theme vars from its own .monaco-editor rule, hence both.
+   It reads as the plain file, as the transcript previews one, so the edges go too. */
 [data-diff-new-file] .monaco-diff-editor,
-[data-diff-new-file] .monaco-editor {
+[data-diff-new-file] .monaco-diff-editor .monaco-editor {
+    --diff-added-edge: none;
+    --diff-removed-edge: none;
     --vscode-diffEditor-insertedLineBackground: transparent;
     --vscode-diffEditor-insertedTextBackground: transparent;
     --vscode-diffEditor-removedLineBackground: transparent;

@@ -169,18 +169,13 @@ function MarkedLine({ code, ranges }: { code: string; ranges: [number, number][]
     return <>{parts}</>;
 }
 
-// one diff line: a 3px edge and a tint mark the side, the gutter holds the line's number (the new side's, a removed
-// line's old one), or its sign when the diff carries no numbers
+// one diff line: the shared diff look (tailwindsetup.css) marks the side, the gutter holds the line's number (the new
+// side's, a removed line's old one), or its sign when the diff carries no numbers
 function DiffRow({ line, numbered, wrap }: { line: DiffLine; numbered: boolean; wrap: string }) {
-    const tint =
-        line.sign === "+"
-            ? "border-l-diff-added bg-diff-added/10"
-            : line.sign === "-"
-              ? "border-l-diff-removed bg-diff-removed/10"
-              : "border-l-transparent";
+    const tint = line.sign === "+" ? "diff-line-added" : line.sign === "-" ? "diff-line-removed" : undefined;
     const gutter = numbered ? (line.sign === "-" ? line.oldNo : (line.newNo ?? line.oldNo)) : line.sign;
     return (
-        <div data-diff-line={line.sign} className={cn("flex border-l-[3px] font-mono leading-[1.6]", CODE_TEXT, tint)}>
+        <div data-diff-line={line.sign} className={cn("flex pl-[3px] font-mono leading-[1.6]", CODE_TEXT, tint)}>
             <span
                 data-diff-no
                 className={cn("shrink-0 select-none text-right text-ink-faint", numbered ? "w-[42px] pr-3.5" : "w-[22px] pr-2")}
@@ -356,7 +351,7 @@ export function ToolDetailBody({ detail, variant }: { detail: ActionDetail; vari
                                                 key={k}
                                                 data-diff-hunk
                                                 className={cn(
-                                                    "bg-accent/[0.06] pl-[13px] pr-3.5 font-mono leading-[1.7] text-muted",
+                                                    "diff-hunk pl-[13px] pr-3.5 font-mono leading-[1.7]",
                                                     CODE_TEXT,
                                                     wrap,
                                                     k > 0 && "mt-1"
