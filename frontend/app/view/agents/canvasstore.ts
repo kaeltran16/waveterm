@@ -30,11 +30,8 @@ export type CanvasState = {
     // drawn and not yet sent; a new box replaces it
     mark: Mark | null;
     reloadKey: number;
-    // each served board's Last-Modified, and when each was last on screen: a card's tab says which one changed
+    // each served board's Last-Modified: the Mockup row's "updated" and which boards are served
     boardModifiedMs?: Record<string, number>;
-    boardViewedMs?: Record<string, number>;
-    // the board a Rendered card draws inline, which the poller counts as on screen
-    inlineBoard?: string | null;
     // a mark started from the Rendered transcript: once sent, the agent goes back there (canvassend)
     markFrom?: "transcript" | null;
 };
@@ -131,14 +128,6 @@ export function setCanvasMode(agentId: string, mode: "terminal" | "canvas", now:
 // showing the canvas, in either view, is a look at it
 export function stampCanvasViewed(agentId: string, now: number): void {
     updateCanvas(agentId, (s) => ({ ...s, lastViewedMs: now }));
-}
-
-export function showInlineBoard(agentId: string, board: string | null, now: number): void {
-    updateCanvas(agentId, (s) => ({
-        ...s,
-        inlineBoard: board,
-        boardViewedMs: board != null ? { ...s.boardViewedMs, [board]: now } : s.boardViewedMs,
-    }));
 }
 
 // a mark is drawn over one board where it sits on screen, so any board or view switch drops it

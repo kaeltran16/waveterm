@@ -270,7 +270,7 @@ export function QuestionCard({
     judging,
 }: CardProps & { judging: boolean }): JSX.Element | null {
     const act = useAction();
-    const boards = useQuestionBoards(agent, s, f, judging, compact);
+    const boards = useQuestionBoards(agent, s, f, judging);
     const q = f.question;
     if (q == null) {
         return null;
@@ -330,7 +330,6 @@ export function QuestionCard({
                     ) : null}
                 </div>
                 {judging ? <JudgeStatus text={judgeStatus(q)} clock={clock} compact={compact} /> : null}
-                {boards.block}
                 {rows.options.length > 0 || rows.work != null ? (
                     <ViewSwap swapKey={rows.state} className="flex flex-col gap-[14px]">
                         <OptionRows

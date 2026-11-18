@@ -9,7 +9,6 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
 import type { AgentsViewModel } from "./agents";
-import { boardUnseen } from "./canvasmodel";
 import { canvasOnScreen, pollAndMerge, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
 import {
     attachCanvas,
@@ -18,7 +17,6 @@ import {
     getCanvas,
     openCanvasWindow,
     setCanvasMode,
-    showInlineBoard,
     updateCanvas,
     type CanvasState,
 } from "./canvasstore";
@@ -122,7 +120,6 @@ describe("pollCanvasOnce", () => {
             lastModifiedMs: 3000,
             boardModifiedMs: { "Main.dc.html": 1000, "States.dc.html": 3000 },
             lastViewedMs: NOW,
-            boardViewedMs: { "Main.dc.html": NOW },
         });
         expect(io.serves).toEqual(["/p/.superpowers/design"]);
     });
@@ -145,7 +142,6 @@ describe("pollCanvasOnce", () => {
             lastModifiedMs: 1000,
             boardModifiedMs: { "Main.dc.html": 1000 },
             lastViewedMs: NOW,
-            boardViewedMs: { "Main.dc.html": NOW },
         });
     });
 
@@ -217,62 +213,14 @@ describe("pollCanvasOnce", () => {
         const io = fakeIO({ files: { "Main.dc.html": 1000, "canvas.json": 500 }, json: JSON_TWO });
         const patch = await pollCanvasOnce(state({ base: BASE, mode: "terminal" }), io, NOW);
         expect(patch.boardModifiedMs).toEqual({ "Main.dc.html": 1000 });
-        expect(patch.boardViewedMs).toBeUndefined();
     });
 
-    it("marks only the boards on screen as viewed: the pane's shown board, or every one under All", async () => {
-        const io = fakeIO({
-            files: { "Main.dc.html": 1000, "States.dc.html": 3000, "canvas.json": 500 },
-            json: JSON_TWO,
-        });
-        const viewed = { "States.dc.html": 7 };
-        const one = await pollCanvasOnce(
-            state({ base: BASE, board: "States.dc.html", boardViewedMs: viewed }),
-            io,
-            NOW
-        );
-        expect(one.boardViewedMs).toEqual({ "States.dc.html": NOW });
-        const all = await pollCanvasOnce(state({ base: BASE, all: true }), io, NOW);
-        expect(all.boardViewedMs).toEqual({ "Main.dc.html": NOW, "States.dc.html": NOW });
-    });
-
-    it("counts a Rendered card's inline board as on screen, apart from the canvas pane", async () => {
-        const io = fakeIO({
-            files: { "Main.dc.html": 1000, "States.dc.html": 3000, "canvas.json": 500 },
-            json: JSON_TWO,
-        });
-        const inline = state({
-            base: BASE,
-            mode: "terminal",
-            inlineBoard: "States.dc.html",
-            boardViewedMs: { "Main.dc.html": 9 },
-        });
-        const patch = await pollCanvasOnce(inline, io, NOW);
-        expect(patch.boardViewedMs).toEqual({ "Main.dc.html": 9, "States.dc.html": NOW });
-        // the canvas-wide stamp is the pane's: the header's unseen dot is not cleared by a card
+    it("neither stamps a view nor reloads a canvas that is not on screen, whatever changed", async () => {
+        const io = fakeIO({ files: { "Main.dc.html": 5000 } });
+        const off = state({ base: BASE, mode: "terminal", lastModifiedMs: 1000, reloadKey: 2 });
+        const patch = await pollCanvasOnce(off, io, NOW);
         expect(patch.lastViewedMs).toBeUndefined();
-    });
-
-    it("reloads when the inline board's own file changes, and not for another board's", async () => {
-        const io = fakeIO({
-            files: { "Main.dc.html": 1000, "States.dc.html": 5000, "canvas.json": 500 },
-            json: JSON_TWO,
-        });
-        const was = { "Main.dc.html": 1000, "States.dc.html": 3000 };
-        const base = {
-            base: BASE,
-            mode: "terminal" as const,
-            lastModifiedMs: 3000,
-            boardModifiedMs: was,
-            reloadKey: 2,
-        };
-        expect((await pollCanvasOnce(state({ ...base, inlineBoard: "States.dc.html" }), io, NOW)).reloadKey).toBe(3);
-        expect(
-            (await pollCanvasOnce(state({ ...base, inlineBoard: "Main.dc.html" }), io, NOW)).reloadKey
-        ).toBeUndefined();
-        // a board seen for the first time is not a change
-        const first = state({ ...base, boardModifiedMs: undefined, inlineBoard: "States.dc.html" });
-        expect((await pollCanvasOnce(first, io, NOW)).reloadKey).toBeUndefined();
+        expect(patch.reloadKey).toBeUndefined();
     });
 
     it("keeps a known base and does not ask wavesrv again while it answers", async () => {
@@ -316,18 +264,6 @@ describe("pollAndMerge", () => {
         vi.restoreAllMocks();
     });
 
-    it("keeps a board shown while the poll was reading as viewed at the show", async () => {
-        attached({ mode: "terminal", inlineBoard: "Main.dc.html", boardViewedMs: { "Main.dc.html": 9 } });
-        await pollAndMerge(
-            TERMINAL,
-            AGENT,
-            pollWith(() => showInlineBoard(AGENT, "States.dc.html", LATER))
-        );
-        const s = getCanvas(AGENT);
-        expect(s.boardViewedMs).toEqual({ "Main.dc.html": NOW, "States.dc.html": LATER });
-        expect(boardUnseen(s, "States.dc.html")).toBe(false);
-    });
-
     it("keeps a canvas-mode switch made while the poll was reading", async () => {
         attached({ mode: "canvas", lastViewedMs: 7 });
         await pollAndMerge(
@@ -338,15 +274,14 @@ describe("pollAndMerge", () => {
         expect(getCanvas(AGENT).lastViewedMs).toBe(LATER);
     });
 
-    it("records the boards on screen as viewed at the poll's time when nothing else moved them", async () => {
-        attached({ mode: "canvas", board: "States.dc.html", lastViewedMs: 7, boardViewedMs: { "States.dc.html": 7 } });
+    it("records the canvas on screen as viewed at the poll's time when nothing else moved it", async () => {
+        attached({ mode: "canvas", board: "States.dc.html", lastViewedMs: 7 });
         await pollAndMerge(
             TERMINAL,
             AGENT,
             pollWith(() => {})
         );
         const s = getCanvas(AGENT);
-        expect(s.boardViewedMs).toEqual({ "States.dc.html": NOW });
         expect(s.lastViewedMs).toBe(NOW);
         expect(s.boardModifiedMs).toEqual({ "Main.dc.html": 1000, "States.dc.html": 5000 });
     });
@@ -356,7 +291,7 @@ describe("pollAndMerge", () => {
             agentsAtom: atom([{ id: AGENT, name: AGENT, task: "", state: "idle", agent: "claude", blockId: "blk" }]),
         } as unknown as AgentsViewModel;
         globalStore.set(viewModeAtom(AGENT), "rendered");
-        attached({ mode: "canvas", board: "States.dc.html", lastViewedMs: 7, boardViewedMs: { "States.dc.html": 7 } });
+        attached({ mode: "canvas", board: "States.dc.html", lastViewedMs: 7 });
         await pollAndMerge(
             rendered,
             AGENT,
@@ -370,7 +305,6 @@ describe("pollAndMerge", () => {
             pollWith(() => {})
         );
         expect(getCanvas(AGENT).lastViewedMs).toBe(NOW);
-        expect(getCanvas(AGENT).boardViewedMs).toEqual({ "States.dc.html": NOW });
         closeWorkspaceTab(AGENT, "canvas");
     });
 });

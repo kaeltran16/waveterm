@@ -7,20 +7,15 @@ import { questionBoardLayout, type BrainstormFile } from "./brainstormmodel";
 import { servedBoards } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
 
-// the boards a question's card draws, laid out as the pane's question: a tab for each board an option (or approach,
-// while judging) names, in option order, then the asked part's boards no option names; chips[i] is row i's boards.
-// null when the pane would draw none
-export function questionTabs(
+// the boards each option's chip names, laid out as the pane's question: chips[i] is row i's boards. null when the
+// pane would draw no board for the question
+export function questionChips(
     f: BrainstormFile,
     base: string | null,
     onCanvas: string[],
     judging = false
-): { tabs: string[]; chips: string[][] } | null {
-    const layout = questionBoardLayout(f, base, onCanvas, judging);
-    if (layout == null) {
-        return null;
-    }
-    return { tabs: [...new Set([...layout.rows.flat(), ...layout.shared])], chips: layout.rows };
+): string[][] | null {
+    return questionBoardLayout(f, base, onCanvas, judging)?.rows ?? null;
 }
 
 // the standalone Mockup card's states (CanvasEdge): count is the boards it last read before the server went down
@@ -42,6 +37,12 @@ export function mockupView(s: CanvasState): MockupView {
     }
     const boards = servedBoards(s);
     return boards.length > 0 ? { kind: "boards", boards } : { kind: "empty" };
+}
+
+// when the newest served board last changed; 0 is a board served with no Last-Modified, which has no age to give
+export function boardsUpdatedMs(s: CanvasState): number | null {
+    const newest = Math.max(0, ...servedBoards(s).map((b) => s.boardModifiedMs?.[b] ?? 0));
+    return newest || null;
 }
 
 // the board a card shows: the one picked while it is still a tab, else the first

@@ -6,7 +6,6 @@ import {
     ALL_TAB,
     boardLabel,
     boardsFromCanvasJson,
-    boardUnseen,
     boardUrl,
     buildGoal,
     canvasDir,
@@ -322,25 +321,6 @@ describe("servedBoards", () => {
 
     it("is none before a poll has read any board", () => {
         expect(servedBoards(state({ boards: BOARDS }))).toEqual([]);
-    });
-});
-
-describe("boardUnseen", () => {
-    it("is unseen when the board changed after it was last on screen", () => {
-        const s = state({ boardModifiedMs: { "States.dc.html": 900 }, boardViewedMs: { "States.dc.html": 100 } });
-        expect(boardUnseen(s, "States.dc.html")).toBe(true);
-        const seen = state({ boardModifiedMs: { "States.dc.html": 900 }, boardViewedMs: { "States.dc.html": 900 } });
-        expect(boardUnseen(seen, "States.dc.html")).toBe(false);
-    });
-
-    it("counts a board never on screen from when the canvas was last viewed", () => {
-        const s = state({ lastViewedMs: 500, boardModifiedMs: { "Main.dc.html": 900, "States.dc.html": 400 } });
-        expect(boardUnseen(s, "Main.dc.html")).toBe(true);
-        expect(boardUnseen(s, "States.dc.html")).toBe(false);
-    });
-
-    it("is not unseen for a board not read yet", () => {
-        expect(boardUnseen(state({ lastViewedMs: 0 }), "Main.dc.html")).toBe(false);
     });
 });
 
