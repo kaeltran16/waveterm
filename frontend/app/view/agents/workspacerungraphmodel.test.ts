@@ -3,13 +3,30 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    EMPTY_WORKSPACE,
+    type RunGraphState,
+    type RunView,
+    type WorkspaceState,
+    type WorkspaceTab,
+} from "./workspacemodel";
+import {
+    backFrom,
     chainOf,
+    dagFocusTask,
+    flightIds,
+    focusOn,
     focusView,
+    graphEscapeKey,
+    graphNodes,
     gutterPath,
     IN_FLIGHT_MAX,
     inFlight,
     laneLayout,
+    moveTo,
     reduceDeps,
+    stepDir,
+    toFocus,
+    toLanes,
     type LaneLayout,
 } from "./workspacerungraphmodel";
 
@@ -417,5 +434,130 @@ describe("inFlight", () => {
 
     it("never lists merged or waiting tasks", () => {
         expect(inFlight(["a", "b"], (id) => (id === "a" ? "merged" : "waits"))).toEqual([]);
+    });
+});
+
+// the Main board's run as the engine records it (workspace-run-fixture.mjs): t-1 merged, t-2 merged and verifying,
+// t-3 asking the lead, t-4 working, t-5 reviewing, t-6 failed, t-7 and t-8 not started
+const node = (id: string, state: string, extra: Partial<TaskNode> = {}): TaskNode => ({
+    id,
+    label: `task ${id}`,
+    state,
+    ...extra,
+});
+const MAIN_DAG = {
+    oid: "dag-1",
+    tasks: [
+        node("t-1", "done", { merged: true }),
+        node("t-2", "verifying", { merged: true }),
+        node("t-3", "running", { deps: ["t-1"] }),
+        node("t-4", "running", { deps: ["t-1"] }),
+        node("t-5", "reviewing"),
+        node("t-6", "failed"),
+        node("t-7", "pending", { deps: ["t-3", "t-4"] }),
+        node("t-8", "ready", { deps: ["t-1"] }),
+    ],
+} as TaskGroup;
+const digestOf = (rows: Partial<DagTaskDigest>[]) =>
+    ({ tasks: rows.map((r) => ({ waitreason: "", mergestate: "", cleanupstate: "", ...r })) }) as DagStatusDigest;
+const MAIN_DIGEST = digestOf([{ taskid: "t-3", waitreason: "lead-ask" }]);
+
+describe("graphNodes", () => {
+    it("gives each task the canvas's short word: none merged, working, asked the lead, failed, waits", () => {
+        const words = Object.fromEntries(graphNodes(MAIN_DAG, MAIN_DIGEST).map((n) => [n.id, n.word]));
+        expect(words).toEqual({
+            "t-1": "",
+            "t-2": "working",
+            "t-3": "asked the lead",
+            "t-4": "working",
+            "t-5": "working",
+            "t-6": "failed",
+            "t-7": "waits",
+            "t-8": "waits",
+        });
+    });
+
+    it("says asking you for a question that is the user's", () => {
+        const n = graphNodes(MAIN_DAG, digestOf([{ taskid: "t-3", waitreason: "ask" }])).find((x) => x.id === "t-3");
+        expect(n).toMatchObject({ dot: "asked", word: "asking you" });
+    });
+
+    it("keeps plan order, the full name and the deps", () => {
+        const nodes = graphNodes(MAIN_DAG, MAIN_DIGEST);
+        expect(nodes.map((n) => n.id)).toEqual(ids(8));
+        expect(nodes[6]).toMatchObject({ name: "task t-7", deps: ["t-3", "t-4"], dot: "waits" });
+    });
+});
+
+describe("flightIds", () => {
+    it("is the Main board's In flight: t-3, t-6, t-2, t-4, t-5", () => {
+        expect(flightIds(graphNodes(MAIN_DAG, MAIN_DIGEST))).toEqual(["t-3", "t-6", "t-2", "t-4", "t-5"]);
+    });
+
+    it("is empty once every task merged", () => {
+        const done = { ...MAIN_DAG, tasks: MAIN_DAG.tasks.map((t) => ({ ...t, state: "done", merged: true })) };
+        expect(flightIds(graphNodes(done, undefined))).toEqual([]);
+    });
+});
+
+describe("graph state moves", () => {
+    const focus7: RunGraphState = { mode: "focus", focus: "t-7", trail: [] };
+
+    it("a chip or a Lanes row opens Focus on the task with an empty trail", () => {
+        expect(focusOn("t-3")).toEqual({ mode: "focus", focus: "t-3", trail: [] });
+    });
+
+    it("moving pushes the trail and back pops it", () => {
+        const moved = moveTo(focus7, "t-3");
+        expect(moved).toEqual({ mode: "focus", focus: "t-3", trail: ["t-7"] });
+        expect(backFrom(moved)).toEqual(focus7);
+    });
+
+    it("Lanes keeps the selection, and Focus returns to it, else to the fallback", () => {
+        const lanes = toLanes(moveTo(focus7, "t-3"));
+        expect(lanes).toEqual({ mode: "lanes", focus: "t-3", trail: ["t-7"] });
+        expect(toFocus(lanes, "t-1")).toMatchObject({ mode: "focus", focus: "t-3" });
+        expect(toFocus(undefined, "t-1")).toEqual({ mode: "focus", focus: "t-1", trail: [] });
+    });
+
+    it("steps forward into Focus or deeper, back out to Lanes or up the trail", () => {
+        const moved = moveTo(focus7, "t-3");
+        expect(stepDir(undefined, focus7)).toBe(1);
+        expect(stepDir(focus7, moved)).toBe(1);
+        expect(stepDir(moved, backFrom(moved))).toBe(-1);
+        expect(stepDir(moved, toLanes(moved))).toBe(-1);
+        expect(stepDir(moved, focusOn("t-5"))).toBe(1);
+    });
+
+    it("the DAG opens on the focused task only in Focus", () => {
+        expect(dagFocusTask(focus7)).toBe("t-7");
+        expect(dagFocusTask(toLanes(focus7))).toBeNull();
+        expect(dagFocusTask(undefined)).toBeNull();
+    });
+});
+
+describe("graphEscapeKey", () => {
+    const run = (view: RunView, graph?: RunGraphState): WorkspaceTab => ({ kind: "run", runId: "r1", view, graph });
+    const ws = (tabs: WorkspaceTab[], active: string | null, extra: Partial<WorkspaceState> = {}): WorkspaceState => ({
+        ...EMPTY_WORKSPACE,
+        tabs,
+        active,
+        ...extra,
+    });
+    const inFocus = run("graph", { mode: "focus", focus: "t-3", trail: [] });
+
+    it("is the run tab's key on Graph in Focus", () => {
+        expect(graphEscapeKey(ws([inFocus], "run:r1"))).toBe("run:r1");
+    });
+
+    it("is null in Lanes, on Tasks, or with another tab active", () => {
+        expect(graphEscapeKey(ws([run("graph", { mode: "lanes", focus: "t-3", trail: [] })], "run:r1"))).toBeNull();
+        expect(graphEscapeKey(ws([run("tasks", { mode: "focus", focus: "t-3", trail: [] })], "run:r1"))).toBeNull();
+        expect(graphEscapeKey(ws([inFocus, { kind: "changes", selected: null }], "changes"))).toBeNull();
+        expect(graphEscapeKey(ws([], null))).toBeNull();
+    });
+
+    it("is null while the pane is collapsed, as the tab is not on screen", () => {
+        expect(graphEscapeKey(ws([inFocus], "run:r1", { collapsed: true }))).toBeNull();
     });
 });

@@ -152,6 +152,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Shift`+`Esc` | Return focus to the nav (from inside the terminal) |
 | `Enter` | With focus inside an open code peek card: open the peeked file in Code, at the clicked line |
 | `Esc` | With focus inside an open code peek card: close it. With focus in the terminal, `Esc` still reaches the agent and leaves the card open |
+| `Esc` | In Rendered, with the workspace pane's Run tab on Graph in Focus: back to Lanes, and no further; the next `Esc` goes back as above. A focused field keeps its own `Esc` |
 
 ### Agent: canvas mode
 

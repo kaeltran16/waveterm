@@ -2428,6 +2428,88 @@ describe("Agent keys, stepping and toggles", () => {
         });
     });
 
+    describe("Esc on the Run tab's Graph", () => {
+        const RUN_KEY = "run:r1";
+        const rendered = () => {
+            const { model } = build("r");
+            globalStore.set(model.agentsAtom, [{ id: "r", state: "idle", agent: "claude", blockId: "blk-r" }]);
+            globalStore.set(viewModeAtom("r"), "rendered");
+            const all = buildAgentBindings(model);
+            const find = (id: string) => all.find((b) => b.id === id)!;
+            const claiming = (c: KeyContext = nav) =>
+                all.filter((b) => b.keys === "Escape" && b.when?.(c) !== false).map((b) => b.id);
+            return { find, claiming };
+        };
+        const openGraph = (mode: "lanes" | "focus") =>
+            openWorkspaceTab("r", {
+                kind: "run",
+                runId: "r1",
+                view: "graph",
+                graph: { mode, focus: "t-7", trail: ["t-3"] },
+            });
+        const runTab = () => globalStore.get(workspaceAtom("r")).tabs.find((t) => t.kind === "run");
+
+        beforeEach(() => vi.stubGlobal("document", { activeElement: null, querySelector: () => null }));
+        afterEach(() => {
+            closeWorkspaceTab("r", RUN_KEY);
+            closeWorkspaceTab("r", "changes");
+            vi.unstubAllGlobals();
+        });
+
+        it("in Focus the graph's Esc is live and agent:back stands down; it returns to Lanes and stops there", () => {
+            const { find, claiming } = rendered();
+            openGraph("focus");
+            expect(claiming()).toEqual(["agent:graph-lanes"]);
+            find("agent:graph-lanes").run(nav);
+            expect(runTab()).toMatchObject({ view: "graph", graph: { mode: "lanes", focus: "t-7", trail: ["t-3"] } });
+            expect(claiming()).toEqual(["agent:back"]);
+        });
+
+        it("in Lanes Esc is left to the app's back", () => {
+            const { claiming } = rendered();
+            openGraph("lanes");
+            expect(claiming()).toEqual(["agent:back"]);
+        });
+
+        it("a focused text field keeps its Esc: neither Escape fires the Focus return", () => {
+            const { claiming } = rendered();
+            openGraph("focus");
+            expect(claiming({ ...nav, editable: true })).toEqual([]);
+            expect(runTab()).toMatchObject({ graph: { mode: "focus" } });
+        });
+
+        it("stands down while another tab is active or the pane is collapsed", () => {
+            const { claiming } = rendered();
+            openGraph("focus");
+            setWorkspaceCollapsed("r", true);
+            expect(claiming()).toEqual(["agent:back"]);
+            setWorkspaceCollapsed("r", false);
+            openWorkspaceTab("r", { kind: "changes", selected: null });
+            expect(claiming()).toEqual(["agent:back"]);
+        });
+
+        it("stands down in the Terminal view, where the pane is not drawn", () => {
+            const { claiming } = rendered();
+            openGraph("focus");
+            globalStore.set(viewModeAtom("r"), "terminal");
+            expect(claiming()).toEqual(["agent:back"]);
+            globalStore.set(viewModeAtom("r"), "rendered");
+        });
+
+        it("never makes two Escape claims in any context", () => {
+            const { claiming } = rendered();
+            openGraph("focus");
+            for (const editable of [false, true]) {
+                for (const modalOpen of [false, true]) {
+                    for (const leader of [null, "g"] as const) {
+                        const c = { ...nav, editable, modalOpen, leader };
+                        expect(claiming(c).length, JSON.stringify(c)).toBeLessThanOrEqual(1);
+                    }
+                }
+            }
+        });
+    });
+
     describe("the Brainstorm and Canvas tabs in the Rendered view", () => {
         const asking = (labels: string[]): BrainstormFile => ({
             v: 1,

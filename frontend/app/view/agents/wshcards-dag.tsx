@@ -4,7 +4,6 @@
 // wsh jarvis dag calls about the run itself: plan submit, review verdicts, Final, completion, and the dag status view.
 // Each card draws from argv first, then the run and dag status in wshdata, so a missing run still leaves the card.
 
-import { globalStore } from "@/app/store/jotaiStore";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -15,7 +14,6 @@ import type { OpenTarget } from "../jarvis/address";
 import { shotRounds, stageHasShots } from "../jarvis/finalshotsmodel";
 import { FinalShotsViewer } from "../jarvis/finalshotsviewer";
 import { openOrPeek, openTarget } from "../jarvis/openref";
-import { selectedTaskIdAtom } from "../orchestrate/dagstore";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { plural } from "./cockpitsurfacemodel";
 import {
@@ -38,8 +36,8 @@ import {
 } from "./dagcards";
 import { LoadFailure } from "./recordedoutput";
 import type { TranscriptContext } from "./transcriptcontext";
-import type { RunView } from "./workspacemodel";
-import { openBeside } from "./workspacestore";
+import { tabKey, type RunGraphState, type RunView } from "./workspacemodel";
+import { openBeside, updateWorkspaceTab } from "./workspacestore";
 import { CallFacts, WshVerbRow } from "./wshchangerow";
 import { useWshData, type WshDataState } from "./wshdata";
 import type { WshRendererProps, WshRenderers } from "./wshrenderers";
@@ -158,7 +156,7 @@ function Mark({ tone, compact }: { tone: Tone; compact: boolean }) {
 }
 
 // the Run tab a link opens beside the transcript in the Rendered view: its run, the view a new tab starts on, and the
-// task the graph selects
+// task the graph opens Focus on
 type Beside = { runId: string; view: RunView; taskId?: string };
 
 // a router link; draws nothing without the cockpit model to route through. With beside, the Rendered view opens the
@@ -185,10 +183,14 @@ function CardLink({
             fireAndForget(() => openTarget(model, target));
             return;
         }
-        const tab = { kind: "run" as const, runId: beside.runId, view: beside.view };
+        const graph: RunGraphState | undefined = beside.taskId
+            ? { mode: "focus", focus: beside.taskId, trail: [] }
+            : undefined;
+        const tab = { kind: "run" as const, runId: beside.runId, view: beside.view, ...(graph ? { graph } : {}) };
         if (ctx.agentId && openBeside(model, ctx.agentId, tab, e)) {
-            if (beside.taskId) {
-                globalStore.set(selectedTaskIdAtom, beside.taskId);
+            // openTab leaves an already open run tab as it was, so move it to the task too
+            if (graph) {
+                updateWorkspaceTab(ctx.agentId, tabKey(tab), { view: "graph", graph });
             }
             return;
         }

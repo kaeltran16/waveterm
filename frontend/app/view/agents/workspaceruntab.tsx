@@ -8,8 +8,11 @@
 import { morphTransition } from "@/app/element/motiontokens";
 import { TickNumber } from "@/app/element/ticknumber";
 import { ViewSwap } from "@/app/element/viewswap";
+import { globalStore } from "@/app/store/jotaiStore";
+import { openDagLive, openDagTask, setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { ArrowUpRight } from "lucide-react";
 import { motion } from "motion/react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
@@ -21,6 +24,7 @@ import { useRunUsage } from "./runtokenstore";
 import { tabKey, type RunView, type WorkspaceTab } from "./workspacemodel";
 import { ActivityView } from "./workspacerunactivity";
 import { GraphView } from "./workspacerungraph";
+import { dagFocusTask } from "./workspacerungraphmodel";
 import {
     headStrip,
     runHead,
@@ -76,9 +80,29 @@ function RunTabBody({ model, agent, tab, run }: RunTabProps & { run: RunInfo }) 
     const counts = runTabCounts(run, events);
     const pick = (view: RunView) => updateWorkspaceTab(agent.id, tabKey(tab), { view });
     const props: RunViewProps = { model, agent, tab, run, asks, events };
+    const dag = run.dag;
+    // on the focused task while the graph is in Focus; the modal's worker rail resolves agents from its context
+    const openDag = dag
+        ? () => {
+              setDagModalAgentsContext(model, globalStore.get(model.agentsAtom));
+              const task = dagFocusTask(tab.graph);
+              if (task) {
+                  openDagTask(`dag:${dag.oid}`, task);
+              } else {
+                  openDagLive(`dag:${dag.oid}`);
+              }
+          }
+        : undefined;
     return (
         <div data-workspace-run={run.runId} className="flex min-h-0 flex-1 flex-col">
-            <RunHead run={run} head={runHead(run, now)} counts={counts} view={tab.view} onPick={pick} />
+            <RunHead
+                run={run}
+                head={runHead(run, now)}
+                counts={counts}
+                view={tab.view}
+                onPick={pick}
+                onOpenDag={openDag}
+            />
             <ViewSwap swapKey={tab.view} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
                 {tab.view === "tasks" ? (
                     <TasksView {...props} />
@@ -98,12 +122,14 @@ function RunHead({
     counts,
     view,
     onPick,
+    onOpenDag,
 }: {
     run: RunInfo;
     head: RunHeadView;
     counts: RunTabCounts;
     view: RunView;
     onPick: (view: RunView) => void;
+    onOpenDag?: () => void;
 }) {
     const usage = useRunUsage(run.channelId, run.runId);
     const spend = spendLine(usage?.rows, run.digest?.report?.workerms);
@@ -139,9 +165,27 @@ function RunHead({
             <div data-workspace-run-line className={FACT_LINE}>
                 {head.line}
             </div>
-            {spend ? (
-                <div data-workspace-run-spend className={FACT_LINE}>
-                    {spend}
+            {spend || onOpenDag ? (
+                <div className="flex items-center gap-[10px]">
+                    {spend ? (
+                        <div data-workspace-run-spend className={cn(FACT_LINE, "min-w-0 flex-1")}>
+                            {spend}
+                        </div>
+                    ) : (
+                        <span className="flex-1" />
+                    )}
+                    {onOpenDag ? (
+                        <button
+                            type="button"
+                            data-workspace-run-open-dag
+                            title="Open the run's DAG (on the focused task when the graph is in Focus)"
+                            onClick={onOpenDag}
+                            className="inline-flex flex-none cursor-pointer items-center gap-[5px] rounded-[6px] border border-accent/45 bg-accentbg px-[10px] py-[4px] text-[12px] font-semibold text-accent-soft"
+                        >
+                            Open DAG
+                            <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
+                        </button>
+                    ) : null}
                 </div>
             ) : null}
             {strip ? (

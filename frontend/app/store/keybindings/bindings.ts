@@ -99,7 +99,14 @@ import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageBackStep } from "@/app/view/agents/usagenav";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
 import { stepListBoard } from "@/app/view/agents/workspacecanvastabmodel";
-import { rendersNow, toggleWorkspaceCollapsed, workspaceAtom } from "@/app/view/agents/workspacestore";
+import { tabKey } from "@/app/view/agents/workspacemodel";
+import { graphEscapeKey, toLanes } from "@/app/view/agents/workspacerungraphmodel";
+import {
+    rendersNow,
+    toggleWorkspaceCollapsed,
+    updateWorkspaceTab,
+    workspaceAtom,
+} from "@/app/view/agents/workspacestore";
 import { boardOwnsEscapeAtom, runBoardEscape } from "@/app/view/boards/boardstore";
 import { toggleBlame } from "@/app/view/code/codeblamestore";
 import { closePeek, codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
@@ -1064,6 +1071,11 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         const id = focusId();
         return id == null ? 0 : globalStore.get(workspaceAtom(id)).tabs.length;
     };
+    // the Run tab's key while the pane beside the transcript shows its Graph in Focus, where Esc returns to Lanes
+    const graphFocusKey = (): string | null => {
+        const id = focusId();
+        return id != null && rendered() ? graphEscapeKey(globalStore.get(workspaceAtom(id))) : null;
+    };
     const codePeekFocused = () => globalStore.get(codePeekFocusedAtom);
     // the Rendered view's ask dock draws only for an asking agent, and only the focused agent's view is mounted, so a
     // dock in the DOM is the renderable focused agent's
@@ -1177,13 +1189,39 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 !codePeekFocused() &&
                 globalStore.get(focusSubagentAtom) == null &&
                 globalStore.get(shellTaskPeekAtom) == null &&
-                shown() == null,
+                shown() == null &&
+                graphFocusKey() == null,
             run: () => {
                 if (globalStore.get(terminalFullscreenAtom)) {
                     globalStore.set(terminalFullscreenAtom, false);
                 } else {
                     backOrHome(model);
                 }
+            },
+        },
+        {
+            // the Run tab's Graph in Focus: Esc returns to Lanes and stops there, and the next Esc is agent:back's.
+            // Guarded as agent:back is, so a focused field keeps its own Esc; agent:back stands down meanwhile
+            id: "agent:graph-lanes",
+            keys: "Escape",
+            group: "Agent",
+            label: "Run tab Graph: from Focus back to Lanes",
+            when: (ctx) =>
+                agentNavStrict(ctx) &&
+                noEscapeMenuOpen() &&
+                !codePeekFocused() &&
+                globalStore.get(focusSubagentAtom) == null &&
+                globalStore.get(shellTaskPeekAtom) == null &&
+                shown() == null &&
+                graphFocusKey() != null,
+            run: () => {
+                const key = graphFocusKey();
+                const id = focusId();
+                const tab = globalStore.get(workspaceAtom(id)).tabs.find((t) => tabKey(t) === key);
+                if (key == null || tab?.kind !== "run") {
+                    return false;
+                }
+                updateWorkspaceTab(id, key, { graph: toLanes(tab.graph) });
             },
         },
         {

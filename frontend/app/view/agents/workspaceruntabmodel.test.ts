@@ -4,7 +4,18 @@
 import { describe, expect, it } from "vitest";
 import type { RunInfo } from "./runlineage";
 import { STRIP_MAX } from "./runstrip";
-import { answeredAsks, headStrip, runHead, runTabCounts, spendLine, taskDots, taskRows } from "./workspaceruntabmodel";
+import {
+    answeredAsks,
+    finalRow,
+    headStrip,
+    planReviewRow,
+    runHead,
+    runTabCounts,
+    spendLine,
+    taskBody,
+    taskDots,
+    taskRows,
+} from "./workspaceruntabmodel";
 
 const NOW = Date.UTC(2026, 10, 17, 14, 31, 0);
 const MIN = 60_000;
@@ -55,9 +66,8 @@ const RUNNING = dagOf([
     task("t-4", "go test and go vet", "pending", { deps: ["t-2", "t-3"] }),
     task("t-5", "final verification", "pending", { deps: ["t-4"] }),
 ]);
-const ASKING_DIGEST = {
-    tasks: [{ taskid: "t-3", waitreason: "ask", mergestate: "", cleanupstate: "" }],
-} as DagStatusDigest;
+const ASKING_DIGEST_FOR = (taskid: string) =>
+    ({ tasks: [{ taskid, waitreason: "ask", mergestate: "", cleanupstate: "" }] }) as DagStatusDigest;
 
 // the Main board's run: t-1 merged, t-2 merged and verifying, t-3 asking the lead, t-4 working, t-5 reviewing, t-6
 // failed, t-7 waiting on t-3 and t-4, t-8 waiting for a free worker
@@ -277,41 +287,231 @@ describe("runTabCounts", () => {
     });
 });
 
+const evidence = (files: [string, number, number][], summary = ""): RunEvidence =>
+    ({
+        capturedts: NOW,
+        hash: "h",
+        summary,
+        files: files.map(([path, add, del]) => ({ path, stat: "M", add, del })),
+        addtotal: files.reduce((n, f) => n + f[1], 0),
+        deltotal: files.reduce((n, f) => n + f[2], 0),
+    }) as RunEvidence;
+
+const T1_EVIDENCE = evidence(
+    [
+        ["internal/stats/counters.go", 120, 4],
+        ["internal/stats/counters_test.go", 64, 8],
+    ],
+    "## Summary\n\nAdded per-host counters and a `linkshelf stats` backend, with 9 tests."
+);
+
 describe("taskRows", () => {
-    it("one row per task in plan order: its state, tone and time", () => {
+    it("the Main board: each row's dot, its state word (none on merged and plainly running rows), time and diffs", () => {
+        const dag = dagOf(
+            MAIN.tasks.map((t) =>
+                t.id === "t-2"
+                    ? { ...t, verifystartedts: NOW - 40_000 }
+                    : t.id === "t-4"
+                      ? { ...t, spawnedts: NOW - 100_000 }
+                      : t
+            )
+        );
         const digest = {
-            ...ASKING_DIGEST,
-            durations: { elapsedms: 0, tasks: [{ taskid: "t-2", runms: 2 * MIN + 51_000 }] },
+            ...MAIN_DIGEST,
+            durations: {
+                elapsedms: 0,
+                tasks: [
+                    { taskid: "t-1", runms: 2 * MIN },
+                    { taskid: "t-2", runms: 3 * MIN },
+                    { taskid: "t-6", runms: 2 * MIN },
+                ],
+            },
         } as DagStatusDigest;
-        const rows = taskRows(RUNNING, digest, NOW);
-        expect(rows.map((r) => [r.id, r.name, r.state, r.tone, r.time])).toEqual([
-            ["t-1", "plan review", "merged", "done", "—"],
-            ["t-2", "internal/stats counters", "merged", "done", "2m"],
-            ["t-3", "internal/dedupe groups", "asking you", "asking", "3m"],
-            ["t-4", "go test and go vet", "waits on t-3", "pending", "—"],
-            ["t-5", "final verification", "waits on t-4", "pending", "—"],
+        const rows = taskRows(dag, digest, NOW, { "t-1": T1_EVIDENCE });
+        expect(rows.map((r) => [r.id, r.dot, r.state, r.time, r.adds, r.dels])).toEqual([
+            ["t-1", "merged", "", "2m", 184, 12],
+            ["t-2", "working", "verifying 40s", "3m", undefined, undefined],
+            ["t-3", "asked", "asked the lead", "—", undefined, undefined],
+            ["t-4", "working", "", "1m", undefined, undefined],
+            ["t-5", "working", "reviewing", "—", undefined, undefined],
+            ["t-6", "failed", "failed", "2m", undefined, undefined],
+            ["t-7", "waits", "waits on t-3, t-4", "", undefined, undefined],
+            ["t-8", "waits", "queued", "", undefined, undefined],
         ]);
     });
 
-    it("a task the lead answers, a working one, a failed one and a queued one", () => {
+    it("a question with you, a done task awaiting merge, and a label-less task named by its id", () => {
         const dag = dagOf([
             task("t-1", "a", "running", { spawnedts: NOW - 5 * MIN }),
-            task("t-2", "b", "running", { spawnedts: NOW - MIN }),
-            task("t-3", "c", "failed"),
-            task("t-4", "", "ready"),
+            task("t-2", "b", "done"),
+            task("t-3", "", "ready"),
         ]);
-        const digest = {
-            tasks: [{ taskid: "t-1", waitreason: "lead-ask", mergestate: "", cleanupstate: "" }],
-        } as DagStatusDigest;
-        expect(taskRows(dag, digest, NOW).map((r) => [r.name, r.sub, r.state, r.tone])).toEqual([
-            ["a", "t-1", "asked the lead", "working"],
-            ["b", "t-2", "working", "working"],
-            ["c", "t-3", "failed", "failed"],
-            ["t-4", "", "queued", "pending"],
+        expect(taskRows(dag, ASKING_DIGEST_FOR("t-1"), NOW).map((r) => [r.name, r.sub, r.dot, r.state])).toEqual([
+            ["a", "t-1", "asked", "asking you"],
+            ["b", "t-2", "working", "done"],
+            ["t-3", "", "waits", "queued"],
+        ]);
+    });
+
+    it("a dep done but not merged still counts as met; one with no evidence change shows no diff", () => {
+        const dag = dagOf([task("t-1", "a", "done"), task("t-2", "b", "pending", { deps: ["t-1"] })]);
+        const rows = taskRows(dag, undefined, NOW, { "t-1": evidence([]) });
+        expect(rows.map((r) => [r.state, r.adds])).toEqual([
+            ["done", undefined],
+            ["queued", undefined],
         ]);
     });
 
     it("no dag, no rows", () => {
         expect(taskRows(undefined, undefined, NOW)).toEqual([]);
+    });
+});
+
+describe("stage rows", () => {
+    it("Plan review reads the dag's plan review: passed, reviewing, failed; none with no plan review", () => {
+        expect(planReviewRow(MAIN)).toBeNull();
+        const at = (state: string) => planReviewRow({ ...MAIN, planreview: { state, round: 1 } });
+        expect(at("passed")).toMatchObject({ label: "Plan review", dot: "merged", word: "passed" });
+        expect(at("reviewing")).toMatchObject({ dot: "working", word: "reviewing" });
+        expect(at("failed")).toMatchObject({ dot: "failed", word: "failed" });
+    });
+
+    it("Final verification waits for every task until the stage starts", () => {
+        expect(finalRow(MAIN, [], NOW)).toMatchObject({
+            label: "Final verification",
+            dot: "waits",
+            word: "waits for every task",
+        });
+    });
+
+    it("passed reads its scenarios from the stage's shots, or just passed with none", () => {
+        const shots = Array.from({ length: 6 }, (_, i) => ({ name: `s-${i}`, files: [] }));
+        const passed = (final: FinalStage) => finalRow({ ...MAIN, final }, [], NOW);
+        expect(passed({ state: "passed", round: 1, shots })).toMatchObject({
+            dot: "merged",
+            word: "passed · 6 scenarios",
+        });
+        expect(passed({ state: "passed", round: 1 })).toMatchObject({ dot: "merged", word: "passed" });
+        expect(passed({ state: "failed", round: 1 })).toMatchObject({ dot: "failed", word: "failed" });
+    });
+
+    it("a running stage names its running step: final.state verifying is the verifier session", () => {
+        const row = finalRow({ ...MAIN, final: { state: "verifying", round: 1, startedts: NOW - MIN } }, [], NOW);
+        expect(row.dot).toBe("working");
+        expect(row.word).toBe("Verifier");
+    });
+
+    it("no tasks, no Final verification row", () => {
+        expect(finalRow(dagOf([]), [], NOW)).toBeNull();
+        expect(finalRow(undefined, [], NOW)).toBeNull();
+    });
+});
+
+describe("taskBody", () => {
+    // 16:19 and 16:20 local, so the clock reads the same in any zone
+    const ANSWERED_AT = new Date(2026, 10, 17, 16, 19).getTime();
+    const MERGED_AT = new Date(2026, 10, 17, 16, 20).getTime();
+    const EVENTS = [
+        event("e1", "child-ask", ANSWERED_AT - MIN, { taskid: "t-1", question: "Untagged?" }),
+        event("e2", "child-answered", ANSWERED_AT, { taskid: "t-1" }),
+        event("e3", "task-review-passed", MERGED_AT - 10_000, { taskid: "t-1" }),
+        event("e4", "task-merged", MERGED_AT, { taskid: "t-1" }),
+        event("e5", "task-merged", MERGED_AT, { taskid: "t-2" }),
+    ];
+    const ctx = (extra: Partial<Parameters<typeof taskBody>[1]> = {}) => ({
+        dag: { ...MAIN, verify: "go test ./..." },
+        digest: MAIN_DIGEST,
+        evidence: {},
+        events: EVENTS,
+        now: NOW,
+        live: true,
+        ...extra,
+    });
+    const byId = (id: string, extra: Partial<TaskNode> = {}) => ({ ...MAIN.tasks.find((t) => t.id === id), ...extra });
+
+    it("a merged task: its report's headline, its files, review passed and merged at, Open changes on its first file", () => {
+        const body = taskBody(byId("t-1", { runid: "r-1" }), ctx({ evidence: { "t-1": T1_EVIDENCE } }));
+        expect(body.lead).toBe("Added per-host counters and a linkshelf stats backend, with 9 tests.");
+        expect(body.files.map((f) => [f.path, f.add, f.del])).toEqual([
+            ["internal/stats/counters.go", 120, 4],
+            ["internal/stats/counters_test.go", 64, 8],
+        ]);
+        expect(body.merged).toBe("review passed · merged 16:20");
+        expect(body.changes).toBe("internal/stats/counters.go");
+        expect(body.ran).toBeUndefined();
+        expect(body.failure).toBe("");
+    });
+
+    it("a merged task with no report reads Merged., and one merged with no review event reads only merged at", () => {
+        const body = taskBody(byId("t-1", { id: "t-9" }), ctx());
+        expect(body.lead).toBe("Merged.");
+        expect(body.merged).toBe("");
+        expect(body.changes).toBeNull();
+        const t2 = taskBody(byId("t-2", { state: "done" }), ctx());
+        expect(t2.merged).toBe("merged 16:20");
+    });
+
+    it("a merged task verifying: the Verify sentence and its running Ran step, timed from verifystartedts", () => {
+        const digest = {
+            tasks: [
+                {
+                    taskid: "t-2",
+                    waitreason: "",
+                    verifylastline: "ok  linkshelf/internal/importer",
+                    mergestate: "",
+                    cleanupstate: "",
+                },
+            ],
+        } as DagStatusDigest;
+        const body = taskBody(byId("t-2", { verifystartedts: NOW - 40_000 }), ctx({ digest }));
+        expect(body.lead).toBe("Merged. The plan's Verify is running in the project checkout.");
+        expect(body.ran).toEqual({
+            command: "go test ./...",
+            time: "40s",
+            lastLine: "ok  linkshelf/internal/importer",
+        });
+        expect(body.merged).toBe("");
+    });
+
+    it("a reviewing task: the reviewer sentence, its files, and how long ago the reviewer started", () => {
+        const body = taskBody(
+            byId("t-5", { reviewspawnedts: NOW - 30_000 }),
+            ctx({ evidence: { "t-5": evidence([["web/List.tsx", 148, 22]], "# Report\n\nAdded the list view.") } })
+        );
+        expect(body.lead).toBe("Finished with a commit. A reviewer is judging it against the task and the spec.");
+        expect(body.files.map((f) => f.path)).toEqual(["web/List.tsx"]);
+        expect(body.reviewer).toBe("reviewer started 30s ago");
+    });
+
+    it("a failed task: its verify output, and the lead deciding while the run is live", () => {
+        const out = "--- FAIL: TestPocketImport/tags\nFAIL";
+        const t6 = byId("t-6", { verifyerror: "go test failed", verifyoutput: out });
+        expect(taskBody(t6, ctx())).toMatchObject({ failure: out, deciding: true, lead: "" });
+        expect(taskBody(t6, ctx({ live: false })).deciding).toBe(false);
+        expect(taskBody(byId("t-6", { verifyerror: "exit 1" }), ctx()).failure).toBe("exit 1");
+    });
+
+    it("a waiting task: its description's first line and what it depends on", () => {
+        const t7 = byId("t-7", {
+            description: "Runs go test ./... and go vet ./... on the merged tree.\nThen reports.",
+        });
+        expect(taskBody(t7, ctx())).toMatchObject({
+            lead: "Runs go test ./... and go vet ./... on the merged tree.",
+            depends: "depends on t-3, t-4",
+        });
+    });
+
+    it("waiting for a free worker adds to its depends line; a queued task with no deps and no reason has none", () => {
+        const t8 = byId("t-8", { description: "Documents linkshelf stats and its flags." });
+        expect(taskBody(t8, ctx()).depends).toBe("depends on t-1 · waits for a free worker");
+        const lone = { id: "t-9", state: "ready" } as TaskNode;
+        const parallel = {
+            tasks: [{ taskid: "t-9", waitreason: "parallelism", mergestate: "", cleanupstate: "" }],
+        } as DagStatusDigest;
+        expect(taskBody(lone, ctx({ digest: parallel }))).toMatchObject({
+            lead: "",
+            depends: "waits for a free worker",
+        });
+        expect(taskBody(lone, ctx()).depends).toBe("");
     });
 });
