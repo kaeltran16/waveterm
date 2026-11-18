@@ -120,6 +120,8 @@ export const UI_ROUTE = { route: "cockpit", timeout: 15000 };
 export const TREE_RAIL_FIXTURE = new URL("../../public/cockpit-fixtures/active.json", import.meta.url);
 export const TREE_RAIL_LEAD = "tree-rail lead";
 export const RAIL_VISIBLE_KEY = "agent.rail.visible";
+// the Settings default view (renderedmode.ts defaultViewModeAtom), stored as JSON
+export const VIEW_DEFAULT_KEY = "agent.view.default";
 export const MIN_FONT_PX = 10.5;
 
 // Page functions for the design-rule checks (2026-10-17 drift plan), spliced into an evaluated body:

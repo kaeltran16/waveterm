@@ -1426,6 +1426,8 @@ async function bsArrangeAgent(h, topic, file) {
     const cwd = mkdtempSync(join(tmpdir(), "verify-bs-reasons-"));
     const ctx = { cwd, topic, file: join(cwd, ".superpowers", "brainstorm", topic, "brainstorm.json") };
     try {
+        // the brainstorm switcher the reveal is checked by draws in the Terminal view; Rendered shows a workspace tab
+        await pinDefaultView(h, "terminal");
         mkdirSync(dirname(ctx.file), { recursive: true });
         bsWrite(ctx, file);
         await openCanvasTerminal(h, ctx, topic);
@@ -1472,6 +1474,7 @@ async function bsTeardownAgent(h, ctx, name) {
         await step("close the terminal tab", () => waveService(h, "workspace", "CloseTab", [ctx.workspaceId, ctx.tabId, false]));
     }
     await step("remove the temp dir", () => rmSync(ctx.cwd, { recursive: true, force: true }));
+    await step("restore the default view", () => restoreDefaultView(h));
     await step("go home", () => h.goto("cockpit"));
 }
 
@@ -2091,11 +2094,11 @@ const BSAB_TABS = `(() => {
     };
 })()`;
 
-// too narrow for the board toolbar's back button, topic, five tabs and buttons, so its tabs scroll, yet wide enough
-// that the longest tab fits in the scroller
-const BSAB_NARROW_PX = 1100;
-// whether the board toolbar holds its row: every item inside the bar, the topic and meta on one line each, the tabs
-// scrolling, and the picked tab in view
+// the toolbar wraps in a narrow pane (canvaspane.tsx), so its five tabs scroll only once their own row is too narrow
+// for them, yet the longest tab still fits in the scroller: about the width of the workspace's Canvas tab
+const BSAB_NARROW_PX = 600;
+// whether the board toolbar holds a narrow pane: every item inside the bar, the topic and meta on one line each, the
+// tabs scrolling, and the picked tab in view
 const BSAB_TOOLBAR_FIT = `(() => {
     const box = (el) => el.getBoundingClientRect();
     const lines = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length; };
@@ -2323,7 +2326,7 @@ export const brainstormAnswerBoards = {
             { opened: jOpened, backed: jBacked, back: jBack }
         );
         rec(
-            `7. (Narrow toolbar) at ${BSAB_NARROW_PX}px the board tabs scroll inside the toolbar while the back button, topic, meta and buttons stay in it on one line; ] to the last tab scrolls it into view`,
+            `7. (Narrow toolbar) at ${BSAB_NARROW_PX}px the toolbar wraps and the board tabs scroll in their row while the back button, topic, meta and buttons stay inside it, each label on one line; ] to the last tab scrolls it into view`,
             fit.found &&
                 fit.selected === BSAB_JUDGING_TABS_WANT.at(-1) &&
                 fit.scrolls &&

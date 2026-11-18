@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { pinDefaultView, restoreDefaultView } from "./agent-page-fixtures.mjs";
 import { SURFACE_LABEL } from "./attach.mjs";
 import {
     FST_CHECK,
@@ -1007,6 +1008,8 @@ async function arrangeFinalStage(h, ctx) {
     const verifierRun = await fstWriteRun(h, ctx.verifierRunId, (run) => ({ ...run, stagerole: "verifier", dagoref: ctx.dagId }));
     ctx.verifierSeeded = verifierRun?.stagerole === "verifier" && verifierRun.dagoref === ctx.dagId && !verifierRun.completedts;
     await h.ev(`localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "true")`);
+    // the rail under test shows in the Terminal view; in Rendered, a fresh store's default, the workspace pane takes its place
+    await pinDefaultView(h, "terminal");
     ctx.waiting = await fstShow(h, ctx, "waiting");
     ctx.leadFocused = await fstBoot(h, ctx, false);
 }
@@ -1658,7 +1661,7 @@ export const finalStageScenario = {
     },
     async teardown(h, ctx) {
         await teardownFixtureRun(h, ctx, "final-stage", {
-            what: "cancel the channel's other runs and restore the rail preference",
+            what: "cancel the channel's other runs and restore the rail and view preferences",
             fn: async () => {
                 try {
                     // the verifier's seeded run, and t-1's child run, which Part A unlinked from its task with its
@@ -1678,6 +1681,7 @@ export const finalStageScenario = {
                             ? `localStorage.removeItem(${JSON.stringify(RAIL_VISIBLE_KEY)})`
                             : `localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, ${JSON.stringify(ctx.prevRail)})`
                     );
+                    await restoreDefaultView(h);
                 }
             },
         });

@@ -4,7 +4,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { waveService, APP_MOD } from "./scenarios-shared.mjs";
+import { waveService, APP_MOD, VIEW_DEFAULT_KEY } from "./scenarios-shared.mjs";
 
 export const FIXTURE_DIR = "C:\\arc-verify-agent-fixture";
 const DEFAULT_SESSION_ID = "arc-verify-agent-session";
@@ -68,12 +68,19 @@ export const focusAgent = (h, id) =>
     );
 
 // the Settings default view for claude agents (Rendered unless set). A scenario built on the terminal pins it to
-// "terminal" in arrange and calls restoreDefaultView in teardown; the first pin keeps the user's value in the page
+// "terminal" in arrange and calls restoreDefaultView in teardown; the first pin keeps the user's stored value. It is
+// kept in sessionStorage, which outlives a reload between pin and restore: a value kept on window did not, and the
+// restore then left the pin in the store for every later scenario.
+const VIEW_PREV = JSON.stringify("__defaultViewPrev");
+const VIEW_KEY = JSON.stringify(VIEW_DEFAULT_KEY);
+
 export const pinDefaultView = (h, mode) =>
     agentPage(
         h,
         `const R = await mod("app/view/agents/renderedmode.ts");
-        if (!("__defaultViewPrev" in window)) window.__defaultViewPrev = globalStore.get(R.defaultViewModeAtom);
+        if (sessionStorage.getItem(${VIEW_PREV}) === null) {
+            sessionStorage.setItem(${VIEW_PREV}, JSON.stringify(localStorage.getItem(${VIEW_KEY})));
+        }
         globalStore.set(R.defaultViewModeAtom, ${JSON.stringify(mode)});
         return true;`
     );
@@ -82,9 +89,12 @@ export const restoreDefaultView = (h) =>
     agentPage(
         h,
         `const R = await mod("app/view/agents/renderedmode.ts");
-        if ("__defaultViewPrev" in window) {
-            globalStore.set(R.defaultViewModeAtom, window.__defaultViewPrev);
-            delete window.__defaultViewPrev;
+        const saved = sessionStorage.getItem(${VIEW_PREV});
+        if (saved !== null) {
+            const prev = JSON.parse(saved);
+            globalStore.set(R.defaultViewModeAtom, prev === null ? R.DEFAULT_VIEW_MODE : JSON.parse(prev));
+            if (prev === null) localStorage.removeItem(${VIEW_KEY});
+            sessionStorage.removeItem(${VIEW_PREV});
         }
         return true;`
     );

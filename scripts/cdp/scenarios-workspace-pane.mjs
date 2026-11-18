@@ -20,11 +20,10 @@ import {
     userText,
     writeTranscript,
 } from "./agent-page-fixtures.mjs";
-import { polishNap, polishWaitFor, RAIL_VISIBLE_KEY, restoreLocalStorage } from "./scenarios-shared.mjs";
+import { polishNap, polishWaitFor, RAIL_VISIBLE_KEY, restoreLocalStorage, VIEW_DEFAULT_KEY } from "./scenarios-shared.mjs";
 
 const NAME = "workspace-pane";
 const WIDTH_KEY = "agent.workspace.width";
-const VIEW_KEY = "agent.view.default";
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const WAIT_MS = 10_000;
 // longer than the pane's macro reveal (360ms), so a read after it sees the settled pane
@@ -115,7 +114,7 @@ export const workspacePane = {
         try {
             ctx.prev = await h.ev(`({
                 width: localStorage.getItem(${JSON.stringify(WIDTH_KEY)}),
-                view: localStorage.getItem(${JSON.stringify(VIEW_KEY)}),
+                view: localStorage.getItem(${JSON.stringify(VIEW_DEFAULT_KEY)}),
                 rail: localStorage.getItem(${JSON.stringify(RAIL_VISIBLE_KEY)}),
             })`);
             await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
@@ -509,7 +508,7 @@ export const workspacePane = {
                 h.ev(
                     [
                         restoreLocalStorage(WIDTH_KEY, ctx.prev.width),
-                        restoreLocalStorage(VIEW_KEY, ctx.prev.view),
+                        restoreLocalStorage(VIEW_DEFAULT_KEY, ctx.prev.view),
                         restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prev.rail),
                     ].join("; ")
                 )
