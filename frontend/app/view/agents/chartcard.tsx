@@ -136,18 +136,26 @@ function BarChart({ spec }: { spec: ChartSpec }) {
     const byCat = spec.series.map((s) => new Map(s.points.map((p) => [String(p.x), p.y])));
     const values = spec.series.flatMap((s) => s.points.map((p) => p.y));
     const scale = scaleLinear<number>({ domain: valueDomain(values, true), range: [0, 100], nice: AXIS_TICKS });
-    const ticks = scale.ticks(AXIS_TICKS);
-    const zero = scale(0);
     const unit = spec.y?.unit;
+    // the axis track as state, not a ref, so the first measure runs once it mounts
+    const [track, setTrack] = useState<HTMLDivElement | null>(null);
+    const [trackW, setTrackW] = useState(0);
+    useLayoutEffect(() => {
+        if (track) setTrackW(track.clientWidth);
+    }, [track]);
+    useResizeObserver(track, (e) => setTrackW(e.contentRect.width));
+    const ticks = fittingTicks(scale, trackW, unit);
+    const zero = scale(0);
     const multi = spec.series.length > 1;
+    // one grid for every row, so the label column is as wide as the longest label (up to its cap) in every row
     return (
-        <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-[fit-content(130px)_minmax(0,1fr)_auto] items-center gap-x-[10px] gap-y-2">
             {cats.map((cat) => (
-                <div key={cat} className="grid grid-cols-[130px_minmax(0,1fr)_56px] items-center gap-[10px]">
+                <div key={cat} className="contents">
                     <span className="truncate text-right font-mono text-[11.5px] text-secondary" title={cat}>
                         {cat}
                     </span>
-                    <div className="flex flex-col gap-[2px]">
+                    <div data-chart-track className="flex flex-col gap-[2px]">
                         {byCat.map((m, i) => {
                             const v = m.get(cat);
                             const left = v == null ? zero : Math.min(zero, scale(v));
@@ -179,23 +187,57 @@ function BarChart({ spec }: { spec: ChartSpec }) {
                     </span>
                 </div>
             ))}
-            <div className="mt-0.5 grid grid-cols-[130px_minmax(0,1fr)_56px] gap-[10px]">
-                <span />
-                <div className="relative h-[18px] border-t border-edge-mid font-mono text-[10.5px] text-ink-faint">
-                    {ticks.map((t, i) => (
-                        <span
-                            key={t}
-                            className="absolute top-1 whitespace-nowrap"
-                            style={tickStyle(scale(t), i, ticks.length)}
-                        >
-                            {fmtChartValue(t, unit)}
-                        </span>
-                    ))}
-                </div>
-                <span />
+            <span />
+            <div
+                ref={setTrack}
+                data-chart-axis
+                className="relative mt-0.5 h-[18px] self-start border-t border-edge-mid font-mono text-[10.5px] text-ink-faint"
+            >
+                {ticks.map((t, i) => (
+                    <span
+                        key={t}
+                        className="absolute top-1 whitespace-nowrap"
+                        style={tickStyle(scale(t), i, ticks.length)}
+                    >
+                        {fmtChartValue(t, unit)}
+                    </span>
+                ))}
             </div>
+            <span />
         </div>
     );
+}
+
+type BarScale = ReturnType<typeof scaleLinear<number>>;
+
+// a tick label's width: the axis font is 10.5px mono, whose glyphs advance 0.6em
+const TICK_CHAR_PX = 6.3;
+const TICK_GAP_PX = 6;
+
+// the most ticks (up to AXIS_TICKS) whose labels sit apart on a track this wide; unmeasured, all of them
+function fittingTicks(scale: BarScale, trackW: number, unit: string | undefined): number[] {
+    for (let n = AXIS_TICKS; n > 1; n--) {
+        const ticks = scale.ticks(n);
+        const labels = ticks.map((t): [number, number] => [scale(t), fmtChartValue(t, unit).length]);
+        if (trackW <= 0 || ticksFit(labels, trackW)) {
+            return ticks;
+        }
+    }
+    return scale.ticks(1);
+}
+
+function ticksFit(ticks: [pct: number, chars: number][], trackW: number): boolean {
+    let prevRight = -Infinity;
+    for (let i = 0; i < ticks.length; i++) {
+        const [pct, chars] = ticks[i];
+        const w = chars * TICK_CHAR_PX;
+        const x = (pct / 100) * trackW;
+        const style = tickStyle(pct, i, ticks.length);
+        const left = "right" in style ? trackW - w : "transform" in style ? x - w / 2 : 0;
+        if (left < prevRight + TICK_GAP_PX) return false;
+        prevRight = left + w;
+    }
+    return true;
 }
 
 // end ticks align inward so their labels stay inside the row
