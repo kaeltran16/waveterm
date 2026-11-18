@@ -281,6 +281,27 @@ describe("layoutTranscript folds", () => {
         expect(stepsItems(items)[0].steps.map((s) => s.status)).toEqual(["blocked", "fail"]);
         expect(turns(items)[0].fold.failed).toBe(1);
     });
+
+    it("draws a declined call as declined, even a Bash one with no exit, and leaves it out of the failed count", () => {
+        const declined: AgentActionEntry = {
+            kind: "action",
+            verb: "asked",
+            target: "which db?",
+            outcome: "declined",
+            error: "You declined the question, so Claude stopped and waited for you.",
+        };
+        const declinedBash: AgentActionEntry = {
+            ...bash("rm -rf build"),
+            outcome: "declined",
+            detail: { kind: "bash", command: "rm -rf build", output: "", exit: null },
+        };
+        const items = layoutTranscript(
+            [user("go"), declined, declinedBash, bash("node test.js", { exit: 1 }), prose("ok")],
+            { active: false }
+        );
+        expect(stepsItems(items)[0].steps.map((s) => s.status)).toEqual(["declined", "declined", "fail"]);
+        expect(turns(items)[0].fold.failed).toBe(1);
+    });
 });
 
 describe("layoutTranscript wsh calls", () => {

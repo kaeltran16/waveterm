@@ -21,7 +21,7 @@ export interface Step {
     index: number;
     action: AgentActionEntry;
     wsh: { call: WshCall; key: WshKey } | null;
-    status: "ok" | "fail" | "blocked" | "running" | "stopped";
+    status: "ok" | "fail" | "blocked" | "declined" | "running" | "stopped";
     // set when two or more consecutive edits to one file merged into this step: how many
     edits?: number;
 }
@@ -90,8 +90,8 @@ function stepStatus(a: AgentActionEntry, interruptedLater: boolean, active: bool
     if (a.pending) {
         return active && !interruptedLater ? "running" : "stopped";
     }
-    if (a.outcome === "blocked") {
-        return "blocked";
+    if (a.outcome === "blocked" || a.outcome === "declined") {
+        return a.outcome;
     }
     if (a.outcome === "fail" || (a.detail?.kind === "bash" && a.detail.exit !== 0)) {
         return "fail";

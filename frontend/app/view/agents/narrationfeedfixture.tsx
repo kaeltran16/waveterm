@@ -32,6 +32,8 @@ export interface NarrationFeedFixtureOpts {
     renderers?: boolean;
     // draws thoughts, as the rendered view does
     thoughts?: boolean;
+    // accents the latest message, as a live host does
+    accentLatest?: boolean;
     seed?: Record<string, unknown>;
     runEvents?: Record<string, RunEvent[]>;
     // drawn as the timeline's tail, as a working host draws it
@@ -50,6 +52,7 @@ interface ModalProps {
     active?: boolean;
     renderers?: boolean;
     thoughts?: boolean;
+    accentLatest?: boolean;
     nowLine?: NowLine;
     renderAll?: boolean;
     unfold?: boolean;
@@ -63,6 +66,7 @@ export function NarrationFeedFixtureModal({
     active,
     renderers,
     thoughts,
+    accentLatest,
     marks,
     nowLine,
     renderAll,
@@ -76,6 +80,7 @@ export function NarrationFeedFixtureModal({
                     active={!!active}
                     renderers={renderers}
                     thoughts={thoughts}
+                    accentLatest={accentLatest}
                     marks={marks}
                     ctx={ctx}
                     compact={compact}
