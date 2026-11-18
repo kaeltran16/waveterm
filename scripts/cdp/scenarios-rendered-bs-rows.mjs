@@ -301,7 +301,7 @@ export default (kit) => {
                 ];
             });
 
-            await step("the pane-action rows: You skipped the questions, You asked for the builder check, You approved the design, Started run <id> from the spec", async () => {
+            await step("the pane-action rows: You skipped the questions, You asked for the builder check, You approved the design, Started run <id> from the spec with Open run", async () => {
                 const rows = await readRows(h);
                 const t = (kind) => rows.find((r) => r.kind === kind)?.text;
                 const got = {
@@ -316,7 +316,7 @@ export default (kit) => {
                     got.skip === "You skipped the questions" &&
                         got.check === "You asked for the builder check" &&
                         got.approved === "You approved the design" &&
-                        got.run === `Started run ${RUN_ID.slice(0, 8)} from the spec` &&
+                        got.run === `Started run ${RUN_ID.slice(0, 8)} from the spec Open run` &&
                         !got.old,
                     got,
                 ];

@@ -1,158 +1,18 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The run card and the gone card, in the Rendered transcript. The run card is the brainstorm's Run step as one card
-// under the transcript (where the run stands, Close the brainstorm once it merged with its final check passed); the
-// gone card says why no brainstorm is drawn, and a brainstorm Arc closed is a row.
+// The gone card, in the Rendered transcript: why no brainstorm is drawn, and a brainstorm Arc closed is a row. A run has
+// no card: its line is the Started run row, and the workspace pane's Brainstorm tab holds its Run step and Close.
 
-import { DrawCheck } from "@/app/element/drawcheck";
 import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUpRight, Lightbulb } from "lucide-react";
+import { Lightbulb } from "lucide-react";
 import type { JSX } from "react";
 import type { AgentVM } from "./agentsviewmodel";
-import { closeBrainstorm } from "./brainstormrun";
-import { closeTargets, type RunStepState } from "./brainstormrunmodel";
-import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
-import { DOT, ErrorLine, useAction } from "./brainstormui";
-import { CANVAS_PRIMARY_BTN } from "./canvaspane";
-import { CardFrame } from "./renderedbrainstorm";
-import type { CardProps } from "./renderedbrainstormmodel";
-import { brainstormClosedAtom, goneView, runCardView } from "./renderedbsrunmodel";
-import { useRunInfo } from "./runlineagestore";
-import { openRunBeside } from "./runrailsections";
-
-const STATE_DOT: Partial<Record<RunStepState, string>> = {
-    "final-failed": "bg-error",
-    held: "bg-error",
-    cancelled: "bg-error",
-    missing: "bg-error",
-    unverified: "bg-warning",
-    loading: "bg-muted",
-};
-
-const HEAD_LINK = "min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-ink-mid hover:underline";
-
-function CloseButton({
-    agentId,
-    s,
-    canvas,
-    runId,
-    compact,
-}: {
-    agentId: string;
-    s: BrainstormState;
-    canvas: string | undefined;
-    runId: string;
-    compact: boolean;
-}) {
-    const act = useAction();
-    const targets = closeTargets(s.cwd, s.topic, canvas);
-    const refusal = "reason" in targets ? targets.reason : null;
-    return (
-        <div className={cn("flex flex-none flex-col gap-1.5", compact ? "items-start pt-1" : "max-w-[45%] items-end")}>
-            <button
-                type="button"
-                data-rendered-bs-close
-                disabled={refusal != null || act.busy}
-                onClick={() => void act.run(() => closeBrainstorm(agentId, runId))}
-                className={CANVAS_PRIMARY_BTN}
-            >
-                Close the brainstorm
-            </button>
-            <ErrorLine
-                error={refusal ?? act.error}
-                className={compact ? undefined : "text-right"}
-                attrs={{ "data-rendered-bs-close-error": "" }}
-            />
-        </div>
-    );
-}
-
-export function RunCard({ model, agent, s, f, compact }: CardProps): JSX.Element | null {
-    const runId = f.run;
-    const { run, loaded } = useRunInfo(runId ?? null);
-    if (runId == null) {
-        return null;
-    }
-    const v = runCardView(runId, run, loaded, s.topic, f.canvas);
-    const state = v.view.state;
-    const merged = v.view.merged;
-    const open = v.showOpen ? (
-        <button
-            type="button"
-            data-rendered-bs-open-run
-            onClick={(e) => openRunBeside(model, agent.id, runId, e)}
-            className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline"
-        >
-            Open run
-            <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-        </button>
-    ) : (
-        false
-    );
-    const head = (
-        <button
-            type="button"
-            data-rendered-bs-topic
-            title="Open the brainstorm"
-            onClick={() => openBrainstormAt(agent.id, {})}
-            className={HEAD_LINK}
-        >
-            {s.topic}
-        </button>
-    );
-    return (
-        <CardFrame
-            agent={agent}
-            s={s}
-            f={f}
-            asking={false}
-            head={head}
-            status={v.status}
-            open={open}
-            compact={compact}
-            attr="data-rendered-bs-run"
-        >
-            <div data-rendered-bs-run-state={state} className="flex items-start gap-3">
-                {/* outside the swap, so the check draws when the run merges rather than mounting drawn */}
-                <span className="mt-[5px] flex flex-none">
-                    {state !== "loading" ? (
-                        <DrawCheck done={merged} className="mt-px h-[13px] w-[13px] text-success" />
-                    ) : null}
-                    {!merged ? (
-                        <span data-rendered-bs-run-dot className={cn(DOT, STATE_DOT[state] ?? "bg-accent")} />
-                    ) : null}
-                </span>
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    <ViewSwap swapKey={state} className="flex flex-col gap-1">
-                        <span
-                            data-rendered-bs-run-headline
-                            className={cn("font-semibold text-primary", compact ? "text-[14px]" : "text-[15px]")}
-                        >
-                            {v.headline}
-                        </span>
-                        {v.detail ? (
-                            <span
-                                data-rendered-bs-run-detail
-                                className={cn("leading-[1.55] text-ink-mid", compact ? "text-[12.5px]" : "text-[13px]")}
-                            >
-                                {v.detail}
-                            </span>
-                        ) : null}
-                    </ViewSwap>
-                    {compact && v.canClose ? (
-                        <CloseButton agentId={agent.id} s={s} canvas={f.canvas} runId={runId} compact />
-                    ) : null}
-                </div>
-                {!compact && v.canClose ? (
-                    <CloseButton agentId={agent.id} s={s} canvas={f.canvas} runId={runId} compact={false} />
-                ) : null}
-            </div>
-        </CardFrame>
-    );
-}
+import type { BrainstormState } from "./brainstormstore";
+import { DOT } from "./brainstormui";
+import { brainstormClosedAtom, goneView } from "./renderedbsrunmodel";
 
 const GONE_CARD = "flex flex-col rounded-[10px] border border-edge-mid bg-surface";
 

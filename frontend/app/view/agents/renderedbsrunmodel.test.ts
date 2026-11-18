@@ -3,73 +3,9 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-    brainstormClosedAtom,
-    closeDetail,
-    closedRowText,
-    goneView,
-    recordClose,
-    runCardView,
-} from "./renderedbsrunmodel";
-import type { RunInfo } from "./runlineage";
+import { brainstormClosedAtom, closeDetail, closedRowText, goneView, recordClose } from "./renderedbsrunmodel";
 
-const RUN_ID = "3f9a1c2e-0000-4000-8000-000000000001";
-const SHA = "9c1e2f0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PATH = "C:\\proj\\.superpowers\\brainstorm\\run-memory-pressure\\brainstorm.json";
-
-function runInfo(patch: Partial<RunInfo>): RunInfo {
-    return { runId: RUN_ID, channelId: "ch", title: "t", project: "p", base: "main", ...patch } as RunInfo;
-}
-
-const MERGED = (finalState: string) =>
-    runInfo({
-        land: { state: "landed", commit: SHA },
-        dag: { final: { state: finalState, round: 1 }, tasks: [] } as unknown as RunInfo["dag"],
-    });
-
-describe("runCardView", () => {
-    it("heads a building run with its short id and the pane's headline and detail", () => {
-        const run = runInfo({
-            dag: {
-                status: "running",
-                tasks: [
-                    { id: "t-1", state: "done", merged: true },
-                    { id: "t-2", state: "" },
-                ],
-            } as unknown as RunInfo["dag"],
-        });
-        const v = runCardView(RUN_ID, run, true, "run-memory-pressure", "final-queue");
-        expect(v.status).toBe("Run 3f9a1c2e");
-        expect(v.view.state).toBe("building");
-        expect(v.headline).toBe("The run is building: 1 of 2 tasks landed");
-        expect(v.detail).toContain("Then the final check verifies the whole");
-        expect(v.canClose).toBe(false);
-        expect(v.showOpen).toBe(true);
-    });
-
-    it("merged with the final check passed offers Close with the pane's close detail", () => {
-        const v = runCardView(RUN_ID, MERGED("passed"), true, "run-memory-pressure", "final-queue");
-        expect(v.headline).toBe("Built and merged into main at 9c1e2f0");
-        expect(v.canClose).toBe(true);
-        expect(v.detail).toBe(closeDetail("run-memory-pressure", "final-queue"));
-        expect(v.detail).toContain(
-            "closing deletes .superpowers/brainstorm/run-memory-pressure and the final-queue canvas."
-        );
-    });
-
-    it("merged with a failed final check says the brainstorm stays and offers no Close", () => {
-        const v = runCardView(RUN_ID, MERGED("failed"), true, "run-memory-pressure", "final-queue");
-        expect(v.view.merged).toBe(true);
-        expect(v.canClose).toBe(false);
-        expect(v.detail).toBe("The final check did not pass, so the brainstorm stays.");
-    });
-
-    it("hides Open run for a run Arc cannot find", () => {
-        const v = runCardView(RUN_ID, undefined, true, "run-memory-pressure", undefined);
-        expect(v.view.state).toBe("missing");
-        expect(v.showOpen).toBe(false);
-    });
-});
 
 describe("closeDetail", () => {
     it("names only the brainstorm folder when there is no canvas", () => {

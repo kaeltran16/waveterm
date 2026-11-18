@@ -212,8 +212,8 @@ describe("renderedCard", () => {
         expect(renderedCard(state({ ...SETTLED, working: "Taking in your change." }), NONE)).toEqual({ kind: "none" });
     });
 
-    it("RunStep draws the run card", () => {
-        expect(renderedCard(state(RUN_STEP), NONE)).toEqual({ kind: "run" });
+    it("RunStep draws no card: the run is a row, its state in the workspace pane", () => {
+        expect(renderedCard(state(RUN_STEP), NONE)).toEqual({ kind: "none" });
     });
 
     it("Gone: a removed brainstorm draws the gone card, removed, its last good file kept", () => {

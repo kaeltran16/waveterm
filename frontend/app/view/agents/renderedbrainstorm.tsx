@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Rendered transcript's live brainstorm card: one card at the end of the transcript, the one renderedCard picks
-// from the agent's brainstorm. A canvas with no brainstorm has its Mockup card on its reveal row instead. Each card
-// kind is its own slice (renderedbs*.tsx); this host picks it, measures the column for the compact sizes, and fades a
-// trade of cards. CardFrame is the shell every card draws in.
+// from the agent's brainstorm. A canvas with no brainstorm has its Mockup card on its reveal row instead, and a run has
+// its Started run row. Each card kind is its own slice (renderedbs*.tsx); this host picks it, measures the column for
+// the compact sizes, and fades a trade of cards. CardFrame is the shell every card draws in.
 
 import { MOTION, viewFade } from "@/app/element/motiontokens";
 import { ViewSwap } from "@/app/element/viewswap";
@@ -29,7 +29,7 @@ import { CheckCard } from "./renderedbscheck";
 import { DesignCard } from "./renderedbsdesign";
 import { QuestionCard } from "./renderedbsquestion";
 import { ReviewCard } from "./renderedbsreview";
-import { GoneCard, RunCard } from "./renderedbsrun";
+import { GoneCard } from "./renderedbsrun";
 
 // the card arriving or trading fades as ViewSwap does; leaving while the agent works, it fades out
 const CARD_FADE: Variants = {
@@ -62,8 +62,6 @@ export function CardFrame(p: {
     // the "Brainstorm ·" lead; the builder question's board heads with the question alone
     lead?: boolean;
     status?: string;
-    // replaces the head's "Open brainstorm" link: the run card opens its run instead
-    open?: ReactNode;
     compact: boolean;
     attr: string;
     children: ReactNode;
@@ -98,17 +96,15 @@ export function CardFrame(p: {
                             {status}
                         </span>
                     ) : null}
-                    {p.open ?? (
-                        <button
-                            type="button"
-                            data-rendered-bs-open
-                            onClick={() => openBrainstormAt(p.agent.id, {})}
-                            className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline"
-                        >
-                            Open brainstorm
-                            <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-                        </button>
-                    )}
+                    <button
+                        type="button"
+                        data-rendered-bs-open
+                        onClick={() => openBrainstormAt(p.agent.id, {})}
+                        className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline"
+                    >
+                        Open brainstorm
+                        <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
+                    </button>
                 </div>
                 {p.children}
             </div>
@@ -150,8 +146,6 @@ function CardBody({
             return <CheckCard {...p} />;
         case "review":
             return <ReviewCard {...p} />;
-        case "run":
-            return <RunCard {...p} />;
         default:
             return null;
     }

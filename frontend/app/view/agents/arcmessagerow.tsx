@@ -53,6 +53,7 @@ import { MarkdownMessage } from "./markdownmessage";
 import { fmtDuration } from "./runcompletion";
 import { ensureRunEvents, runEventsAtom } from "./runeventstore";
 import { roleRunId, stageLabel } from "./runlineage";
+import { openRunBeside } from "./runrailsections";
 import { eventText, tsLabel } from "./runtimeline";
 import type { TranscriptContext } from "./transcriptcontext";
 import { FinalVerdictCard } from "./wshcards-dag";
@@ -715,8 +716,10 @@ function paneWords(a: PaneAction): { phrase: string; meta?: string } {
     }
 }
 
-// "Started run <short id> from the spec": the run's own row, not a centered note
-function RunStartedRow({ runId, compact }: { runId: string; compact: boolean }) {
+// "Started run <short id> from the spec": the run's own row, not a centered note. It only links to the run: where the
+// run stands and Close live in the workspace pane's Brainstorm tab
+function RunStartedRow({ runId, ctx, compact }: { runId: string; ctx: TranscriptContext; compact: boolean }) {
+    const model = ctx.model;
     return (
         <div
             data-pane-action="run"
@@ -731,6 +734,16 @@ function RunStartedRow({ runId, compact }: { runId: string; compact: boolean }) 
                 {shortId(runId)}
             </span>
             <span>from the spec</span>
+            <span className="flex-1" />
+            {model && runId ? (
+                <span data-run-row-open className="flex">
+                    <LinkButton
+                        label="Open run"
+                        compact={compact}
+                        onClick={() => openRunBeside(model, ctx.agentId, runId)}
+                    />
+                </span>
+            ) : null}
         </div>
     );
 }
@@ -760,9 +773,9 @@ export function HumanActionRow({
     );
 }
 
-function PaneRow({ action, compact }: { action: PaneAction; compact: boolean }) {
+function PaneRow({ action, ctx, compact }: { action: PaneAction; ctx: TranscriptContext; compact: boolean }) {
     if (action.kind === "run") {
-        return <RunStartedRow runId={action.text ?? ""} compact={compact} />;
+        return <RunStartedRow runId={action.text ?? ""} ctx={ctx} compact={compact} />;
     }
     const { phrase, meta } = paneWords(action);
     const approved = action.kind === "approved";
@@ -958,10 +971,10 @@ function BrainstormRow({ message, ctx, compact }: ArcMessageRowProps) {
                 a.kind === "keep-talking" ? (
                     <Fragment key={i}>
                         <CheckFoldRow ctx={ctx} compact={compact} />
-                        <PaneRow action={a} compact={compact} />
+                        <PaneRow action={a} ctx={ctx} compact={compact} />
                     </Fragment>
                 ) : (
-                    <PaneRow key={i} action={a} compact={compact} />
+                    <PaneRow key={i} action={a} ctx={ctx} compact={compact} />
                 )
             );
             break;

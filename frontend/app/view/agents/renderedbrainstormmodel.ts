@@ -30,7 +30,6 @@ export type RenderedCard =
     | { kind: "design" }
     | { kind: "check" }
     | { kind: "review" }
-    | { kind: "run" }
     | { kind: "gone"; why: "unreadable" | "removed" };
 
 export type CardProps = {
@@ -89,8 +88,9 @@ export function renderedCard(s: BrainstormState | null, check: BuilderCheckView)
     }
     const f = shownFile(s.file, s.sent);
     const linePending = s.sent != null;
+    // a run has no card: its line is a row, and the workspace pane's Brainstorm tab shows where it stands
     if (f.run != null) {
-        return { kind: "run" };
+        return NONE;
     }
     if ((check.kind === "pending" || check.kind === "failed") && f.question == null) {
         return { kind: "check" };
@@ -98,7 +98,7 @@ export function renderedCard(s: BrainstormState | null, check: BuilderCheckView)
     return f.check != null ? checkCard(f, linePending) : talkCard(f, linePending);
 }
 
-// the head's right-hand words; a run's card heads itself
+// the head's right-hand words; a run draws no card
 export function cardStatus(f: BrainstormFile): string {
     switch (brainstormPhase(f)) {
         case "talk":

@@ -1,13 +1,15 @@
-// Scenario rendered-bs-run: the run card at the end of the Rendered transcript (building, merged with its final check
-// passed, merged with a failed one), its Open run opening the run's tab beside, Close the brainstorm from the card, the
-// gone card for a removed brainstorm with the header's Brainstorm switch gone, the closed row, and the unreadable card.
-// kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
+// Scenario rendered-bs-run: a brainstorm's run in the Rendered transcript is its Started run row, with no card under
+// the transcript; the run's start opens the workspace pane's Brainstorm tab by itself (autoopenmodel), the row's Open
+// run adds the run's tab beside, Close the brainstorm from the Brainstorm tab leaves the closed row, and the gone card
+// covers a removed brainstorm (with the header's Brainstorm switch gone) and an unreadable one. kit is
+// scenarios-rendered-brainstorm.mjs's RBS_KIT.
 //
 // The run is page-only: its run and dag objects are written into the page's object cache (updateWaveObject), so no
-// engine runs; the card reads them as it reads a real run. Close deletes real folders in the temp project.
+// engine runs; the pane reads them as it reads a real run. Close deletes real folders in the temp project.
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { assistantText, userText } from "./agent-page-fixtures.mjs";
 
 const NAME = "rendered-bs-run";
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
@@ -17,11 +19,18 @@ const RUN_ID = "3f9a1c2e-5b7d-4e21-9a8c-0d6f3b1a7e42";
 const DAG_ID = "7a2b9c40-1d3e-4f56-8a7b-9c0d1e2f3a4b";
 const SHORT = RUN_ID.slice(0, 8);
 const SHA = "9c1e2f0a1b2c3d4e5f60718293a4b5c6d7e8f901";
-const SHA7 = SHA.slice(0, 7);
 const TASKS = 7;
 const LANDED = 4;
 const SWITCH = `document.querySelector('[aria-label="Show terminal or brainstorm"]')`;
 const BAD_FILE = `{ "v": 1, "title": "Run memory pressure", "parts": [`;
+const LAST_REPLY = "Run 3f9a1c2e is planning. I will answer here while it builds.";
+// the line Arc sends once the run starts (brainstormLine's run), then a later exchange
+const TRANSCRIPT = [
+    userText("Let's think the memory pressure alerts through before building."),
+    assistantText("The spec is written. Start the run when you are ready."),
+    userText(`brainstorm: run ${RUN_ID}`),
+    assistantText(LAST_REPLY),
+];
 
 const part = (id, title) => ({ id, title, state: "yours", body: `${title}: settled.` });
 const RUN_FILE = {
@@ -43,9 +52,8 @@ const tasksOf = (landed) =>
     Array.from({ length: TASKS }, (_, i) => ({ id: `t-${i + 1}`, state: i < landed ? "done" : "", merged: i < landed }));
 
 export default (kit) => {
-    const { scenario, writeFile, waitCard, narrow, widen, agentPage, polishWaitFor, polishNap, HOST, RV, WAIT_MS, BS_POLL_WAIT_MS } =
-        kit;
-    const CARD = `${HOST}?.querySelector("[data-rendered-bs-run]")`;
+    const { scenario, writeFile, narrow, widen, agentPage, polishWaitFor, HOST, PANE, RV, WAIT_MS, BS_POLL_WAIT_MS } = kit;
+    const ROW = `${RV}?.querySelector('[data-pane-action="run"]')`;
     const GONE = `${HOST}?.querySelector("[data-rendered-bs-gone]")`;
     let version = 1;
 
@@ -70,40 +78,25 @@ export default (kit) => {
         );
     };
     const BUILDING = { status: "running" };
-    const MERGED = (state) => ({
-        status: "done",
-        landed: TASKS,
-        final: { state, round: 1 },
-        land: { state: "landed", commit: SHA },
-    });
+    const MERGED_PASSED = { status: "done", landed: TASKS, final: { state: "passed", round: 1 }, land: { state: "landed", commit: SHA } };
 
-    // the run card as drawn
-    const readRun = (h) =>
+    // the run's row and what sits under the transcript
+    const readRow = (h) =>
         h.ev(`(() => {
             const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
             const host = ${HOST};
-            const card = ${CARD};
-            const q = (sel) => card?.querySelector(sel);
-            const detail = q("[data-rendered-bs-run-detail]")?.getBoundingClientRect();
-            const close = q("[data-rendered-bs-close]");
-            const cb = close?.getBoundingClientRect();
+            const row = ${ROW};
+            const feed = ${RV}?.querySelector("[data-rendered-feed]");
+            const reply = [...(feed?.querySelectorAll("*") ?? [])].find(
+                (el) => el.children.length === 0 && el.textContent.trim() === ${JSON.stringify(LAST_REPLY)}
+            );
             return {
                 kind: host?.getAttribute("data-rendered-bs-card") ?? null,
-                compact: host?.hasAttribute("data-compact") ?? null,
-                card: card != null,
-                head: flat(q("[data-rendered-bs-head]")),
-                status: flat(q("[data-rendered-bs-status]")),
-                openRun: flat(q("[data-rendered-bs-open-run]")),
-                openBrainstorm: q("[data-rendered-bs-open]") != null,
-                state: q("[data-rendered-bs-run-state]")?.getAttribute("data-rendered-bs-run-state") ?? null,
-                headline: flat(q("[data-rendered-bs-run-headline]")),
-                detail: flat(q("[data-rendered-bs-run-detail]")),
-                close: close ? { text: flat(close), disabled: close.disabled } : null,
-                closeBelow: cb && detail ? cb.top >= detail.bottom - 1 : null,
-                closeBeside: cb && detail ? cb.top < detail.bottom - 1 : null,
-                check: q("[data-rendered-bs-run-state] svg") != null,
-                dot: q("[data-rendered-bs-run-dot]") != null,
-                closeError: flat(q("[data-rendered-bs-close-error]")),
+                runCard: ${RV}?.querySelector("[data-rendered-bs-run]") != null,
+                row: flat(row),
+                open: flat(row?.querySelector("[data-run-row-open]")),
+                replyAfterRow: row != null && reply != null && !!(row.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING),
+                hostEmpty: (host?.innerText ?? "").trim() === "",
                 switchShown: ${SWITCH} != null,
             };
         })()`);
@@ -121,28 +114,9 @@ export default (kit) => {
                 which: g?.getAttribute("data-rendered-bs-gone") ?? null,
                 text: flat(g),
                 inside: box != null && col != null ? box.left >= col.left - 1 && box.right <= col.right + 1 : null,
-                run: host?.querySelector("[data-rendered-bs-run]") != null,
                 switchShown: ${SWITCH} != null,
             };
         })()`);
-
-    const drawn = (h, test, ms = WAIT_MS) => polishWaitFor(h, `(() => { const card = ${CARD}; return ${test}; })()`, ms);
-
-    // each frame's drawn share of the check's stroke (null while there is none): motion writes pathLength as the dash
-    // array's first value
-    const sampleCheck = (h) =>
-        h.ev(`(() => {
-            const out = (window.__rbsCheck = { on: true, values: [] });
-            const tick = () => {
-                if (!out.on) return;
-                const d = ${CARD}?.querySelector("[data-rendered-bs-run-state] svg path")?.getAttribute("stroke-dasharray");
-                out.values.push(d == null ? null : Number(d.split(/[ ,]+/)[0]));
-                requestAnimationFrame(tick);
-            };
-            requestAnimationFrame(tick);
-            return true;
-        })()`);
-    const stopSampling = (h) => h.ev(`(() => { window.__rbsCheck.on = false; return window.__rbsCheck.values; })()`);
 
     const brainstormError = (h, ctx) =>
         agentPage(
@@ -154,39 +128,34 @@ export default (kit) => {
     return [
         scenario(
             NAME,
-            { topic: TOPIC, canvas: CANVAS, boards: ["Main.dc.html"], file: RUN_FILE },
+            { topic: TOPIC, canvas: CANVAS, boards: ["Main.dc.html"], file: RUN_FILE, transcript: TRANSCRIPT },
             async (h, ctx, step) => {
                 const brainstormDir = dirname(ctx.file);
                 const canvasDir = join(ctx.cwd, ".superpowers", "design", CANVAS);
                 const sibling = join(ctx.cwd, ".superpowers", "keep.txt");
                 writeFileSync(sibling, "stays\n");
 
-                await step("RunStep's building: the head names the topic, Run <id> and Open run, the dot and the pane's building words, no Close", async () => {
+                await step("the run's line is the Started run row with Open run, and nothing draws under the agent's last reply", async () => {
                     await setRun(h, BUILDING);
-                    await waitCard(h, "run");
-                    await drawn(h, `(card?.innerText ?? "").includes("The run is building")`);
-                    const r = await readRun(h);
-                    await h.shot(SHOT(1, "building"));
+                    const shown = await polishWaitFor(h, `(${ROW}?.innerText ?? "").includes("Open run")`, WAIT_MS);
+                    const r = await readRow(h);
+                    await h.shot(SHOT(1, "row"));
                     const ok =
-                        r.kind === "run" &&
-                        r.head.startsWith("Brainstorm · ") &&
-                        r.head.includes(TOPIC) &&
-                        r.status === `Run ${SHORT}` &&
-                        r.openRun === "Open run" &&
-                        !r.openBrainstorm &&
-                        r.state === "building" &&
-                        r.headline === `The run is building: ${LANDED} of ${TASKS} tasks landed` &&
-                        r.detail.startsWith("Tasks land on main as they pass.") &&
-                        r.dot &&
-                        !r.check &&
-                        r.close === null &&
+                        shown &&
+                        r.kind === "none" &&
+                        !r.runCard &&
+                        r.row.startsWith(`Started run ${SHORT} from the spec`) &&
+                        r.open === "Open run" &&
+                        r.replyAfterRow &&
+                        r.hostEmpty &&
                         !r.switchShown;
-                    return [ok, r];
+                    return [ok, { shown, ...r }];
                 });
 
-                await step("Open run opens the run's tab beside the Rendered transcript, and closing it takes the pane away", async () => {
+                await step("the run's start opened the Brainstorm tab by itself; the row's Open run adds the run's tab beside, and closing it goes back to the Brainstorm tab's Run step", async () => {
+                    const auto = await polishWaitFor(h, `${PANE}?.querySelector("[data-brainstorm-run]") != null`, WAIT_MS);
                     const clicked = await h.ev(`(() => {
-                        const b = ${CARD}?.querySelector("[data-rendered-bs-open-run]");
+                        const b = ${ROW}?.querySelector("[data-run-row-open] button");
                         if (!b) return false;
                         b.click();
                         return true;
@@ -196,80 +165,27 @@ export default (kit) => {
                         h,
                         `const W = await mod("app/view/agents/workspacestore.ts");
                         const s = globalStore.get(W.workspaceAtom(${JSON.stringify(ctx.agentId)}));
-                        const out = { tabs: s.tabs, active: s.active };
+                        const out = { tabs: s.tabs.map((t) => t.kind), active: s.active };
                         W.closeWorkspaceTab(${JSON.stringify(ctx.agentId)}, "run:${RUN_ID}");
                         return out;`
                     );
-                    const closed = await polishWaitFor(h, `document.querySelector('aside[aria-label="Workspace"]') == null`, WAIT_MS);
+                    const back = await polishWaitFor(h, `${PANE}?.querySelector("[data-brainstorm-run]") != null`, WAIT_MS);
+                    await h.shot(SHOT(2, "pane"));
                     const ok =
+                        auto &&
                         clicked &&
                         opened &&
                         r.active === `run:${RUN_ID}` &&
-                        r.tabs.length === 1 &&
-                        r.tabs[0].view === "tasks" &&
-                        closed;
-                    return [ok, { clicked, opened, closed, ...r }];
-                });
-
-                await step("the run merged with its final check passed draws the check, and offers Close the brainstorm with what it deletes", async () => {
-                    await sampleCheck(h);
-                    await setRun(h, MERGED("passed"));
-                    await drawn(h, `!!card?.querySelector("[data-rendered-bs-close]")`);
-                    await polishNap(900);
-                    const frames = await stopSampling(h);
-                    const r = await readRun(h);
-                    await h.shot(SHOT(2, "merged-passed"));
-                    const seen = frames.filter((v) => v != null);
-                    const swapped = await h.ev(`${CARD}?.querySelector('[data-view-swap="merged"]') != null`);
-                    const ok =
-                        r.state === "merged" &&
-                        r.headline === `Built and merged into main at ${SHA7}` &&
-                        r.detail.startsWith("The final check passed. The spec stays in docs/.") &&
-                        r.detail.includes(`closing deletes .superpowers/brainstorm/${TOPIC} and the ${CANVAS} canvas.`) &&
-                        r.close?.text === "Close the brainstorm" &&
-                        !r.close.disabled &&
-                        r.check &&
-                        !r.dot &&
-                        r.closeBeside === true &&
-                        swapped &&
-                        seen.some((v) => v < 0.95) &&
-                        seen.at(-1) >= 0.99;
-                    return [ok, { ...r, swapped, drawn: seen.filter((v, i) => v !== seen[i - 1]).slice(0, 12) }];
-                });
-
-                await step("the narrow column stacks the run card's Close button under its text", async () => {
-                    const narrowed = await narrow(h);
-                    await drawn(h, `!!card?.querySelector("[data-rendered-bs-close]")`);
-                    await polishNap(300);
-                    const r = await readRun(h);
-                    await h.shot(SHOT(3, "narrow"));
-                    const widened = await widen(h);
-                    const wide = await readRun(h);
-                    return [
-                        narrowed && r.compact === true && r.closeBelow === true && widened && wide.closeBeside === true,
-                        { narrowed, widened, narrow: r, wideBeside: wide.closeBeside },
-                    ];
-                });
-
-                await step("merged with a failed final check: the brainstorm stays, with its reason and no Close", async () => {
-                    await setRun(h, MERGED("failed"));
-                    await drawn(h, `(card?.innerText ?? "").includes("so the brainstorm stays")`);
-                    const r = await readRun(h);
-                    await h.shot(SHOT(4, "merged-failed"));
-                    const ok =
-                        r.state === "merged" &&
-                        r.headline === `Built and merged into main at ${SHA7}` &&
-                        r.detail === "The final check did not pass, so the brainstorm stays." &&
-                        r.close === null &&
-                        r.check;
-                    return [ok, r];
+                        JSON.stringify(r.tabs) === JSON.stringify(["brainstorm", "run"]) &&
+                        back;
+                    return [ok, { auto, clicked, opened, back, ...r }];
                 });
 
                 await step("a removed brainstorm with no close record is the gone card, and the header draws no Brainstorm switch in Rendered", async () => {
                     rmSync(ctx.file);
                     const shown = await polishWaitFor(h, `${GONE}?.getAttribute("data-rendered-bs-gone") === "removed"`, BS_POLL_WAIT_MS * 2);
                     const r = await readGone(h);
-                    await h.shot(SHOT(5, "removed"));
+                    await h.shot(SHOT(3, "removed"));
                     const ok =
                         shown &&
                         r.kind === "gone" &&
@@ -278,46 +194,50 @@ export default (kit) => {
                         r.text.includes("brainstorm.json") &&
                         r.text.endsWith("The answers above stay in the transcript.") &&
                         r.inside === true &&
-                        !r.run &&
                         !r.switchShown;
                     return [ok, { shown, ...r }];
                 });
 
-                await step("the file back: the run card returns, still with no header switch in Rendered (the tab replaces it)", async () => {
+                await step("the file back, merged: still no card under the transcript, and no header switch in Rendered", async () => {
                     writeFile(ctx, { ...RUN_FILE });
-                    await waitCard(h, "run");
-                    await drawn(h, `!!card?.querySelector("[data-rendered-bs-run-state]")`);
-                    await setRun(h, MERGED("passed"));
-                    await drawn(h, `!!card?.querySelector("[data-rendered-bs-close]")`);
-                    const r = await readRun(h);
-                    return [r.kind === "run" && r.close?.text === "Close the brainstorm" && !r.switchShown, r];
+                    await setRun(h, MERGED_PASSED);
+                    const none = await polishWaitFor(h, `${HOST}?.getAttribute("data-rendered-bs-card") === "none"`, BS_POLL_WAIT_MS * 2);
+                    const r = await readRow(h);
+                    return [none && !r.runCard && r.row.startsWith(`Started run ${SHORT}`) && !r.switchShown, { none, ...r }];
                 });
 
-                await step("Close the brainstorm deletes the brainstorm and canvas folders only, and the closed row replaces the card", async () => {
+                await step("Close the brainstorm in the pane's Brainstorm tab deletes the brainstorm and canvas folders only, and the closed row ends the transcript", async () => {
+                    await agentPage(
+                        h,
+                        `const S = await mod("app/view/agents/brainstormstore.ts");
+                        S.openBrainstormAt(${JSON.stringify(ctx.agentId)}, {});
+                        return true;`
+                    );
+                    const ready = await polishWaitFor(h, `${PANE}?.querySelector("[data-brainstorm-close]")?.disabled === false`, WAIT_MS);
                     const clicked = await h.ev(`(() => {
-                        const b = ${CARD}?.querySelector("[data-rendered-bs-close]");
+                        const b = ${PANE}?.querySelector("[data-brainstorm-close]");
                         if (!b || b.disabled) return false;
                         b.click();
                         return true;
                     })()`);
                     const closed = await polishWaitFor(h, `${GONE}?.getAttribute("data-rendered-bs-gone") === "closed"`, BS_POLL_WAIT_MS * 2);
                     const r = await readGone(h);
-                    await h.shot(SHOT(6, "closed"));
+                    await h.shot(SHOT(4, "closed"));
                     const after = {
                         brainstorm: existsSync(brainstormDir),
                         canvas: existsSync(canvasDir),
                         sibling: existsSync(sibling),
                     };
                     const ok =
+                        ready &&
                         clicked &&
                         closed &&
                         r.text === `You closed the brainstorm · its file and the ${CANVAS} canvas were deleted` &&
-                        !r.run &&
                         !r.switchShown &&
                         !after.brainstorm &&
                         !after.canvas &&
                         after.sibling;
-                    return [ok, { clicked, closed, after, ...r }];
+                    return [ok, { ready, clicked, closed, after, ...r }];
                 });
 
                 await step("an unreadable brainstorm with no good file is the unreadable card with the parse error and the path, and stays inside the narrow column", async () => {
@@ -334,7 +254,7 @@ export default (kit) => {
                     const error = await brainstormError(h, ctx);
                     const narrowed = await narrow(h);
                     const r = await readGone(h);
-                    await h.shot(SHOT(7, "unreadable"));
+                    await h.shot(SHOT(5, "unreadable"));
                     const widened = await widen(h);
                     const ok =
                         shown &&
