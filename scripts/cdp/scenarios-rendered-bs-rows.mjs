@@ -118,7 +118,7 @@ function cropPng(w = 300, h = 76) {
 const SHOT = (n, what) => `cdp-shots/rendered-bs-rows-${n}-${what}.png`;
 
 export default (kit) => {
-    const { scenario, agentPage, polishWaitFor, polishNap, narrow, widen, backToRendered, RV, PANE, WAIT_MS } = kit;
+    const { scenario, agentPage, polishWaitFor, polishNap, narrow, widen, closePaneTabs, RV, PANE, WAIT_MS } = kit;
     const FEED = `${RV}?.querySelector("[data-rendered-feed]")`;
 
     // every brainstorm row the feed draws, in order: its kind, flat text, origin, and the answer's font size
@@ -230,7 +230,7 @@ export default (kit) => {
                 await h.ev(`(() => { ${FEED}?.querySelector("[data-rbs-row='mark'] [data-rbs-crop]")?.click(); return true; })()`);
                 const board = await polishWaitFor(h, `${PANE}?.getAttribute("data-brainstorm-view") === "board"`, WAIT_MS);
                 await h.shot(SHOT(4, "mark-opened"));
-                const back = await backToRendered(h, ctx);
+                const back = await closePaneTabs(h, ctx);
                 return [
                     bubble.text.includes(NOTE) &&
                         bubble.text.includes(`marked on Main · ${TOPIC}`) &&

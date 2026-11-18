@@ -4,8 +4,7 @@
 // wsh jarvis dag calls a lead makes on a run's tasks and asks: answer, tell, amend, retry, forward, escalate, merge,
 // skip and sendback cards. The model (dagactioncards.ts) decides what each shows; this draws it.
 
-import { openTarget } from "@/app/view/jarvis/openref";
-import { cn, fireAndForget } from "@/util/util";
+import { cn } from "@/util/util";
 import {
     ArrowUp,
     ArrowUpRight,
@@ -29,6 +28,7 @@ import {
 } from "./dagactioncards";
 import { LoadFailure } from "./recordedoutput";
 import { useRunEventsState } from "./runeventstore";
+import { openRunBeside } from "./runrailsections";
 import type { WshCardKey } from "./wshcall";
 import { CallFacts } from "./wshchangerow";
 import type { WshRendererProps, WshRenderers } from "./wshrenderers";
@@ -141,7 +141,8 @@ function ForwardCard({
                 {model != null && runId ? (
                     <button
                         type="button"
-                        onClick={() => fireAndForget(() => openTarget(model, { kind: "run", runId }))}
+                        data-open-run={runId}
+                        onClick={(e) => openRunBeside(model, ctx.agentId, runId, e)}
                         className="flex shrink-0 cursor-pointer items-center gap-1 text-[12px] text-ink-mid hover:text-foreground"
                     >
                         Answer in the run

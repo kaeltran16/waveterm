@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { pinDefaultView, restoreDefaultView } from "./agent-page-fixtures.mjs";
 import { SURFACE_LABEL } from "./attach.mjs";
 import {
     ATTN_TICK_SETTLE_MS,
@@ -1362,6 +1363,8 @@ export const runCost = {
                     await new Promise((r) => setTimeout(r, 500));
                 }
             })()`);
+            // the rail under test shows in the Terminal view; the Rendered view has the workspace pane in its place; pinned after the reload, which would drop the pin's saved value
+            await pinDefaultView(h, "terminal");
             await h.goto("jarvis");
             ctx.opened = await h.ev(`(async () => {
                 for (let i = 0; i < 20 && typeof window.__openAddress !== "function"; i++) {
@@ -1498,8 +1501,11 @@ export const runCost = {
     },
     async teardown(h, ctx) {
         await teardownFixtureRun(h, ctx, "run-cost", {
-            what: "restore the rail's visibility",
-            fn: () => h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail)),
+            what: "restore the rail's visibility and the default view",
+            fn: async () => {
+                await h.ev(restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prevRail));
+                await restoreDefaultView(h);
+            },
         });
     },
 };

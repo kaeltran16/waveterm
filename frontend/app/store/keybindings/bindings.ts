@@ -14,6 +14,7 @@ import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { anyModalOpen } from "@/app/modals/modalstack";
 import { globalStore } from "@/app/store/jotaiStore";
 import { confirmCloseSession, driveAgent } from "@/app/view/agents/agentactions";
+import { paneShown, showPane, type PaneKind } from "@/app/view/agents/agentpanes";
 import { AgentsViewModel, SURFACE_ORDER, type SurfaceKey } from "@/app/view/agents/agents";
 import { answerDigitTarget, canSubmitAsk, moveCursor, type AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { enterAction, pickAdvance } from "@/app/view/agents/askflow";
@@ -34,18 +35,11 @@ import {
     moveReviewCursor,
     openBrainstormBoard,
     openBrainstormDesign,
-    setBrainstormMode,
     shownBrainstormFile,
     toggleReviewRow,
 } from "@/app/view/agents/brainstormstore";
 import { paneState } from "@/app/view/agents/canvasmodel";
-import {
-    focusedCanvas,
-    focusedCanvasMode,
-    setCanvasMode,
-    setMarking,
-    stepCanvasBoard,
-} from "@/app/view/agents/canvasstore";
+import { focusedCanvas, setMarking, stepCanvasBoard } from "@/app/view/agents/canvasstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sendPendingComments } from "@/app/view/agents/commentsend";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
@@ -96,6 +90,7 @@ import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
 import { LIST_COLLAPSED_ROWS } from "@/app/view/agents/usageattribution";
 import { usageBackStep } from "@/app/view/agents/usagenav";
 import { usageLensAtom, usageListShownAtom, usageWorkItemAtom, usageWorkScopeAtom } from "@/app/view/agents/usagestore";
+import { rendersNow, toggleWorkspaceCollapsed, workspaceAtom } from "@/app/view/agents/workspacestore";
 import { boardOwnsEscapeAtom, runBoardEscape } from "@/app/view/boards/boardstore";
 import { toggleBlame } from "@/app/view/code/codeblamestore";
 import { closePeek, codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
@@ -268,20 +263,25 @@ const clickThrough = (selector: string): boolean | void => {
     el.click();
 };
 
+// what the focused agent shows of its brainstorm or canvas: its tab in Rendered, the center in Terminal
+function focusedShown(model: AgentsViewModel): PaneKind | null {
+    const id = globalStore.get(model.focusIdAtom);
+    return id ? paneShown(model, id) : null;
+}
+
 // the canvas of the board the focused agent's brainstorm pane shows full size; null while it shows anything else
 function brainstormBoard(model: AgentsViewModel): ReturnType<typeof focusedCanvas> {
     const s = focusedBrainstorm(model);
-    if (s?.mode !== "brainstorm") {
+    if (s == null || focusedShown(model) !== "brainstorm") {
         return null;
     }
     return paneView(s) === "board" ? focusedCanvas(model) : null;
 }
 
-// `[` `]` belong to the boards in canvas mode and on a brainstorm's full-size board, so the surface switch stands
-// down while the focused agent shows either. The agent switches stay live: the tree stays on screen beside the canvas.
+// `[` `]` belong to the boards while the canvas shows and on a brainstorm's full-size board, so the surface switch
+// stands down while the focused agent shows either. The agent switches stay live: the tree stays on screen beside it.
 const inAgentCanvas = (model: AgentsViewModel, ctx: KeyContext) =>
-    ctx.surface === "agent" &&
-    ((focusedCanvasMode(model) != null && focusedBrainstorm(model) == null) || brainstormBoard(model) != null);
+    ctx.surface === "agent" && (focusedShown(model) === "canvas" || brainstormBoard(model) != null);
 
 // the second Ctrl+C closes the focused session among `agents`; the caller passes agents only, so a plain terminal
 // (closed from its row menu or the header's x) gets both presses. null lets the press fall through to the PTY.
@@ -310,12 +310,6 @@ function hasTextSelection(el: HTMLElement | null): boolean {
         return el.selectionStart !== el.selectionEnd;
     }
     return !(window.getSelection()?.isCollapsed ?? true);
-}
-
-// same rule as the agent surface's paneMode: an agent with a brainstorm never shows its canvas
-function focusedPaneShown(model: AgentsViewModel): boolean {
-    const brainstorm = focusedBrainstorm(model);
-    return brainstorm != null ? brainstorm.mode === "brainstorm" : focusedCanvasMode(model) != null;
 }
 
 // Escape on a surface: back over the jump that brought the user here, and home when there was none
@@ -472,7 +466,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 const surface = active?.closest?.("[data-cockpit-surface-wrap]");
                 const inSurface = surface != null;
                 const renderedShown = surface?.querySelector("[data-rendered-view]") != null;
-                if (!ctrlCReachesSession(inTerm, inSurface, focusedPaneShown(model), renderedShown)) {
+                if (!ctrlCReachesSession(inTerm, inSurface, focusedShown(model) != null, renderedShown)) {
                     return false;
                 }
                 if (renderedShown && hasTextSelection(active)) {
@@ -969,7 +963,8 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         return agent != null && parseDocReview(agent.ask) != null ? agent.id : null;
     };
     const brainstorm = () => focusedBrainstorm(model);
-    const inBrainstorm = (ctx: KeyContext) => agentNav(ctx) && brainstorm()?.mode === "brainstorm";
+    const shown = () => focusedShown(model);
+    const inBrainstorm = (ctx: KeyContext) => agentNav(ctx) && shown() === "brainstorm";
     // the check's review fills the main area: j and k move its cursor instead of the agents, and y, u and Enter act
     // on the cursor row
     const inReview = (ctx: KeyContext) => {
@@ -1014,10 +1009,11 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     };
     // an agent with a brainstorm never shows its canvas, so the canvas keys stand down for it
     const canvas = () => (brainstorm() == null ? focusedCanvas(model) : null);
-    // canvas and brainstorm modes hide the rail and the terminal, so their keys stand down there
-    const noCanvas = () => canvas()?.mode !== "canvas" && brainstorm()?.mode !== "brainstorm";
-    const nav = (ctx: KeyContext) => agentNav(ctx) && noCanvas();
-    const inCanvas = (ctx: KeyContext) => agentNav(ctx) && canvas()?.mode === "canvas";
+    // in Terminal a shown brainstorm or canvas hides the rail and the terminal, so their keys stand down there; in
+    // Rendered it is a tab beside the transcript, whose keys stay
+    const centerFree = () => shown() == null || rendered();
+    const nav = (ctx: KeyContext) => agentNav(ctx) && centerFree();
+    const inCanvas = (ctx: KeyContext) => agentNav(ctx) && shown() === "canvas";
     const boardReady = (ctx: KeyContext) => inCanvas(ctx) && !canvas()!.marking && paneState(canvas()!) === "board";
     // a brainstorm's board opened full size steps with [ and ] as the canvas does
     const stepReady = (ctx: KeyContext) => {
@@ -1034,6 +1030,15 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             globalStore.get(focusSubagentAtom) == null &&
             canRender(agent, { ended: isEndedWorkerId(id), stage: isFinalStageId(id) });
         return ok ? id : null;
+    };
+    // the focused agent's center shows Rendered, where the workspace pane stands in for the details rail
+    const rendered = () => {
+        const id = focusId();
+        return id != null && rendersNow(model, id);
+    };
+    const workspaceTabs = () => {
+        const id = focusId();
+        return id == null ? 0 : globalStore.get(workspaceAtom(id)).tabs.length;
     };
     const codePeekFocused = () => globalStore.get(codePeekFocusedAtom);
     // the Rendered view's ask dock draws only for an asking agent, and only the focused agent's view is mounted, so a
@@ -1071,7 +1076,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     // board (it drops the mark there), so the board's step waits for it even while the note's field is unfocused
     const paneStep = () => {
         const s = brainstorm();
-        if (s?.mode !== "brainstorm") {
+        if (s == null || shown() !== "brainstorm") {
             return null;
         }
         const step = paneBack(s, shownBrainstormFile(s));
@@ -1148,7 +1153,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 !codePeekFocused() &&
                 globalStore.get(focusSubagentAtom) == null &&
                 globalStore.get(shellTaskPeekAtom) == null &&
-                noCanvas(),
+                shown() == null,
             run: () => {
                 if (globalStore.get(terminalFullscreenAtom)) {
                     globalStore.set(terminalFullscreenAtom, false);
@@ -1288,9 +1293,22 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "d",
             group: "Agent",
             label: "Toggle agent rail",
-            // a terminal has no rail
-            when: (ctx) => nav(ctx) && !globalStore.get(model.terminalsAtom).some((t) => t.id === focusId()),
+            // a terminal has no rail, and the Rendered view has the workspace pane in its place
+            when: (ctx) =>
+                nav(ctx) && !globalStore.get(model.terminalsAtom).some((t) => t.id === focusId()) && !rendered(),
             run: () => globalStore.set(railVisibleAtom, !globalStore.get(railVisibleAtom)),
+        },
+        {
+            // with no tab open there is no pane, so the key passes on
+            id: "agent:toggle-workspace",
+            keys: "d",
+            group: "Agent",
+            label: "Collapse or restore the workspace pane",
+            // a shown Brainstorm tab asking with a fourth answer keeps d for it
+            when: (ctx) => nav(ctx) && workspaceTabs() > 0 && rendered() && !(inBrainstorm(ctx) && pickable() > 3),
+            run: () => {
+                toggleWorkspaceCollapsed(focusId()!);
+            },
         },
         {
             id: "agent:fullscreen",
@@ -1414,7 +1432,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             // not show two rows with one label; the parenthetical is what distinguishes this door
             label: "Toggle terminal fullscreen (works inside the terminal)",
             paletteHidden: true, // duplicates agent:fullscreen, which already has a palette row
-            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen && noCanvas(),
+            when: (ctx) => ctx.surface === "agent" && !ctx.modalOpen && centerFree(),
             run: () => globalStore.set(terminalFullscreenAtom, !globalStore.get(terminalFullscreenAtom)),
         },
         {
@@ -1436,8 +1454,8 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "c",
             group: "Agent",
             label: "Show the agent's canvas",
-            when: (ctx) => agentNav(ctx) && canvas()?.mode === "terminal",
-            run: () => setCanvasMode(focusId(), "canvas", Date.now()),
+            when: (ctx) => agentNav(ctx) && canvas() != null && shown() == null,
+            run: () => showPane(model, focusId()!, "canvas", true, Date.now()),
         },
         {
             id: "agent:canvas-close",
@@ -1445,15 +1463,15 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             group: "Agent",
             label: "Back to the terminal",
             when: inCanvas,
-            run: () => setCanvasMode(focusId(), "terminal", Date.now()),
+            run: () => showPane(model, focusId()!, "canvas", false, Date.now()),
         },
         {
             id: "agent:brainstorm-open",
             keys: "b",
             group: "Agent",
             label: "Show the agent's brainstorm",
-            when: (ctx) => agentNav(ctx) && brainstorm()?.mode === "terminal",
-            run: () => setBrainstormMode(focusId(), "brainstorm", Date.now()),
+            when: (ctx) => agentNav(ctx) && brainstorm() != null && shown() == null,
+            run: () => showPane(model, focusId()!, "brainstorm", true, Date.now()),
         },
         {
             id: "agent:brainstorm-close",
@@ -1462,7 +1480,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             label: "Back to the terminal from the brainstorm",
             // while the question offers a B, b picks it
             when: (ctx) => inBrainstorm(ctx) && pickable() < 2,
-            run: () => setBrainstormMode(focusId(), "terminal", Date.now()),
+            run: () => showPane(model, focusId()!, "brainstorm", false, Date.now()),
         },
         {
             // b and c only fire off the terminal, and Ctrl+G b / c are Code / Jarvis, so this is the one door
@@ -1478,14 +1496,9 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 !ctx.modalOpen &&
                 (brainstorm() != null || canvas() != null || renderableId() != null),
             run: () => {
-                const s = brainstorm();
-                if (s != null) {
-                    setBrainstormMode(focusId(), s.mode === "brainstorm" ? "terminal" : "brainstorm", Date.now());
-                    return;
-                }
-                const c = canvas();
-                if (c != null) {
-                    setCanvasMode(focusId(), c.mode === "canvas" ? "terminal" : "canvas", Date.now());
+                const kind = brainstorm() != null ? "brainstorm" : canvas() != null ? "canvas" : null;
+                if (kind != null) {
+                    showPane(model, focusId()!, kind, shown() == null, Date.now());
                     return;
                 }
                 const id = renderableId();

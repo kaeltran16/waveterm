@@ -13,9 +13,11 @@ import { attachCanvas, detachCanvas, setCanvasMode } from "@/app/view/agents/can
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
+import { pickerFlipAtom, viewModeAtom } from "@/app/view/agents/renderedmode";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { shellTaskPeekAtom } from "@/app/view/agents/shelltasksstore";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
+import { closeWorkspaceTab, openWorkspaceTab, setWorkspaceCollapsed } from "@/app/view/agents/workspacestore";
 import { codePeekFocusedAtom } from "@/app/view/code/codepeekstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
@@ -228,5 +230,39 @@ describe("watchFocusedCanvas", () => {
         globalStore.set(model.focusIdAtom, "a1");
         expect(globalStore.get(whenVersionAtom)).toBe(before);
         detachBrainstorm("a2");
+    });
+
+    it("bumps on the focused agent's workspace tabs, view and picker flip, and follows the focus", () => {
+        const model = {
+            focusIdAtom: atom<string | undefined>("w1") as PrimitiveAtom<string | undefined>,
+            agentsAtom: atom([]),
+            terminalsAtom: atom([]),
+        } as any;
+        const changes = { kind: "changes", selected: null } as const;
+        const stop = watchFocusedCanvas(model);
+        const bumps = (act: () => void) => {
+            const before = globalStore.get(whenVersionAtom);
+            act();
+            return globalStore.get(whenVersionAtom) > before;
+        };
+        try {
+            expect(bumps(() => openWorkspaceTab("w1", changes))).toBe(true);
+            expect(bumps(() => setWorkspaceCollapsed("w1", true))).toBe(true);
+            expect(bumps(() => globalStore.set(viewModeAtom("w1"), "terminal"))).toBe(true);
+            expect(bumps(() => globalStore.set(pickerFlipAtom("w1"), 1))).toBe(true);
+            expect(bumps(() => openWorkspaceTab("w2", changes))).toBe(false); // not focused
+
+            globalStore.set(model.focusIdAtom, "w2");
+            expect(bumps(() => closeWorkspaceTab("w2", "changes"))).toBe(true);
+            expect(bumps(() => closeWorkspaceTab("w1", "changes"))).toBe(false); // the one focus left
+        } finally {
+            stop();
+            closeWorkspaceTab("w1", "changes");
+            closeWorkspaceTab("w2", "changes");
+            globalStore.set(viewModeAtom("w1"), "rendered");
+            globalStore.set(pickerFlipAtom("w1"), null);
+        }
+        expect(bumps(() => openWorkspaceTab("w2", changes))).toBe(false);
+        closeWorkspaceTab("w2", "changes");
     });
 });

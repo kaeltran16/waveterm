@@ -18,7 +18,9 @@ import {
     focusAgent,
     interrupted,
     makeTab,
+    pinDefaultView,
     quietUntil,
+    restoreDefaultView,
     restoreRoster,
     setRoster,
     toolUse,
@@ -135,6 +137,8 @@ export default function (_kit) {
                 const ctx = { tabIds: [] };
                 await h.goto("agent");
                 try {
+                    // the rail under test shows in the Terminal view; the Rendered view has the workspace pane in its place
+                    await pinDefaultView(h, "terminal");
                     ctx.root = mkdtempSync(join(tmpdir(), "verify-agent-rail-"));
                     const repo = join(ctx.root, "repo");
                     const dir = join(ctx.root, "transcripts");
@@ -377,6 +381,7 @@ export default function (_kit) {
                         return true;`
                     )
                 );
+                await step("restore the default view", () => restoreDefaultView(h));
                 await step("restore the roster", () => restoreRoster(h));
                 await step("close the tabs", () => closeTabs(h, ctx));
                 await step("remove the temp dir", async () => {

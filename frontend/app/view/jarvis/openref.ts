@@ -17,12 +17,13 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { joinRepoPath } from "@/util/paths";
 import { fireAndForget } from "@/util/util";
+import { showPane } from "../agents/agentpanes";
 import type { AgentsViewModel } from "../agents/agents";
 import { brainstormFilePath } from "../agents/brainstormmodel";
 import { pollBrainstormNow } from "../agents/brainstormpoller";
-import { attachBrainstorm, brainstormOwner, SESSION_BRAINSTORM, setBrainstormMode } from "../agents/brainstormstore";
+import { attachBrainstorm, brainstormOwner, getBrainstorm, SESSION_BRAINSTORM } from "../agents/brainstormstore";
 import { canvasDir, canvasProjectDir } from "../agents/canvasmodel";
-import { attachCanvas, canvasOwner, getCanvas, selectCanvasBoard, setCanvasMode } from "../agents/canvasstore";
+import { attachCanvas, canvasOwner, getCanvas, selectCanvasBoard } from "../agents/canvasstore";
 import { jumpToAgent } from "../agents/channelsprimitives";
 import { selectChannel } from "../agents/channelsstore";
 import { selectMemoryProject } from "../agents/memorystore";
@@ -600,7 +601,7 @@ function selectCanvas(model: AgentsViewModel, target: CanvasTarget, landing: Can
         if (board != null && board !== getCanvas(landing.owner)?.board) {
             selectCanvasBoard(landing.owner, board);
         }
-        setCanvasMode(landing.owner, "canvas", Date.now());
+        showPane(model, landing.owner, "canvas", true, Date.now());
         jumpToAgent(model, landing.owner);
         return OK;
     }
@@ -650,12 +651,18 @@ async function selectBrainstorm(
     landing: BrainstormLanding
 ): Promise<OpenResult> {
     if ("owner" in landing) {
-        setBrainstormMode(landing.owner, "brainstorm", Date.now());
+        showPane(model, landing.owner, "brainstorm", true, Date.now());
         jumpToAgent(model, landing.owner);
         return OK;
     }
-    // the first reveal opens the pane: left on the terminal, the user watched the agent's tool echo the whole file
-    attachBrainstorm(landing.agentId, { topic: target.topic, cwd: landing.cwd }, Date.now(), "brainstorm");
+    // the first reveal opens the pane: left on the terminal, the user watched the agent's tool echo the whole file.
+    // The same one revealed again keeps it where the user left it
+    const before = getBrainstorm(landing.agentId);
+    const now = Date.now();
+    attachBrainstorm(landing.agentId, { topic: target.topic, cwd: landing.cwd }, now);
+    if (getBrainstorm(landing.agentId) !== before) {
+        showPane(model, landing.agentId, "brainstorm", true, now);
+    }
     pollBrainstormNow(model, landing.agentId);
     // the attach stands without the meta: it only costs the re-attach after a restart
     try {

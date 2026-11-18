@@ -2,6 +2,7 @@
 // worker question the lead answered, the Told, Amended, Retried, Asked Arc to merge and Escalated rows, the
 // Forwarded card with its note, a compact row at 380 px, and a card whose run events never loaded.
 
+import { agentPage } from "./agent-page-fixtures.mjs";
 import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
 
 const T0 = Date.UTC(2026, 10, 16, 9, 0, 0);
@@ -11,6 +12,8 @@ const NARROW = 380;
 const RUN = "run-dagactions";
 const CHANNEL = "ch-dagactions";
 const LEAD = { channelId: CHANNEL, role: { kind: "lead", runId: RUN } };
+// openref's refusal for a run Arc cannot load
+const RUN_GONE = "That run no longer exists";
 
 const ASK_QUESTION = "When truncate shortens a string, should the result end with the single character … or with three dots ...?";
 const OPTIONS = [
@@ -207,7 +210,31 @@ export const transcriptDagActions = {
             detail: JSON.stringify(forwarded),
         });
 
-        const compact = only(await show(h, "compactAmended"), "amend");
+        // off the Agent surface the link has no workspace pane to open beside, so it opens the run as it always did;
+        // the fixture's run does not exist, so the router's refusal is what shows the open was attempted
+        const opened = await agentPage(
+            h,
+            `const T = await mod("app/cockpit/notificationstore.ts");
+            const root = document.querySelector(${JSON.stringify(ROOT)});
+            const link = [...(root?.querySelectorAll('[data-dag-action="forward"] button') ?? [])].find((b) => b.textContent.includes("Answer in the run"));
+            if (!link) return { clicked: false };
+            link.click();
+            const refused = await until(() => globalStore.get(T.toastsAtom).some((t) => t.title === ${JSON.stringify(RUN_GONE)}));
+            const out = {
+                clicked: true,
+                refused,
+                pane: document.querySelector('aside[aria-label="Workspace"]') != null,
+            };
+            globalStore.get(T.toastsAtom).filter((t) => t.title === ${JSON.stringify(RUN_GONE)}).forEach((t) => T.dismissToast(t.id));
+            return out;`
+        );
+        steps.push({
+            step: "off the Agent surface, Answer in the run opens the run through the router, not a workspace tab",
+            ok: opened.clicked && opened.refused && !opened.pane,
+            detail: JSON.stringify(opened),
+        });
+
+        const compact =only(await show(h, "compactAmended"), "amend");
         await h.shot("cdp-shots/transcript-dagactions-compact-amended.png");
         steps.push({
             step: "compact Amended at 380 px: two rows that fit the card width",

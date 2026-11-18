@@ -4,6 +4,8 @@
 import { describe, expect, it } from "vitest";
 import {
     cacheRewriteTitle,
+    checkoutFacts,
+    contextFacts,
     contextLevel,
     contextNote,
     contextTokens,
@@ -16,6 +18,7 @@ import {
     railReloadKey,
     toolChips,
 } from "./agentrailmodel";
+import type { RailGitState } from "./railstore";
 import type { TokenClass } from "./usagestats";
 
 describe("contextLevel", () => {
@@ -80,6 +83,33 @@ describe("offersContextReset", () => {
         expect(offersContextReset({ ...base, level: "ok" })).toBe(false);
         expect(offersContextReset({ ...base, isClaude: false })).toBe(false);
         expect(offersContextReset({ ...base, live: false })).toBe(false);
+    });
+});
+
+describe("contextFacts", () => {
+    const idle = { isClaude: true, state: "idle" as const, live: true };
+
+    it("has no Context row without a context reading", () => {
+        expect(contextFacts(undefined, idle)).toBeNull();
+        expect(contextFacts({ contextmax: 200_000 }, idle)).toBeNull();
+    });
+
+    it("reads a filling window as warn and offers Compact and Clear to an idle live claude agent", () => {
+        expect(contextFacts({ contextpct: 62, contextmax: 200_000 }, idle)).toEqual({
+            pct: 62,
+            max: 200_000,
+            level: "warn",
+            note: "124k of 200k tokens",
+            offerReset: true,
+        });
+    });
+
+    it("offers no reset for a cheap context or a busy agent", () => {
+        expect(contextFacts({ contextpct: 6, contextmax: 1_000_000 }, idle)?.offerReset).toBe(false);
+        expect(contextFacts({ contextpct: 62, contextmax: 200_000 }, { ...idle, state: "working" })?.offerReset).toBe(
+            false
+        );
+        expect(contextFacts({ contextpct: 62, contextmax: 200_000 }, { ...idle, live: false })?.offerReset).toBe(false);
     });
 });
 
@@ -209,6 +239,80 @@ describe("filesSummary", () => {
             ])
         ).toBe("2 files · +37 −17");
         expect(filesSummary([{ adds: 1, dels: 0 }])).toBe("1 file · +1 −0");
+    });
+});
+
+describe("checkoutFacts", () => {
+    const files = [
+        { path: "a.go", status: "M", adds: 30, dels: 2 },
+        { path: "b.go", status: "A", adds: 7, dels: 0 },
+    ];
+    const git = (over: Partial<RailGitState> = {}): RailGitState => ({
+        cwd: "C:/src/arc-api",
+        branch: "main",
+        isRepo: true,
+        changes: { files, adds: 37, dels: 2 },
+        ...over,
+    });
+
+    it("reads a plain checkout's branch and its changes", () => {
+        expect(checkoutFacts({ git: git(), sharedBy: 1 })).toEqual({
+            branch: "main",
+            worktree: undefined,
+            worktreePath: "C:/src/arc-api",
+            chip: { count: "2 files", lines: { adds: 37, dels: 2 } },
+        });
+    });
+
+    it("names a linked worktree, with its full path", () => {
+        const facts = checkoutFacts({
+            git: git({ cwd: "C:/src/arc-api/.wt/t-3", branch: "run/t-3", worktree: ".wt/t-3" }),
+            sharedBy: 1,
+        });
+        expect(facts.branch).toBe("run/t-3");
+        expect(facts.worktree).toBe(".wt/t-3");
+        expect(facts.worktreePath).toBe("C:/src/arc-api/.wt/t-3");
+    });
+
+    it("reads a checkout other agents share as the repo's changes", () => {
+        expect(checkoutFacts({ git: git(), sharedBy: 3 }).chip).toEqual({
+            count: "2 files",
+            lines: { adds: 37, dels: 2 },
+            prefix: "repo",
+            title: "All changes in this checkout, shared by 3 agents",
+        });
+    });
+
+    it("has no chip for a clean checkout, outside a repo, or before the read lands", () => {
+        expect(checkoutFacts({ git: git({ changes: { files: [], adds: 0, dels: 0 } }), sharedBy: 1 }).chip).toBeNull();
+        expect(checkoutFacts({ git: git({ isRepo: false, branch: "", changes: null }), sharedBy: 1 }).chip).toBeNull();
+        expect(checkoutFacts({ git: null, sharedBy: 0 })).toEqual({ branch: "", chip: null });
+    });
+
+    it("reads a landed lead's landing branch, with no chip: its worktree is gone", () => {
+        const facts = checkoutFacts({
+            git: git({ worktree: ".wt/r-1" }),
+            landed: { branch: "landed on main · abc1234" },
+            sharedBy: 1,
+        });
+        expect(facts.branch).toBe("landed on main · abc1234");
+        expect(facts.chip).toBeNull();
+    });
+
+    it("reads an ended worker's recorded branch, with no worktree and no chip", () => {
+        expect(checkoutFacts({ git: git({ worktree: ".wt/t-3" }), ended: { branch: "run/t-3" }, sharedBy: 1 })).toEqual(
+            { branch: "run/t-3", chip: null }
+        );
+    });
+
+    it("counts the files without +/− when the line counts are unavailable", () => {
+        const zeroed = files.map((f) => ({ ...f, adds: 0, dels: 0 }));
+        expect(
+            checkoutFacts({
+                git: git({ changes: { files: zeroed, adds: 0, dels: 0, lineCounts: false } }),
+                sharedBy: 1,
+            }).chip
+        ).toEqual({ count: "2 files" });
     });
 });
 

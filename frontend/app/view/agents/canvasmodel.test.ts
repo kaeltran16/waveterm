@@ -293,17 +293,21 @@ describe("paneState", () => {
 });
 
 describe("isUnseen", () => {
-    it("is never unseen while the canvas is showing", () => {
-        expect(isUnseen(state({ mode: "canvas", lastModifiedMs: 900, lastViewedMs: 100 }))).toBe(false);
+    it("is never unseen while the canvas is showing, whatever its mode", () => {
+        expect(isUnseen(state({ mode: "terminal", lastModifiedMs: 900, lastViewedMs: 100 }), true)).toBe(false);
     });
 
     it("is not unseen before anything was read", () => {
-        expect(isUnseen(state({ lastModifiedMs: null, lastViewedMs: 100 }))).toBe(false);
+        expect(isUnseen(state({ lastModifiedMs: null, lastViewedMs: 100 }), false)).toBe(false);
     });
 
     it("is unseen when a board changed after the last look", () => {
-        expect(isUnseen(state({ lastModifiedMs: 900, lastViewedMs: 100 }))).toBe(true);
-        expect(isUnseen(state({ lastModifiedMs: 100, lastViewedMs: 100 }))).toBe(false);
+        expect(isUnseen(state({ lastModifiedMs: 900, lastViewedMs: 100 }), false)).toBe(true);
+        expect(isUnseen(state({ lastModifiedMs: 100, lastViewedMs: 100 }), false)).toBe(false);
+    });
+
+    it("is unseen in canvas mode once the canvas no longer shows, as in Rendered", () => {
+        expect(isUnseen(state({ mode: "canvas", lastModifiedMs: 900, lastViewedMs: 100 }), false)).toBe(true);
     });
 });
 

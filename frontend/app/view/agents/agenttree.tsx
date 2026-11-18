@@ -37,6 +37,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { agentBranchesAtom, loadAgentBranch } from "./agentbranchstore";
 import { resumeRecentSession } from "./agentlaunchhero";
 import { confirmCloseRun, confirmCloseSession } from "./agentactions";
+import { showPane, usePaneShown } from "./agentpanes";
 import type { AgentsViewModel } from "./agents";
 import {
     doneFoldLabel,
@@ -50,14 +51,15 @@ import {
 } from "./agenttreemodel";
 import { treeLine, type BrainstormFile, type BrainstormWait, type BuilderCheckRecord } from "./brainstormmodel";
 import { runStepView, runTreeText } from "./brainstormrunmodel";
-import { brainstormAtom, brainstormWaitOf, setBrainstormMode, shownBrainstormFile } from "./brainstormstore";
+import { brainstormAtom, brainstormWaitOf, shownBrainstormFile } from "./brainstormstore";
 import { isUnseen } from "./canvasmodel";
-import { canvasStateAtom, setCanvasMode } from "./canvasstore";
+import { canvasStateAtom } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
 import { CommitTick, useCommitDone } from "./committick";
 import { loadRecentSessions, recentSessionsAtom } from "./recentsessionsstore";
 import { renamingRowAtom } from "./rowrenameatom";
 import { RuntimeMark } from "./runtimemark";
+import { rendersNow } from "./workspacestore";
 import { terminalStatus } from "./terminalstatus";
 import { duplicateSession, renameSession, sessionCustomLabel, togglePin } from "./session-models/sessionsidebarmodel";
 import { agentRunDone, displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
@@ -244,17 +246,20 @@ function PaneTag({ model, id }: { model: AgentsViewModel; id: string }) {
     const canvas = useAtomValue(canvasStateAtom(id));
     const brainstorm = useAtomValue(brainstormAtom(id));
     const focused = useAtomValue(model.focusIdAtom) === id;
+    const shown = usePaneShown(model, id);
+    // in Rendered the pane is a tab beside the transcript; usePaneShown already redraws on what rendersNow reads
+    const back = rendersNow(model, id) ? "Close the tab" : "Back to the terminal";
     // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
     if (brainstorm != null) {
-        const showing = focused && brainstorm.mode === "brainstorm";
+        const showing = focused && shown === "brainstorm";
         return (
             <PaneChip
                 label="brainstorm"
                 showing={showing}
-                title={showing ? "Back to the terminal" : "Show the brainstorm"}
+                title={showing ? back : "Show the brainstorm"}
                 onClick={() => {
                     globalStore.set(model.focusIdAtom, id);
-                    setBrainstormMode(id, showing ? "terminal" : "brainstorm", Date.now());
+                    showPane(model, id, "brainstorm", !showing, Date.now());
                 }}
             />
         );
@@ -262,18 +267,18 @@ function PaneTag({ model, id }: { model: AgentsViewModel; id: string }) {
     if (canvas == null) {
         return null;
     }
-    const showing = focused && canvas.mode === "canvas";
+    const showing = focused && shown === "canvas";
     return (
         <PaneChip
             label="canvas"
             showing={showing}
-            title={showing ? "Back to the terminal" : "Show the canvas"}
+            title={showing ? back : "Show the canvas"}
             onClick={() => {
                 globalStore.set(model.focusIdAtom, id);
-                setCanvasMode(id, showing ? "terminal" : "canvas", Date.now());
+                showPane(model, id, "canvas", !showing, Date.now());
             }}
         >
-            {isUnseen(canvas) ? (
+            {isUnseen(canvas, shown === "canvas") ? (
                 <span aria-label="updated since you last looked" className="h-[5px] w-[5px] rounded-full bg-accent" />
             ) : null}
         </PaneChip>

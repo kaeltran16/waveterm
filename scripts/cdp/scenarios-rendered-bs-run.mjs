@@ -1,7 +1,7 @@
 // Scenario rendered-bs-run: the run card at the end of the Rendered transcript (building, merged with its final check
-// passed, merged with a failed one), Close the brainstorm from the card, the gone card for a removed brainstorm with
-// the header's Brainstorm switch gone, the closed row, and the unreadable card. kit is scenarios-rendered-brainstorm.mjs's
-// RBS_KIT.
+// passed, merged with a failed one), its Open run opening the run's tab beside, Close the brainstorm from the card, the
+// gone card for a removed brainstorm with the header's Brainstorm switch gone, the closed row, and the unreadable card.
+// kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
 //
 // The run is page-only: its run and dag objects are written into the page's object cache (updateWaveObject), so no
 // engine runs; the card reads them as it reads a real run. Close deletes real folders in the temp project.
@@ -180,8 +180,35 @@ export default (kit) => {
                         r.dot &&
                         !r.check &&
                         r.close === null &&
-                        r.switchShown;
+                        !r.switchShown;
                     return [ok, r];
+                });
+
+                await step("Open run opens the run's tab beside the Rendered transcript, and closing it takes the pane away", async () => {
+                    const clicked = await h.ev(`(() => {
+                        const b = ${CARD}?.querySelector("[data-rendered-bs-open-run]");
+                        if (!b) return false;
+                        b.click();
+                        return true;
+                    })()`);
+                    const opened = await polishWaitFor(h, `document.querySelector('[data-workspace-run="${RUN_ID}"]') != null`, WAIT_MS);
+                    const r = await agentPage(
+                        h,
+                        `const W = await mod("app/view/agents/workspacestore.ts");
+                        const s = globalStore.get(W.workspaceAtom(${JSON.stringify(ctx.agentId)}));
+                        const out = { tabs: s.tabs, active: s.active };
+                        W.closeWorkspaceTab(${JSON.stringify(ctx.agentId)}, "run:${RUN_ID}");
+                        return out;`
+                    );
+                    const closed = await polishWaitFor(h, `document.querySelector('aside[aria-label="Workspace"]') == null`, WAIT_MS);
+                    const ok =
+                        clicked &&
+                        opened &&
+                        r.active === `run:${RUN_ID}` &&
+                        r.tabs.length === 1 &&
+                        r.tabs[0].view === "tasks" &&
+                        closed;
+                    return [ok, { clicked, opened, closed, ...r }];
                 });
 
                 await step("the run merged with its final check passed draws the check, and offers Close the brainstorm with what it deletes", async () => {
@@ -238,7 +265,7 @@ export default (kit) => {
                     return [ok, r];
                 });
 
-                await step("a removed brainstorm with no close record is the gone card, and the header's Brainstorm switch goes", async () => {
+                await step("a removed brainstorm with no close record is the gone card, and the header draws no Brainstorm switch in Rendered", async () => {
                     rmSync(ctx.file);
                     const shown = await polishWaitFor(h, `${GONE}?.getAttribute("data-rendered-bs-gone") === "removed"`, BS_POLL_WAIT_MS * 2);
                     const r = await readGone(h);
@@ -249,21 +276,21 @@ export default (kit) => {
                         r.text.startsWith(`${TOPIC}'s brainstorm file is gone`) &&
                         r.text.includes("It is no longer at") &&
                         r.text.includes("brainstorm.json") &&
-                        r.text.endsWith("The Brainstorm switch in the header goes with it; the answers above stay in the transcript.") &&
+                        r.text.endsWith("The answers above stay in the transcript.") &&
                         r.inside === true &&
                         !r.run &&
                         !r.switchShown;
                     return [ok, { shown, ...r }];
                 });
 
-                await step("the file back: the run card returns and the Brainstorm switch with it", async () => {
+                await step("the file back: the run card returns, still with no header switch in Rendered (the tab replaces it)", async () => {
                     writeFile(ctx, { ...RUN_FILE });
                     await waitCard(h, "run");
                     await drawn(h, `!!card?.querySelector("[data-rendered-bs-run-state]")`);
                     await setRun(h, MERGED("passed"));
                     await drawn(h, `!!card?.querySelector("[data-rendered-bs-close]")`);
                     const r = await readRun(h);
-                    return [r.kind === "run" && r.close?.text === "Close the brainstorm" && r.switchShown, r];
+                    return [r.kind === "run" && r.close?.text === "Close the brainstorm" && !r.switchShown, r];
                 });
 
                 await step("Close the brainstorm deletes the brainstorm and canvas folders only, and the closed row replaces the card", async () => {

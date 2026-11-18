@@ -9,8 +9,9 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { invoke } from "@tauri-apps/api/core";
+import { showPane } from "./agentpanes";
+import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { setBrainstormMode } from "./brainstormstore";
 import {
     canvasHandoffLine,
     cropRect,
@@ -20,9 +21,10 @@ import {
     type DOMRectLike,
 } from "./canvasmarks";
 import { canvasFeedbackDir, canvasFeedbackFile, shownBoard } from "./canvasmodel";
-import { getCanvas, setCanvasMode } from "./canvasstore";
+import { getCanvas, setMarking } from "./canvasstore";
 import { tauriFileIO, type FileIO } from "./fileio";
 import { viewModeAtom } from "./renderedmode";
+import { rendersNow } from "./workspacestore";
 
 export type SendIO = FileIO & {
     capture(): Promise<Blob>;
@@ -72,7 +74,7 @@ export const tauriSendIO: SendIO = {
     },
 };
 
-export async function sendCanvasMark(agent: AgentVM, io: SendIO = tauriSendIO): Promise<void> {
+export async function sendCanvasMark(model: AgentsViewModel, agent: AgentVM, io: SendIO = tauriSendIO): Promise<void> {
     const s = getCanvas(agent.id);
     if (s?.mark == null) {
         throw new Error("Nothing to send");
@@ -95,11 +97,16 @@ export async function sendCanvasMark(agent: AgentVM, io: SendIO = tauriSendIO): 
     });
     const line = canvasHandoffLine(feedbackRelPath(s.topic, name), shownBoard(s).name, s.mark);
     await step(`Couldn't send to ${agent.name}`, () => io.prompt(agent.blockId!, line));
+    // in Rendered the tab stays: the transcript the reply lands in is already beside it
+    if (rendersNow(model, agent.id)) {
+        setMarking(agent.id, false);
+        return;
+    }
     const now = Date.now();
-    setCanvasMode(agent.id, "terminal", now);
+    showPane(model, agent.id, "canvas", false, now);
     // marked from the conversation, so the reply is read there
     if (s.markFrom === "transcript") {
-        setBrainstormMode(agent.id, "terminal", now);
+        showPane(model, agent.id, "brainstorm", false, now);
         globalStore.set(viewModeAtom(agent.id), "rendered");
     }
 }

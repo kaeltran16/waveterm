@@ -9,7 +9,7 @@
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom, type WritableAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { contextTokens } from "./agentrailmodel";
+import { contextLevel } from "./agentrailmodel";
 import { hasAnswerableAsk, type AgentVM } from "./agentsviewmodel";
 import {
     brainstormPhase,
@@ -197,19 +197,22 @@ export function boxButton(box: ComposerBox, filled: boolean): "send" | "stop" {
 
 const RING_FULL = 1;
 
-// the box's context ring: the reported percent, the arc it fills (0-1), and a title in tokens when the window is known
-export function contextRing(usage: AgentUsage | undefined): { pct: number; arc: number; title: string } | null {
+// the box's context ring: the reported percent, the arc it fills (0-1) and the gauge's level. It is always drawn, as
+// the session popover's button, so with no reading it is empty and has no percent
+export function contextRing(usage: AgentUsage | undefined): {
+    pct: number | null;
+    arc: number;
+    level: ReturnType<typeof contextLevel>;
+} {
     const pct = usage?.contextpct;
     if (pct == null) {
-        return null;
+        return { pct: null, arc: 0, level: "ok" };
     }
-    const shown = Math.round(pct);
-    const tokens = contextTokens(pct, usage.contextmax);
-    const title =
-        tokens != null
-            ? `${tokens} of ${contextTokens(100, usage.contextmax)} tokens in context`
-            : `context: ${shown}% of the window`;
-    return { pct: shown, arc: Math.min(RING_FULL, Math.max(0, pct / 100)), title };
+    return {
+        pct: Math.round(pct),
+        arc: Math.min(RING_FULL, Math.max(0, pct / 100)),
+        level: contextLevel(pct, usage.contextmax),
+    };
 }
 
 // only a live claude session has the control paths the rendered view drives

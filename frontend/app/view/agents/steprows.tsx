@@ -87,7 +87,8 @@ function StepTitle({ step, compact }: { step: Step; compact: boolean }) {
     const head = subject != null && title.endsWith(subject) ? title.slice(0, title.length - subject.length) : title;
     const answer = askAnswer(step.action);
     const totals = editTotals(step.action);
-    const monoSize = compact ? "text-[11px]" : "text-[12px]";
+    // a bare command is the row's own text, so it is never smaller than the output it opens
+    const monoSize = !title ? CODE_TEXT : compact ? "text-[11px]" : "text-[12px]";
     const line = (
         <>
             {title ? (

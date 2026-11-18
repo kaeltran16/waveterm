@@ -168,7 +168,9 @@ export function CanvasPane({
 
     return (
         <div data-canvas-pane className="flex min-h-0 flex-1 flex-col">
-            <div className="flex flex-none items-center gap-[10px] border-b border-edge-faint bg-surface px-[22px] py-[8px]">
+            {/* wraps in a narrow pane (the workspace's Canvas tab): unwrapped, the board tabs shrank to nothing and
+                keeping the picked one in view scrolled the whole pane sideways */}
+            <div className="flex flex-none flex-wrap items-center gap-x-[10px] gap-y-[8px] border-b border-edge-faint bg-surface px-[22px] py-[8px]">
                 {onBack != null ? (
                     <button type="button" onClick={onBack} className={CANVAS_BTN}>
                         {backLabel}
@@ -291,6 +293,7 @@ export function CanvasPane({
                                 ))}
                                 {markFrame != null ? (
                                     <MarkNote
+                                        model={model}
                                         agent={agent}
                                         mark={s.mark!}
                                         frame={markFrame}
@@ -525,6 +528,7 @@ const nextPaint = () => new Promise<void>((r) => requestAnimationFrame(() => req
 // The review dialog's note card, under the box (above it when the pane has no room below): Enter sends the mark
 // at once, Esc drops it. It sits beside the board frames rather than in one, since a frame clips its content.
 function MarkNote(p: {
+    model: AgentsViewModel;
     agent: AgentVM;
     mark: Mark;
     frame: BoardFrame;
@@ -566,7 +570,7 @@ function MarkNote(p: {
         setError(null);
         try {
             await nextPaint();
-            await sendCanvasMark(agent);
+            await sendCanvasMark(p.model, agent);
         } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
         } finally {
