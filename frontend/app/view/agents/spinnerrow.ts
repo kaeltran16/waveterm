@@ -11,8 +11,9 @@ export interface SpinnerRead {
     tokens?: string; // the output token count as shown ("4.5k"), when the detail has one
 }
 
-// one capitalised word ending in "…" keeps agent output such as "* Reading the file…" from reading as a spinner
-const SPINNER_ROW = /^\s*([·✢✳✶✻✽*])\s+([A-Z][A-Za-z]*…)(?:\s+\((.*)\))?\s*$/;
+// one capitalised word ending in "…" keeps agent output such as "* Reading the file…" from reading as a spinner; a
+// compaction's verb is claude's one two-word phrase
+const SPINNER_ROW = /^\s*([·✢✳✶✻✽*])\s+((?:Compacting conversation|[A-Z][A-Za-z]*)…)(?:\s+\((.*)\))?\s*$/;
 const DETAIL_SEP = " · ";
 // key hints are dropped: Esc lives on the composer's Interrupt button
 const KEY_HINT = /^(esc |ctrl\+|shift\+)/i;

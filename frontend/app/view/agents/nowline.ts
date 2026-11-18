@@ -10,9 +10,10 @@ import type { AgentEntry, AgentState } from "./agentsviewmodel";
 import { fmtDuration } from "./runcompletion";
 import type { SpinnerRead } from "./spinnerrow";
 
-// a UserPromptSubmit hook later than the transcript's turn start by more than this is a turn not yet transcribed
+// a hook that opens a turn later than the transcript's turn start by more than this is a turn not yet transcribed
 export const TURN_SKEW_MS = 2000;
-const SUBMIT_HOOK = "UserPromptSubmit";
+// a prompt, and a typed /compact (an auto one reports no hook), which claude transcribes only once it ends
+const TURN_START_HOOKS = ["UserPromptSubmit", "PreCompact"];
 const SEP = " · ";
 // claude's spinner frames, which its terminal spinner plays forward then back
 export const SPINNER_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽"];
@@ -87,7 +88,7 @@ export function nowLineState(input: {
     }
     let turn = summarizeTurn(input.entries);
     // between Send and Claude writing the user line, the previous turn's time and count must not read as this one's
-    const submitted = lastHook?.hook === SUBMIT_HOOK;
+    const submitted = lastHook != null && TURN_START_HOOKS.includes(lastHook.hook);
     if (submitted && (turn == null || (turn.startTs != null && lastHook.ts - turn.startTs > TURN_SKEW_MS))) {
         turn = { startTs: lastHook.ts, tools: 0 };
     }

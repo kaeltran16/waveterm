@@ -118,6 +118,13 @@ describe("nowLineState", () => {
         expect(l).toEqual({ kind: "working", spinner: null, elapsedMs: 3_000, tools: 0 });
     });
 
+    it("a /compact after the turn ended reads as its own fresh turn, not the last turn's time and tools", () => {
+        const entries = [user(T0), ...actions(2), msg(T0 + 30_000)];
+        const hookTs = T0 + 60_000;
+        const l = line({ entries, lastHook: { hook: "PreCompact", ts: hookTs }, now: hookTs + 4_000 });
+        expect(l).toEqual({ kind: "working", spinner: null, elapsedMs: 4_000, tools: 0 });
+    });
+
     it("other hooks never start a turn", () => {
         const entries = [user(T0), done()];
         const l = line({ entries, lastHook: { hook: "PreToolUse", ts: T0 + 30_000 }, now: T0 + 40_000 });

@@ -130,6 +130,11 @@ func planEmission(ev ccHookEvent) agentEmission {
 		if ev.Source == "compact" || ev.Source == "clear" {
 			return agentEmission{State: baseds.AgentState_Idle}
 		}
+		// a resume lands at the prompt on a transcript that already has a history, title and model; without
+		// this report the cockpit has no transcript for it until its first prompt
+		if ev.Source == "resume" {
+			return agentEmission{State: baseds.AgentState_Idle, AttachModelTitle: true}
+		}
 	case "SessionEnd":
 		// a /clear or /resume opens the next session in the same claude
 		if ev.Reason != "clear" && ev.Reason != "resume" {

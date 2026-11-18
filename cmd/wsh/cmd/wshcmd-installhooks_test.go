@@ -721,6 +721,8 @@ func TestCompactionHooksAreManaged(t *testing.T) {
 		{Event: "SessionStart", Matcher: "compact", Args: "agent-hook", Timeout: 10},
 		{Event: "SessionStart", Matcher: "compact", Args: "jarvis dag rules --inject", Timeout: 15},
 		{Event: "SessionStart", Matcher: "clear", Args: "agent-hook", Timeout: 10},
+		// a resumed session reports its transcript before its first prompt
+		{Event: "SessionStart", Matcher: "resume", Args: "agent-hook", Timeout: 10},
 		// a compaction drops the Arc primer the session started with
 		{Event: "SessionStart", Args: "agent-hook --skill-context", Timeout: 10},
 		// the end of a session is the only report that it exited to its shell
@@ -742,8 +744,8 @@ func TestCompactionHooksAreManaged(t *testing.T) {
 	}
 	merged := mergeAgentHooks(mergeAgentHooks(map[string]any{}, testWsh), testWsh)
 	groups, _ := merged["hooks"].(map[string]any)["SessionStart"].([]any)
-	if len(groups) != 4 {
-		t.Fatalf("SessionStart groups after two merges = %d, want the compact idle, rules, clear and primer hooks", len(groups))
+	if len(groups) != 5 {
+		t.Fatalf("SessionStart groups after two merges = %d, want the compact idle, rules, clear, resume and primer hooks", len(groups))
 	}
 }
 

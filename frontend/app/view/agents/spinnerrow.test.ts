@@ -35,6 +35,15 @@ describe("parseSpinner", () => {
         expect(parseSpinner(["· Thinking…"])).toEqual({ glyph: "·", verb: "Thinking…" });
     });
 
+    it("reads the compaction spinner, whose verb is two words", () => {
+        expect(parseSpinner(["· Compacting conversation… (4s · ↓ 530 tokens)"])).toEqual({
+            glyph: "·",
+            verb: "Compacting conversation…",
+            detail: "4s · ↓ 530 tokens",
+            tokens: "530",
+        });
+    });
+
     it("finds the spinner row above the input box and status rows, scanning bottom-up", () => {
         const screen = [
             "● I'll look at the file first.",
