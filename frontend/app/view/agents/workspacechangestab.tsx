@@ -122,6 +122,7 @@ export function ChangesTab({
                             repoCwd={cwd ?? null}
                             model={model}
                             source={changesPair}
+                            wrap
                         />
                     </ViewSwap>
                 ) : null}

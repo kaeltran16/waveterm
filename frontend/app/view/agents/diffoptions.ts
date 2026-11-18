@@ -44,8 +44,16 @@ export function isNewFile(original: string, modified: string): boolean {
     return original === "" && modified !== "";
 }
 
-export function paneOptions(split: boolean, ignoreWs: boolean, newFile = false): MonacoTypes.editor.IDiffEditorOptions {
+// wrap is the workspace pane's Changes tab: its column is narrow, so a long line would scroll sideways
+export function paneOptions(
+    split: boolean,
+    ignoreWs: boolean,
+    newFile = false,
+    wrap = false
+): MonacoTypes.editor.IDiffEditorOptions {
     return {
+        wordWrap: wrap ? "on" : "off",
+        diffWordWrap: wrap ? "on" : "off",
         readOnly: true,
         originalEditable: false,
         renderSideBySide: split,

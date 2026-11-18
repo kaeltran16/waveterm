@@ -98,6 +98,18 @@ describe("commenting", () => {
     });
 });
 
+describe("word wrap", () => {
+    it("wraps the modified editor and the diff only when asked", () => {
+        const on = paneOptions(false, false, false, true);
+        expect(on.wordWrap).toBe("on");
+        expect(on.diffWordWrap).toBe("on");
+        for (const o of [paneOptions(false, false), paneOptions(true, false, false, false)]) {
+            expect(o.wordWrap).not.toBe("on");
+            expect(o.diffWordWrap).not.toBe("on");
+        }
+    });
+});
+
 describe("folding", () => {
     it("folds unchanged regions with three lines of context", () => {
         expect(paneOptions(false, false).hideUnchangedRegions).toEqual({
