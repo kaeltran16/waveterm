@@ -14,7 +14,6 @@ import {
     canvasWindowAtom,
     detachCanvas,
     getCanvas,
-    markFromTranscript,
     setCanvasMode,
     updateCanvas,
 } from "./canvasstore";
@@ -92,25 +91,6 @@ describe("sendCanvasMark", () => {
         expect(s.mark).toBeNull();
     });
 
-    it("a mark started from the transcript ends, once sent, with the agent back in Rendered", async () => {
-        markFromTranscript("a1");
-        await sendCanvasMark(TERMINAL, AGENT, fakeIO());
-        expect(getCanvas("a1")!.mode).toBe("terminal");
-        expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
-    });
-
-    it("a mark on a brainstorm's board started from the transcript leaves the brainstorm pane for Rendered", async () => {
-        // the brainstorm's board view, which draws the canvas while the canvas itself stays in terminal mode
-        attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0, "brainstorm");
-        openBrainstormBoard("a1", "States.dc.html");
-        setCanvasMode("a1", "terminal", 1);
-        updateCanvas("a1", (s) => ({ ...s, marking: true, mark: MARK }));
-        markFromTranscript("a1");
-        await sendCanvasMark(TERMINAL, AGENT, fakeIO());
-        expect(getBrainstorm("a1")!.mode).toBe("terminal");
-        expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
-    });
-
     it("a mark started in the pane ends where it does today", async () => {
         attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0, "brainstorm");
         await sendCanvasMark(TERMINAL, AGENT, fakeIO());
@@ -134,12 +114,11 @@ describe("sendCanvasMark", () => {
         });
 
         it("a sent mark leaves the Canvas tab open beside the transcript, the mark gone", async () => {
-            markFromTranscript("a1");
             await sendCanvasMark(RENDERED, AGENT, fakeIO());
             const ws = globalStore.get(workspaceAtom("a1"));
             expect(ws.active).toBe("canvas");
             expect(ws.tabs).toEqual([{ kind: "canvas" }]);
-            expect(getCanvas("a1")).toMatchObject({ marking: false, mark: null, markFrom: null });
+            expect(getCanvas("a1")).toMatchObject({ marking: false, mark: null });
             expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
         });
 
@@ -147,7 +126,6 @@ describe("sendCanvasMark", () => {
             attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0);
             openBrainstormBoard("a1", "States.dc.html");
             openWorkspaceTab("a1", { kind: "brainstorm" });
-            markFromTranscript("a1");
             await sendCanvasMark(RENDERED, AGENT, fakeIO());
             expect(globalStore.get(workspaceAtom("a1")).active).toBe("brainstorm");
             expect(getBrainstorm("a1")).toMatchObject({ mode: "terminal", board: "States.dc.html" });
@@ -187,14 +165,6 @@ describe("sendCanvasMark", () => {
         });
         await sendCanvasMark(TERMINAL, AGENT, io);
         expect(asked).toEqual([false]);
-    });
-
-    it("a failed send from the transcript stays in the pane with the mark", async () => {
-        markFromTranscript("a1");
-        await expect(sendCanvasMark(TERMINAL, AGENT, fakeIO({ prompt: fail }))).rejects.toThrow();
-        expect(getCanvas("a1")!.mode).toBe("canvas");
-        expect(getCanvas("a1")!.markFrom).toBe("transcript");
-        expect(globalStore.get(viewModeAtom("a1"))).toBe("terminal");
     });
 
     it("writes the cropped picture's bytes", async () => {

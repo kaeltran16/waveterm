@@ -32,8 +32,6 @@ export type CanvasState = {
     reloadKey: number;
     // each served board's Last-Modified: the Mockup row's "updated" and which boards are served
     boardModifiedMs?: Record<string, number>;
-    // a mark started from the Rendered transcript: once sent, the agent goes back there (canvassend)
-    markFrom?: "transcript" | null;
 };
 
 // cast because a null initial value picks jotai's read-only overload under the non-strict tsconfig
@@ -121,7 +119,7 @@ export function setCanvasMode(agentId: string, mode: "terminal" | "canvas", now:
     updateCanvas(agentId, (s) =>
         mode === "canvas"
             ? { ...s, mode, lastViewedMs: now }
-            : { ...s, mode, marking: false, mark: null, markFrom: null }
+            : { ...s, mode, marking: false, mark: null }
     );
 }
 
@@ -174,11 +172,7 @@ export function closeCanvasWindow(): void {
 }
 
 export function setMarking(agentId: string, on: boolean): void {
-    updateCanvas(agentId, (s) => (on ? { ...s, marking: true } : { ...s, marking: false, mark: null, markFrom: null }));
-}
-
-export function markFromTranscript(agentId: string): void {
-    updateCanvas(agentId, (s) => ({ ...s, marking: true, markFrom: "transcript" }));
+    updateCanvas(agentId, (s) => (on ? { ...s, marking: true } : { ...s, marking: false, mark: null }));
 }
 
 export function setMark(agentId: string, mark: Mark | null): void {

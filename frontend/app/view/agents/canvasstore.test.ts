@@ -13,7 +13,6 @@ import {
     detachCanvas,
     focusedCanvas,
     getCanvas,
-    markFromTranscript,
     openCanvasWindow,
     selectCanvasBoard,
     selectCanvasTab,
@@ -218,25 +217,6 @@ describe("marking", () => {
         setMark("a1", null);
         expect(getCanvas("a1").marking).toBe(true);
         expect(getCanvas("a1").mark).toBeNull();
-    });
-});
-
-describe("a mark from the transcript", () => {
-    it("turns marking on and remembers where it started", () => {
-        attachCanvas("a1", A, 0);
-        markFromTranscript("a1");
-        expect(getCanvas("a1")!.marking).toBe(true);
-        expect(getCanvas("a1")!.markFrom).toBe("transcript");
-    });
-
-    it("forgets where it started once marking ends or the canvas closes", () => {
-        attachCanvas("a1", A, 0);
-        markFromTranscript("a1");
-        setMarking("a1", false);
-        expect(getCanvas("a1")!.markFrom).toBeNull();
-        markFromTranscript("a1");
-        setCanvasMode("a1", "terminal", 5);
-        expect(getCanvas("a1")!.markFrom).toBeNull();
     });
 });
 

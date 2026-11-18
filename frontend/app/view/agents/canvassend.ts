@@ -23,7 +23,6 @@ import {
 import { canvasFeedbackDir, canvasFeedbackFile, shownBoard } from "./canvasmodel";
 import { canvasWindowAtom, getCanvas, setMarking } from "./canvasstore";
 import { tauriFileIO, type FileIO } from "./fileio";
-import { viewModeAtom } from "./renderedmode";
 import { rendersNow } from "./workspacestore";
 
 export type SendIO = FileIO & {
@@ -105,11 +104,5 @@ export async function sendCanvasMark(model: AgentsViewModel, agent: AgentVM, io:
         setMarking(agent.id, false);
         return;
     }
-    const now = Date.now();
-    showPane(model, agent.id, "canvas", false, now);
-    // marked from the conversation, so the reply is read there
-    if (s.markFrom === "transcript") {
-        showPane(model, agent.id, "brainstorm", false, now);
-        globalStore.set(viewModeAtom(agent.id), "rendered");
-    }
+    showPane(model, agent.id, "canvas", false, Date.now());
 }
