@@ -4,7 +4,7 @@
 // Pure parts of the tool panels (tooldetailbody.tsx): the read gutter, grep grouping and match marks, and which files
 // draw as highlighted code.
 
-import type { EditFile, GrepMatch } from "./agentsviewmodel";
+import type { ActionDetail, EditFile, GrepMatch } from "./agentsviewmodel";
 
 export interface GutterLine {
     no?: number;
@@ -27,6 +27,18 @@ export function parseLineGutter(snippet: string): GutterLine[] | null {
         out.push({ no: Number(m[1]), text: m[2] });
     }
     return out;
+}
+
+// the one file a read or a write/edit body shows, which the Rendered view opens beside the transcript rather than in the
+// full-view modal; null for output with no file, or an edit of several
+export function fullViewFile(detail: ActionDetail | undefined): { path: string; line: number | null } | null {
+    if (detail?.kind === "read") {
+        return detail.path ? { path: detail.path, line: parseLineGutter(detail.snippet)?.[0]?.no ?? null } : null;
+    }
+    if (detail?.kind === "edit" && detail.files.length === 1) {
+        return { path: detail.files[0].path, line: null };
+    }
+    return null;
 }
 
 // a new file's lines as a file preview: a git diff's own numbers when it has them, else counted from 1

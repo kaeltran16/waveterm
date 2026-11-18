@@ -5,11 +5,12 @@ import { modalsModel } from "@/app/store/modalmodel";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import { ArrowUpRight, Ban, Check, Ellipsis, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import type { ActionDetail, AgentActionEntry, DiffLine } from "./agentsviewmodel";
 import { BODY_LINES_MAX, capDiffFiles, capGrepGroups, capGroups, capLines, capText, moreLinesLabel } from "./bodycap";
 import { highlightLine } from "./highlight";
 import {
+    fullViewFile,
     groupGrepMatches,
     isCodePath,
     newFileLines,
@@ -18,6 +19,8 @@ import {
     pathTail,
     type GutterLine,
 } from "./tooldetailmodel";
+import type { TranscriptContext } from "./transcriptcontext";
+import { openBeside } from "./workspacestore";
 
 // one size for code across the transcript (tool panels, prose code blocks), sized to sit just under the 14px prose
 export const CODE_TEXT = "text-[12.5px]";
@@ -37,14 +40,20 @@ export const BODY_BUTTON =
 // the strip along a body's box that holds "Open full view", inside the box
 export const BODY_FOOTER = "flex items-center justify-end border-t border-edge-faint px-2 py-1";
 
-export function OpenFullView({ action }: { action: AgentActionEntry }) {
+// a read or write/edit of one file opens in the workspace pane's File tab where the Rendered view has one beside it;
+// anything else, or any other host, opens the modal
+export function OpenFullView({ action, ctx }: { action: AgentActionEntry; ctx?: TranscriptContext }) {
+    const open = (e: MouseEvent) => {
+        const file = fullViewFile(action.detail);
+        if (file != null && ctx?.model != null && ctx.agentId != null) {
+            if (openBeside(ctx.model, ctx.agentId, { kind: "file", ...file }, e)) {
+                return;
+            }
+        }
+        modalsModel.pushModal("AgentToolDetailModal", { action });
+    };
     return (
-        <button
-            type="button"
-            aria-label="Open full view"
-            onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-            className={BODY_BUTTON}
-        >
+        <button type="button" aria-label="Open full view" onClick={open} className={BODY_BUTTON}>
             <ArrowUpRight size={12} strokeWidth={2.2} aria-hidden />
             Open full view
         </button>

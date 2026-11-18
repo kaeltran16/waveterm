@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    fullViewFile,
     groupGrepMatches,
     isCodePath,
     newFileLines,
@@ -195,5 +196,40 @@ describe("pathSegmentsDroppable", () => {
         expect(pathSegmentsDroppable("src/a/b.ts")).toBe(2);
         expect(pathSegmentsDroppable("C:\\Users\\dev\\retry.go")).toBe(3);
         expect(pathSegmentsDroppable("b.ts")).toBe(0);
+    });
+});
+
+describe("fullViewFile", () => {
+    const edit = (path: string) => ({ path, badge: "M" as const, adds: 1, dels: 0, lines: [] });
+
+    it("opens a read at its first line", () => {
+        expect(fullViewFile({ kind: "read", path: "src/a.ts", snippet: "  41→const a = 1;\n  42→b();" })).toEqual({
+            path: "src/a.ts",
+            line: 41,
+        });
+    });
+
+    it("opens a read whose snippet has no gutter at no line", () => {
+        expect(fullViewFile({ kind: "read", path: "notes.md", snippet: "plain" })).toEqual({
+            path: "notes.md",
+            line: null,
+        });
+    });
+
+    it("leaves a read with no path (a Glob) to the modal", () => {
+        expect(fullViewFile({ kind: "read", snippet: "a.ts\nb.ts" })).toBeNull();
+    });
+
+    it("opens a write or edit of one file", () => {
+        expect(fullViewFile({ kind: "edit", files: [edit("src/b.go")] })).toEqual({ path: "src/b.go", line: null });
+    });
+
+    it("leaves an edit of several files to the modal", () => {
+        expect(fullViewFile({ kind: "edit", files: [edit("a.go"), edit("b.go")] })).toBeNull();
+    });
+
+    it("leaves output with no file to the modal", () => {
+        expect(fullViewFile({ kind: "bash", output: "ok", exit: 0 })).toBeNull();
+        expect(fullViewFile(undefined)).toBeNull();
     });
 });

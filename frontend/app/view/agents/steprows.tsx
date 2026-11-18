@@ -276,7 +276,7 @@ function StepBody({
     cardCollapsed: boolean;
 }) {
     const { action, status } = step;
-    const openFull = <OpenFullView action={action} />;
+    const openFull = <OpenFullView action={action} ctx={ctx} />;
     if (hasBodyCard(action)) {
         // the card header's own raw toggle offers the output, so the footer, inside the card, holds only the full view
         return (
