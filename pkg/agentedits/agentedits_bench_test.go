@@ -4,6 +4,7 @@
 package agentedits
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,22 @@ func benchReplay(b *testing.B, transcript, historyDir, repo string, base Reader)
 			root = l.SessionCwd
 		}
 		if _, err := Replay(l, root, base, none); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkBuildCommits(b *testing.B) {
+	// a session-sized commit build: 20 edited files, one of them new
+	repo, parent := tempRepo(b, map[string]string{"keep.txt": "k\n"})
+	var files []File
+	for i := range 20 {
+		f := File{Path: fmt.Sprintf("pkg/f%d.go", i), Pre: []byte("package x\n\nvar a = 1\n"), PreExists: i > 0}
+		f.Post, f.PostExists = []byte("package x\n\nvar a = 2\n"), true
+		files = append(files, f)
+	}
+	for b.Loop() {
+		if _, _, err := BuildCommits(context.Background(), repo, parent, t0.Unix(), files); err != nil {
 			b.Fatal(err)
 		}
 	}
