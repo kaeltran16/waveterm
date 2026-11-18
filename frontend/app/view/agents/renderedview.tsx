@@ -22,6 +22,7 @@ import type { AgentComposerHandle } from "./agentcomposer";
 import type { AgentsViewModel } from "./agents";
 import { askSentKey, type AgentEntry, type AgentVM } from "./agentsviewmodel";
 import { AnswerBar } from "./answerbar";
+import { useAutoOpen } from "./autoopen";
 import { showEarlierTranscript } from "./livetranscript";
 import { earlierAtomFor, entriesAtomFor, waitingAtomFor } from "./livetranscriptatoms";
 import { FileLinkContext } from "./markdownmessage";
@@ -256,6 +257,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
         mount: whole,
     });
     const ctx = useTranscriptContext(model, agent);
+    useAutoOpen(model, agent, entries);
     const canvasReveal = useMemo(() => lastCanvasReveal(entries) ?? undefined, [entries]);
     const timelineCtx = useMemo(() => ({ ...ctx, canvasReveal }), [ctx, canvasReveal]);
     const working = useWorkingTail(model.nowAtom, agent, entries);

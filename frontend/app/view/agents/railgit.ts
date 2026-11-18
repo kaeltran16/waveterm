@@ -15,7 +15,7 @@ import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
 import { leadLandFacts } from "./leadland";
 import { loadRailForAgent, railStateAtom, type RailGitState } from "./railstore";
 
-const NO_BLOCK: Atom<Block | undefined> = atom(undefined as Block | undefined);
+export const NO_BLOCK: Atom<Block | undefined> = atom(undefined as Block | undefined);
 
 let holders = 0;
 let loadedKey = "";

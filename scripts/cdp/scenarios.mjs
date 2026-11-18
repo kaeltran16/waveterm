@@ -61,6 +61,7 @@ import { workspaceRun } from "./scenarios-workspace-run.mjs";
 import { workspaceChanges } from "./scenarios-workspace-changes.mjs";
 import { workspaceFile } from "./scenarios-workspace-file.mjs";
 import { workspaceBrainstormCanvas } from "./scenarios-workspace-brainstorm-canvas.mjs";
+import { workspaceAutoOpen } from "./scenarios-workspace-auto-open.mjs";
 import { RENDERED_BS_SCENARIOS } from "./scenarios-rendered-brainstorm.mjs";
 import {
     diffComments,
@@ -377,6 +378,7 @@ export const SCENARIOS = [
     workspaceChanges,
     workspaceFile,
     workspaceBrainstormCanvas,
+    workspaceAutoOpen,
     ...RENDERED_BS_SCENARIOS,
     canvasMark,
     canvasTabsScenario,

@@ -29,6 +29,7 @@ import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEve
 import { createPortal } from "react-dom";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { dismissWorkspaceTab } from "./autoopen";
 import { BrainstormPane } from "./brainstormpane";
 import { brainstormAtom, brainstormWaitOf } from "./brainstormstore";
 import { canvasStateAtom } from "./canvasstore";
@@ -56,7 +57,6 @@ import {
 import { RunTab } from "./workspaceruntab";
 import {
     activateWorkspaceTab,
-    closeWorkspaceTab,
     setWorkspaceCollapsed,
     setWorkspaceExpanded,
     workspaceWidthAtom,
@@ -76,9 +76,11 @@ const MIDDLE_BUTTON = 1;
 const TAB_FACE = "flex items-center gap-[7px] pl-[10px] pr-[4px] text-[12.5px] font-semibold";
 const TAB_LABEL = "min-w-0 max-w-[200px] truncate";
 const TAB_CLOSE_BOX = "mr-[6px] h-[18px] w-[18px] flex-none";
-const DOT_INLINE = "h-[6px] w-[6px] flex-none rounded-full bg-asking";
-const DOT_CORNER =
-    "absolute left-[20px] top-[6px] box-content h-[6px] w-[6px] rounded-full border-2 border-surface bg-asking";
+const DOT_INLINE = "h-[6px] w-[6px] flex-none rounded-full";
+const DOT_CORNER = "absolute left-[20px] top-[6px] box-content h-[6px] w-[6px] rounded-full border-2 border-surface";
+// amber is something waiting on you; the accent is a tab that joined behind the shown one and has not been seen
+const DOT_TONE = { waiting: "bg-asking", unseen: "bg-accent" } as const;
+const DOT_LABEL = { waiting: "waiting on you", unseen: "new since you looked" } as const;
 
 // 6b on the horizontal axis: paneReveal's opacity and timing, with width in place of height
 const REVEAL = { duration: MOTION.durMacro, ease: MOTION.easeFluid };
@@ -125,7 +127,12 @@ export function WorkspacePane({
                         exit={{ opacity: 0, transition: UNEASED }}
                         className="flex flex-col items-center pt-3"
                     >
-                        <PaneStrip agentId={agent.id} tabs={ws.tabs.length} needs={waitingOnYou(ws.tabs, waits)} />
+                        <PaneStrip
+                            agentId={agent.id}
+                            tabs={ws.tabs.length}
+                            needs={waitingOnYou(ws.tabs, waits)}
+                            unseen={ws.unseen.length}
+                        />
                     </motion.div>
                 ) : (
                     <motion.div
@@ -292,7 +299,13 @@ function TabStrip({ agentId, ws, waits }: { agentId: string; ws: WorkspaceState;
                                 agentId={agentId}
                                 tab={t}
                                 active={ws.active === tabKey(t)}
-                                waiting={tabWaiting(t, waits) > 0}
+                                dot={
+                                    tabWaiting(t, waits) > 0
+                                        ? "waiting"
+                                        : ws.unseen.includes(tabKey(t))
+                                          ? "unseen"
+                                          : null
+                                }
                                 iconOnly={iconOnly[i]}
                                 measureRow={measureRow}
                             />
@@ -329,21 +342,21 @@ function TabButton({
     agentId,
     tab,
     active,
-    waiting,
+    dot,
     iconOnly,
     measureRow,
 }: {
     agentId: string;
     tab: WorkspaceTab;
     active: boolean;
-    waiting: boolean;
+    dot: keyof typeof DOT_TONE | null;
     iconOnly: boolean;
     measureRow: HTMLDivElement | null;
 }) {
     const key = tabKey(tab);
     const label = tabLabel(tab, useTabName(agentId, tab));
     const Icon = TAB_ICON[tab.kind];
-    const close = () => closeWorkspaceTab(agentId, key);
+    const close = () => dismissWorkspaceTab(agentId, tab);
     return (
         <motion.div
             layout="position"
@@ -372,7 +385,7 @@ function TabButton({
                           <span className={TAB_FACE}>
                               <Icon size={13} className="flex-none" />
                               <span className={TAB_LABEL}>{label}</span>
-                              {waiting ? <span className={DOT_INLINE} /> : null}
+                              {dot ? <span className={DOT_INLINE} /> : null}
                           </span>
                           <span className={TAB_CLOSE_BOX} />
                       </div>,
@@ -403,13 +416,14 @@ function TabButton({
             >
                 <Icon size={13} className="flex-none" aria-hidden />
                 {iconOnly ? null : <span className={TAB_LABEL}>{label}</span>}
-                {waiting ? (
+                {dot ? (
                     <span
                         role="img"
-                        aria-label="waiting on you"
-                        data-workspace-tab-waiting
+                        aria-label={DOT_LABEL[dot]}
+                        data-workspace-tab-waiting={dot === "waiting" ? true : undefined}
+                        data-workspace-tab-unseen={dot === "unseen" ? true : undefined}
                         // icon-only, the dot sits on the icon's top-right corner, ringed in the strip's background
-                        className={iconOnly ? DOT_CORNER : DOT_INLINE}
+                        className={cn(iconOnly ? DOT_CORNER : DOT_INLINE, DOT_TONE[dot])}
                     />
                 ) : null}
             </button>
@@ -471,8 +485,13 @@ function TabBody({ model, agent, ws }: { model: AgentsViewModel; agent: AgentVM;
 }
 
 // the Closed board: the reopen control, what waits on you across the tabs, and how many are open
-function PaneStrip({ agentId, tabs, needs }: { agentId: string; tabs: number; needs: number }) {
-    const title = ["Workspace", `${tabs} ${tabs === 1 ? "tab" : "tabs"}`, needs > 0 ? `${needs} waiting on you` : ""]
+function PaneStrip({ agentId, tabs, needs, unseen }: { agentId: string; tabs: number; needs: number; unseen: number }) {
+    const title = [
+        "Workspace",
+        `${tabs} ${tabs === 1 ? "tab" : "tabs"}`,
+        needs > 0 ? `${needs} waiting on you` : "",
+        unseen > 0 ? `${unseen} new` : "",
+    ]
         .filter(Boolean)
         .join(" · ");
     return (
@@ -503,7 +522,16 @@ function PaneStrip({ agentId, tabs, needs }: { agentId: string; tabs: number; ne
                 </AnimatePresence>
             </span>
             <span className="flex flex-col items-center gap-[3px]">
-                <PanelRight size={16} aria-hidden />
+                <span className="relative block h-[16px] w-[16px]">
+                    <PanelRight size={16} aria-hidden />
+                    {unseen > 0 ? (
+                        <span
+                            data-workspace-strip-unseen
+                            aria-hidden
+                            className="absolute -right-[4px] -top-[4px] box-content h-[6px] w-[6px] rounded-full border-2 border-surface bg-accent"
+                        />
+                    ) : null}
+                </span>
                 <span data-workspace-strip-count className="font-mono text-[10.5px] font-semibold">
                     <TickNumber value={tabs} />
                 </span>

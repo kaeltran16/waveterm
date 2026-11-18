@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
     activateTab,
+    addTab,
     closeTab,
     EMPTY_WORKSPACE,
     iconOnlyTabs,
@@ -260,5 +261,54 @@ describe("iconOnlyTabs", () => {
     it("compacts every tab when none is shown", () => {
         expect(iconOnlyTabs(widths, 303, -1)).toEqual([true, true, true]);
         expect(iconOnlyTabs([], 0, -1)).toEqual([]);
+    });
+});
+
+describe("addTab", () => {
+    it("opens the pane on the tab when it has none", () => {
+        const s = addTab(EMPTY_WORKSPACE, changes);
+        expect(s.tabs.map(tabKey)).toEqual(["changes"]);
+        expect(s.active).toBe("changes");
+        expect(s.unseen).toEqual([]);
+    });
+
+    it("joins behind the active tab, marked unseen", () => {
+        const s = addTab(withTabs(file("a.ts", 3)), run("r1"));
+        expect(s.tabs.map(tabKey)).toEqual(["file:a.ts", "run:r1"]);
+        expect(s.active).toBe("file:a.ts");
+        expect(s.unseen).toEqual(["run:r1"]);
+    });
+
+    it("marks an existing tab once and keeps its sub-state", () => {
+        const s0 = updateTab(withTabs(changes, file("a.ts", 3)), "changes", { selected: "b.ts" });
+        const s = addTab(addTab(s0, changes), changes);
+        expect(s.tabs[0]).toEqual({ kind: "changes", selected: "b.ts" });
+        expect(s.unseen).toEqual(["changes"]);
+    });
+
+    it("leaves the active tab unmarked", () => {
+        expect(addTab(withTabs(changes), changes).unseen).toEqual([]);
+    });
+
+    it("keeps a collapsed pane collapsed", () => {
+        const s = addTab(setCollapsed(withTabs(file("a.ts", 3)), true), changes);
+        expect(s.collapsed).toBe(true);
+        expect(paneShape(s)).toBe("strip");
+    });
+});
+
+describe("unseen", () => {
+    const marked = () => addTab(withTabs(file("a.ts", 3)), run("r1"));
+
+    it("clears when the tab is activated", () => {
+        expect(activateTab(marked(), "run:r1").unseen).toEqual([]);
+    });
+
+    it("clears when the tab is opened", () => {
+        expect(openTab(marked(), run("r1")).unseen).toEqual([]);
+    });
+
+    it("goes with its closed tab", () => {
+        expect(closeTab(marked(), "run:r1").unseen).toEqual([]);
     });
 });

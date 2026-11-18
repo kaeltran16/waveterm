@@ -8,6 +8,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
+import { applyArrivals, type Arrival } from "./autoopenmodel";
 import { isFinalStageId } from "./finalstage";
 import { canRender, effectiveViewMode, pickerFlipAtom, viewModeAtom } from "./renderedmode";
 import { isEndedWorkerId } from "./runlineage";
@@ -54,6 +55,12 @@ function apply(agentId: string, step: (s: WorkspaceState) => WorkspaceState): vo
 
 export function openWorkspaceTab(agentId: string, tab: WorkspaceTab): void {
     apply(agentId, (s) => openTab(s, tab));
+}
+
+// what auto-open brings at a turn's end (autoopenmodel.ts); returns the pane it leaves
+export function addArrivals(agentId: string, arrived: Arrival[]): WorkspaceState {
+    apply(agentId, (s) => applyArrivals(s, arrived));
+    return globalStore.get(stateAtom(agentId));
 }
 
 export function closeWorkspaceTab(agentId: string, key: string): void {

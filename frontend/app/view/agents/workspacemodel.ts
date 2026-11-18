@@ -16,9 +16,26 @@ export type WorkspaceTab =
     | { kind: "brainstorm" }
     | { kind: "canvas" };
 
-export type WorkspaceState = { tabs: WorkspaceTab[]; active: string | null; collapsed: boolean; expanded: boolean };
+// unseen: the keys of tabs that joined behind the active one and have not been shown since
+export type WorkspaceState = {
+    tabs: WorkspaceTab[];
+    active: string | null;
+    collapsed: boolean;
+    expanded: boolean;
+    unseen: string[];
+};
 
-export const EMPTY_WORKSPACE: WorkspaceState = { tabs: [], active: null, collapsed: false, expanded: false };
+export const EMPTY_WORKSPACE: WorkspaceState = {
+    tabs: [],
+    active: null,
+    collapsed: false,
+    expanded: false,
+    unseen: [],
+};
+
+function seen(state: WorkspaceState, key: string): string[] {
+    return state.unseen.includes(key) ? state.unseen.filter((k) => k !== key) : state.unseen;
+}
 
 export const DEFAULT_PANE_PX = 600;
 export const MIN_PANE_PX = 360;
@@ -54,7 +71,22 @@ export function openTab(state: WorkspaceState, tab: WorkspaceTab): WorkspaceStat
             : tab.kind === "file"
               ? state.tabs.map((t, i) => (i === at ? tab : t))
               : state.tabs;
-    return { ...state, tabs, active: key, collapsed: false };
+    return { ...state, tabs, active: key, collapsed: false, unseen: seen(state, key) };
+}
+
+// joins the pane without taking it over: behind the active tab, marked unseen, a collapsed pane left collapsed. With no
+// pane yet there is nothing to take over, so the tab opens it
+export function addTab(state: WorkspaceState, tab: WorkspaceTab): WorkspaceState {
+    if (state.tabs.length === 0) {
+        return openTab(state, tab);
+    }
+    const key = tabKey(tab);
+    if (state.active === key) {
+        return state;
+    }
+    const has = state.tabs.some((t) => tabKey(t) === key);
+    const unseen = state.unseen.includes(key) ? state.unseen : [...state.unseen, key];
+    return { ...state, tabs: has ? state.tabs : [...state.tabs, tab], unseen };
 }
 
 // closing the active tab activates its right neighbour, else its left; the pane goes with its last tab
@@ -68,14 +100,14 @@ export function closeTab(state: WorkspaceState, key: string): WorkspaceState {
         return EMPTY_WORKSPACE;
     }
     const active = state.active === key ? tabKey(tabs[Math.min(at, tabs.length - 1)]) : state.active;
-    return { ...state, tabs, active };
+    return { ...state, tabs, active, unseen: state.unseen.filter((k) => k !== key && k !== active) };
 }
 
 export function activateTab(state: WorkspaceState, key: string): WorkspaceState {
     if (state.active === key || !state.tabs.some((t) => tabKey(t) === key)) {
         return state;
     }
-    return { ...state, active: key };
+    return { ...state, active: key, unseen: seen(state, key) };
 }
 
 // a patch only changes a tab's sub-state: one that would change its kind or key is refused
