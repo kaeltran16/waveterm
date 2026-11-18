@@ -33,7 +33,8 @@ Bench dir: `~/arc-bench/plan-skill-2026-11-17`. Picks are pinned in `plan-skill-
 <bench>/results/blind.json             the unblinded verdicts, {pick: {first, second, winner}}
 ```
 
-`arcBuild` is the SHA-256 of the installed `wavesrv.x64.exe`; `start` refuses a different build.
+`arcBuild` is the SHA-256 of the installed `wavesrv.x64.exe`; `start` refuses a different build unless given
+`--accept-build "<why it is comparable>"`, which it records on the new rows as `arcBuildNote`.
 
 ## Mutation JSON
 

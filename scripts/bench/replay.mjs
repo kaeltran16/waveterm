@@ -2,7 +2,7 @@
 // orchestrator run per plan skill for a pinned pick, each in its own worktree of the main checkout at the pick's
 // base, with run:planskill flipped in the packaged app's settings only until the run records it.
 // Must run from an Arc terminal: wsh needs its RPC environment.
-// Usage: node scripts/bench/replay.mjs start --bench <dir> --pick <id> | status --bench <dir> | cleanup --bench <dir>
+// Usage: node scripts/bench/replay.mjs start --bench <dir> --pick <id> [--accept-build <reason>] | status --bench <dir> | cleanup --bench <dir>
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -114,7 +114,7 @@ function parseJson(text, what) {
     }
 }
 
-function startArm({ bench, pick, arm, main, specText, goal, build, settingsPath, run }) {
+function startArm({ bench, pick, arm, main, specText, goal, build, buildNote, settingsPath, run }) {
     const branch = `bench/${pick.id}-${arm}`;
     const worktree = join(bench, "wt", `${pick.id}-${arm}`);
     run("git", ["worktree", "add", "-b", branch, worktree, pick.base], main);
@@ -139,23 +139,31 @@ function startArm({ bench, pick, arm, main, specText, goal, build, settingsPath,
         }
         throw new Error(`run ${runId} recorded plan skill ${JSON.stringify(recorded)}, not the arm ${JSON.stringify(arm)}; ${cancelled}`);
     }
-    appendRow(bench, { pick: pick.id, arm, runId, base: pick.base, branch, worktree, spec: specFile, arcBuild: build, startedTs });
+    const row = { pick: pick.id, arm, runId, base: pick.base, branch, worktree, spec: specFile, arcBuild: build, startedTs };
+    appendRow(bench, buildNote ? { ...row, arcBuildNote: buildNote } : row);
     return runId;
 }
 
-export function start({ bench, pickId, picks = loadPicks(), main, settingsPath = SETTINGS_PATH, wavesrvPath = WAVESRV_PATH, run = sh }) {
+// acceptBuild: why a different build is still comparable (e.g. a reinstall with no backend or skill change);
+// recorded on each new row so the bench keeps the reason beside the hash
+export function start({ bench, pickId, picks = loadPicks(), main, settingsPath = SETTINGS_PATH, wavesrvPath = WAVESRV_PATH, run = sh, acceptBuild }) {
     const pick = findPick(picks, pickId);
     const build = arcBuild(wavesrvPath);
     const first = readRows(bench)[0];
-    if (first && first.arcBuild !== build) {
-        throw new Error(`installed Arc build ${build} (${wavesrvPath}) differs from the first run's ${first.arcBuild}; the bench compares one build`);
+    const differs = first && first.arcBuild !== build;
+    if (differs && !acceptBuild) {
+        throw new Error(
+            `installed Arc build ${build} (${wavesrvPath}) differs from the first run's ${first.arcBuild}; the bench compares one build ` +
+                `(pass --accept-build "<why it is comparable>" to proceed)`
+        );
     }
+    const buildNote = differs ? `accepted over ${first.arcBuild}: ${acceptBuild}` : undefined;
     mkdirSync(join(bench, "specs"), { recursive: true });
     const specText = run("git", ["show", `${pick.specCommit}:${pick.specPath}`], main);
     // the judges' copy; each run gets its own inside its worktree
     writeFileSync(join(bench, "specs", `${pick.id}.md`), specText);
     const goal = replayGoal(specTitle(specText, pick.id), pick.base);
-    return ARMS.map((arm) => startArm({ bench, pick, arm, main, specText, goal, build, settingsPath, run }));
+    return ARMS.map((arm) => startArm({ bench, pick, arm, main, specText, goal, build, buildNote, settingsPath, run }));
 }
 
 export function status({ bench, run = sh }) {
@@ -194,16 +202,22 @@ function mainCheckout() {
 }
 
 function runCli(argv) {
-    const { positionals, values } = parseArgs({ args: argv, allowPositionals: true, options: { bench: { type: "string" }, pick: { type: "string" } } });
+    const { positionals, values } = parseArgs({
+        args: argv,
+        allowPositionals: true,
+        options: { bench: { type: "string" }, pick: { type: "string" }, "accept-build": { type: "string" } },
+    });
     const [cmd] = positionals;
     if (!values.bench || !["start", "status", "cleanup"].includes(cmd) || (cmd === "start" && !values.pick)) {
-        console.error("usage: node scripts/bench/replay.mjs start --bench <dir> --pick <id> | status --bench <dir> | cleanup --bench <dir>");
+        console.error(
+            "usage: node scripts/bench/replay.mjs start --bench <dir> --pick <id> [--accept-build <reason>] | status --bench <dir> | cleanup --bench <dir>"
+        );
         process.exitCode = 2;
         return;
     }
     const bench = resolve(values.bench);
     if (cmd === "start") {
-        const ids = start({ bench, pickId: values.pick, main: mainCheckout() });
+        const ids = start({ bench, pickId: values.pick, main: mainCheckout(), acceptBuild: values["accept-build"] });
         console.log(`started ${ids.map((id, i) => `${ARMS[i]} ${id}`).join(", ")}`);
     } else if (cmd === "status") {
         for (const line of status({ bench })) console.log(line);

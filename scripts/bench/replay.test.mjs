@@ -208,6 +208,18 @@ describe("start", () => {
         expect(procs.calls).toEqual([]);
     });
 
+    it("starts on a different build when accepted, recording the new hash and the reason on each new row", () => {
+        const procs = fakeProcs();
+        const { bench, opts } = setup(procs);
+        mkdirSync(bench, { recursive: true });
+        writeFileSync(join(bench, "runs.json"), JSON.stringify([{ pick: "pwa", arm: "plan", arcBuild: "aaaa" }]));
+        start({ ...opts, acceptBuild: "frontend-only reinstall" });
+        const rows = readJson(join(bench, "runs.json"));
+        expect(rows[0]).toEqual({ pick: "pwa", arm: "plan", arcBuild: "aaaa" });
+        expect(rows.slice(1).map((r) => [r.arm, r.arcBuild])).toEqual(ARMS.map((a) => [a, FIXTURE_SHA]));
+        for (const r of rows.slice(1)) expect(r.arcBuildNote).toMatch(/aaaa[\s\S]*frontend-only reinstall/);
+    });
+
     it("refuses an unknown pick before any worktree", () => {
         const procs = fakeProcs();
         const { bench, opts } = setup(procs);
