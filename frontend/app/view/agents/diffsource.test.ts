@@ -66,6 +66,12 @@ describe("run beats project beats agent", () => {
         expect(focusFollowAgent(agentScope("a1"), "a1", agents)).toBeNull();
     });
 
+    // the follow scope opens on the range the agent's runtime decides, so the runtime rides along
+    it("hands back the followed agent's runtime", () => {
+        const roster = [...agents, { id: "p1", name: "pi-worker", agent: "pi" }];
+        expect(focusFollowAgent(agentScope("a1"), "p1", roster)).toEqual({ id: "p1", name: "pi-worker", agent: "pi" });
+    });
+
     it("follows focus from one agent to another", () => {
         expect(focusFollowAgent(agentScope("a1"), "a2", agents)).toEqual({ id: "a2", name: "diff-parity" });
     });

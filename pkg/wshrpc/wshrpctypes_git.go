@@ -25,6 +25,7 @@ type GitCommands interface {
 	GitPushCommand(ctx context.Context, data CommandGitPushData) (*CommandGitPushRtnData, error)
 	GitBlameCommand(ctx context.Context, data CommandGitBlameData) (*CommandGitBlameRtnData, error)
 	GitPatchCommand(ctx context.Context, data CommandGitPatchData) (*CommandGitPatchRtnData, error)
+	GitAgentEditsCommand(ctx context.Context, data CommandGitAgentEditsData) (*CommandGitAgentEditsRtnData, error)
 }
 
 type CommandGitHistoryData struct {
@@ -243,4 +244,24 @@ type CommandGitPatchRtnData struct {
 	Patch     string `json:"patch"`
 	IsRepo    bool   `json:"isrepo"`
 	Truncated bool   `json:"truncated,omitempty"`
+}
+
+type CommandGitAgentEditsData struct {
+	Cwd            string `json:"cwd"`
+	TranscriptPath string `json:"transcriptpath"`
+}
+
+type GitAgentEditFile struct {
+	Path string `json:"path"`           // cwd-relative, forward slashes
+	Flag string `json:"flag,omitempty"` // "" | "approximate" | "outside"
+}
+
+// Base and End are synthetic commits (B and H) rebuilt from the agent's transcript, so the Diff surface
+// can compare them like any two refs. An empty Base means there is nothing to show and Reason says why.
+type CommandGitAgentEditsRtnData struct {
+	Base      string             `json:"base"`
+	End       string             `json:"end"`
+	Files     []GitAgentEditFile `json:"files"`
+	BashCalls int                `json:"bashcalls"`
+	Reason    string             `json:"reason,omitempty"`
 }

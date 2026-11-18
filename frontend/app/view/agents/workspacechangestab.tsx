@@ -200,7 +200,7 @@ export function ChangesTab({
                 <button
                     type="button"
                     data-workspace-open-diff
-                    onClick={() => openDiff(model, agentDiffScope(agent.id, agent.name))}
+                    onClick={() => openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent))}
                     className={cn(barBtn, "gap-[3px] px-[6px] text-[11px] font-semibold text-accent-soft")}
                 >
                     Open on Diff

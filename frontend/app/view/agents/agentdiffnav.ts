@@ -16,8 +16,9 @@ import { requestFileLink } from "./filesstore";
 import { HISTORY_RPC_TIMEOUT_MS } from "./historyquery";
 import { runTree } from "./runmodel";
 
-export function agentDiffScope(agentId: string, label: string): DiffScope {
-    const origin: DiffOrigin = { kind: "agent", id: agentId };
+// runtime is the AgentVM's `agent` field; it decides whether the scope opens on the agent's edits
+export function agentDiffScope(agentId: string, label: string, runtime?: string): DiffScope {
+    const origin: DiffOrigin = { kind: "agent", id: agentId, runtime };
     return { repo: { origin, label }, range: defaultRangeFor(origin) };
 }
 

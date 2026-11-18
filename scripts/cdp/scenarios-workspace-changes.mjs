@@ -19,6 +19,8 @@ import {
     restoreDefaultView,
     restoreRoster,
     setRoster,
+    toolResult,
+    toolUse,
     userText,
     writeTranscript,
 } from "./agent-page-fixtures.mjs";
@@ -291,11 +293,23 @@ export const workspaceChanges = {
             ctx.edited = edited;
             const transcripts = join(ctx.dir, "transcripts");
             mkdirSync(transcripts);
-            const path = (n, cwd) =>
+            const path = (n, cwd, calls = []) =>
                 writeTranscript(transcripts, `changes-${n}-${tag}`, [
                     userText(`Tidy the ${n} notes.`, { cwd }),
+                    ...calls,
                     assistantText(`The ${n} notes are tidy.`, { cwd }),
                 ]);
+            // A's own Edit calls make its README and groups.go edits, so Diff's Agent's edits range (a claude agent's
+            // default) lists both files when Open on Diff lands there
+            const edit = (id, file, old_string, new_string) => [
+                toolUse(id, "Edit", { file_path: join(edited, file), old_string, new_string }, { cwd: edited }),
+                toolResult(id, "ok", { cwd: edited }),
+            ];
+            const aCalls = [
+                ...edit("tu-readme", README, "readme line 5", "readme line 5, edited"),
+                ...edit("tu-groups", GROUPS, `\tk := "${OLD_MARK}"`, `\tk := "${NEW_FIRST}"\n\tk = "${NEW_MARK}"`),
+                ...edit("tu-later", GROUPS, '\treturn "later before"', '\treturn "later after"'),
+            ];
             await h.goto("agent");
             ctx.prev = await page(
                 h,
@@ -307,7 +321,7 @@ export const workspaceChanges = {
             const b = await makeTab(h, ctx, { label: `changes-b-${tag}`, blockMeta: { view: "term", controller: null, "cmd:cwd": clean } });
             Object.assign(ctx, { aId: a.tabId, bId: b.tabId, aBlockId: a.blockId });
             ctx.roster = [
-                rosterAgent(a.tabId, a.blockId, `changes-a-${tag}`, path("edited", edited)),
+                rosterAgent(a.tabId, a.blockId, `changes-a-${tag}`, path("edited", edited, aCalls)),
                 rosterAgent(b.tabId, b.blockId, `changes-b-${tag}`, path("clean", clean)),
             ];
             await arrangeAgentA(h, ctx);

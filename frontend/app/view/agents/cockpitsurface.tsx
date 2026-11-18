@@ -385,7 +385,8 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     };
 
     const openAgentDiff = (id: string) => {
-        openDiff(model, agentDiffScope(id, agents.find((a) => a.id === id)?.name ?? id));
+        const a = agents.find((x) => x.id === id);
+        openDiff(model, agentDiffScope(id, a?.name ?? id, a?.agent));
     };
 
     const onKeyDown = useCockpitKeyboard({

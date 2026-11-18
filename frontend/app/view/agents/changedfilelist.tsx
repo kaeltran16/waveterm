@@ -8,7 +8,8 @@
 // for status colour, path truncation and the selected tint.
 
 import { DrawCheck } from "@/app/element/drawcheck";
-import { barFillClass } from "@/app/element/motiontokens";
+import { useChangeFlash } from "@/app/element/motionhooks";
+import { barFillClass, changeFlashClass } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { SkeletonLine, SkeletonRows } from "@/app/element/skeleton";
 import { TickNumber } from "@/app/element/ticknumber";
@@ -18,6 +19,7 @@ import { useAtomValue } from "jotai";
 import { Check, ChevronDown, ChevronRight, MessageSquare, RotateCw } from "lucide-react";
 import { useMemo, type ReactNode } from "react";
 import { activeCommentSourceAtom, commentStoreAtom, countsByPath } from "./diffcomments";
+import type { EditFlag } from "./filesstore";
 import { buildFileTree, collapsedDirsAtom, treeModeAtom, type FileTreeRow } from "./filetree";
 import { statusColor, type GitChange, type GitChanges } from "./gitstatus";
 import {
@@ -103,6 +105,42 @@ function reviewTitle(state: ReviewState, name: string): string {
     return state === "stale" ? `Changed since you reviewed it. Mark ${name} reviewed` : `Mark ${name} reviewed`;
 }
 
+// The edits range's caveat on a file: what the list shows for it is not exactly the agent's own edits.
+const EDIT_FLAG_MARK: Record<EditFlag, { label: string; title: string; className: string }> = {
+    approximate: {
+        label: "approximate",
+        title: "No backup of this file before the agent's first edit: measured from the session-start commit, so other changes since then show too",
+        className: "border-edge-mid bg-surface-raised text-muted",
+    },
+    outside: {
+        label: "outside",
+        title: "Changed outside this agent between its edits: shown as the file is now",
+        className: "border-warning/25 bg-warning/12 text-warning",
+    },
+};
+
+function EditFlagMark({ flag }: { flag: EditFlag | undefined }) {
+    // a poll that finds an outside change marks a row already on screen, which washes once
+    const flashing = useChangeFlash(flag ?? "");
+    if (flag == null) {
+        return null;
+    }
+    const mark = EDIT_FLAG_MARK[flag];
+    return (
+        <span
+            data-edit-flag={flag}
+            title={mark.title}
+            className={cn(
+                "flex-none rounded-[4px] border px-[5px] py-[1px] font-mono text-[10px] font-semibold",
+                mark.className,
+                flashing && changeFlashClass
+            )}
+        >
+            {mark.label}
+        </span>
+    );
+}
+
 function FileRow({
     change,
     label,
@@ -110,6 +148,7 @@ function FileRow({
     selected,
     review,
     comments,
+    flag,
     lineCounts,
     onSelect,
     onToggle,
@@ -118,6 +157,8 @@ function FileRow({
     label: string;
     depth: number;
     selected: boolean;
+    // the edits range's caveat on this file; absent everywhere else
+    flag?: EditFlag;
     lineCounts: boolean;
     // pending comments on this path, lost ones included
     comments: number;
@@ -159,6 +200,7 @@ function FileRow({
                 >
                     {label}
                 </span>
+                <EditFlagMark flag={flag} />
                 {comments > 0 ? (
                     <span
                         data-changed-file-comments={comments}
@@ -358,12 +400,15 @@ export function ChangedFileList({
     failure = null,
     onRetry,
     lineCounts = true,
+    flags,
 }: {
     changes: GitChanges | null;
     selectedFile: string | null;
     onSelectFile: (path: string) => void;
     // the list's review subject; null draws no checks
     review: ReviewSubject | null;
+    // the edits range's per-file caveats, by path
+    flags?: Record<string, EditFlag>;
     // the list's read failed; only shown while there is no list
     failure?: string | null;
     onRetry?: () => void;
@@ -400,6 +445,7 @@ export function ChangedFileList({
             selected={change.path === selectedFile}
             review={review != null ? markState(subjectMarks, change) : null}
             comments={commentCounts[change.path] ?? 0}
+            flag={flags?.[change.path]}
             lineCounts={lineCounts}
             onSelect={() => onSelectFile(change.path)}
             onToggle={() => review != null && toggleReviewed(review, change)}

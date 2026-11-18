@@ -247,7 +247,7 @@ function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: Ag
     // A path is only worth linking when the rail resolved a working directory to resolve it against.
     const openFileDiff = (path?: string) => {
         globalStore.set(model.focusIdAtom, agent.id);
-        openDiff(model, agentDiffScope(agent.id, agent.name), railState?.cwd && path ? path : undefined);
+        openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent), railState?.cwd && path ? path : undefined);
     };
     const drive = (data: string) => driveAgent(agent.blockId, data);
 

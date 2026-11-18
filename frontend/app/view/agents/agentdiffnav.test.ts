@@ -25,6 +25,17 @@ import { HISTORY_RPC_TIMEOUT_MS } from "./historyquery";
 const surfaceAtom = atom("cockpit");
 const model = { diffScopeAtom, surfaceAtom } as any;
 
+describe("agentDiffScope", () => {
+    it("carries the agent's runtime, which decides the range it opens on", () => {
+        expect(agentDiffScope("a1", "x", "claude")).toEqual({
+            repo: { origin: { kind: "agent", id: "a1", runtime: "claude" }, label: "x" },
+            range: { kind: "edits", agentId: "a1" },
+        });
+        expect(agentDiffScope("a1", "x").range).toEqual({ kind: "edits", agentId: "a1" });
+        expect(agentDiffScope("a1", "x", "pi").range).toEqual({ kind: "session", agentId: "a1" });
+    });
+});
+
 describe("openDiff", () => {
     it("stores the scope and switches to the Diff surface", () => {
         const scope = agentDiffScope("a1", "jarvis-recall");
@@ -48,13 +59,13 @@ describe("openDiff", () => {
         expect(requestFileLink).not.toHaveBeenCalled();
     });
 
-    it("opens a run on the run range and an agent on its session range", () => {
+    it("opens a run on the run range and a pi agent on its session range", () => {
         expect(runDiffScope("r1", "/repo", "9f2c1de").range).toEqual({
             kind: "run",
             runId: "r1",
             baseCommit: "9f2c1de",
         });
-        expect(agentDiffScope("a1", "n").range).toEqual({ kind: "session", agentId: "a1" });
+        expect(agentDiffScope("a1", "n", "pi").range).toEqual({ kind: "session", agentId: "a1" });
     });
 
     it("carries the run's directory and base commit, which exist nowhere else to be re-resolved", () => {

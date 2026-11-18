@@ -17,6 +17,8 @@ export type FilesSource = { kind: "agent"; id: string } | { kind: "project"; nam
 export interface SourceAgent {
     id: string;
     name: string;
+    // the runtime, which decides the range a followed agent opens on (agentDiffScope)
+    agent?: string;
 }
 
 // What the source picker should call current. Null means nothing claims to be the source, which is
