@@ -9,7 +9,15 @@ import type { AgentVM } from "./agentsviewmodel";
 import { attachBrainstorm, detachBrainstorm, getBrainstorm, openBrainstormBoard } from "./brainstormstore";
 import { canvasHandoffLine, type Mark } from "./canvasmarks";
 import { sendCanvasMark, type SendIO } from "./canvassend";
-import { attachCanvas, detachCanvas, getCanvas, markFromTranscript, setCanvasMode, updateCanvas } from "./canvasstore";
+import {
+    attachCanvas,
+    canvasWindowAtom,
+    detachCanvas,
+    getCanvas,
+    markFromTranscript,
+    setCanvasMode,
+    updateCanvas,
+} from "./canvasstore";
 import { viewModeAtom } from "./renderedmode";
 import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "./workspacestore";
 
@@ -145,6 +153,40 @@ describe("sendCanvasMark", () => {
             expect(getBrainstorm("a1")).toMatchObject({ mode: "terminal", board: "States.dc.html" });
             expect(getCanvas("a1")!.marking).toBe(false);
         });
+    });
+
+    describe("with the canvas window open", () => {
+        beforeEach(() => globalStore.set(canvasWindowAtom, "a1"));
+
+        it("captures the window's board, not the one in the pane behind it", async () => {
+            const asked: boolean[] = [];
+            const io = fakeIO({
+                boardRect: (inWindow) => {
+                    asked.push(inWindow);
+                    return { left: 0, top: 0, width: 100, height: 100 };
+                },
+            });
+            await sendCanvasMark(TERMINAL, AGENT, io);
+            expect(asked).toEqual([true]);
+        });
+
+        it("a sent mark leaves the window open with marking off", async () => {
+            await sendCanvasMark(TERMINAL, AGENT, fakeIO());
+            expect(globalStore.get(canvasWindowAtom)).toBe("a1");
+            expect(getCanvas("a1")).toMatchObject({ mode: "canvas", marking: false, mark: null });
+        });
+    });
+
+    it("captures the pane's board while no window is open", async () => {
+        const asked: boolean[] = [];
+        const io = fakeIO({
+            boardRect: (inWindow) => {
+                asked.push(inWindow);
+                return { left: 0, top: 0, width: 100, height: 100 };
+            },
+        });
+        await sendCanvasMark(TERMINAL, AGENT, io);
+        expect(asked).toEqual([false]);
     });
 
     it("a failed send from the transcript stays in the pane with the mark", async () => {

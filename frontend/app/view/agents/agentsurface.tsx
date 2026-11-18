@@ -36,6 +36,7 @@ import { BrainstormPane } from "./brainstormpane";
 import { brainstormAtom } from "./brainstormstore";
 import { CanvasPane } from "./canvaspane";
 import { useCanvasPoller } from "./canvaspoller";
+import { CanvasWindow } from "./canvaswindow";
 import { rosterLoadPhase } from "./cockpitsurfacemodel";
 import { autoOpenedAskIdsAtom, docReviewAtom, shouldAutoOpen } from "./docreview";
 import { EndedTranscript } from "./endedtranscript";
@@ -313,6 +314,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                 {!fullscreen && !paneMode && !inRendered && agent.kind !== "terminal" ? (
                     <AgentDetailsRail model={model} agent={agent} />
                 ) : null}
+                <CanvasWindow model={model} />
             </div>
         </MotionConfig>
     );

@@ -20,7 +20,7 @@ import { openTarget } from "@/app/view/jarvis/openref";
 import { formatChordString } from "@/util/keysym";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { SquareDashed } from "lucide-react";
+import { SquareDashed, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import {
     useEffect,
@@ -63,6 +63,7 @@ import {
     setMarking,
     type CanvasState,
 } from "./canvasstore";
+import { windowGridLayout } from "./canvaswindowmodel";
 import { routeDesign, tauriDesignAttach } from "./designroute";
 import { NOTE_CARD, NoteCardBody } from "./docreviewnotesview";
 
@@ -112,7 +113,8 @@ async function openBuildRun(model: AgentsViewModel, agent: AgentVM, s: CanvasSta
 
 // onBack: shown inside a brainstorm, which owns the way back (backLabel says where to) and the run launch. tabLabels
 // names a board's tab in place of its plain label, as a brainstorm's open question letters its answers' boards;
-// boardActions draws a row under the toolbar for the one board shown, never under All or while marking
+// boardActions draws a row under the toolbar for the one board shown, never under All or while marking. onClose makes it
+// the canvas window (canvaswindow.tsx): a Close button, the marking hint in the header, and All in rows of 3
 export function CanvasPane({
     model,
     agent,
@@ -120,6 +122,7 @@ export function CanvasPane({
     backLabel,
     tabLabels,
     boardActions,
+    onClose,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
@@ -127,6 +130,7 @@ export function CanvasPane({
     backLabel?: string;
     tabLabels?: Record<string, string>;
     boardActions?: (board: string) => ReactNode;
+    onClose?: () => void;
 }) {
     const s = useAtomValue(canvasStateAtom(agent.id));
     const now = useAtomValue(model.nowAtom);
@@ -159,7 +163,12 @@ export function CanvasPane({
     }
     const pane = paneState(s);
     const board = shownBoard(s);
-    const layout = canvasLayout(shownBoards(s), rect?.width ?? 0);
+    const inWindow = onClose != null;
+    const shownList = shownBoards(s);
+    const layout =
+        inWindow && shownList.length > 1
+            ? windowGridLayout(shownList, rect?.width ?? 0)
+            : canvasLayout(shownList, rect?.width ?? 0);
     layoutRef.current = layout;
     const scale = layout.scale;
     const marking = s.marking && pane === "board";
@@ -170,7 +179,12 @@ export function CanvasPane({
         <div data-canvas-pane className="flex min-h-0 flex-1 flex-col">
             {/* wraps in a narrow pane (the workspace's Canvas tab): unwrapped, the board tabs shrank to nothing and
                 keeping the picked one in view scrolled the whole pane sideways */}
-            <div className="flex flex-none flex-wrap items-center gap-x-[10px] gap-y-[8px] border-b border-edge-faint bg-surface px-[22px] py-[8px]">
+            <div
+                className={cn(
+                    "flex flex-none flex-wrap items-center gap-x-[10px] gap-y-[8px] border-b border-edge-faint bg-surface py-[8px] pl-[22px]",
+                    inWindow ? "pr-[10px]" : "pr-[22px]"
+                )}
+            >
                 {onBack != null ? (
                     <button type="button" onClick={onBack} className={CANVAS_BTN}>
                         {backLabel}
@@ -203,8 +217,13 @@ export function CanvasPane({
                     </div>
                 ) : null}
                 <div className="flex-1" />
-                {pane === "board" ? (
+                {pane === "board" && !(inWindow && marking) ? (
                     <span className="flex-none whitespace-nowrap font-mono text-[10.5px] text-muted">{meta}</span>
+                ) : null}
+                {inWindow && marking && s.mark == null ? (
+                    <span className="flex-none whitespace-nowrap text-[12px] text-secondary">
+                        Click the part of the board that should change
+                    </span>
                 ) : null}
                 <button
                     type="button"
@@ -236,13 +255,28 @@ export function CanvasPane({
                         {s.boards.length > 0 && onBack == null ? (
                             <button
                                 type="button"
-                                onClick={() => void openBuildRun(model, agent, s)}
+                                onClick={() => {
+                                    // the launcher opens over the surface, so the window makes way for it
+                                    onClose?.();
+                                    void openBuildRun(model, agent, s);
+                                }}
                                 className={CANVAS_BTN}
                             >
                                 Build this…
                             </button>
                         ) : null}
                     </div>
+                ) : null}
+                {inWindow ? (
+                    <button
+                        type="button"
+                        aria-label="Close"
+                        title="Close (Esc)"
+                        onClick={onClose}
+                        className="flex size-[28px] flex-none cursor-pointer items-center justify-center rounded-[7px] text-muted hover:bg-surface-hover hover:text-primary"
+                    >
+                        <X size={15} strokeWidth={2} aria-hidden />
+                    </button>
                 ) : null}
             </div>
             <PaneReveal
@@ -287,7 +321,7 @@ export function CanvasPane({
                                         onSelect={() => selectCanvasBoard(agent.id, f.board.name)}
                                     >
                                         {marking && f.board.name === board.name ? (
-                                            <MarkLayer agentId={agent.id} mark={s.mark} />
+                                            <MarkLayer agentId={agent.id} mark={s.mark} hint={!inWindow} />
                                         ) : null}
                                     </BoardFrameView>
                                 ))}
@@ -447,8 +481,8 @@ function BoardFrameView({
 }
 
 // Arc DOM over the iframe, so the iframe can't take the pointer or focus while marking, and the window capture
-// includes the box
-function MarkLayer({ agentId, mark }: { agentId: string; mark: Mark | null }) {
+// includes the box. hint: the in-board prompt, which the canvas window's header carries instead
+function MarkLayer({ agentId, mark, hint }: { agentId: string; mark: Mark | null; hint: boolean }) {
     const [draft, setDraft] = useState<Box | null>(null);
     // the box keeps its place while it leaves, after the mark itself is gone
     const lastMark = useRef(mark);
@@ -489,7 +523,7 @@ function MarkLayer({ agentId, mark }: { agentId: string; mark: Mark | null }) {
             onPointerCancel={() => setDraft(null)}
             className="absolute inset-0 cursor-crosshair select-none rounded-[8px] outline outline-2 -outline-offset-1 outline-accent"
         >
-            {mark == null && draft == null ? (
+            {hint && mark == null && draft == null ? (
                 <div className="pointer-events-none absolute left-1/2 top-[64px] -translate-x-1/2 rounded-full bg-accentbg px-[12px] py-[5px] text-[12.5px] font-semibold text-accent-soft">
                     Drag a box around what you want changed
                 </div>

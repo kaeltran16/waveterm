@@ -39,7 +39,7 @@ import {
     toggleReviewRow,
 } from "@/app/view/agents/brainstormstore";
 import { paneState } from "@/app/view/agents/canvasmodel";
-import { focusedCanvas, setMarking, stepCanvasBoard } from "@/app/view/agents/canvasstore";
+import { canvasWindowAtom, focusedCanvas, getCanvas, setMarking, stepCanvasBoard } from "@/app/view/agents/canvasstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sendPendingComments } from "@/app/view/agents/commentsend";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
@@ -2270,6 +2270,42 @@ export function buildFinalShotsBindings(handlers: {
         bind("zoom", "z", "Fit / actual size", handlers.zoom),
         bind("steps", "s", "Show or hide the steps", handlers.steps),
         bind("close", "Escape", "Close the viewer", handlers.close),
+    ];
+}
+
+// The canvas window's keys, registered by the window while it is mounted. Gated on its atom: that atom is what makes
+// modalOpen true on the Agent surface, which stands the agent's own canvas keys down under it. A focused field (the
+// mark's note) keeps its keys, Esc included. escape is the window's one Esc handler, which ModalShell's onClose calls too
+export function buildCanvasWindowBindings(escape: () => void): Binding[] {
+    const id = () => globalStore.get(canvasWindowAtom);
+    // the open window's canvas, while its keys are its own
+    const shown = (ctx: KeyContext) =>
+        ctx.surface === "agent" && ctx.modalOpen && !ctx.editable && id() != null ? getCanvas(id()!) : null;
+    const ready = (ctx: KeyContext) => {
+        const s = shown(ctx);
+        return s != null && !s.marking && paneState(s) === "board";
+    };
+    const bind = (name: string, keys: string, label: string, when: Binding["when"], run: () => void): Binding => ({
+        id: `canvas-window:${name}`,
+        keys,
+        group: "Canvas window",
+        label,
+        when,
+        paletteHidden: true,
+        run,
+    });
+    return [
+        bind("escape", "Escape", "Drop the drawn mark, else close the window", (ctx) => shown(ctx) != null, escape),
+        bind("mark-start", "m", "Mark part of the board", ready, () => setMarking(id()!, true)),
+        bind(
+            "mark-stop",
+            "m",
+            "Stop marking",
+            (ctx) => shown(ctx)?.marking === true,
+            () => setMarking(id()!, false)
+        ),
+        bind("prev", "[", "Previous board", ready, () => stepCanvasBoard(id()!, -1)),
+        bind("next", "]", "Next board", ready, () => stepCanvasBoard(id()!, 1)),
     ];
 }
 

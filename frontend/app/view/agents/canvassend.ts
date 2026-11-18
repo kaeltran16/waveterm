@@ -21,7 +21,7 @@ import {
     type DOMRectLike,
 } from "./canvasmarks";
 import { canvasFeedbackDir, canvasFeedbackFile, shownBoard } from "./canvasmodel";
-import { getCanvas, setMarking } from "./canvasstore";
+import { canvasWindowAtom, getCanvas, setMarking } from "./canvasstore";
 import { tauriFileIO, type FileIO } from "./fileio";
 import { viewModeAtom } from "./renderedmode";
 import { rendersNow } from "./workspacestore";
@@ -29,7 +29,8 @@ import { rendersNow } from "./workspacestore";
 export type SendIO = FileIO & {
     capture(): Promise<Blob>;
     crop(png: Blob, rect: DOMRectLike): Promise<Blob>;
-    boardRect(): DOMRectLike | null;
+    // inWindow: the canvas window is open, and its board, not the one in the pane behind it, is the marked one
+    boardRect(inWindow: boolean): DOMRectLike | null;
     prompt(blockId: string, text: string): Promise<void>;
 };
 
@@ -64,9 +65,10 @@ export const tauriSendIO: SendIO = {
             bitmap.close();
         }
     },
-    boardRect() {
-        const board = document.querySelector("[data-canvas-board]")?.getBoundingClientRect();
-        const pane = document.querySelector("[data-canvas-scroll]")?.getBoundingClientRect();
+    boardRect(inWindow) {
+        const root = inWindow ? document.querySelector("[data-canvas-window]") : document;
+        const board = root?.querySelector("[data-canvas-board]")?.getBoundingClientRect();
+        const pane = root?.querySelector("[data-canvas-scroll]")?.getBoundingClientRect();
         return board == null || pane == null ? null : visibleRect(board, pane);
     },
     async prompt(blockId, text) {
@@ -82,7 +84,8 @@ export async function sendCanvasMark(model: AgentsViewModel, agent: AgentVM, io:
     if (!agent.blockId) {
         throw new Error("This agent has no session to send to");
     }
-    const rect = io.boardRect();
+    const inWindow = globalStore.get(canvasWindowAtom) === agent.id;
+    const rect = io.boardRect(inWindow);
     if (rect == null) {
         throw new Error("The board isn't on screen");
     }
@@ -97,8 +100,8 @@ export async function sendCanvasMark(model: AgentsViewModel, agent: AgentVM, io:
     });
     const line = canvasHandoffLine(feedbackRelPath(s.topic, name), shownBoard(s).name, s.mark);
     await step(`Couldn't send to ${agent.name}`, () => io.prompt(agent.blockId!, line));
-    // in Rendered the tab stays: the transcript the reply lands in is already beside it
-    if (rendersNow(model, agent.id)) {
+    // in Rendered the tab stays: the transcript the reply lands in is already beside it. The window stays too
+    if (inWindow || rendersNow(model, agent.id)) {
         setMarking(agent.id, false);
         return;
     }

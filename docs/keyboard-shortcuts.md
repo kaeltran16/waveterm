@@ -165,6 +165,14 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `m` | Mark part of the board; in mark mode, stop marking |
 | `Enter` / `Esc` | In the note under a drawn box: send the mark to the agent / drop it |
 
+The canvas window opens over the Rendered view on one board, or on every board with All laid out in rows of 3. While it is open the agent and surface keys stand down under it, and these are its keys:
+
+| Keys | Action |
+|---|---|
+| `[` / `]` | Previous / next board, All included |
+| `m` | Mark part of the board; in mark mode, stop marking |
+| `Esc` | Drop the drawn mark; with none drawn, close the window. In the mark's note, `Esc` drops the mark only |
+
 ### Agent: brainstorm mode
 
 `b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In Rendered the brainstorm is the workspace pane's Brainstorm tab beside the transcript: `b` and `Ctrl`+`Shift`+`B` open and close the tab, the keys below work while it is the shown tab, and the transcript's keys stay. In brainstorm mode (Terminal), `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area, and `↓` / `↑` stand down there (`←` / `→` and `Ctrl`+`Tab` still move between agents).
