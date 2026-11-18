@@ -19,6 +19,7 @@ import {
     toggleCollapsed,
     updateTab,
     waitingOnYou,
+    type RunGraphState,
     type WorkspaceState,
     type WorkspaceTab,
 } from "./workspacemodel";
@@ -64,6 +65,13 @@ describe("openTab", () => {
         const s0 = updateTab(withTabs(run("r1")), "run:r1", { view: "graph" });
         const s = openTab(s0, run("r1"));
         expect(s.tabs[0]).toEqual({ kind: "run", runId: "r1", view: "graph" });
+    });
+
+    it("keeps a reopened Run tab's graph state, which survives a swap to another view and back", () => {
+        const graph: RunGraphState = { mode: "focus", focus: "t-3", trail: ["t-7"] };
+        const s0 = updateTab(withTabs(run("r1")), "run:r1", { view: "graph", graph });
+        const swapped = updateTab(updateTab(s0, "run:r1", { view: "activity" }), "run:r1", { view: "graph" });
+        expect(openTab(swapped, run("r1")).tabs[0]).toEqual({ kind: "run", runId: "r1", view: "graph", graph });
     });
 
     it("keeps a reopened Changes tab's selection", () => {

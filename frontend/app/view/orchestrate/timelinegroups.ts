@@ -167,12 +167,13 @@ export function filterGroups(
 
 export type RailRow = { kind: "gap"; minutes: number } | { kind: "group"; group: EventGroup };
 
-// groups arrive newest first, so the quiet stretch is the newer group's start minus the older one's end
-export function railRows(groups: EventGroup[]): RailRow[] {
+// groups arrive newest first, so the quiet stretch is the newer group's start minus the older one's end. The Run tab
+// passes a shorter quietMs: its canvas marks the plan review's 3m wait, which the modal's rail leaves unmarked.
+export function railRows(groups: EventGroup[], quietMs = QUIET_MS): RailRow[] {
     const rows: RailRow[] = [];
     groups.forEach((group, i) => {
         const prev = groups[i - 1];
-        if (prev && prev.first - group.last >= QUIET_MS) {
+        if (prev && prev.first - group.last >= quietMs) {
             rows.push({ kind: "gap", minutes: Math.round((prev.first - group.last) / 60_000) });
         }
         rows.push({ kind: "group", group });

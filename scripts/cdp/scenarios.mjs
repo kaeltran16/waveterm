@@ -58,6 +58,8 @@ import { workspacePane, workspacePaneCanvas } from "./scenarios-workspace-pane.m
 import { workspaceHeader } from "./scenarios-workspace-header.mjs";
 import { workspaceRing } from "./scenarios-workspace-ring.mjs";
 import { workspaceRun } from "./scenarios-workspace-run.mjs";
+import { workspaceRunActivity } from "./scenarios-workspace-run-activity.mjs";
+import { workspaceRunGraph } from "./scenarios-workspace-run-graph.mjs";
 import { workspaceChanges } from "./scenarios-workspace-changes.mjs";
 import { workspaceFile } from "./scenarios-workspace-file.mjs";
 import { workspaceBrainstormCanvas } from "./scenarios-workspace-brainstorm-canvas.mjs";
@@ -377,6 +379,8 @@ export const SCENARIOS = [
     workspaceHeader,
     workspaceRing,
     workspaceRun,
+    workspaceRunActivity,
+    workspaceRunGraph,
     workspaceChanges,
     workspaceFile,
     workspaceBrainstormCanvas,

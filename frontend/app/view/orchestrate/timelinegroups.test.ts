@@ -131,6 +131,11 @@ describe("filterGroups / railRows", () => {
         expect(railRows(groups).map((r) => r.kind)).toEqual(["group", "gap", "group"]);
         expect(railRows(groups)[1]).toEqual({ kind: "gap", minutes: 20 });
     });
+    it("takes a shorter quiet threshold from its caller", () => {
+        const close = groupEvents([ev(0, "run-created"), ev(3.4, "plan-reviewed")]);
+        expect(railRows(close).map((r) => r.kind)).toEqual(["group", "group"]);
+        expect(railRows(close, 3 * MIN)[1]).toEqual({ kind: "gap", minutes: 3 });
+    });
 });
 
 describe("snippetOf / eventDetail", () => {

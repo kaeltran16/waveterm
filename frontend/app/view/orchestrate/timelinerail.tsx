@@ -1,7 +1,8 @@
 // Copyright 2026, Command Line Inc.
 //
 // The lifecycle timeline rail: one chronological, filterable view of a run's RunEvent log, shared by
-// the DAG modal (persistent rail) and narrow layouts (drawer). Bursts, gaps and the activity strip are
+// the DAG modal (persistent rail) and narrow layouts (drawer); the Run tab's Activity view composes its exported
+// pieces without the header and Relaunch lead. Bursts, gaps and the activity strip are
 // timelinegroups.ts, filtering and click routing timelinefilter.ts; the event projection (title, tone)
 // is reused from the run body's runtimeline.ts, so the two timelines cannot describe the same row
 // differently.
@@ -16,8 +17,8 @@ import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { retryRunEvents, useRunEventsState } from "../agents/runeventstore";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { retryRunEvents, useRunEventsState, type RunEventsStatus } from "../agents/runeventstore";
 import {
     eventTitle,
     eventTone,
@@ -109,17 +110,7 @@ export function TimelineRail({ channelId, runId, layout, ended }: TimelineRailPr
     const open = layout === "rail" || drawerOpen;
 
     const groups = useMemo(() => groupEvents(events), [events]);
-    // no-cascade guard over every group, not the filtered rows, so a filter change never fades anything in. The
-    // load status is in the key: the first load and a retry reseed silently, and only a group arriving while the
-    // rail is live fades in.
-    const groupIds = groups.map((g) => g.id);
-    const entranceKey = `${runId}:${status}`;
-    const entranceRef = useRef(initialEntranceState());
-    const { animate: entering } = computeEntrances(entranceRef.current, entranceKey, groupIds);
-    const groupIdsKey = groupIds.join(",");
-    useLayoutEffect(() => {
-        entranceRef.current = computeEntrances(entranceRef.current, entranceKey, groupIds).state;
-    }, [entranceKey, groupIdsKey]);
+    const entering = useGroupEntrances(groups, runId, status);
     const shown = filterGroups(groups, filter, selectedTaskId);
     const rows = railRows(shown);
     const graphHoverId = hovered?.from === "graph" ? hovered.id : null;
@@ -173,45 +164,10 @@ export function TimelineRail({ channelId, runId, layout, ended }: TimelineRailPr
                         focusTaskId={selectedTaskId ?? graphHoverId}
                     />
                 )}
-                <div className="flex flex-none gap-1 border-b border-border px-2 py-1.5">
-                    {FILTERS.map((f) => {
-                        const count = eventCount(filterGroups(groups, f.id, selectedTaskId));
-                        const showCount = f.id !== "task" || selectedTaskId != null;
-                        return (
-                            <button
-                                key={f.id}
-                                type="button"
-                                onClick={() => setFilter(f.id)}
-                                aria-pressed={filter === f.id}
-                                className={cn(
-                                    "flex cursor-pointer items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
-                                    filter === f.id ? "bg-accent/12 text-accent-soft" : "text-ink-mid hover:text-ink-hi"
-                                )}
-                            >
-                                {f.id === "task" && selectedTaskId ? `Task · ${selectedTaskId}` : f.label}
-                                {showCount && (
-                                    <span
-                                        data-timeline-filter-count={f.id}
-                                        className={cn(
-                                            "font-mono text-[11.5px] font-normal",
-                                            f.id === "attention" && count > 0 ? "text-warning" : "text-ink-mid"
-                                        )}
-                                    >
-                                        {count}
-                                    </span>
-                                )}
-                            </button>
-                        );
-                    })}
-                </div>
+                <TimelineFilterBar groups={groups} filter={filter} taskId={selectedTaskId} onPick={setFilter} />
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     <div className="relative pt-1.5 pb-3">
-                        {rows.length > 0 && (
-                            <div
-                                aria-hidden="true"
-                                className="absolute top-3.5 bottom-3 left-[21px] w-px bg-edge-faint"
-                            />
-                        )}
+                        {rows.length > 0 && <TimelineSpine />}
                         {showNow && <NowMarker nowMs={nowMs} withDate={withDate} />}
                         {rows.length === 0 ? (
                             <EmptyRows filter={filter} status={status} hasTask={selectedTaskId != null} />
@@ -338,6 +294,78 @@ function StatusPill({
     );
 }
 
+// useGroupEntrances: the groups that fade in on this render. The no-cascade guard runs over every group, not the
+// filtered rows, so a filter change never fades anything in. The load status is in the key: the first load and a
+// retry reseed silently, and only a group arriving while the timeline is live fades in.
+export function useGroupEntrances(groups: EventGroup[], runId: string, status: RunEventsStatus): Set<string> {
+    const groupIds = groups.map((g) => g.id);
+    const entranceKey = `${runId}:${status}`;
+    const entranceRef = useRef(initialEntranceState());
+    const { animate } = computeEntrances(entranceRef.current, entranceKey, groupIds);
+    const groupIdsKey = groupIds.join(",");
+    useLayoutEffect(() => {
+        entranceRef.current = computeEntrances(entranceRef.current, entranceKey, groupIds).state;
+    }, [entranceKey, groupIdsKey]);
+    return animate;
+}
+
+// the All / Task / Attention filters with their event counts; the Task count shows only once a task is chosen
+export function TimelineFilterBar({
+    groups,
+    filter,
+    taskId,
+    onPick,
+    className,
+}: {
+    groups: EventGroup[];
+    filter: TimelineFilter;
+    taskId: string | null;
+    onPick: (filter: TimelineFilter) => void;
+    className?: string;
+}) {
+    return (
+        <div className={cn("flex flex-none gap-1 border-b border-border px-2 py-1.5", className)}>
+            {FILTERS.map((f) => {
+                const count = eventCount(filterGroups(groups, f.id, taskId));
+                const showCount = f.id !== "task" || taskId != null;
+                return (
+                    <button
+                        key={f.id}
+                        type="button"
+                        data-timeline-filter={f.id}
+                        onClick={() => onPick(f.id)}
+                        aria-pressed={filter === f.id}
+                        className={cn(
+                            "flex cursor-pointer items-center gap-1.5 rounded-[5px] px-2 py-[3px] text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                            filter === f.id ? "bg-accent/12 text-accent-soft" : "text-ink-mid hover:text-ink-hi"
+                        )}
+                    >
+                        {f.id === "task" && taskId ? `Task · ${taskId}` : f.label}
+                        {showCount && (
+                            <span
+                                data-timeline-filter-count={f.id}
+                                className={cn(
+                                    "font-mono text-[11.5px] font-normal",
+                                    f.id === "attention" && count > 0 ? "text-warning" : "text-ink-mid"
+                                )}
+                            >
+                                {count}
+                            </span>
+                        )}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
+// the vertical line the rows' glyphs sit on, inside a relative list padded pt-1.5 pb-3
+export function TimelineSpine({ className }: { className?: string }) {
+    return (
+        <div aria-hidden="true" className={cn("absolute top-3.5 bottom-3 left-[21px] w-px bg-edge-faint", className)} />
+    );
+}
+
 // tick height ranks an event by its tone, so attention stands out and plain bookkeeping recedes
 function tickHeight(kind: string, attention: boolean): number {
     if (attention) {
@@ -358,18 +386,20 @@ function tickOpacity(kind: string, taskId: string, focusTaskId: string | null): 
 }
 
 // endMs is axisEnd's: now for a live run, the last event for an ended one
-function ActivityStrip({
+export function ActivityStrip({
     events,
     endMs,
     ended,
     withDate,
     focusTaskId,
+    className,
 }: {
     events: RunEvent[];
     endMs: number;
     ended: boolean;
     withDate: boolean;
     focusTaskId: string | null;
+    className?: string;
 }) {
     if (events.length === 0) {
         return null;
@@ -381,7 +411,7 @@ function ActivityStrip({
     const endText = `${ended ? "ended" : "now"} ${tsLabel(endMs, withDate)}`;
     const label = `${events.length} events from ${startText} to ${endText}; amber marks need attention`;
     return (
-        <div data-timeline-strip className="flex-none border-b border-border px-3.5 pt-2.5 pb-2">
+        <div data-timeline-strip className={cn("flex-none border-b border-border px-3.5 pt-2.5 pb-2", className)}>
             {/* the right padding holds a tick at the very end of the axis, which is drawn 2px wide from its x */}
             <div className="pr-[2px]">
                 <svg role="img" aria-label={label} width="100%" height={STRIP_H} className="block overflow-visible">
@@ -392,6 +422,7 @@ function ActivityStrip({
                         return (
                             <rect
                                 key={t.id}
+                                data-tick-task={t.taskId || undefined}
                                 className={toneFor(kind)}
                                 x={`${t.frac * 100}%`}
                                 y={STRIP_H - 1 - h}
@@ -416,7 +447,7 @@ function ActivityStrip({
     );
 }
 
-function NowMarker({ nowMs, withDate }: { nowMs: number; withDate: boolean }) {
+export function NowMarker({ nowMs, withDate }: { nowMs: number; withDate: boolean }) {
     return (
         <div data-timeline-now className="relative flex items-center gap-2 pt-0.5 pr-2.5 pb-1.5 pl-[11px]">
             <span className="flex w-5 flex-none justify-center">
@@ -427,7 +458,7 @@ function NowMarker({ nowMs, withDate }: { nowMs: number; withDate: boolean }) {
     );
 }
 
-function GapRow({ ms }: { ms: number }) {
+export function GapRow({ ms }: { ms: number }) {
     return (
         <div data-timeline-gap className="relative flex items-center gap-2 py-1 pr-2.5 pl-[11px]">
             <span className="flex w-5 flex-none justify-center">
@@ -440,7 +471,7 @@ function GapRow({ ms }: { ms: number }) {
     );
 }
 
-function EmptyRows({
+export function EmptyRows({
     filter,
     status,
     hasTask,
@@ -513,7 +544,7 @@ export function groupTime(group: EventGroup, withDate = false): string {
     return first === last ? first : `${first}–${last}`;
 }
 
-function GroupRow({
+export function GroupRow({
     group,
     enter,
     withDate,
@@ -526,19 +557,24 @@ function GroupRow({
     onClick,
     onEnter,
     onLeave,
+    onPickTask,
 }: {
     group: EventGroup;
     enter: boolean;
     withDate: boolean;
-    relaunch: RelaunchLeadAction | null;
     open: boolean;
+    // the task pill is highlighted: the row's task is the one the timeline is narrowed to
     selected: boolean;
-    graphHovered: boolean;
-    relaunchError: string | null;
-    onRelaunch: () => void;
     onClick: (expandable: boolean) => void;
-    onEnter: () => void;
-    onLeave: () => void;
+    // the modal's parts: Relaunch lead in the detail, and the hover shared with the graph
+    relaunch?: RelaunchLeadAction | null;
+    relaunchError?: string | null;
+    onRelaunch?: () => void;
+    graphHovered?: boolean;
+    onEnter?: () => void;
+    onLeave?: () => void;
+    // given, the task pill is its own button that narrows the timeline to the task
+    onPickTask?: (taskId: string) => void;
 }) {
     // a row whose detail would only repeat its title offers no expand
     const expandable = groupHasDetail(group) || relaunch != null;
@@ -552,6 +588,77 @@ function GroupRow({
     } else if (group.attention) {
         rowTone = "border-warning/30 bg-warning/5 hover:bg-surface-hover";
     }
+    const pillTone = selected ? "bg-accent/12 text-accent-soft" : "bg-pill text-ink-mid";
+    const pillClass = "flex-none rounded px-1.5 font-mono text-[11.5px] leading-[18px]";
+    let pill: ReactNode = null;
+    if (group.taskId && onPickTask) {
+        pill = (
+            <button
+                type="button"
+                data-timeline-task-pill
+                title="Show only this task"
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onPickTask(group.taskId);
+                }}
+                className={cn(
+                    pillClass,
+                    pillTone,
+                    "cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                )}
+            >
+                {group.taskId}
+            </button>
+        );
+    } else if (group.taskId) {
+        pill = <span className={cn(pillClass, pillTone)}>{group.taskId}</span>;
+    }
+    const body = (
+        <>
+            <span className="flex w-full items-center gap-1.5">
+                <span
+                    className={cn(
+                        "min-w-0 truncate text-[13px] font-semibold leading-[18px]",
+                        group.attention ? "text-warning" : "text-ink-hi"
+                    )}
+                >
+                    {eventTitle(group.head)}
+                </span>
+                {pill}
+                <span className="ml-auto flex-none font-mono text-[11.5px] leading-[18px] text-ink-mid">
+                    {groupTime(group, withDate)}
+                </span>
+            </span>
+            {group.steps.length > 1 && (
+                <span className="flex flex-wrap gap-1">
+                    {group.steps.map((e) => (
+                        <span
+                            key={e.id}
+                            className={cn(
+                                "rounded bg-pill px-1.5 font-mono text-[11.5px] leading-[18px]",
+                                textTone(toneFor(e.kind))
+                            )}
+                        >
+                            {stepLabel(e)}
+                        </span>
+                    ))}
+                </span>
+            )}
+            {snippet && <span className="block truncate text-[12px] leading-[17px] text-ink-mid">{snippet}</span>}
+        </>
+    );
+    const rowProps = {
+        "data-timeline-row": true,
+        "data-timeline-task": group.taskId || undefined,
+        "aria-expanded": expandable ? open : undefined,
+        onClick: () => onClick(expandable),
+        onPointerEnter: onEnter,
+        onPointerLeave: onLeave,
+        className: cn(
+            "my-0.5 flex w-full cursor-pointer flex-col gap-1 rounded-lg border px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+            rowTone
+        ),
+    };
     // a motion root whatever `enter` says: `initial` is read only at mount, so a row re-rendering never replays.
     // Reduced motion comes from PaneReveal's MotionConfig, which reaches these rows.
     return (
@@ -563,67 +670,32 @@ function GroupRow({
         >
             <SpineGlyph kind={group.head.kind} attention={group.attention} />
             <div className="flex min-w-0 flex-1 flex-col">
-                <button
-                    type="button"
-                    data-timeline-row
-                    data-timeline-task={group.taskId || undefined}
-                    aria-expanded={expandable ? open : undefined}
-                    onClick={() => onClick(expandable)}
-                    onPointerEnter={onEnter}
-                    onPointerLeave={onLeave}
-                    className={cn(
-                        "my-0.5 flex w-full cursor-pointer flex-col gap-1 rounded-lg border px-2 py-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
-                        rowTone
-                    )}
-                >
-                    <span className="flex w-full items-center gap-1.5">
-                        <span
-                            className={cn(
-                                "min-w-0 truncate text-[13px] font-semibold leading-[18px]",
-                                group.attention ? "text-warning" : "text-ink-hi"
-                            )}
-                        >
-                            {eventTitle(group.head)}
-                        </span>
-                        {group.taskId && (
-                            <span
-                                className={cn(
-                                    "flex-none rounded px-1.5 font-mono text-[11.5px] leading-[18px]",
-                                    selected ? "bg-accent/12 text-accent-soft" : "bg-pill text-ink-mid"
-                                )}
-                            >
-                                {group.taskId}
-                            </span>
-                        )}
-                        <span className="ml-auto flex-none font-mono text-[11.5px] leading-[18px] text-ink-mid">
-                            {groupTime(group, withDate)}
-                        </span>
-                    </span>
-                    {group.steps.length > 1 && (
-                        <span className="flex flex-wrap gap-1">
-                            {group.steps.map((e) => (
-                                <span
-                                    key={e.id}
-                                    className={cn(
-                                        "rounded bg-pill px-1.5 font-mono text-[11.5px] leading-[18px]",
-                                        textTone(toneFor(e.kind))
-                                    )}
-                                >
-                                    {stepLabel(e)}
-                                </span>
-                            ))}
-                        </span>
-                    )}
-                    {snippet && (
-                        <span className="block truncate text-[12px] leading-[17px] text-ink-mid">{snippet}</span>
-                    )}
-                </button>
+                {onPickTask ? (
+                    // a button cannot hold the pill's button, so this row is a div acting as one
+                    <div
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                            if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) {
+                                e.preventDefault();
+                                onClick(expandable);
+                            }
+                        }}
+                        {...rowProps}
+                    >
+                        {body}
+                    </div>
+                ) : (
+                    <button type="button" {...rowProps}>
+                        {body}
+                    </button>
+                )}
                 {open && (
                     <GroupDetail
                         group={group}
                         withDate={withDate}
-                        relaunch={relaunch}
-                        relaunchError={relaunchError}
+                        relaunch={relaunch ?? null}
+                        relaunchError={relaunchError ?? null}
                         onRelaunch={onRelaunch}
                     />
                 )}
@@ -643,7 +715,7 @@ function GroupDetail({
     withDate: boolean;
     relaunch: RelaunchLeadAction | null;
     relaunchError: string | null;
-    onRelaunch: () => void;
+    onRelaunch?: () => void;
 }) {
     return (
         <div
