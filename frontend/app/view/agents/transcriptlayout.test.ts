@@ -360,7 +360,7 @@ describe("layoutTranscript statuses and Arc messages", () => {
     });
 
     it("lays out a pending step stopped when the agent is not working, running while it is", () => {
-        const entries = [user("go"), bash("wsh jarvis dag final pass", { pending: true, ts: T0 })];
+        const entries = [user("go"), bash("wsh effort chunk status e1 3 done", { pending: true, ts: T0 })];
         expect(stepsItems(layoutTranscript(entries, { active: false }))[0].steps[0].status).toBe("stopped");
         expect(stepsItems(layoutTranscript(entries, { active: true }))[0].steps[0].status).toBe("running");
     });
@@ -826,5 +826,124 @@ describe("layoutTranscript user bubbles", () => {
     it("an attachments header followed by prose is the user's own text", () => {
         const text = "Attachments (read these files):\nplease list them";
         expect(bubble(user(text))).toEqual({ kind: "user", text, index: 0 });
+    });
+});
+
+// every item, those inside a folded turn included
+const flat = (items: LayoutItem[]): LayoutItem[] => items.flatMap((i) => (i.kind === "turn" ? flat(i.items) : [i]));
+const cards = (items: LayoutItem[]) =>
+    flat(items).filter((i): i is Extract<LayoutItem, { kind: "card" }> => i.kind === "card");
+
+// census specimens 7 and 27: a reviewer's or lead's closing call closes its tab before any tool_result is written
+describe("layoutTranscript session-closing wsh calls", () => {
+    const wake = user("wake: plan review failed in round 2, the last: 5) Parallelism: NOT FIXED", T0);
+    const closing = [
+        'wsh jarvis dag planreview pass "Runnable as written. Every spec decision and builder item has a task."',
+        'wsh jarvis dag final pass "Round 2 meets the spec; each round-1 failure is fixed and seen in Final round 2."',
+        'cd "C:/Users/kael02/AppData/Local/arc-wt/55946ae9" && wsh jarvis complete --report "$LOCALAPPDATA/Temp/report.md" 2>&1 | tail -10',
+        'wsh jarvis dag amend t-5 "runs after Task 4: shared canvaspane.tsx" && wsh jarvis dag planreview accept "autonomous run"',
+    ];
+
+    it.each(closing)("lays a closing call pending at the end of an ended session out ok, as a card: %s", (command) => {
+        const entries = [wake, read("plan.md", T0 + S), bash(command, { pending: true, ts: T0 + 2 * S })];
+        const items = layoutTranscript(entries, { active: false });
+        expect(cards(items).map((c) => [c.index, c.step.status])).toEqual([[2, "ok"]]);
+        expect(stepsItems(items).flatMap((s) => s.steps.map((st) => st.status))).toEqual(["ok"]);
+    });
+
+    it("keeps it running while the agent works", () => {
+        const items = layoutTranscript([wake, bash(closing[0], { pending: true, ts: T0 + S })], { active: true });
+        expect(stepsItems(items)[0].steps[0].status).toBe("running");
+    });
+
+    it("lays it out stopped when the session went on past it or was interrupted after it", () => {
+        const pending = bash(closing[1], { pending: true, ts: T0 + S });
+        const later = layoutTranscript([wake, pending, read("plan.md", T0 + 9 * S)], { active: false });
+        expect(stepsItems(later)[0].steps.map((s) => s.status)).toEqual(["stopped", "ok"]);
+        const interrupted = layoutTranscript([wake, pending, { kind: "interrupted" }], { active: false });
+        expect(stepsItems(interrupted)[0].steps[0].status).toBe("stopped");
+    });
+
+    it("lays a pending call to any other wsh command out stopped", () => {
+        const items = layoutTranscript([wake, bash("wsh jarvis dag status", { pending: true, ts: T0 + S })], {
+            active: false,
+        });
+        expect(stepsItems(items)[0].steps[0].status).toBe("stopped");
+    });
+});
+
+// census specimens 79 and 83: Claude Code delivers each Monitor event as a notice that names the monitor's description
+describe("layoutTranscript Monitor notices", () => {
+    const DESC = "plant bench cycle on .236 (step starts/ends, stop)";
+    const monitor: AgentActionEntry = { kind: "action", verb: "monitor", target: DESC, ts: T0, durationMs: 76 };
+    const wakeup: AgentActionEntry = { kind: "action", verb: "schedulewakeup", target: "", ts: T0 + 5 * S };
+    const notice = (desc = DESC): AgentEntry => ({
+        kind: "notification",
+        summary: `Monitor event: "${desc}"`,
+        source: "monitor",
+        notice: true,
+    });
+    const notifications = (items: LayoutItem[]) => flat(items).filter((i) => i.kind === "notification");
+
+    it.each([false, true])("draws a notice right after its Monitor's stretch once (thoughts %s)", (thoughts) => {
+        const entries: AgentEntry[] = [
+            monitor,
+            { kind: "thought", text: "I'm keeping the fix uncommitted for now.", ts: T0 + 4 * S },
+            wakeup,
+            notice(),
+        ];
+        const items = layoutTranscript(entries, { active: false, thoughts });
+        expect(notifications(items)).toEqual([]);
+        const verbs = stepsItems(items).flatMap((s) => s.steps.map((st) => st.action.verb));
+        expect(verbs).toEqual(["monitor", "schedulewakeup"]);
+    });
+
+    it("keeps a notice that a later stretch or card separates from its Monitor", () => {
+        const entries: AgentEntry[] = [
+            monitor,
+            prose("Recording the bench start."),
+            bash("wsh effort show 36c35219 2>&1 | head -20", { ts: T0 + 9 * S }),
+            bash('wsh effort chunk note 36c35219 12 --note "folded into the bench" && echo ok', { ts: T0 + 10 * S }),
+            notice(),
+            prose("Train and templates passed and planting has started."),
+        ];
+        expect(notifications(layoutTranscript(entries, { active: false }))).toHaveLength(1);
+    });
+
+    it("keeps a notice from another monitor", () => {
+        const entries: AgentEntry[] = [monitor, wakeup, notice("tail the deploy log")];
+        expect(notifications(layoutTranscript(entries, { active: false }))).toHaveLength(1);
+    });
+
+    it("keeps a notice that says more than the step: a status or a result", () => {
+        const withStatus: AgentEntry = { ...notice(), status: "failed" } as AgentEntry;
+        const withResult: AgentEntry = { ...notice(), result: "start: train" } as AgentEntry;
+        expect(notifications(layoutTranscript([monitor, withStatus], { active: false }))).toHaveLength(1);
+        expect(notifications(layoutTranscript([monitor, withResult], { active: false }))).toHaveLength(1);
+    });
+});
+
+// census specimens 39 and 153
+describe("layoutTranscript interruptions", () => {
+    it("lays consecutive interruptions with nothing between out as one", () => {
+        const entries: AgentEntry[] = [
+            user("i have been a while", T0),
+            { kind: "interrupted" },
+            { kind: "interrupted" },
+            user("it has been a while", T0 + 6 * S),
+        ];
+        expect(kinds(layoutTranscript(entries, { active: false }))).toEqual(["user", "interrupted", "user"]);
+    });
+
+    it("keeps interruptions a row or a step separates", () => {
+        const entries: AgentEntry[] = [
+            { kind: "interrupted" },
+            user("brainstorm: approved", T0),
+            { kind: "interrupted" },
+            read("spec.md", T0 + S),
+            { kind: "interrupted" },
+        ];
+        const items = layoutTranscript(entries, { active: false });
+        expect(flat(items).filter((i) => i.kind === "interrupted")).toHaveLength(3);
     });
 });

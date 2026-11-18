@@ -14,7 +14,7 @@ import { commandPreview, commandTitle } from "./commandtitle";
 import { classifyKind, splitAttachments } from "./composerattachments";
 import { placeMarks, type TimelineMark } from "./permissionmodel";
 import type { TranscriptContext } from "./transcriptcontext";
-import { firstWshCall, isCardKey, type WshCall, type WshKey } from "./wshcall";
+import { firstWshCall, isCardKey, parseWshCalls, type WshCall, type WshKey } from "./wshcall";
 
 export interface Step {
     // the first entry's index; a merged step spans `edits` consecutive entries from it
@@ -84,11 +84,36 @@ export function actionCommand(a: AgentActionEntry): string | undefined {
     return a.command ?? (a.detail?.kind === "bash" ? a.detail.command : undefined);
 }
 
-// a pending call still runs only while the agent works (it may wait on a permission prompt); in an ended session or
-// before an interruption it never got its result
-function stepStatus(a: AgentActionEntry, interruptedLater: boolean, active: boolean): Step["status"] {
+// the calls that end the session that makes them: the engine closes the tab before Claude Code writes their result.
+// By subcommand chain, not key: an unresolved argument (--report "$TMP/r.md") makes the key the generic change
+const SESSION_CLOSING: ReadonlySet<string> = new Set(["jarvis complete", "jarvis dag planreview", "jarvis dag final"]);
+
+function closesSession(a: AgentActionEntry): boolean {
+    return parseWshCalls(actionCommand(a) ?? "").some((call) => SESSION_CLOSING.has(call.path.join(" ")));
+}
+
+// a step's place in the transcript. last: no action comes after it
+interface StepAt {
+    interruptedLater: boolean;
+    last: boolean;
+    active: boolean;
+}
+
+// where a pending call stands: running while the agent works (it may wait on a permission prompt) and nothing
+// interrupted it; ok when it closed the session as its last call; else it never got its result
+function pendingStatus(a: AgentActionEntry, at: StepAt): Step["status"] {
+    if (at.interruptedLater) {
+        return "stopped";
+    }
+    if (at.active) {
+        return "running";
+    }
+    return at.last && closesSession(a) ? "ok" : "stopped";
+}
+
+function stepStatus(a: AgentActionEntry, at: StepAt): Step["status"] {
     if (a.pending) {
-        return active && !interruptedLater ? "running" : "stopped";
+        return pendingStatus(a, at);
     }
     if (a.outcome === "blocked" || a.outcome === "declined") {
         return a.outcome;
@@ -376,14 +401,30 @@ function userItem(e: Extract<AgentEntry, { kind: "user" }>, index: number): Extr
     return item;
 }
 
+// Claude Code's summary of a Monitor event: `Monitor event: "<the Monitor call's description>"`
+const MONITOR_EVENT = /^Monitor event: "([^]*)"$/;
+
+// a Monitor event notice right after the stretch holding the Monitor call it names: a notice with no status or result
+// carries only that description, so it would draw the step a second time
+function echoesMonitor(e: Extract<AgentEntry, { kind: "notification" }>, prev: LayoutItem | undefined): boolean {
+    const bare = e.source === "monitor" && e.notice && e.status == null && !e.result;
+    const desc = bare ? MONITOR_EVENT.exec(e.summary)?.[1] : undefined;
+    if (desc == null || prev?.kind !== "steps") {
+        return false;
+    }
+    return prev.steps.some((s) => s.action.verb === "monitor" && s.action.target === desc);
+}
+
 // the items as they come, unfolded
 function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
     let lastMessage = -1;
     let lastInterrupted = -1;
+    let lastAction = -1;
     let firstUser = -1;
     entries.forEach((e, i) => {
         if (e.kind === "message") lastMessage = i;
         if (e.kind === "interrupted") lastInterrupted = i;
+        if (e.kind === "action") lastAction = i;
         // a text joined mid-turn is never a run's brief
         if (e.kind === "user" && !e.queued && firstUser < 0) firstUser = i;
     });
@@ -427,7 +468,8 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
         if (time != null) prevTime = time;
         if (e.kind === "action") {
             const wsh = firstWshCall(actionCommand(e));
-            const step: Step = { index: i, action: e, wsh, status: stepStatus(e, lastInterrupted > i, opts.active) };
+            const at = { interruptedLater: lastInterrupted > i, last: i === lastAction, active: opts.active };
+            const step: Step = { index: i, action: e, wsh, status: stepStatus(e, at) };
             const prev = run[run.length - 1];
             if (wsh && isCardKey(wsh.key) && step.status === "ok") {
                 flush();
@@ -470,6 +512,9 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                 });
                 return;
             case "notification":
+                if (echoesMonitor(e, items[items.length - 1])) {
+                    return;
+                }
                 items.push({
                     kind: "notification",
                     summary: e.summary,
@@ -481,7 +526,10 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                 });
                 return;
             case "interrupted":
-                items.push({ kind: "interrupted", index: i });
+                // a second interruption with nothing drawn since says nothing new
+                if (items[items.length - 1]?.kind !== "interrupted") {
+                    items.push({ kind: "interrupted", index: i });
+                }
                 return;
             case "shell":
                 items.push({ ...e, index: i });
