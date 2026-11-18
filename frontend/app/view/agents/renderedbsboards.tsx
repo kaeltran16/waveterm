@@ -2,30 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The boards a Rendered card names: useQuestionBoards, the question card's option chips (Main), and MockupCard, one
-// row for a canvas with no brainstorm (CanvasEdge). The boards themselves draw in the workspace pane's Canvas tab
-// and the canvas window; a card only opens them.
+// row for a canvas with no brainstorm (CanvasEdge), drawn on the agent's last canvas reveal (useCanvasReveal) rather
+// than pinned after the transcript. The boards themselves draw in the workspace pane's Canvas tab and the canvas
+// window; a card only opens them.
 
 import { ViewSwap } from "@/app/element/viewswap";
+import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUpRight, PanelsTopLeft, SquareDashed } from "lucide-react";
 import { useEffect, useState, type JSX, type ReactNode } from "react";
 import { openPaneTab } from "./agentpanes";
-import type { AgentsViewModel } from "./agents";
-import type { AgentVM } from "./agentsviewmodel";
+import type { AgentActionEntry, AgentVM } from "./agentsviewmodel";
 import type { BrainstormFile } from "./brainstormmodel";
-import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
+import { brainstormAtom, openBrainstormAt, type BrainstormState } from "./brainstormstore";
 import { boardLabel, updatedAgo } from "./canvasmodel";
 import { SERVER_DOWN } from "./canvaspane";
 import { canvasStateAtom, openCanvasWindow, selectCanvasTab } from "./canvasstore";
+import { COMPACT_CARD_PX } from "./renderedbrainstormmodel";
 import {
     boardCount,
     boardsUpdatedMs,
+    canvasRevealView,
     mockupView,
     questionChips,
+    revealBoard,
+    revealedCanvas,
     shownOf,
+    type CanvasRevealView,
     type MockupView,
 } from "./renderedbsboardsmodel";
+import type { TranscriptContext } from "./transcriptcontext";
 
 function BoardChip({ board, onOpen }: { board: string; onOpen: (board: string) => void }) {
     const label = boardLabel(board);
@@ -233,46 +240,80 @@ function MockupBody({ view }: { view: MockupView }) {
 }
 
 // the standalone Mockup card, for an agent with a canvas and no brainstorm: one row once boards are served, or why
-// they can't show
-export function MockupCard({
-    agent,
-    compact,
-}: {
-    model: AgentsViewModel;
-    agent: AgentVM;
-    compact: boolean;
-}): JSX.Element | null {
-    const s = useAtomValue(canvasStateAtom(agent.id));
+// they can't show. It measures its own width, since the narrow column it stacks in is the Rendered view's, not a
+// card-width host's
+export function MockupCard({ agentId, compact }: { agentId: string; compact: boolean }): JSX.Element | null {
+    const s = useAtomValue(canvasStateAtom(agentId));
+    const [measure, , rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
     if (s == null) {
         return null;
     }
+    const narrow = compact || (rect != null && rect.width < COMPACT_CARD_PX);
     const view = mockupView(s);
     const boards = view.kind === "boards" ? view.boards : [];
     const shown = shownOf(boards, s.board);
     const count = view.kind === "boards" ? boards.length : view.kind === "server-down" ? view.count : 0;
     return (
-        <div data-rendered-mockup-card className="mt-1 pb-2">
+        <div ref={measure} data-rendered-mockup-card data-compact={narrow ? "" : undefined}>
             <ViewSwap swapKey={view.kind}>
                 {view.kind === "removed" ? (
-                    <RemovedRow topic={s.topic} compact={compact} />
+                    <RemovedRow topic={s.topic} compact={narrow} />
                 ) : (
                     <div
                         data-rendered-mockup={view.kind}
                         className="overflow-hidden rounded-[10px] border border-edge-mid bg-surface"
                     >
                         <MockupHead
-                            agentId={agent.id}
+                            agentId={agentId}
                             topic={s.topic}
                             count={count}
                             open={shown ?? s.board ?? s.boards[0]?.name ?? null}
                             updatedMs={boardsUpdatedMs(s)}
                             markable={view.kind === "boards"}
-                            compact={compact}
+                            compact={narrow}
                         />
                         <MockupBody view={view} />
                     </div>
                 )}
             </ViewSwap>
         </div>
+    );
+}
+
+// how a `wsh ui reveal canvas:` row draws (canvasRevealView), and the board an earlier one's Open canvas opens. Hooks
+// before the checks, since the row is drawn by every transcript host and only the Rendered view sets canvasReveal
+export function useCanvasReveal(
+    ctx: TranscriptContext,
+    action: AgentActionEntry,
+    address: string
+): { view: CanvasRevealView; board: string | null } {
+    const id = ctx.agentId ?? "";
+    const s = useAtomValue(canvasStateAtom(id));
+    const bs = useAtomValue(brainstormAtom(id));
+    const named = revealedCanvas(address);
+    if (ctx.canvasReveal == null || ctx.agentId == null || named == null) {
+        return { view: "row", board: null };
+    }
+    const latest = ctx.canvasReveal === action;
+    const view = canvasRevealView({ latest, topic: named.topic, canvas: s, brainstorm: bs != null });
+    return { view, board: view === "row-open" && s != null ? revealBoard(s, named.board) : null };
+}
+
+// an earlier reveal's way back to the canvas, the Mockup card's Open canvas
+export function OpenCanvasLink({ agentId, board }: { agentId: string; board: string | null }) {
+    if (board == null) {
+        return null;
+    }
+    return (
+        <button
+            type="button"
+            data-reveal-open-canvas
+            title={`Open ${boardLabel(board)} in the Canvas tab`}
+            onClick={() => openCanvasTabAt(agentId, board)}
+            className={LINK}
+        >
+            Open canvas
+            <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
+        </button>
     );
 }

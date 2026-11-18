@@ -1,8 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pure: what the Rendered transcript's board cards draw from the agent's canvas state.
+// Pure: what the Rendered transcript's board cards draw from the agent's canvas state, and how a canvas reveal row
+// draws.
 
+import { parseAddress } from "../jarvis/address";
 import { questionBoardLayout, type BrainstormFile } from "./brainstormmodel";
 import { servedBoards } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
@@ -52,4 +54,38 @@ export function shownOf(boards: string[], want: string | null): string | null {
 
 export function boardCount(n: number): string {
     return `${n} ${n === 1 ? "board" : "boards"}`;
+}
+
+// the canvas a `wsh ui reveal` address names, else null
+export function revealedCanvas(address: string | undefined): { topic: string; board?: string } | null {
+    if (!address) {
+        return null;
+    }
+    const t = parseAddress(address);
+    return t.kind === "canvas" ? { topic: t.topic, board: t.board } : null;
+}
+
+// a canvas reveal row: the Mockup card on the latest (transcriptlayout's lastCanvasReveal), a row that opens the
+// canvas on an earlier one, and the plain row for a canvas the agent no longer has or one its brainstorm holds (the
+// brainstorm's cards open its boards)
+export type CanvasRevealView = "card" | "row-open" | "row";
+
+export function canvasRevealView(o: {
+    latest: boolean;
+    topic: string;
+    canvas: CanvasState | null;
+    brainstorm: boolean;
+}): CanvasRevealView {
+    if (o.brainstorm || o.canvas == null || o.canvas.topic !== o.topic) {
+        return "row";
+    }
+    if (o.latest) {
+        return "card";
+    }
+    return o.canvas.status === "removed" ? "row" : "row-open";
+}
+
+// the board an earlier reveal's Open canvas opens: the one it named while served, else the card's choice
+export function revealBoard(s: CanvasState, named: string | undefined): string | null {
+    return shownOf(servedBoards(s), named ?? s.board) ?? s.board ?? s.boards[0]?.name ?? null;
 }

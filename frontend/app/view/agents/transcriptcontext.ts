@@ -7,7 +7,7 @@
 import { useAtomValue } from "jotai";
 import { useMemo } from "react";
 import type { AgentsViewModel } from "./agents";
-import type { AgentVM } from "./agentsviewmodel";
+import type { AgentActionEntry, AgentVM } from "./agentsviewmodel";
 import { roleRunId, type RunRole } from "./runlineage";
 
 export interface TranscriptContext {
@@ -17,6 +17,9 @@ export interface TranscriptContext {
     channelId?: string;
     effortId?: string;
     brainstormFile?: string;
+    // the Rendered view's last canvas reveal, whose row draws as the Mockup card; only that view sets it, so the
+    // cockpit's narrow hosts keep the plain reveal row
+    canvasReveal?: AgentActionEntry;
 }
 
 export function transcriptContextFor(input: {

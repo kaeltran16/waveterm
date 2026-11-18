@@ -4,8 +4,9 @@
 // rewrite, then with only a canvas. In Rendered the cards' open links open a tab beside the transcript; in Terminal the
 // tree's chips still take over the center. The viewport and the agent's tabs are put back in teardown.
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { assistantText, toolResult, toolUse } from "./agent-page-fixtures.mjs";
 import { RBS_KIT } from "./scenarios-rendered-brainstorm.mjs";
 import { BS_HISTORY, BS_Q4, bsFile, bsParts } from "./scenarios-shared.mjs";
 
@@ -32,7 +33,7 @@ const TAB = (key) => `${ASIDE}?.querySelector('[data-workspace-tab="${key}"]')`;
 const BS_IN_TAB = `${ASIDE}?.querySelector("[data-brainstorm-pane]")`;
 const CANVAS_IN_TAB = `${ASIDE}?.querySelector("[data-canvas-tab]")`;
 const CENTER = `document.querySelector("[data-agent-center]")`;
-const MOCKUP = `${HOST}?.querySelector("[data-rendered-mockup]")`;
+const MOCKUP = `${RV}?.querySelector("[data-rendered-mockup]")`;
 const KEY = {
     b: { key: "b", code: "KeyB", keyCode: 66, text: "b" },
     d: { key: "d", code: "KeyD", keyCode: 68, text: "d" },
@@ -206,6 +207,13 @@ const base = scenario(NAME, { file: WORKING }, async (h, ctx, step) => {
     await step("the canvas card's open link opens the Canvas tab listing every board stacked at the pane's width, with Mark, beside the transcript (Canvas board)", async () => {
         const topic = `${ctx.topic}-canvas`;
         const dir = writeCanvas(ctx, topic);
+        // the card draws on the agent's reveal of the canvas
+        const reveal = [
+            toolUse("toolu_wbc_canvas_reveal", "Bash", { command: `wsh ui reveal canvas:${topic}`, description: "Show the mockup" }),
+            toolResult("toolu_wbc_canvas_reveal", ""),
+            assistantText("The canvas has two boards."),
+        ];
+        appendFileSync(ctx.transcript, reveal.join("\n") + "\n");
         await store(
             h,
             ctx,

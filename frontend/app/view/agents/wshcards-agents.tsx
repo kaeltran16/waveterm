@@ -14,6 +14,7 @@ import { openTarget } from "../jarvis/openref";
 import { listRows, readModel, revealModel, sendModel, type CallResult } from "./agentscards";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { LoadFailure } from "./recordedoutput";
+import { MockupCard, OpenCanvasLink, useCanvasReveal } from "./renderedbsboards";
 import { StatusDot } from "./statusdot";
 import type { TranscriptContext } from "./transcriptcontext";
 import { wshJsonOutput } from "./wshcall";
@@ -167,14 +168,23 @@ function AgentsReadCard({ call, action, ctx, compact }: WshRendererProps) {
     );
 }
 
-function UiRevealRow({ call, action, compact }: WshRendererProps) {
+// a canvas the agent still has draws its Mockup card on its last reveal, and an Open canvas link on earlier ones
+function UiRevealRow({ call, action, ctx, compact }: WshRendererProps) {
     const roster = useRoster();
-    const m = revealModel(call.args[0] ?? "", roster.agents);
+    const address = call.args[0] ?? "";
+    const canvas = useCanvasReveal(ctx, action, address);
+    if (canvas.view === "card") {
+        return <MockupCard agentId={ctx.agentId!} compact={compact} />;
+    }
+    const m = revealModel(address, roster.agents);
     const Icon = m.kind === "show" ? Eye : FileText;
     return (
         <WshVerbRow
             icon={<Icon size={compact ? 12 : 14} strokeWidth={2} className="shrink-0" aria-hidden />}
             verb={m.kind === "show" ? "Showed in Arc" : "Opened in Arc"}
+            right={
+                canvas.view === "row-open" ? <OpenCanvasLink agentId={ctx.agentId!} board={canvas.board} /> : undefined
+            }
             action={action}
             compact={compact}
         >

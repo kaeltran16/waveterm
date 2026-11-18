@@ -1,21 +1,39 @@
 // Scenario rendered-bs-mockup: the standalone Mockup card (CanvasEdge) for an agent with a canvas and no brainstorm,
 // and the one row it draws once boards are served. kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
 //
-// The fixture agent has no brainstorm, so the canvas is attached in the page as a reveal would; the canvas folder is
-// the agent's side, written and deleted from here, and the poller draws what it finds.
+// The fixture agent revealed its canvas twice: the card draws on the second reveal's row, where the agent opened it,
+// and the first stays a row with Open canvas; nothing is pinned after the agent's last reply. It has no brainstorm,
+// so the canvas is attached in the page as the reveal would; the canvas folder is the agent's side, written and
+// deleted from here, and the poller draws what it finds.
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { assistantText, toolResult, toolUse, userText } from "./agent-page-fixtures.mjs";
 
 const SHOT = (n, what) => `cdp-shots/rendered-bs-mockup-${n}-${what}.png`;
 const BOARDS = ["Main.dc.html", "States.dc.html"];
 const TITLES = { "Main.dc.html": "Run graph: Final queued behind another run", "States.dc.html": "The queued states" };
 // a board's Last-Modified has whole seconds, so a rewrite meant to read as newer than the last one waits past one
 const PAST_A_SECOND_MS = 1200;
+const TOPIC = `rbs-mockup-${Date.now().toString(36)}`;
+const LAST_REPLY = "Both boards are up; mark anything that reads wrong.";
+const revealCall = (id) => [
+    toolUse(id, "Bash", { command: `wsh ui reveal canvas:${TOPIC}`, description: "Show the mockup" }),
+    toolResult(id, ""),
+];
+const TRANSCRIPT = [
+    userText("Mock up how a queued Final shows in the run graph."),
+    ...revealCall("toolu_mockup_reveal_1"),
+    assistantText("The first board is the graph with the Final queued."),
+    userText("Add the queued states."),
+    ...revealCall("toolu_mockup_reveal_2"),
+    assistantText(LAST_REPLY),
+];
 
 export default (kit) => {
-    const { scenario, agentPage, polishWaitFor, polishNap, HOST, BS_POLL_WAIT_MS } = kit;
-    const CARD = `${HOST}?.querySelector("[data-rendered-mockup]")`;
+    const { scenario, agentPage, polishWaitFor, polishNap, HOST, RV, WAIT_MS, BS_POLL_WAIT_MS } = kit;
+    const REVEALS = `[...(${RV}?.querySelectorAll('[data-rendered-feed] [data-wsh-card="ui-reveal"]') ?? [])]`;
+    const CARD = `${RV}?.querySelector("[data-rendered-feed] [data-rendered-mockup]")`;
     const kindIs = (kind) => `${CARD}?.getAttribute("data-rendered-mockup") === ${JSON.stringify(kind)}`;
 
     const canvasDir = (ctx) => join(ctx.cwd, ".superpowers", "design", ctx.topic);
@@ -76,7 +94,7 @@ export default (kit) => {
             return true;
         })()`);
 
-    const mockup = scenario("rendered-bs-mockup", { noBrainstorm: true }, async (h, ctx, step) => {
+    const mockup = scenario("rendered-bs-mockup", { noBrainstorm: true, topic: TOPIC, transcript: TRANSCRIPT }, async (h, ctx, step) => {
         await step("CanvasEdge: a canvas with no board file yet draws the Mockup card's no-boards state", async () => {
             mkdirSync(projectDir(ctx), { recursive: true });
             await store(
@@ -120,6 +138,59 @@ export default (kit) => {
                     s.iframes === 0 &&
                     s.tabs === 0,
                 { boards, ...s },
+            ];
+        });
+
+        await step("the card sits on the last reveal's row outside its turn's fold, the earlier reveal folds, and the agent's last reply ends the transcript", async () => {
+            const s = await h.ev(`(() => {
+                const reveals = ${REVEALS};
+                const feed = ${RV}?.querySelector("[data-rendered-feed]");
+                const card = ${CARD};
+                const reply = [...(feed?.querySelectorAll("*") ?? [])].find(
+                    (el) => el.children.length === 0 && el.textContent.trim() === ${JSON.stringify(LAST_REPLY)}
+                );
+                return {
+                    reveals: reveals.length,
+                    cardOnRow: reveals.length === 1 && reveals[0].contains(card),
+                    folds: [...(feed?.querySelectorAll("[data-fold]") ?? [])].map((f) => f.innerText.replace(/\\s+/g, " ").trim()),
+                    replyAfterCard:
+                        card != null && reply != null && !!(card.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING),
+                    hostEmpty: ${HOST}?.getAttribute("data-rendered-bs-card") === "none" && (${HOST}?.innerText ?? "").trim() === "",
+                };
+            })()`);
+            await h.shot(SHOT(3, "in-place"));
+            return [
+                s.cardOnRow && s.folds.length >= 1 && s.folds[0].includes("revealed a canvas") && s.replyAfterCard && s.hostEmpty,
+                s,
+            ];
+        });
+
+        await step("the earlier reveal, its fold opened, is a row with Open canvas", async () => {
+            await h.ev(`${RV}?.querySelector("[data-rendered-feed] [data-fold]")?.click()`);
+            const shown = await polishWaitFor(h, `${REVEALS}.length === 2`, WAIT_MS);
+            const s = await h.ev(`(() => {
+                const reveals = ${REVEALS};
+                const card = ${CARD};
+                return {
+                    earlier: (reveals[0]?.innerText ?? "").replace(/\\s+/g, " ").trim(),
+                    earlierOpen: (reveals[0]?.querySelector("[data-reveal-open-canvas]")?.textContent ?? "").trim(),
+                    cardOnLast: reveals.length === 2 && reveals[1].contains(card) && !reveals[0].contains(card),
+                };
+            })()`);
+            await h.shot(SHOT(4, "earlier-reveal"));
+            return [
+                shown && s.cardOnLast && s.earlier.startsWith(`Showed in Arc canvas:${ctx.topic}`) && s.earlierOpen === "Open canvas",
+                { shown, ...s },
+            ];
+        });
+
+        await step("the earlier reveal's Open canvas opens the Canvas tab at the board", async () => {
+            await h.ev(`${REVEALS}[0]?.querySelector("[data-reveal-open-canvas]")?.click()`);
+            const at = await store(h, ctx, READ_OPEN);
+            const back = await kit.closePaneTabs(h, ctx);
+            return [
+                at.tabs.includes("canvas") && at.board === BOARDS[0] && !at.marking && at.window == null && back,
+                { ...at, back },
             ];
         });
 
@@ -176,7 +247,7 @@ export default (kit) => {
                 const actions = r("[data-rendered-mockup-actions]");
                 return {
                     headStacked: label != null && actions != null && actions.top >= label.bottom - 1,
-                    compact: ${HOST}?.hasAttribute("data-compact") ?? false,
+                    compact: ${RV}?.querySelector("[data-rendered-mockup-card]")?.hasAttribute("data-compact") ?? false,
                 };
             })()`);
             await h.shot(SHOT(5, "narrow"));

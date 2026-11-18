@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Rendered transcript's live brainstorm card: one card at the end of the transcript, the one renderedCard picks
-// from the agent's brainstorm, or the standalone Mockup card for an agent with a canvas and no brainstorm. Each card
+// from the agent's brainstorm. A canvas with no brainstorm has its Mockup card on its reveal row instead. Each card
 // kind is its own slice (renderedbs*.tsx); this host picks it, measures the column for the compact sizes, and fades a
 // trade of cards. CardFrame is the shell every card draws in.
 
@@ -25,7 +25,6 @@ import {
     type CardProps,
     type RenderedCard,
 } from "./renderedbrainstormmodel";
-import { MockupCard } from "./renderedbsboards";
 import { CheckCard } from "./renderedbscheck";
 import { DesignCard } from "./renderedbsdesign";
 import { QuestionCard } from "./renderedbsquestion";
@@ -181,30 +180,26 @@ export function RenderedBrainstorm({ model, agent }: { model: AgentsViewModel; a
         <div
             ref={measure}
             data-rendered-brainstorm
-            data-rendered-bs-card={s == null ? "mockup" : card.kind}
+            data-rendered-bs-card={card.kind}
             data-compact={compact ? "" : undefined}
             className="flex w-full flex-col"
         >
-            {s == null ? (
-                <MockupCard model={model} agent={agent} compact={compact} />
-            ) : (
-                <AnimatePresence initial={false}>
-                    {card.kind !== "none" ? (
-                        <motion.div
-                            key="card"
-                            variants={CARD_FADE}
-                            initial="initial"
-                            animate="animate"
-                            exit="exit"
-                            className="mt-1 pb-2"
-                        >
-                            <ViewSwap swapKey={cardKey(card, f)}>
-                                <CardBody card={card} p={props} agent={agent} s={s} compact={compact} />
-                            </ViewSwap>
-                        </motion.div>
-                    ) : null}
-                </AnimatePresence>
-            )}
+            <AnimatePresence initial={false}>
+                {s != null && card.kind !== "none" ? (
+                    <motion.div
+                        key="card"
+                        variants={CARD_FADE}
+                        initial="initial"
+                        animate="animate"
+                        exit="exit"
+                        className="mt-1 pb-2"
+                    >
+                        <ViewSwap swapKey={cardKey(card, f)}>
+                            <CardBody card={card} p={props} agent={agent} s={s} compact={compact} />
+                        </ViewSwap>
+                    </motion.div>
+                ) : null}
+            </AnimatePresence>
         </div>
     );
 }

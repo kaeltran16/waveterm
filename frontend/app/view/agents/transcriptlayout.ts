@@ -112,9 +112,11 @@ function pendingStatus(a: AgentActionEntry, at: StepAt): Step["status"] {
 }
 
 function stepStatus(a: AgentActionEntry, at: StepAt): Step["status"] {
-    if (a.pending) {
-        return pendingStatus(a, at);
-    }
+    return a.pending ? pendingStatus(a, at) : finishedStatus(a);
+}
+
+// a finished call's status: "ok" is what lifts a wsh change call out of the fold as its card
+export function finishedStatus(a: AgentActionEntry): "ok" | "fail" | "blocked" | "declined" {
     if (a.outcome === "blocked" || a.outcome === "declined") {
         return a.outcome;
     }
@@ -172,8 +174,26 @@ const COUNTED: Record<string, { one: string; many: string; verb: string; article
 // the verbs whose phrase names the one file they touched
 const FILE_VERBS = new Set(["read", "edited", "wrote"]);
 
+function isCanvasRevealCall(wsh: { call: WshCall; key: WshKey } | null | undefined): boolean {
+    return wsh?.key === "ui-reveal" && (wsh.call.args[0] ?? "").startsWith("canvas:");
+}
+
 function isCanvasReveal(step: Step): boolean {
-    return step.wsh?.key === "ui-reveal" && (step.wsh.call.args[0] ?? "").startsWith("canvas:");
+    return isCanvasRevealCall(step.wsh);
+}
+
+// the transcript's last finished canvas reveal: its card stays out of its turn's fold, and the Rendered view draws the
+// Mockup card on it, so the canvas sits where the agent opened it rather than pinned after the transcript
+export function lastCanvasReveal(entries: AgentEntry[]): AgentActionEntry | null {
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i];
+        if (e.kind === "action" && !e.pending && finishedStatus(e) === "ok") {
+            if (isCanvasRevealCall(firstWshCall(actionCommand(e)))) {
+                return e;
+            }
+        }
+    }
+    return null;
 }
 
 // "ran 2 commands, read retry.js, edited retry.js": kinds in first-appearance order, one file named, more counted
@@ -330,6 +350,7 @@ function foldTurn(
     from: number,
     to: number,
     splitAfter: Set<number>,
+    keepOut: AgentActionEntry | null,
     latest: boolean,
     live: boolean
 ): LayoutItem[] {
@@ -349,7 +370,8 @@ function foldTurn(
         part = [];
     };
     for (let p = from; p < stop; p++) {
-        if (!isFolded(flat[p])) {
+        const item = flat[p];
+        if (!isFolded(item) || (item.kind === "card" && item.step.action === keepOut)) {
             close();
             out.push(flat[p]);
             continue;
@@ -371,13 +393,16 @@ function foldTurns(entries: AgentEntry[], flat: LayoutItem[], opts: LayoutOpts):
     const liveFrom = opts.active ? (starts[starts.length - 1] ?? 0) : flat.length;
     // a mark draws after the item holding the entry before it, so the turn splits there
     const splitAfter = new Set(placeMarks(flat, opts.marks ?? []).after.keys());
+    const keepOut = lastCanvasReveal(entries);
     const out: LayoutItem[] = [];
     for (let from = 0; from < flat.length; ) {
         let to = from + 1;
         while (to < flat.length && !startsTurn(entries, flat[to])) {
             to++;
         }
-        out.push(...foldTurn(entries, flat, from, to, splitAfter, !opts.active && to === flat.length, from >= liveFrom));
+        out.push(
+            ...foldTurn(entries, flat, from, to, splitAfter, keepOut, !opts.active && to === flat.length, from >= liveFrom)
+        );
         from = to;
     }
     return out;

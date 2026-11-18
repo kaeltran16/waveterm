@@ -22,6 +22,8 @@ import {
     pinDefaultView,
     restoreRoster,
     setRoster,
+    toolResult,
+    toolUse,
     userText,
     writeTranscript,
 } from "./agent-page-fixtures.mjs";
@@ -659,7 +661,8 @@ export const workspacePane = {
 
 // --- workspace-pane-canvas ------------------------------------------------------------------------------------------
 // The fixture agent's canvas is written under its project and attached in the page, as rendered-bs-mockup does; the
-// attached canvas is what draws the Mockup card. Six boards, then canvas.json rewritten to the first two.
+// attached canvas draws the Mockup card on the transcript's reveal row. Six boards, then canvas.json rewritten to the
+// first two.
 
 const CANVAS_NAME = "workspace-pane-canvas";
 const CANVAS_BOARDS = ["Main.dc.html", "States.dc.html", "Empty.dc.html", "Error.dc.html", "Narrow.dc.html", "Wide.dc.html"];
@@ -675,7 +678,14 @@ const CANVAS_SHOT = (n, what) => `cdp-shots/${CANVAS_NAME}-${n}-${what}.png`;
 
 const C_TAB = `document.querySelector('aside[aria-label="Workspace"] [data-canvas-tab]')`;
 const C_WIN = `document.querySelector("[data-canvas-window]")`;
-const C_CARD = `${RBS_KIT.HOST}?.querySelector("[data-rendered-mockup]")`;
+const C_CARD = `${RBS_KIT.RV}?.querySelector("[data-rendered-mockup]")`;
+const CANVAS_TOPIC = `wp-canvas-${Date.now().toString(36)}`;
+const CANVAS_TRANSCRIPT = [
+    userText("Mock up the six states of the run graph's Final node."),
+    toolUse("toolu_wp_canvas_reveal", "Bash", { command: `wsh ui reveal canvas:${CANVAS_TOPIC}`, description: "Show the mockup" }),
+    toolResult("toolu_wp_canvas_reveal", ""),
+    assistantText("Six boards are up."),
+];
 
 const boardLabel = (name) => name.replace(/\.dc\.html$/, "");
 
@@ -799,7 +809,7 @@ const focusSurfaceWrap = (h) =>
 
 const previewSel = (name) => `${C_TAB}?.querySelector('[data-canvas-tab-preview="${name}"]')`;
 
-const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true }, async (h, ctx, step) => {
+const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true, topic: CANVAS_TOPIC, transcript: CANVAS_TRANSCRIPT }, async (h, ctx, step) => {
     mkdirSync(canvasProject(ctx), { recursive: true });
     writeCanvasJson(ctx, CANVAS_BOARDS);
     for (const b of CANVAS_BOARDS) writeCanvasBoard(ctx, b);

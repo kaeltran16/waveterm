@@ -107,6 +107,8 @@ async function arrange(h, name, opts = {}) {
             `rbs-${tag}`,
             opts.transcript ?? [userText("Let's think the lag alerts through before building."), assistantText("I'll ask as we go.")]
         );
+        // a step that needs a later turn appends to it
+        ctx.transcript = transcript;
         await h.goto("agent");
         const t = await makeTab(h, ctx, { label: `rbs-${tag}`, blockMeta: { view: "term", controller: null } });
         Object.assign(ctx, { agentId: t.tabId, blockId: t.blockId });

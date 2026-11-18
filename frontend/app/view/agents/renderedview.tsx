@@ -41,6 +41,7 @@ import { getLastHookAtom } from "./session-models/agentstatusstore";
 import { ShowEarlier } from "./showearlier";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { useTranscriptContext, type TranscriptContext } from "./transcriptcontext";
+import { lastCanvasReveal } from "./transcriptlayout";
 import { TranscriptSkeleton } from "./transcriptskeleton";
 import { openBeside } from "./workspacestore";
 
@@ -255,6 +256,8 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
         mount: whole,
     });
     const ctx = useTranscriptContext(model, agent);
+    const canvasReveal = useMemo(() => lastCanvasReveal(entries) ?? undefined, [entries]);
+    const timelineCtx = useMemo(() => ({ ...ctx, canvasReveal }), [ctx, canvasReveal]);
     const working = useWorkingTail(model.nowAtom, agent, entries);
     const foot = useQueuedFoot(agent);
     // one node per change of either, so the memoized timeline does not re-render on every view render; an idle feed
@@ -315,7 +318,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                                             thoughts
                                             renderAll={whole}
                                             active={agent.state === "working"}
-                                            ctx={ctx}
+                                            ctx={timelineCtx}
                                             tail={tail}
                                             entryRow={entryRow}
                                         />
@@ -336,7 +339,8 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                         )}
                         {/* after the timeline, whose working line hides while the agent asks */}
                         {askShown ? <AskCard model={model} agent={agent} /> : null}
-                        {/* the brainstorm's live card is always the transcript's last item */}
+                        {/* the brainstorm's live card is always the transcript's last item; a canvas alone has its
+                            card on the reveal row instead */}
                         <RenderedBrainstorm model={model} agent={agent} />
                     </div>
                 </div>

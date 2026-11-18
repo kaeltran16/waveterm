@@ -5,7 +5,16 @@ import { describe, expect, it } from "vitest";
 import type { BrainstormFile, BrainstormQuestion } from "./brainstormmodel";
 import type { CanvasBoard } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
-import { boardCount, boardsUpdatedMs, mockupView, questionChips, shownOf } from "./renderedbsboardsmodel";
+import {
+    boardCount,
+    boardsUpdatedMs,
+    canvasRevealView,
+    mockupView,
+    questionChips,
+    revealBoard,
+    revealedCanvas,
+    shownOf,
+} from "./renderedbsboardsmodel";
 
 const BOARDS: CanvasBoard[] = [
     { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 },
@@ -159,5 +168,45 @@ describe("boardCount", () => {
     it("counts in the singular for one board", () => {
         expect(boardCount(1)).toBe("1 board");
         expect(boardCount(2)).toBe("2 boards");
+    });
+});
+
+describe("canvasRevealView", () => {
+    const base = { latest: true, topic: "final-queue", canvas: state(), brainstorm: false };
+
+    it("draws the card on the latest reveal and an opening row on an earlier one", () => {
+        expect(canvasRevealView(base)).toBe("card");
+        expect(canvasRevealView({ ...base, latest: false })).toBe("row-open");
+    });
+
+    it("keeps the plain row for a canvas the agent no longer has, one its brainstorm holds, or one removed", () => {
+        expect(canvasRevealView({ ...base, canvas: null })).toBe("row");
+        expect(canvasRevealView({ ...base, topic: "older-topic" })).toBe("row");
+        expect(canvasRevealView({ ...base, brainstorm: true })).toBe("row");
+        expect(canvasRevealView({ ...base, latest: false, canvas: state({ status: "removed" }) })).toBe("row");
+    });
+
+    it("leaves a removed canvas's latest reveal to the card, which draws the removed row", () => {
+        expect(canvasRevealView({ ...base, canvas: state({ status: "removed" }) })).toBe("card");
+    });
+});
+
+describe("revealedCanvas and revealBoard", () => {
+    it("reads the topic and board a reveal names, and nothing else", () => {
+        expect(revealedCanvas("canvas:final-queue/States")).toEqual({ topic: "final-queue", board: "States.dc.html" });
+        expect(revealedCanvas("canvas:final-queue")).toEqual({ topic: "final-queue", board: undefined });
+        expect(revealedCanvas("run:eb4d4b0e")).toBeNull();
+        expect(revealedCanvas(undefined)).toBeNull();
+    });
+
+    it("opens the board a reveal named while served, else the canvas's own board, else the first", () => {
+        const served = { "Main.dc.html": 1, "States.dc.html": 2 };
+        const s = state({ boardModifiedMs: served });
+        expect(revealBoard(s, "States.dc.html")).toBe("States.dc.html");
+        expect(revealBoard(state({ boardModifiedMs: served, board: "States.dc.html" }), undefined)).toBe(
+            "States.dc.html"
+        );
+        expect(revealBoard(s, "Gone.dc.html")).toBe("Main.dc.html");
+        expect(revealBoard(state({ boardModifiedMs: {} }), undefined)).toBe("Main.dc.html");
     });
 });

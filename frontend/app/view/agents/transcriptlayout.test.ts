@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AgentActionEntry, AgentEntry } from "./agentsviewmodel";
-import { layoutTranscript, stepRows, stepTitle, type LayoutItem, type Step } from "./transcriptlayout";
+import {
+    lastCanvasReveal,
+    layoutTranscript,
+    stepRows,
+    stepTitle,
+    type LayoutItem,
+    type Step,
+} from "./transcriptlayout";
 
 const T0 = 1_000_000;
 const S = 1000;
@@ -208,7 +215,10 @@ describe("layoutTranscript folds", () => {
     });
 
     it("names a canvas reveal in the phrase, apart from the commands", () => {
-        const phrase = (entries: AgentEntry[]) => turns(layoutTranscript(entries, { active: false }))[0].fold.phrase;
+        // a later turn reveals again, so the first turn's reveal is not the last one, which stays out of the fold
+        const later = [user("again"), bash("wsh ui reveal canvas:final-queue")];
+        const phrase = (entries: AgentEntry[]) =>
+            turns(layoutTranscript([...entries, ...later], { active: false }))[0].fold.phrase;
         expect(phrase([user("go"), edit("a.ts", 1, 0), bash("wsh ui reveal canvas:final-queue"), prose("ok")])).toBe(
             "edited a.ts, revealed a canvas"
         );
@@ -348,6 +358,43 @@ describe("layoutTranscript wsh calls", () => {
     it("keeps a read-only call a step with its view key", () => {
         const items = layoutTranscript([bash("wsh effort show e1 --json")], { active: true });
         expect(stepsItems(items)[0].steps[0].wsh?.key).toBe("effort-show");
+    });
+});
+
+describe("layoutTranscript canvas reveals", () => {
+    const REVEAL = "wsh ui reveal canvas:final-queue";
+
+    it("keeps the last canvas reveal's card out of its finished turn's fold, the earlier one folded", () => {
+        const entries = [
+            user("mock it up"),
+            read("a.ts"),
+            bash(REVEAL),
+            prose("one board"),
+            user("add the states"),
+            read("b.ts"),
+            bash(REVEAL),
+            read("c.ts"),
+            prose("both boards"),
+        ];
+        const items = layoutTranscript(entries, { active: false });
+        expect(kinds(items)).toEqual(["user", "turn", "message", "user", "turn", "card", "turn", "message"]);
+        expect(turns(items)[0].items.some((i) => i.kind === "card")).toBe(true);
+        expect((items[5] as Extract<LayoutItem, { kind: "card" }>).index).toBe(6);
+    });
+
+    it("finds the last finished canvas reveal, past other reveals, a compound command, and failed or running ones", () => {
+        const done = bash(`cd /p && ${REVEAL}/States`);
+        const entries = [
+            bash(REVEAL),
+            done,
+            bash("wsh ui reveal run:eb4d4b0e"),
+            bash("wsh ui reveal docs/plan.md"),
+            bash(REVEAL, { exit: 1 }),
+            bash(REVEAL, { pending: true }),
+            { ...bash(REVEAL), outcome: "declined" as const },
+        ];
+        expect(lastCanvasReveal(entries)).toBe(done);
+        expect(lastCanvasReveal([bash("wsh ui reveal agent:abc"), prose("hi")])).toBeNull();
     });
 });
 
