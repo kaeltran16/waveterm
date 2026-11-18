@@ -128,7 +128,8 @@ const attentionCall = bash({
     command: "wsh runs attention --json",
     output: "[]",
     ts: T0 + 3 * S,
-    durationMs: 200,
+    // at least STEP_DURATION_MIN_MS (steprows.tsx), or the row draws no time for the summary to sit before
+    durationMs: 1_200,
 });
 const answerCall = bash({
     description: "Answer the run's question",
