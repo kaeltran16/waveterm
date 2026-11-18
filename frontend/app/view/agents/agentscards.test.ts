@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { listRows, readModel, revealModel, sendModel, shortId } from "./agentscards";
+import { listRows, readModel, revealModel, sendModel, shortId, withCockpitNames } from "./agentscards";
 import { parseWshCalls } from "./wshcall";
 
 const lead = {
@@ -33,6 +33,22 @@ describe("shortId", () => {
     it("cuts an id to the length wsh prints", () => {
         expect(shortId(lead.tabid)).toBe("90d97f06");
         expect(shortId("abc")).toBe("abc");
+    });
+});
+
+describe("withCockpitNames", () => {
+    // several agents in one project share the tab name "waveterm"
+    const a = { ...lead, name: "waveterm", title: "Measure agent edits" };
+    const b = { ...fable, name: "waveterm", title: "Fix the diff rail" };
+    const c = { ...fable, tabid: "c3", name: "waveterm", title: "" };
+
+    it("takes the cockpit's name, else the session title, else the tab name", () => {
+        const named = withCockpitNames([a, b, c], [{ id: a.tabid, name: "auth agent" }]);
+        expect(named?.map((x) => x.name)).toEqual(["auth agent", "Fix the diff rail", "waveterm"]);
+    });
+
+    it("leaves a missing roster missing", () => {
+        expect(withCockpitNames(undefined, [])).toBeUndefined();
     });
 });
 

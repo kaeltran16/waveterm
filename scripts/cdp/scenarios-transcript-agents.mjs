@@ -59,6 +59,17 @@ const PARITY = {
 };
 const ROSTER = [LEAD, FABLE, REPORT, PARITY];
 const SEED = { agents: { agents: ROSTER } };
+// its tab name is the project, which every agent in that project shares; the card names it by its session title
+const SIBLING = {
+    tabid: "5b2e7c10-2222-4333-8444-555566667706",
+    name: "waveterm",
+    projectpath: "C:/work/waveterm",
+    project: "waveterm",
+    runid: "",
+    harness: "claude",
+    state: "working",
+    title: "Measure the agent edits range",
+};
 
 const SENT_TEXT =
     "New finding from the SIEM run that changes part C: the process holding the lock is the nightly compactor, not the detector.";
@@ -137,6 +148,14 @@ export const fixtures = {
             prose("Sent.", T0 + 2 * S),
         ],
         seed: SEED,
+    },
+    agentsSendSibling: {
+        entries: [
+            user("Tell the other agent.", T0),
+            bash({ description: "Send", command: `wsh agents send ${SIBLING.tabid} "two additions"`, output: "sent", ts: T0 + S, durationMs: 90 }),
+            prose("Sent.", T0 + 2 * S),
+        ],
+        seed: { agents: { agents: [...ROSTER, SIBLING] } },
     },
 };
 
@@ -316,6 +335,15 @@ async function cardSteps(h, width, compact) {
         step: `${tag} a tab the roster lacks: Sent to reads the short id, with its text`,
         ok: unknown?.send != null && unknown.send.text.includes("ffff1111") && unknown.send.text.includes("are you there"),
         detail: JSON.stringify(unknown?.send),
+    });
+
+    await showTranscript(h, { ...fixtures.agentsSendSibling, width, compact, active: false });
+    const sibling = await h.ev(CARDS_STATE);
+    await h.shot(`cdp-shots/transcript-agents-sibling-${width}.png`);
+    steps.push({
+        step: `${tag} a target whose tab name is its project: Sent to reads its session title, not the project`,
+        ok: sibling?.send != null && sibling.send.text.includes(SIBLING.title) && !sibling.send.text.includes(SIBLING.name),
+        detail: JSON.stringify(sibling?.send),
     });
     return steps;
 }

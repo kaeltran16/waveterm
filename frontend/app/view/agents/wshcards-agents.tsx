@@ -1,18 +1,19 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// wsh agents calls: send and read cards between agents, the agents list view, and ui reveal rows. Names come from
-// the live roster (wshdata key "agents"), so a card reads "Sent to Lead · ..." rather than a tab id; the models
-// are in agentscards.ts.
+// wsh agents calls: send and read cards between agents, the agents list view, and ui reveal rows. Agents are
+// resolved through the live roster (wshdata key "agents") and named as the cockpit's rows name them, so a card reads
+// "Sent to Lead · ..." rather than a tab id or a project name; the models are in agentscards.ts.
 
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn, fireAndForget } from "@/util/util";
+import { atom, useAtomValue } from "jotai";
 import { ArrowUpRight, Eye, FileText, MessageSquare, Send } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { openTarget } from "../jarvis/openref";
-import { listRows, readModel, revealModel, sendModel, type CallResult } from "./agentscards";
-import type { AgentActionEntry } from "./agentsviewmodel";
+import { listRows, readModel, revealModel, sendModel, withCockpitNames, type CallResult } from "./agentscards";
+import type { AgentActionEntry, AgentVM } from "./agentsviewmodel";
 import { LoadFailure } from "./recordedoutput";
 import { MockupCard, OpenCanvasLink, useCanvasReveal } from "./renderedbsboards";
 import { StatusDot } from "./statusdot";
@@ -26,9 +27,17 @@ const ROSTER_KEY = "agents";
 // a long sent text or answer scrolls inside its card; the raw output is one click away
 const BODY_MAX_H = "max-h-[320px]";
 
-function useRoster() {
+// a host outside the cockpit has no model, so no cockpit names
+const NO_COCKPIT_AGENTS = atom<AgentVM[]>([]);
+
+function useCockpitNames(ctx: TranscriptContext, agents: AgentInfo[] | undefined): AgentInfo[] | undefined {
+    const cockpit = useAtomValue(ctx.model?.agentsAtom ?? NO_COCKPIT_AGENTS);
+    return useMemo(() => withCockpitNames(agents, cockpit), [agents, cockpit]);
+}
+
+function useRoster(ctx: TranscriptContext) {
     const state = useWshData<CommandAgentsListRtnData>(ROSTER_KEY, () => RpcApi.AgentsListCommand(TabRpcClient));
-    return { agents: state.data?.agents, error: state.error };
+    return { agents: useCockpitNames(ctx, state.data?.agents), error: state.error };
 }
 
 function resultOf(action: AgentActionEntry): CallResult {
@@ -105,8 +114,8 @@ function CardBody({ compact, className, children }: { compact: boolean; classNam
     );
 }
 
-function AgentsSendCard({ call, action, compact }: WshRendererProps) {
-    const roster = useRoster();
+function AgentsSendCard({ call, action, ctx, compact }: WshRendererProps) {
+    const roster = useRoster(ctx);
     const m = sendModel(call, roster.agents, resultOf(action));
     const icon = compact ? 11 : 13;
     return (
@@ -140,7 +149,7 @@ function AgentsSendCard({ call, action, compact }: WshRendererProps) {
 }
 
 function AgentsReadCard({ call, action, ctx, compact }: WshRendererProps) {
-    const roster = useRoster();
+    const roster = useRoster(ctx);
     const m = readModel(call, roster.agents, resultOf(action));
     const icon = compact ? 11 : 13;
     return (
@@ -170,7 +179,7 @@ function AgentsReadCard({ call, action, ctx, compact }: WshRendererProps) {
 
 // a canvas the agent still has draws its Mockup card on its last reveal, and an Open canvas link on earlier ones
 function UiRevealRow({ call, action, ctx, compact }: WshRendererProps) {
-    const roster = useRoster();
+    const roster = useRoster(ctx);
     const address = call.args[0] ?? "";
     const canvas = useCanvasReveal(ctx, action, address);
     if (canvas.view === "card") {
@@ -194,13 +203,13 @@ function UiRevealRow({ call, action, ctx, compact }: WshRendererProps) {
 }
 
 // the opened body of `agents list`: its own --json rows, else the live roster (current state, so "as of now")
-function AgentsListView({ action, compact }: WshRendererProps) {
+function AgentsListView({ action, ctx, compact }: WshRendererProps) {
     const { command, output, exit } = resultOf(action);
-    const printed = wshJsonOutput<AgentInfo[]>(command, output, exit);
+    const printed = useMemo(() => wshJsonOutput<AgentInfo[]>(command, output, exit), [command, output, exit]);
     const state = useWshData<CommandAgentsListRtnData>(printed ? null : ROSTER_KEY, () =>
         RpcApi.AgentsListCommand(TabRpcClient)
     );
-    const agents = printed ?? state.data?.agents;
+    const agents = useCockpitNames(ctx, printed ?? state.data?.agents);
     if (!agents) {
         return state.status === "error" ? (
             <LoadFailure message={`Could not load the agent list: ${state.error}`} action={action} compact={compact} />

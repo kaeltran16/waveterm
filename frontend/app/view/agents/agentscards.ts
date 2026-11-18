@@ -5,7 +5,7 @@
 // --json output and the live roster in, plain values out.
 
 import { parseAddress } from "../jarvis/address";
-import type { AgentState } from "./agentsviewmodel";
+import type { AgentState, AgentVM } from "./agentsviewmodel";
 import { wshJsonOutput, type WshCall } from "./wshcall";
 
 // the id length `wsh agents list` prints
@@ -23,6 +23,20 @@ export interface CallResult {
 
 export function shortId(id: string): string {
     return id.slice(0, SHORT_ID_LEN);
+}
+
+// the roster's name is the tab name, the project folder that every agent in one project shares, so a card names an
+// agent as the cockpit's rows do (custom label, else session title, else project), else by its session title when
+// the cockpit does not have it
+export function withCockpitNames(
+    roster: AgentInfo[] | undefined,
+    cockpit: Pick<AgentVM, "id" | "name">[]
+): AgentInfo[] | undefined {
+    if (!roster) {
+        return roster;
+    }
+    const names = new Map(cockpit.map((a) => [a.id, a.name]));
+    return roster.map((a) => ({ ...a, name: names.get(a.tabid) || a.title?.trim() || a.name }));
 }
 
 // wsh takes a tab id or a unique prefix of one: an exact id first, else the one tab the prefix fits
