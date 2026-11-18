@@ -123,6 +123,8 @@ const PANEL_PROBE = `(() => [...${ROOT}.querySelectorAll('[data-tool-panel]')].m
     const body = p.firstElementChild;
     return {
         text: (p.textContent || '').slice(0, 200),
+        // a bare command's body leaves the command to its row
+        row: p.closest('[data-step]')?.querySelector('[data-step-head]')?.textContent ?? '',
         btnText: btn ? btn.textContent.trim() : null,
         btnTitle: btn ? btn.getAttribute('title') : null,
         footer: footer ? footer.textContent : null,
@@ -250,21 +252,23 @@ async function panelSteps(h) {
     await sleep(600);
     const openedEdit = await h.ev(openStep(DEEP_PATH));
     await sleep(600);
+    // cut a whole segment at a time (census C6), so it starts at a segment, not mid-word
+    // found by its row: the header no longer holds the whole path
     const edit = await h.ev(`(() => {
-        const span = ${panelWith(DEEP_PATH)}?.querySelector('[data-panel-path]');
+        const row = [...${ROOT}.querySelectorAll('[data-step]')].find((s) => (s.querySelector('[data-step-head]')?.textContent ?? '').includes(${JSON.stringify(DEEP_PATH)}));
+        const span = row?.querySelector('[data-tool-panel] [data-panel-path]');
         const bdi = span?.querySelector('bdi');
         if (!span || !bdi) return null;
-        const r = document.createRange();
-        r.setStart(bdi.firstChild, bdi.textContent.length - 1);
-        r.setEnd(bdi.firstChild, bdi.textContent.length);
-        const last = r.getBoundingClientRect();
-        const first = (() => { r.setStart(bdi.firstChild, 0); r.setEnd(bdi.firstChild, 1); return r.getBoundingClientRect(); })();
-        const box = span.getBoundingClientRect();
-        return { cut: bdi.getBoundingClientRect().width > box.width, lastIn: last.right <= box.right + 1 && last.left >= box.left - 1, firstOut: first.right <= box.left + 1 };
+        return { text: bdi.textContent, fits: span.scrollWidth <= span.clientWidth + 1 };
     })()`);
     steps.push({
-        step: "[360] an Edit panel header cut from the left ends with the file name",
-        ok: openedEdit === true && edit?.cut === true && edit.lastIn === true && edit.firstOut === true,
+        step: "[360] an Edit panel header cut from the left starts at a segment and ends with the file name",
+        ok:
+            openedEdit === true &&
+            edit?.fits === true &&
+            edit.text.startsWith("…/") &&
+            edit.text.endsWith("/nested/tooldetailbody.tsx") &&
+            DEEP_PATH.endsWith(edit.text.slice(1)),
         detail: JSON.stringify(edit),
     });
     await h.shot("cdp-shots/narration-feed-panel-path.png");
@@ -490,7 +494,7 @@ export const narrationFeed = {
         await sleep(600);
         const panels = await h.ev(PANEL_PROBE);
         const fail = panels.find((p) => p.text.includes("TestBackoff"));
-        const ok = panels.find((p) => p.text.includes("task check:ts"));
+        const ok = panels.find((p) => p.row.includes("task check:ts"));
         steps.push({
             step: '[640] bash panel footer: only "Open full view", with aria-label and no title; the exit chip stays on the row',
             ok:

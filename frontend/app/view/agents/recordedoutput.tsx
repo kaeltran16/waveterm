@@ -5,31 +5,42 @@
 // back to when its fetch fails.
 
 import { cn } from "@/util/util";
+import { createContext, useContext } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
+import { capText } from "./bodycap";
 import { stripAnsi } from "./testoutput";
+import { BODY_FOOTER, MoreLines, OpenFullView } from "./tooldetailbody";
 
+// inline, so capped to the body's line count; the full view holds the rest
 export function RecordedOutput({ output, compact }: { output: string; compact?: boolean }) {
+    const { text, hidden } = capText(stripAnsi(output).replace(/\n+$/, ""));
+    const pad = compact ? "px-[9px]" : "px-[11px]";
     return (
-        <pre
-            data-recorded-output
-            className={cn(
-                "m-0 whitespace-pre-wrap font-mono text-ink-mid [overflow-wrap:anywhere]",
-                compact
-                    ? "px-[9px] py-[7px] text-[11px] leading-[1.6]"
-                    : "px-[11px] py-[9px] text-[11.5px] leading-[1.7]"
-            )}
-        >
-            {stripAnsi(output).replace(/\n+$/, "")}
-        </pre>
+        <>
+            <pre
+                data-recorded-output
+                className={cn(
+                    "m-0 whitespace-pre-wrap break-words font-mono text-ink-mid",
+                    pad,
+                    compact ? "py-[7px] text-[11px] leading-[1.6]" : "py-[9px] text-[11.5px] leading-[1.7]"
+                )}
+            >
+                {text}
+            </pre>
+            <MoreLines hidden={hidden} className={cn("-mt-1 pb-[7px]", pad)} />
+        </>
     );
 }
+
+// a step's own body already carries "Open full view", so a fallback drawn inside one does not repeat it
+export const InStepBody = createContext(false);
 
 function recordedOf(action: AgentActionEntry | undefined): string {
     return action?.detail?.kind === "bash" ? action.detail.output : "";
 }
 
-// a fetch that failed: one muted line naming the error over the step's recorded output, so the card or view still
-// shows what the call printed
+// a fetch that failed: one muted line naming the error over the step's recorded output, boxed and capped like any
+// inline body, so the card or view still shows what the call printed
 export function LoadFailure({
     message,
     action,
@@ -41,6 +52,7 @@ export function LoadFailure({
     compact?: boolean;
     className?: string;
 }) {
+    const inStep = useContext(InStepBody);
     const output = recordedOf(action);
     return (
         <div data-wsh-load-failure className={cn("min-w-0", className)}>
@@ -52,8 +64,16 @@ export function LoadFailure({
                 {message}
             </div>
             {output.trim() ? (
-                <div className="mt-1.5 overflow-hidden rounded-[6px] border border-edge-faint bg-surface">
+                <div
+                    data-wsh-load-output
+                    className="mt-1.5 overflow-hidden rounded-[6px] border border-edge-faint bg-surface"
+                >
                     <RecordedOutput output={output} compact={compact} />
+                    {inStep ? null : (
+                        <div className={BODY_FOOTER}>
+                            <OpenFullView action={action!} />
+                        </div>
+                    )}
                 </div>
             ) : null}
         </div>

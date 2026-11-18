@@ -7,11 +7,11 @@ import { cn } from "@/util/util";
 import { X } from "lucide-react";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { formatDuration } from "./tooldetail";
-import { CODE_TEXT, StatusSquare, ToolDetailBody } from "./tooldetailbody";
+import { CODE_TEXT, PassedOverNote, StatusSquare, ToolDetailBody } from "./tooldetailbody";
 import { stepTitle } from "./transcriptlayout";
 
-// a failed or blocked call's mark as a word, as the step row draws it; a successful call has none (a square read as
-// a checkbox), and a call with no result yet keeps its pending square
+// a failed, blocked or declined call's mark as a word, as the step row draws it; a successful call has none (a square
+// read as a checkbox), and a call with no result yet keeps its pending square
 function OutcomeMark({ action }: { action: AgentActionEntry }) {
     if (action.outcome === "fail") {
         const exit = action.detail?.kind === "bash" ? action.detail.exit : null;
@@ -21,10 +21,15 @@ function OutcomeMark({ action }: { action: AgentActionEntry }) {
             </span>
         );
     }
-    if (action.outcome === "blocked") {
-        return <span className="shrink-0 text-[12px] text-muted">blocked</span>;
+    if (isPassedOver(action)) {
+        return <span className="shrink-0 text-[12px] text-muted">{action.outcome}</span>;
     }
     return action.pending ? <StatusSquare ok pending /> : null;
+}
+
+// a hook blocked it or the user declined it: no failure, so its reason reads muted as the step row draws it
+function isPassedOver(action: AgentActionEntry): boolean {
+    return action.outcome === "blocked" || action.outcome === "declined";
 }
 
 // Viewport-level full-detail view for one tool call. Pushed via
@@ -57,13 +62,18 @@ export function AgentToolDetailModal({ action }: { action: AgentActionEntry }) {
             </div>
             {action.error || action.detail ? (
                 <div data-tool-modal-body className="max-h-[70vh] overflow-y-auto bg-surface-code">
-                    {action.error ? (
+                    {action.error && isPassedOver(action) ? (
+                        <PassedOverNote
+                            text={action.error}
+                            declined={action.outcome === "declined"}
+                            className={cn("px-4 py-3", action.detail && "border-b border-edge-faint")}
+                        />
+                    ) : action.error ? (
                         <div
                             data-tool-error
                             className={cn(
-                                "whitespace-pre-wrap border-b border-edge-faint px-4 py-3 font-mono leading-[1.6] [overflow-wrap:anywhere]",
-                                CODE_TEXT,
-                                action.outcome === "blocked" ? "text-muted" : "text-error"
+                                "whitespace-pre-wrap break-words border-b border-edge-faint px-4 py-3 font-mono leading-[1.6] text-error",
+                                CODE_TEXT
                             )}
                         >
                             {action.error}

@@ -91,6 +91,26 @@ export function groupGrepMatches(matches: GrepMatch[], pattern?: string, ignoreC
     return [...groups.values()];
 }
 
+const PATH_SEP = /[\\/]/g;
+
+function separatorIndexes(path: string): number[] {
+    return [...path.matchAll(PATH_SEP)].map((m) => m.index);
+}
+
+// how many leading segments a path can drop and still keep its file name
+export function pathSegmentsDroppable(path: string): number {
+    return separatorIndexes(path).length;
+}
+
+// a path with its first `drop` segments cut whole, so a narrow header starts at a segment rather than mid-word
+export function pathTail(path: string, drop: number): string {
+    const seps = separatorIndexes(path);
+    if (drop <= 0 || seps.length === 0) {
+        return path;
+    }
+    return "…" + path.slice(seps[Math.min(drop, seps.length) - 1]);
+}
+
 // extensions the feed's tokenizer reads as code; anything else (.output, .log, .txt, none) draws as plain text
 const CODE_EXTENSIONS = new Set(
     "ts tsx js jsx mjs cjs go rs py java kt c h cc cpp hpp cs rb php swift lua sh bash ps1 sql css scss html xml json yaml yml toml zig".split(
