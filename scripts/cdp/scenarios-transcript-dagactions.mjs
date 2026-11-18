@@ -252,7 +252,7 @@ export const transcriptDagActions = {
             step: "an answer whose run events never loaded: the card still draws from argv, with the picked option beside",
             ok:
                 bare != null &&
-                hasAll(bare.text, ["t-4", "Picked option 2", "The lead answered · delivered to t-4"]) &&
+                hasAll(bare.text, ["Answered t-4", "Picked option 1", "The lead answered · delivered to t-4"]) &&
                 bare.check === 1,
             detail: JSON.stringify(bare),
         });

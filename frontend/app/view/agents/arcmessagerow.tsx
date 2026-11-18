@@ -23,7 +23,7 @@ import {
     Scale,
     X,
 } from "lucide-react";
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type HTMLAttributes, type ReactNode } from "react";
 import { shortId } from "./agentscards";
 import type { ArcMessage } from "./arcmessage";
 import {
@@ -31,6 +31,7 @@ import {
     brainstormLineView,
     briefView,
     builderCountsOf,
+    failingLogLine,
     finalRoundOf,
     fmtGap,
     judgeResultOf,
@@ -172,12 +173,21 @@ function EventHead({ icon, label, headline, tone = "plain", meta, link, open, on
             {headline ? (
                 <span className={cn("inline-flex min-w-0 items-center gap-[5px] font-semibold", TONE_TEXT[tone])}>
                     {ToneIcon && !compact ? <ToneIcon size={11} strokeWidth={3} aria-hidden /> : null}
-                    <span className="truncate">{headline}</span>
+                    <span data-event-headline className="truncate">
+                        {headline}
+                    </span>
                 </span>
             ) : null}
             {compact ? <span className="flex-1" /> : null}
+            {/* the facts give way first, so a narrow row never cuts the status */}
             {meta ? (
-                <span className={cn("min-w-0 truncate text-muted", compact ? "text-[11.5px]" : "text-[12.5px]")}>
+                <span
+                    data-event-meta
+                    className={cn(
+                        "min-w-0 shrink-[999] truncate text-muted",
+                        compact ? "text-[11.5px]" : "text-[12.5px]"
+                    )}
+                >
                     {meta}
                 </span>
             ) : null}
@@ -199,15 +209,16 @@ function EventHead({ icon, label, headline, tone = "plain", meta, link, open, on
     );
 }
 
-// the opened body under an event's head, indented past its icon
+// the opened body under an event's head, indented past its icon; compact draws no icon, so it sits flush
 function EventBody({ children, mono, compact }: { children: ReactNode; mono?: boolean; compact: boolean }) {
     return (
         <div
+            data-event-body
             className={cn(
                 "overflow-hidden border border-edge-faint",
                 mono ? "bg-surface-code font-mono text-ink-mid" : "bg-surface font-sans text-secondary",
                 compact
-                    ? "mt-1.5 ml-[19px] rounded-[6px] px-2.5 py-[7px] text-[12px] leading-[1.5]"
+                    ? "mt-1.5 rounded-[6px] px-2.5 py-[7px] text-[12px] leading-[1.5]"
                     : cn(
                           "mt-2 ml-6 rounded-[8px] px-3.5 py-[11px] leading-[1.55]",
                           mono ? "text-[12px]" : "text-[13px]"
@@ -219,13 +230,14 @@ function EventBody({ children, mono, compact }: { children: ReactNode; mono?: bo
     );
 }
 
-function Rows({ items, compact, clamp }: { items: string[]; compact: boolean; clamp?: boolean }) {
+// a wake's body lines; prose ones are markdown, as the engine quotes reports and reviews, a failure's stay literal
+function Rows({ items, mono, compact, clamp }: { items: string[]; mono: boolean; compact: boolean; clamp?: boolean }) {
     return (
         <>
             {items.map((t, i) => (
                 <div key={i} data-wake-item={clamp || undefined} className={cn(i > 0 && (compact ? "mt-1" : "mt-1.5"))}>
-                    <ClampedText lines="wakeItem" clamp={clamp === true} className="[overflow-wrap:anywhere]">
-                        {t}
+                    <ClampedText lines="wakeItem" clamp={clamp === true} className="[overflow-wrap:break-word]">
+                        {mono ? t : <MarkdownMessage text={t} />}
                     </ClampedText>
                 </div>
             ))}
@@ -356,12 +368,13 @@ function FindingsBody({ part, compact }: { part: WakePart; compact: boolean }) {
                     {!compact && f.lens && f.lens !== shown[i - 1]?.lens ? (
                         <div className="mb-1 text-[12px] font-semibold text-ink-mid">{f.lens}</div>
                     ) : null}
-                    <span className="[overflow-wrap:anywhere]">
-                        {compact ? f.text : `${i + 1}) ${f.text}`}
-                        {compact && findings.length > 1 ? (
-                            <span className="text-muted"> +{findings.length - 1} more</span>
-                        ) : null}
-                    </span>
+                    <div className="flex gap-1.5 [overflow-wrap:break-word]">
+                        {compact ? null : <span className="shrink-0">{i + 1})</span>}
+                        <MarkdownMessage text={f.text} className="min-w-0" />
+                    </div>
+                    {compact && findings.length > 1 ? (
+                        <div className="mt-1 text-muted">+{findings.length - 1} more</div>
+                    ) : null}
                 </div>
             ))}
         </EventBody>
@@ -395,24 +408,32 @@ function PartBody({
     }
     const items = part.kind === "questions" && ev.ask?.question ? [ev.ask.question] : (part.items ?? []);
     if (items.length === 0) return null;
+    // the failing command's log as one block, its indentation kept and its failing lines in the error tone
     if (part.kind === "final-failed") {
         return (
-            <EventBody compact={compact}>
-                {items.map((t, i) => (
-                    <div
-                        key={i}
-                        data-defect
-                        className={cn("[overflow-wrap:anywhere]", i > 0 && "mt-2 border-t border-edge-faint pt-2")}
-                    >
-                        {t}
-                    </div>
-                ))}
+            <EventBody mono compact={compact}>
+                <div data-final-log className="whitespace-pre-wrap [overflow-wrap:break-word]">
+                    {items.map((t, i) => {
+                        const failing = failingLogLine(t);
+                        return (
+                            <div
+                                key={i}
+                                data-defect
+                                data-failing={failing || undefined}
+                                className={cn(failing && "text-error")}
+                            >
+                                {t}
+                            </div>
+                        );
+                    })}
+                </div>
             </EventBody>
         );
     }
+    const mono = words.body === "mono";
     return (
-        <EventBody mono={words.body === "mono"} compact={compact}>
-            <Rows items={items} compact={compact} clamp={clampItems && part.kind === "quiet"} />
+        <EventBody mono={mono} compact={compact}>
+            <Rows items={items} mono={mono} compact={compact} clamp={clampItems && part.kind === "quiet"} />
         </EventBody>
     );
 }
@@ -577,9 +598,7 @@ function WakeRow({ message, ts, idleMs, latest, ctx, compact }: ArcMessageRowPro
             ) : null}
             {several ? <EventHead icon={bell} label={WOKE} compact={compact} /> : null}
             <div
-                className={cn(
-                    several && (compact ? "mt-1.5 ml-[19px] flex flex-col gap-2" : "mt-2 ml-6 flex flex-col gap-2.5")
-                )}
+                className={cn(several && (compact ? "mt-1.5 flex flex-col gap-2" : "mt-2 ml-6 flex flex-col gap-2.5"))}
             >
                 {parts.map((p, i) => (
                     <WakePartRow
@@ -714,6 +733,31 @@ function RunStartedRow({ runId, compact }: { runId: string; compact: boolean }) 
     );
 }
 
+// something the human did, as one centred muted phrase with no rules: a pane action, an interruption. One look for all.
+export function HumanActionRow({
+    icon,
+    phrase,
+    meta,
+    compact,
+    className,
+    ...rest
+}: { icon: ReactNode; phrase: string; meta?: string; compact: boolean } & HTMLAttributes<HTMLDivElement>) {
+    return (
+        <div
+            {...rest}
+            className={cn(
+                "flex min-w-0 items-center justify-center gap-2 py-0.5 font-sans text-muted",
+                compact ? "text-[12px]" : "text-[12.5px]",
+                className
+            )}
+        >
+            {icon}
+            <span className="shrink-0">{phrase}</span>
+            {meta ? <span className="min-w-0 truncate text-ink-mid">· {meta}</span> : null}
+        </div>
+    );
+}
+
 function PaneRow({ action, compact }: { action: PaneAction; compact: boolean }) {
     if (action.kind === "run") {
         return <RunStartedRow runId={action.text ?? ""} compact={compact} />;
@@ -722,17 +766,13 @@ function PaneRow({ action, compact }: { action: PaneAction; compact: boolean }) 
     const approved = action.kind === "approved";
     const Icon = approved ? Check : Lightbulb;
     return (
-        <div
+        <HumanActionRow
             data-pane-action={action.kind}
-            className={cn(
-                "flex min-w-0 items-center justify-center gap-2 py-0.5 font-sans text-muted",
-                compact ? "text-[12px]" : "text-[12.5px]"
-            )}
-        >
-            <Icon size={13} strokeWidth={approved ? 2.8 : 2} className="shrink-0" aria-hidden />
-            <span className="shrink-0">{phrase}</span>
-            {meta ? <span className="min-w-0 truncate text-ink-mid">· {meta}</span> : null}
-        </div>
+            icon={<Icon size={13} strokeWidth={approved ? 2.8 : 2} className="shrink-0" aria-hidden />}
+            phrase={phrase}
+            meta={meta}
+            compact={compact}
+        />
     );
 }
 

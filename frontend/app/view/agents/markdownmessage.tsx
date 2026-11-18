@@ -4,7 +4,7 @@
 import { openLink } from "@/app/store/global";
 import { cn } from "@/util/util";
 import { Lightbulb } from "lucide-react";
-import { createContext, Fragment, memo, useContext, type ReactNode } from "react";
+import { createContext, Fragment, memo, useContext, type CSSProperties, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CodeBlock } from "./codeblock";
@@ -49,6 +49,48 @@ function FileLink({ path, line, children }: { path: string; line: number | null;
     );
 }
 
+// a table cell with at most this much text stays on one line; a longer one wraps, but no narrower than
+// CELL_MIN_WIDTH, so a narrow host scrolls the table instead of squeezing a column to a word per line
+const CELL_NOWRAP_MAX_CHARS = 16;
+const CELL_MIN_WIDTH = "20ch";
+// an inline code word up to this long never breaks inside ("--flag", "a/b.go:12"); a longer one wraps
+const CODE_NOWRAP_MAX_CHARS = 32;
+
+type HastNode = { type: string; value?: string; tagName?: string; children?: HastNode[] };
+
+function hastText(node: HastNode | undefined): string {
+    if (node == null) return "";
+    if (node.type === "text") return node.value ?? "";
+    return (node.children ?? []).map(hastText).join("");
+}
+
+// style carries a GFM column's alignment
+function cellProps(node: HastNode | undefined, style: CSSProperties | undefined) {
+    return hastText(node).length > CELL_NOWRAP_MAX_CHARS
+        ? { style: { ...style, minWidth: CELL_MIN_WIDTH } }
+        : { style, className: "whitespace-nowrap" };
+}
+
+// an outside marker hangs in the list's left margin: the margin grows by a digit's width per digit past the first,
+// so "10." and "100." show whole
+function olDigits(node: HastNode | undefined, start: number | undefined): number {
+    const items = (node?.children ?? []).filter((c) => c.tagName === "li").length;
+    const first = start ?? 1;
+    return String(Math.max(Math.abs(first), Math.abs(first + items - 1))).length;
+}
+
+function codeWords(text: string): ReactNode[] {
+    return text.split(/(\s+)/).map((w, i) =>
+        w.length > 0 && w.length <= CODE_NOWRAP_MAX_CHARS && !/\s/.test(w) ? (
+            <span key={i} className="whitespace-nowrap">
+                {w}
+            </span>
+        ) : (
+            w
+        )
+    );
+}
+
 // links open through the app helper (external/internal routing), matching element/markdown.tsx —
 // NOT target=_blank, which bypasses that routing. tables are wrapped so wide ones scroll inside
 // the panel instead of breaking its width. A file link (replyfilelinks.ts) draws as a FileLink.
@@ -80,6 +122,24 @@ const MD_COMPONENTS: Components = {
         <div className="agent-table-wrap">
             <table>{children}</table>
         </div>
+    ),
+    th: ({ node, children, style }) => <th {...cellProps(node, style)}>{children}</th>,
+    td: ({ node, children, style }) => <td {...cellProps(node, style)}>{children}</td>,
+    ol: ({ node, children, start, className }) => {
+        const digits = olDigits(node, start);
+        return (
+            <ol
+                start={start}
+                className={className}
+                style={digits > 1 ? ({ "--ol-digits": digits } as CSSProperties) : undefined}
+            >
+                {children}
+            </ol>
+        );
+    },
+    // a fenced block's code is read by pre below, so this draws inline code only
+    code: ({ className, children }) => (
+        <code className={className}>{typeof children === "string" ? codeWords(children) : children}</code>
     ),
     pre: ({ children }) => {
         // children is the <code> element react-markdown produced for a fenced block

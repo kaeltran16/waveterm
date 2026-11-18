@@ -16,19 +16,21 @@ import type { AgentActionEntry } from "./agentsviewmodel";
 import {
     bareEffortId,
     buildInitiativeCard,
+    chunkRowText,
+    chunkSubject,
     CREATED_CHUNKS_SHOWN,
     effortListModel,
     effortListRequest,
     effortShowModel,
-    type ChunkFacts,
+    type ChunkRowText,
     type InitiativeCard,
     type Progress,
 } from "./initiativecards";
 import { LoadFailure } from "./recordedoutput";
 import type { TranscriptContext } from "./transcriptcontext";
 import { actionCommand } from "./transcriptlayout";
-import { wshJsonOutput } from "./wshcall";
-import { CallFacts } from "./wshchangerow";
+import { printsOnlyWsh, wshJsonOutput } from "./wshcall";
+import { CallFacts, WshVerbRow } from "./wshchangerow";
 import { useWshData } from "./wshdata";
 import { AsOfNow, type WshRendererProps, type WshRenderers } from "./wshrenderers";
 
@@ -44,11 +46,6 @@ const fetchEfforts = (req: { includearchived: boolean; project?: string }) =>
 function jsonOf<T>(action: AgentActionEntry): T | null {
     const d = action.detail;
     return d?.kind === "bash" ? wshJsonOutput<T>(actionCommand(action), d.output, d.exit) : null;
-}
-
-function chunkSubject(chunk: ChunkFacts): string {
-    if (chunk.number != null && chunk.label) return `${chunk.number}. ${chunk.label}`;
-    return chunk.label ?? (chunk.number != null ? `#${chunk.number}` : "");
 }
 
 const mono = (compact: boolean) => (compact ? "text-[11px]" : "text-[12px]");
@@ -148,11 +145,14 @@ function OpenLink({ ctx, effortId, compact }: { ctx: TranscriptContext; effortId
     );
 }
 
+// a change card already says what changed from argv. When only wsh printed (printsOnlyWsh), its recorded output
+// ("addChunk applied to effort effort:<id>", then often a whole effort show) would only repeat it raw, so it stays one
+// click away in the call's facts; when another command in the line printed (; sed -n ...), that output is shown
 function LoadError({ error, action, compact }: { error?: string; action: AgentActionEntry; compact: boolean }) {
     return error ? (
         <LoadFailure
             message={`Couldn't load the initiative: ${error}`}
-            action={action}
+            action={printsOnlyWsh(actionCommand(action)) ? undefined : action}
             compact={compact}
             className={compact ? "ml-[22px] mt-1.5" : "ml-[26px] mt-2"}
         />
@@ -280,39 +280,44 @@ function ChunkBlocked({ card, ctx, action, compact }: CardProps<"chunk-blocked">
     );
 }
 
-// the lighter cards are one line: an icon, what happened, what it happened to, and the call's facts
+// the lighter cards are one line: the shared flat row, with the record's load error under it
 function EventRow({
     icon,
-    label,
-    subject,
-    trailing,
+    text,
+    error,
     action,
     compact,
-    below,
 }: {
     icon: ReactNode;
-    label: string;
-    subject?: string;
-    trailing?: string;
+    text: ChunkRowText;
+    error?: string;
     action: AgentActionEntry;
     compact: boolean;
-    below?: ReactNode;
 }) {
-    return (
-        <div className={cn("px-0.5 font-sans text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}>
-            <div className={cn("flex items-center", compact ? "gap-[7px]" : "gap-2.5")}>
-                {icon}
-                <span className="shrink-0">{label}</span>
-                {subject ? <span className="min-w-0 truncate text-foreground">{subject}</span> : null}
-                <span className="flex-1" />
-                {trailing ? (
+    const row = (
+        <WshVerbRow
+            icon={icon}
+            verb={text.label}
+            action={action}
+            compact={compact}
+            right={
+                text.trailing ? (
                     <span className={cn("min-w-0 shrink truncate text-muted", compact ? "text-[11px]" : "text-[12px]")}>
-                        {trailing}
+                        {text.trailing}
                     </span>
-                ) : null}
-                <CallFacts action={action} compact={compact} />
-            </div>
-            {below}
+                ) : null
+            }
+        >
+            {text.subject ? <span className="min-w-0 truncate text-foreground">{text.subject}</span> : null}
+        </WshVerbRow>
+    );
+    if (!error) {
+        return row;
+    }
+    return (
+        <div>
+            {row}
+            <LoadError error={error} action={action} compact={compact} />
         </div>
     );
 }
@@ -343,39 +348,19 @@ function ChunkCard({ call, wshKey, action, ctx, compact }: WshRendererProps) {
         case "chunk-blocked":
             return <ChunkBlocked card={card} ctx={ctx} action={action} compact={compact} />;
         case "chunk-status":
-            return (
-                <EventRow
-                    icon={<ChunkDot tone={chunkTone(card.status)} size={size} />}
-                    label={`Chunk ${card.chunk.number ?? card.chunk.label ?? ""} ${card.status}`}
-                    subject={card.chunk.number != null ? card.chunk.label : undefined}
-                    action={action}
-                    compact={compact}
-                    below={<LoadError error={card.error} action={action} compact={compact} />}
-                />
-            );
         case "chunk-added":
+        case "chunk-noted": {
+            const Glyph = card.kind === "chunk-added" ? Plus : Pencil;
+            const icon =
+                card.kind === "chunk-status" ? (
+                    <ChunkDot tone={chunkTone(card.status)} size={size} />
+                ) : (
+                    <Glyph size={size} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />
+                );
             return (
-                <EventRow
-                    icon={<Plus size={size} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />}
-                    label="Added chunk"
-                    subject={chunkSubject(card.chunk)}
-                    trailing={card.initiative}
-                    action={action}
-                    compact={compact}
-                    below={<LoadError error={card.error} action={action} compact={compact} />}
-                />
+                <EventRow icon={icon} text={chunkRowText(card)} error={card.error} action={action} compact={compact} />
             );
-        case "chunk-noted":
-            return (
-                <EventRow
-                    icon={<Pencil size={size} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />}
-                    label={`Noted on chunk ${card.chunk.number ?? card.chunk.label ?? ""}`}
-                    subject={card.note}
-                    action={action}
-                    compact={compact}
-                    below={<LoadError error={card.error} action={action} compact={compact} />}
-                />
-            );
+        }
     }
     return null;
 }

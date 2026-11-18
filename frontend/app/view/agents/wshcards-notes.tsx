@@ -32,7 +32,7 @@ import {
 } from "./notescards";
 import { LoadFailure } from "./recordedoutput";
 import { fmtDuration } from "./runcompletion";
-import { CallFacts } from "./wshchangerow";
+import { CallFacts, WshVerbRow } from "./wshchangerow";
 import { useWshData } from "./wshdata";
 import { AsOfNow, type WshRendererProps, type WshRenderers } from "./wshrenderers";
 
@@ -82,25 +82,6 @@ function OpenNote({ noteId, props }: { noteId?: string; props: WshRendererProps 
 
 function NoteCardView({ card, props, loadFailed }: { card: NoteCard; props: WshRendererProps; loadFailed: boolean }) {
     const { action, compact } = props;
-    const head = (
-        <div className={cn("flex items-center font-sans", compact ? "gap-[7px] py-0.5" : "gap-2.5 px-3.5 py-3")}>
-            <FileText size={compact ? 12 : 14} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />
-            <span className={cn("shrink-0 text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}>
-                Saved a note
-            </span>
-            <span
-                className={cn(
-                    "min-w-0 truncate text-foreground",
-                    compact ? "text-[12.5px]" : "text-[13.5px] font-semibold"
-                )}
-            >
-                {card.title}
-            </span>
-            <span className="flex-1" />
-            <OpenNote noteId={card.noteId} props={props} />
-            <CallFacts action={action} compact={compact} />
-        </div>
-    );
     const failed = loadFailed ? (
         <LoadFailure
             message="The note did not load, so this card shows only what the call passed."
@@ -109,24 +90,38 @@ function NoteCardView({ card, props, loadFailed }: { card: NoteCard; props: WshR
             className="mt-1"
         />
     ) : null;
-    if (compact) {
+    // compact never draws the body, and a note with no body is a one-line event: both are the flat row
+    if (compact || card.bullets.length === 0) {
         return (
             <div data-note-card>
-                {head}
+                <WshVerbRow
+                    icon={<FileText size={compact ? 12 : 14} strokeWidth={2} className="shrink-0" aria-hidden />}
+                    verb="Saved a note"
+                    action={action}
+                    compact={compact}
+                    right={<OpenNote noteId={card.noteId} props={props} />}
+                >
+                    <span className="min-w-0 truncate text-foreground">{card.title}</span>
+                </WshVerbRow>
                 {failed}
             </div>
         );
     }
     return (
         <div data-note-card className="overflow-hidden rounded-[10px] border border-edge-mid">
-            {head}
-            {card.bullets.length > 0 ? (
-                <div className="border-t border-edge-faint px-3.5 pb-3 pt-2.5 font-sans text-[13px] leading-[1.6] text-secondary">
-                    {card.bullets.map((b, i) => (
-                        <NoteBullet key={i} spans={b} />
-                    ))}
-                </div>
-            ) : null}
+            <div className="flex items-center gap-2.5 px-3.5 py-3 font-sans">
+                <FileText size={14} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />
+                <span className="shrink-0 text-[13.5px] text-ink-mid">Saved a note</span>
+                <span className="min-w-0 truncate text-[13.5px] font-semibold text-foreground">{card.title}</span>
+                <span className="flex-1" />
+                <OpenNote noteId={card.noteId} props={props} />
+                <CallFacts action={action} compact={compact} />
+            </div>
+            <div className="border-t border-edge-faint px-3.5 pb-3 pt-2.5 font-sans text-[13px] leading-[1.6] text-secondary">
+                {card.bullets.map((b, i) => (
+                    <NoteBullet key={i} spans={b} />
+                ))}
+            </div>
             {failed ? <div className="px-3.5 pb-2.5">{failed}</div> : null}
         </div>
     );

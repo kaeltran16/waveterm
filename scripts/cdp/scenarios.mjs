@@ -17,6 +17,12 @@ import { transcriptArc } from "./scenarios-transcript-arc.mjs";
 import { transcriptBoards } from "./scenarios-transcript-boards.mjs";
 import { transcriptLive } from "./scenarios-transcript-live.mjs";
 import { transcriptMedia } from "./scenarios-transcript-media.mjs";
+import { transcriptCensusProjection } from "./scenarios-transcript-census-projection.mjs";
+import { transcriptCensusLayout } from "./scenarios-transcript-census-layout.mjs";
+import { transcriptCensusSteps } from "./scenarios-transcript-census-steps.mjs";
+import { transcriptCensusMarkdown } from "./scenarios-transcript-census-markdown.mjs";
+import { transcriptCensusRows } from "./scenarios-transcript-census-rows.mjs";
+import { transcriptCensusWsh } from "./scenarios-transcript-census-wsh.mjs";
 import { renderedShell } from "./scenarios-rendered-shell.mjs";
 import { codeImageZoom } from "./scenarios-code-imagezoom.mjs";
 import { codePeek } from "./scenarios-codepeek.mjs";
@@ -298,6 +304,12 @@ export const SCENARIOS = [
     transcriptBoards,
     transcriptLive,
     transcriptMedia,
+    transcriptCensusProjection,
+    transcriptCensusLayout,
+    transcriptCensusSteps,
+    transcriptCensusMarkdown,
+    transcriptCensusRows,
+    transcriptCensusWsh,
     renderedShell,
     notesWsh,
     agentTreeRail,

@@ -4,23 +4,22 @@
 import { MOTION, composerReveal, microFade, turnTransition } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { atoms } from "@/app/store/global";
-import { modalsModel } from "@/app/store/modalmodel";
 import { cn } from "@/util/util";
-import { ArrowUpRight, Check, ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useAtomValue } from "jotai";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { ImageThumbs, toolZoomImages } from "./imagethumbs";
 import { MarkdownMessage } from "./markdownmessage";
-import { RecordedOutput } from "./recordedoutput";
+import { InStepBody, RecordedOutput } from "./recordedoutput";
 import { toolRendererKey } from "./renderregistry";
 import { fmtDuration } from "./runcompletion";
-import { CODE_TEXT, ToolDetailBody } from "./tooldetailbody";
+import { BODY_BUTTON, BODY_FOOTER, CODE_TEXT, OpenFullView, PassedOverNote, ToolDetailBody } from "./tooldetailbody";
 import { formatDuration } from "./tooldetail";
 import { ToolOutputRenderer } from "./toolrenderers";
 import type { TranscriptContext } from "./transcriptcontext";
-import { stepRows, stepTitle, type Step, type Thought } from "./transcriptlayout";
+import { actionCommand, stepRows, stepTitle, type Step, type Thought } from "./transcriptlayout";
 import { isCardKey } from "./wshcall";
 import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps, type WshStepSummary } from "./wshrenderers";
 
@@ -82,24 +81,41 @@ function askAnswer(action: AgentActionEntry): string | undefined {
     return q == null ? undefined : q.picked.length > 0 ? q.picked.join(", ") : q.typed;
 }
 
-function StepTitle({ step, compact }: { step: Step; compact: boolean }) {
+// a Bash step with no description: its command is the row's own text, so its opened body does not repeat it
+function isBareCommand(action: AgentActionEntry): boolean {
+    return action.detail?.kind === "bash" && !stepTitle(action).title;
+}
+
+// open: an opened bare command shows its whole command, wrapped, since its body leaves it out
+function StepTitle({ step, compact, open, gap }: { step: Step; compact: boolean; open: boolean; gap: string }) {
     const { title, mono, subject } = stepTitle(step.action);
     const head = subject != null && title.endsWith(subject) ? title.slice(0, title.length - subject.length) : title;
     const answer = askAnswer(step.action);
     const totals = editTotals(step.action);
+    const whole = open && isBareCommand(step.action);
     // a bare command is the row's own text, so it is never smaller than the output it opens
     const monoSize = !title ? CODE_TEXT : compact ? "text-[11px]" : "text-[12px]";
     const line = (
         <>
             {title ? (
-                <span className={cn("min-w-0", answer == null && "shrink-0", mono == null && "truncate")}>
+                // the title truncates rather than pushing the row's facts out; a command under it gives way first
+                <span data-step-title className="min-w-0 truncate">
                     {head}
                     {subject != null && head !== title ? <span className="text-foreground">{subject}</span> : null}
                 </span>
             ) : null}
             {mono ? (
                 // a bare command is the row's text, so it takes the row's color; under a title it is subordinate
-                <span className={cn("min-w-0 truncate font-mono", title ? "text-muted" : undefined, monoSize)}>{mono}</span>
+                <span
+                    className={cn(
+                        "min-w-0 font-mono",
+                        whole ? "whitespace-pre-wrap break-words" : "shrink-[100] truncate",
+                        title ? "text-muted" : undefined,
+                        monoSize
+                    )}
+                >
+                    {whole ? (actionCommand(step.action) ?? mono) : mono}
+                </span>
             ) : null}
             {step.action.summary && (step.action.verb === "grep" || step.action.verb === "glob") ? (
                 <span className={cn("shrink-0 text-muted", compact ? "text-[11.5px]" : "text-[12.5px]")}>
@@ -120,12 +136,13 @@ function StepTitle({ step, compact }: { step: Step; compact: boolean }) {
     if (answer == null) {
         return line;
     }
+    // the answer takes the row's width under the title line, not a share of it beside the facts
     return (
-        <span className="min-w-0 flex-1">
-            <span className="block [overflow-wrap:anywhere]">{line}</span>
-            <span className="mt-1 flex items-center gap-1.5 text-foreground">
-                <Check size={12} strokeWidth={3} className="shrink-0 text-accent-soft" aria-hidden />
-                {answer}
+        <span className="flex min-w-0 flex-1 flex-col">
+            <span className={cn("flex min-w-0 items-center", gap)}>{line}</span>
+            <span data-step-answer className="mt-1 flex min-w-0 items-start gap-1.5 break-words text-foreground">
+                <Check size={12} strokeWidth={3} className="mt-[3px] shrink-0 text-accent-soft" aria-hidden />
+                <span className="min-w-0">{answer}</span>
             </span>
         </span>
     );
@@ -134,7 +151,13 @@ function StepTitle({ step, compact }: { step: Step; compact: boolean }) {
 // a quicker step's time is noise on the row; the full view still shows it
 const STEP_DURATION_MIN_MS = 1000;
 
-// the row's right side: a failed call's exit chip, then its time (a running one's live elapsed, a stopped one's word)
+// a status word's tone, the same in every step row: a stop warns, a call passed over (blocked, declined) is muted
+function statusWordTone(status: Step["status"]): string {
+    return status === "stopped" ? "text-warning" : "text-muted";
+}
+
+// the row's right side: a failed call's exit chip, then its time (a running one's live elapsed), or the one word for a
+// call that did not finish (stopped, blocked, declined)
 function StepFacts({ step, compact }: { step: Step; compact: boolean }) {
     const { action, status } = step;
     const chip = compact ? "px-[5px] text-[10.5px]" : "px-1.5 py-px text-[11px]";
@@ -142,7 +165,7 @@ function StepFacts({ step, compact }: { step: Step; compact: boolean }) {
     return (
         <>
             {status === "fail" ? (
-                <span className={cn("shrink-0 rounded-[4px] bg-error/15 font-mono text-error", chip)}>
+                <span data-step-word className={cn("shrink-0 rounded-[4px] bg-error/15 font-mono text-error", chip)}>
                     {/* a call that never ran has a null exit, so it reads failed rather than "exit null" */}
                     {action.detail?.kind === "bash" && action.detail.exit ? `exit ${action.detail.exit}` : "failed"}
                 </span>
@@ -151,8 +174,13 @@ function StepFacts({ step, compact }: { step: Step; compact: boolean }) {
                 <span className={time}>
                     <Elapsed since={action.startedTs ?? action.ts} />
                 </span>
-            ) : status === "stopped" || status === "blocked" ? (
-                <span className={cn("shrink-0 text-muted", compact ? "text-[11px]" : "text-[12px]")}>{status}</span>
+            ) : status === "stopped" || status === "blocked" || status === "declined" ? (
+                <span
+                    data-step-word
+                    className={cn("shrink-0", statusWordTone(status), compact ? "text-[11px]" : "text-[12px]")}
+                >
+                    {status}
+                </span>
             ) : (action.durationMs ?? 0) >= STEP_DURATION_MIN_MS ? (
                 <span data-step-duration className={time}>
                     {formatDuration(action.durationMs)}
@@ -179,12 +207,9 @@ function stepSummary(step: Step): { text: string; tone: WshStepSummary["tone"] }
     return text ? { text, tone: entry.tone } : undefined;
 }
 
-const BODY_BUTTON =
-    "inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-[3px] font-sans text-[12px] text-ink-mid hover:bg-lane hover:text-primary";
-
-// a refused call is passed over, not failed, so its reason reads muted as the full view draws it
-function errorTone(status: Step["status"]): string {
-    return status === "blocked" ? "text-muted" : "text-error";
+// a hook blocked it or the user declined it: passed over, not failed, so its reason reads muted with the Ban square
+function isPassedOver(status: Step["status"]): boolean {
+    return status === "blocked" || status === "declined";
 }
 
 // a Bash call that never ran: the projection leaves its output empty and puts the reason in error
@@ -211,7 +236,10 @@ function WshViewBody({
     const output = action.detail?.kind === "bash" ? action.detail.output : "";
     return (
         <div data-wsh-view={wsh!.key} className="mt-2.5">
-            <View call={wsh!.call} wshKey={wsh!.key} action={action} ctx={ctx} compact={compact} />
+            {/* the footer below holds the view's "Open full view", so a load failure inside it does not add one */}
+            <InStepBody.Provider value={true}>
+                <View call={wsh!.call} wshKey={wsh!.key} action={action} ctx={ctx} compact={compact} />
+            </InStepBody.Provider>
             <div className="mt-2 flex items-center gap-2">
                 {output.trim() ? (
                     <button type="button" aria-pressed={raw} onClick={() => setRaw((v) => !v)} className={BODY_BUTTON}>
@@ -232,8 +260,8 @@ function WshViewBody({
 }
 
 // a step's opened body: a wsh read call's structured view, a test or diff card (cardCollapsed: its header only), else
-// the tool detail. A failed call leads with its error; a refused command shows the command, then why it was refused as
-// a note under it
+// the tool detail, capped to whole lines. A failed call leads with its error. A call passed over leads with why, muted
+// beside the Ban square; a refused command shows the command first, the reason under it
 function StepBody({
     step,
     View,
@@ -247,24 +275,13 @@ function StepBody({
     compact: boolean;
     cardCollapsed: boolean;
 }) {
-    const { action } = step;
-    const openFull = (
-        <button
-            type="button"
-            aria-label="Open full view"
-            onClick={() => modalsModel.pushModal("AgentToolDetailModal", { action })}
-            className={BODY_BUTTON}
-        >
-            <ArrowUpRight size={12} strokeWidth={2.2} aria-hidden />
-            Open full view
-        </button>
-    );
+    const { action, status } = step;
+    const openFull = <OpenFullView action={action} />;
     if (hasBodyCard(action)) {
-        // the card header's own raw toggle offers the output, so the footer holds only the full view
+        // the card header's own raw toggle offers the output, so the footer, inside the card, holds only the full view
         return (
             <div data-step-card className="mt-2.5">
-                <ToolOutputRenderer action={action} collapsed={cardCollapsed} />
-                <div className="mt-2 flex justify-end">{openFull}</div>
+                <ToolOutputRenderer action={action} collapsed={cardCollapsed} footer={openFull} />
             </div>
         );
     }
@@ -272,34 +289,45 @@ function StepBody({
         return <WshViewBody step={step} View={View} ctx={ctx} compact={compact} openFull={openFull} />;
     }
     const { detail, error } = action;
+    const bare = isBareCommand(action);
+    const passedOver = isPassedOver(status);
     const refused = isRefusedCommand(action);
-    const tone = errorTone(step.status);
+    // a refused command's reason sits under its command; with no command drawn, it leads like any other
+    const noteUnder = refused && !bare;
+    const note = !error ? null : passedOver ? (
+        <PassedOverNote
+            text={error}
+            declined={status === "declined"}
+            className={noteUnder ? "-mt-1 px-3 pb-2" : cn("px-3 py-2", detail && "border-b border-edge-faint")}
+        />
+    ) : refused ? (
+        <div
+            data-tool-note
+            className={cn(
+                "text-[12px] leading-[1.5] text-error break-words",
+                noteUnder ? "-mt-1 px-3 pb-2" : "px-3 py-2"
+            )}
+        >
+            {error}
+        </div>
+    ) : null;
     return (
         <div data-tool-panel className="mt-2.5 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code">
-            <div className="max-h-[400px] overflow-auto">
-                {error && !refused ? (
-                    <div
-                        data-tool-error
-                        className={cn(
-                            "whitespace-pre-wrap border-b border-edge-faint px-3 py-2 font-mono leading-[1.6] [overflow-wrap:anywhere] last:border-b-0",
-                            CODE_TEXT,
-                            tone
-                        )}
-                    >
-                        {error}
-                    </div>
-                ) : null}
-                {detail ? <ToolDetailBody detail={detail} variant="inline" /> : null}
-                {refused ? (
-                    <div
-                        data-tool-note
-                        className={cn("-mt-1 px-3 pb-2 text-[12px] leading-[1.5] [overflow-wrap:anywhere]", tone)}
-                    >
-                        {error}
-                    </div>
-                ) : null}
-            </div>
-            <div className="flex items-center justify-end border-t border-edge-faint px-2 py-1">{openFull}</div>
+            {error && note == null ? (
+                <div
+                    data-tool-error
+                    className={cn(
+                        "whitespace-pre-wrap break-words border-b border-edge-faint px-3 py-2 font-mono leading-[1.6] text-error last:border-b-0",
+                        CODE_TEXT
+                    )}
+                >
+                    {error}
+                </div>
+            ) : null}
+            {noteUnder ? null : note}
+            {detail ? <ToolDetailBody detail={detail} variant="inline" capped hideCommand={bare} /> : null}
+            {noteUnder ? note : null}
+            <div className={BODY_FOOTER}>{openFull}</div>
         </div>
     );
 }
@@ -307,8 +335,8 @@ function StepBody({
 // a step row's gap-2 / gap-2.5, in px, for the spinner's collapse to take back
 const HEAD_GAP_PX = { compact: 8, full: 10 };
 
-// One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, however long (the
-// panel scrolls, and "Open full view" holds the modal); a step with neither a body nor a wsh view is a plain row.
+// One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, cut to whole lines
+// ("Open full view" holds the rest in the modal); a step with neither a body nor a wsh view is a plain row.
 // latest: the step is in the live or latest turn (or outside any fold)
 function StepRow({
     step,
@@ -332,7 +360,8 @@ function StepRow({
     const summary = stepSummary(step);
     // a failed call with no detail (a Grep, Read or Monitor) still opens, to its error
     const clickable = View != null || action.detail != null || !!action.error;
-    const align = askAnswer(action) != null ? "items-start" : "items-center";
+    const answered = askAnswer(action) != null;
+    const align = answered || (open && isBareCommand(action)) ? "items-start" : "items-center";
     const gap = compact ? "gap-2" : "gap-2.5";
     // one title colour whatever the status: the spinner alone marks a running step
     const head = cn(
@@ -350,8 +379,9 @@ function StepRow({
     };
     const content = (
         <>
-            <StepTitle step={step} compact={compact} />
-            <span className="min-w-[6px] flex-1" />
+            <StepTitle step={step} compact={compact} open={open} gap={gap} />
+            {/* an answered ask's title column fills the row itself */}
+            {answered ? null : <span className="min-w-[6px] flex-1" />}
             <AnimatePresence initial={false}>
                 {summary ? (
                     <motion.span

@@ -22,6 +22,9 @@ const CAVEATS_HEAD = "Unverified:";
 const QUIET_HEAD = "Since your last wake:";
 // where a wake's own facts end and its instruction to the lead begins
 const STATUS_CMD = /\.?\s*wsh jarvis dag status\b[\s\S]*$/;
+// the engine's cut of a long section (pkg/orchestrate reportsections.go): "… N more characters: <cmd>", on its own
+// line, or flattened into the plan review's one line. It and what follows on its line are plumbing for the lead.
+const CUT_TAIL = /\s*… \d+ more characters?\b[^\n]*$/;
 
 export type WakeKind =
     | "plan-review-failed"
@@ -213,11 +216,30 @@ function classifyWakeLine(line: string): WakePart {
 // a body line as the engine wrote it, its list bullet or numbering dropped
 const bodyLine = (s: string) => s.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "").trim();
 
+// a failed final stage's body is the failing command's log: an indented line keeps its indentation and its markers
+// ("  -  58" is a skipped test, not a bullet); a line at the margin is the engine's own defect line
+const logLine = (s: string) => (/^\s/.test(s) ? s.trimEnd() : bodyLine(s));
+
+// a test runner's failing line: playwright's x/✘, a FAIL/FAILED marker, pytest's E line, a thrown error, the "N
+// failed" summary. A server log line that only mentions a failure is not one.
+const FAILING_LINE = [
+    /^\s*(?:x|✘|✗|×)\s+\d/,
+    /^\s*FAIL(?:ED)?\b/,
+    /^E\s/,
+    /^\s*(?:[A-Z]\w*)?Error:/,
+    /^[\s=]*\d+ failed\b/,
+];
+
+export function failingLogLine(line: string): boolean {
+    return FAILING_LINE.some((re) => re.test(line));
+}
+
 // a wake split into its lines (composeWake): each `wake:` line is a part, the lines under it its body (a failed final
 // stage's defects, the land's holds), and the Unverified and Since-your-last-wake sections parts of their own
 export function wakeParts(text: string): WakePart[] {
     const parts: WakePart[] = [];
-    for (const raw of text.split("\n")) {
+    for (const full of text.split("\n")) {
+        const raw = full.replace(CUT_TAIL, "");
         const line = raw.trim();
         if (line === "") continue;
         if (line.startsWith(WAKE_HEAD)) {
@@ -237,7 +259,7 @@ export function wakeParts(text: string): WakePart[] {
             cur.text = `${cur.text}\n${line}`;
             continue;
         }
-        cur.items = [...(cur.items ?? []), bodyLine(line)];
+        cur.items = [...(cur.items ?? []), cur.kind === "final-failed" ? logLine(raw) : bodyLine(line)];
     }
     return parts;
 }

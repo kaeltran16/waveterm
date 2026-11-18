@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { capDiffLines, hiddenLinesLabel, parseUnifiedDiff } from "./unifieddiff";
+import { parseUnifiedDiff } from "./unifieddiff";
 
 const TWO_FILES = [
     "diff --git a/pkg/a.go b/pkg/a.go",
@@ -156,39 +156,5 @@ describe("parseUnifiedDiff", () => {
         expect(files).toHaveLength(10);
         expect(files?.reduce((n, f) => n + f.adds, 0)).toBe(5_000);
         expect(files?.reduce((n, f) => n + f.dels, 0)).toBe(5_000);
-    });
-});
-
-describe("capDiffLines", () => {
-    it("keeps the first lines across files, keeps the counts, and reports how many it hid", () => {
-        const files = parseUnifiedDiff(TWO_FILES);
-        const { files: capped, hidden } = capDiffLines(files, 4);
-        expect(capped.map((f) => f.lines.length)).toEqual([4, 0]);
-        expect(capped.map((f) => [f.adds, f.dels])).toEqual([
-            [2, 1],
-            [2, 0],
-        ]);
-        expect(hidden).toBe(5);
-        expect(capDiffLines(files, 100)).toEqual({ files, hidden: 0 });
-    });
-});
-
-describe("hiddenLinesLabel", () => {
-    it("is singular for one hidden line and plural otherwise", () => {
-        expect(hiddenLinesLabel(1)).toBe("1 more line in raw");
-        expect(hiddenLinesLabel(5)).toBe("5 more lines in raw");
-    });
-
-    it("labels a 401-line diff capped at 400 as one hidden line", () => {
-        // the hunk header counts as a drawn line, so 400 added lines make 401
-        const added = Array.from({ length: 400 }, (_, i) => `+line ${i}`);
-        const diff = ["diff --git a/x.txt b/x.txt", "--- a/x.txt", "+++ b/x.txt", "@@ -0,0 +1,400 @@", ...added].join(
-            "\n"
-        );
-        const files = parseUnifiedDiff(diff);
-        expect(files?.[0].lines).toHaveLength(401);
-        const { hidden } = capDiffLines(files, 400);
-        expect(hidden).toBe(1);
-        expect(hiddenLinesLabel(hidden)).toBe("1 more line in raw");
     });
 });

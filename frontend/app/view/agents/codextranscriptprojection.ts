@@ -10,6 +10,7 @@
 // ignored wholesale. session_meta/turn_context/reasoning/ghost_snapshot are skipped too.
 
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
+import { readableVerb } from "./transcriptprojection";
 import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 
 const VERB_BY_TOOL: Record<string, string> = {
@@ -25,7 +26,36 @@ function isInjectedContext(text: string): boolean {
 }
 
 function verbFor(name: string): string {
-    return VERB_BY_TOOL[name] ?? name.toLowerCase();
+    return VERB_BY_TOOL[name] ?? readableVerb(name);
+}
+
+// code mode's exec tool runs JavaScript; the call it makes is in the first string literal of `exec_command({cmd:"..."})`
+// or `apply_patch("...")`
+const EXEC_TOOL = "exec";
+const EXEC_COMMAND_RE = /\bexec_command\(\s*\{\s*"?cmd"?\s*:\s*("(?:[^"\\]|\\.)*")/;
+const EXEC_PATCH_RE = /\bapply_patch\(\s*("(?:[^"\\]|\\.)*")/;
+
+function jsString(literal: string): string {
+    try {
+        const s = JSON.parse(literal);
+        return typeof s === "string" ? s : "";
+    } catch {
+        return "";
+    }
+}
+
+// an exec as the call it makes: a command it runs, a file it patches, else a bare exec
+function execAction(input: unknown): { verb: string; target: string } {
+    const code = typeof input === "string" ? input : "";
+    const cmd = EXEC_COMMAND_RE.exec(code);
+    if (cmd != null) {
+        return { verb: VERB_BY_TOOL.shell_command, target: jsString(cmd[1]) };
+    }
+    const patch = EXEC_PATCH_RE.exec(code);
+    if (patch != null) {
+        return { verb: VERB_BY_TOOL.apply_patch, target: patchTarget(jsString(patch[1])) };
+    }
+    return { verb: EXEC_TOOL, target: "" };
 }
 
 function baseName(p: string): string {
@@ -148,13 +178,19 @@ export function projectCodexTranscriptRecords(records: readonly TranscriptRecord
             if (typeof p.name !== "string") {
                 continue;
             }
-            const target =
-                p.type === "function_call"
-                    ? p.name === "update_plan"
-                        ? planTarget(p.arguments)
-                        : shellTarget(p.arguments)
-                    : patchTarget(p.input);
-            const action: ActionEntry = { kind: "action", verb: verbFor(p.name), target };
+            const { verb, target } =
+                p.type === "custom_tool_call" && p.name === EXEC_TOOL
+                    ? execAction(p.input)
+                    : {
+                          verb: verbFor(p.name),
+                          target:
+                              p.type === "function_call"
+                                  ? p.name === "update_plan"
+                                      ? planTarget(p.arguments)
+                                      : shellTarget(p.arguments)
+                                  : patchTarget(p.input),
+                      };
+            const action: ActionEntry = { kind: "action", verb, target };
             entries.push(action);
             if (typeof p.call_id === "string") {
                 actionById.set(p.call_id, action);

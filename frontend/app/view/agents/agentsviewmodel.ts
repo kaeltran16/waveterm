@@ -83,8 +83,9 @@ export type AgentEntry =
           kind: "action";
           verb: string;
           target: string;
-          // blocked: refused before it ran (a hook, a permission rule, the user declining), which is no failure
-          outcome?: "ok" | "fail" | "blocked";
+          // blocked: refused before it ran by a hook; declined: the user rejected it or a permission rule denied it.
+          // neither is a failure
+          outcome?: "ok" | "fail" | "blocked" | "declined";
           note?: string;
           error?: string; // the failure text of a failed call, drawn under the line
           summary?: string; // e.g. "14 matches", "80 lines", "24 passing"

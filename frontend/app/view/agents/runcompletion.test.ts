@@ -22,6 +22,17 @@ describe("runcompletion derivations", () => {
         expect(fmtDuration(1500)).toBe("2s");
         expect(fmtDuration(0)).toBe("0s");
     });
+    it("reads an hour or more in hours, and a day or more in days", () => {
+        const MIN = 60_000;
+        const HOUR = 60 * MIN;
+        expect(fmtDuration(59 * MIN)).toBe("59m 00s");
+        expect(fmtDuration(HOUR)).toBe("1h 00m");
+        expect(fmtDuration(2 * HOUR + 5 * MIN)).toBe("2h 05m");
+        expect(fmtDuration(25 * HOUR)).toBe("1d 1h");
+        expect(fmtDuration(76 * HOUR)).toBe("3d 4h");
+        // specimen 137's "58867m 57s"
+        expect(fmtDuration(58867 * MIN + 57_000)).toBe("40d 21h");
+    });
     it("counts verifications by result", () => {
         const counts = verifCounts([
             { cmd: "a", result: "pass" },

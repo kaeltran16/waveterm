@@ -17,7 +17,7 @@ import { LoadFailure } from "./recordedoutput";
 import { StatusDot } from "./statusdot";
 import type { TranscriptContext } from "./transcriptcontext";
 import { wshJsonOutput } from "./wshcall";
-import { CallFacts } from "./wshchangerow";
+import { CallFacts, WshVerbRow } from "./wshchangerow";
 import { useWshData } from "./wshdata";
 import { AsOfNow, type WshRendererProps, type WshRenderers } from "./wshrenderers";
 
@@ -172,18 +172,14 @@ function UiRevealRow({ call, action, compact }: WshRendererProps) {
     const m = revealModel(call.args[0] ?? "", roster.agents);
     const Icon = m.kind === "show" ? Eye : FileText;
     return (
-        <div
-            className={cn(
-                "flex items-center px-0.5 py-1 text-ink-mid",
-                compact ? "gap-[7px] text-[12.5px]" : "gap-2.5 text-[13.5px]"
-            )}
+        <WshVerbRow
+            icon={<Icon size={compact ? 12 : 14} strokeWidth={2} className="shrink-0" aria-hidden />}
+            verb={m.kind === "show" ? "Showed in Arc" : "Opened in Arc"}
+            action={action}
+            compact={compact}
         >
-            <Icon size={compact ? 12 : 14} strokeWidth={2} className="shrink-0" aria-hidden />
-            <span className="shrink-0">{m.kind === "show" ? "Showed in Arc" : "Opened in Arc"}</span>
             <span className={cn("min-w-0 truncate text-foreground", m.mono && "font-mono text-[12px]")}>{m.label}</span>
-            <span className="flex-1" />
-            <CallFacts action={action} compact={compact} />
-        </div>
+        </WshVerbRow>
     );
 }
 

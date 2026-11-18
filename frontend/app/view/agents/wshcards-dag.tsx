@@ -40,7 +40,7 @@ import { LoadFailure } from "./recordedoutput";
 import type { TranscriptContext } from "./transcriptcontext";
 import type { RunView } from "./workspacemodel";
 import { openBeside } from "./workspacestore";
-import { CallFacts } from "./wshchangerow";
+import { CallFacts, WshVerbRow } from "./wshchangerow";
 import { useWshData, type WshDataState } from "./wshdata";
 import type { WshRendererProps, WshRenderers } from "./wshrenderers";
 
@@ -630,38 +630,45 @@ function CompleteCard({ call, action, ctx, compact }: WshRendererProps) {
         );
     }
     const landed = m.land === "landed";
+    const icon = landed ? (
+        compact ? (
+            <Mark tone="pass" compact />
+        ) : (
+            <GitCommitVertical size={iconSize} strokeWidth={2} aria-hidden className="shrink-0 text-success" />
+        )
+    ) : (
+        <GitCommitVertical size={iconSize} strokeWidth={2} aria-hidden className="shrink-0 text-ink-mid" />
+    );
+    const commit = m.sha ? (
+        <span className={cn("min-w-0 truncate", compact ? "text-secondary" : "font-semibold text-foreground")}>
+            {landed ? "landed " : "commit "}
+            <Mono className={compact ? "text-[11px]" : "text-[12.5px]"}>{m.sha}</Mono>
+            {landed && !compact ? ` on ${m.base ?? "its base"}` : null}
+        </span>
+    ) : null;
+    const link = <CardLink ctx={ctx} target={report} beside={reportBeside} label="Report" compact={compact} />;
+    // no stats to show: a one-line event, drawn as the flat row the other one-liners use
+    if (!m.stats) {
+        return (
+            <div>
+                <WshVerbRow icon={icon} verb="Run complete" right={link} action={action} compact={compact}>
+                    {commit}
+                </WshVerbRow>
+                {loadError}
+            </div>
+        );
+    }
     return (
         <Shell compact={compact}>
             <Head compact={compact}>
-                {landed ? (
-                    compact ? (
-                        <Mark tone="pass" compact />
-                    ) : (
-                        <GitCommitVertical
-                            size={iconSize}
-                            strokeWidth={2}
-                            aria-hidden
-                            className="shrink-0 text-success"
-                        />
-                    )
-                ) : (
-                    <GitCommitVertical size={iconSize} strokeWidth={2} aria-hidden className="shrink-0 text-ink-mid" />
-                )}
+                {icon}
                 <Label>Run complete</Label>
-                {m.sha ? (
-                    <span
-                        className={cn("min-w-0 truncate", compact ? "text-secondary" : "font-semibold text-foreground")}
-                    >
-                        {landed ? "landed " : "commit "}
-                        <Mono className={compact ? "text-[11px]" : "text-[12.5px]"}>{m.sha}</Mono>
-                        {landed && !compact ? ` on ${m.base ?? "its base"}` : null}
-                    </span>
-                ) : null}
+                {commit}
                 <Spacer />
-                <CardLink ctx={ctx} target={report} beside={reportBeside} label="Report" compact={compact} />
+                {link}
                 {facts}
             </Head>
-            {m.stats ? <Stats stats={m.stats} compact={compact} /> : null}
+            <Stats stats={m.stats} compact={compact} />
             {loadError}
         </Shell>
     );

@@ -100,6 +100,11 @@ export function dagRunIds(call: WshCall, ctx: TranscriptContext): { channelId?: 
     return ids;
 }
 
+// picks the ask's options cannot name: 0-based, as the answer's json and `dag asks` number them
+export function pickedLabel(picked: number[]): string {
+    return `Picked ${picked.length === 1 ? "option" : "options"} ${picked.join(", ")}`;
+}
+
 function rowsOfKind<T extends { taskid?: string }>(events: RunEvent[], kind: string, taskId: string) {
     return events
         .filter((e) => e.kind === kind)

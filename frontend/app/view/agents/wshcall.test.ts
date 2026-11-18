@@ -2,7 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { firstWshCall, isCardKey, parseWshCalls, WSH_BOOL_FLAGS, wshJsonOutput, wshKey, type WshKey } from "./wshcall";
+import {
+    firstWshCall,
+    isCardKey,
+    parseWshCalls,
+    printsOnlyWsh,
+    WSH_BOOL_FLAGS,
+    wshJsonOutput,
+    wshKey,
+    type WshKey,
+} from "./wshcall";
 
 const keyOf = (cmd: string) => firstWshCall(cmd)?.key ?? null;
 
@@ -74,6 +83,21 @@ describe("wshKey", () => {
         expect(wshKey(parseWshCalls("wsh effort frobnicate e1")[0])).toBeNull();
         expect(wshKey(parseWshCalls("wsh constructor")[0])).toBeNull();
         expect(firstWshCall("wsh frob")).toBeNull();
+    });
+
+    // a help call changes nothing, so it draws as the Bash step it is, never as "Amended" or "Plan submitted"
+    it.each([
+        "wsh jarvis dag amend --help 2>&1 | head -15",
+        "wsh jarvis dag submit --help",
+        "wsh effort chunk note -h",
+        "wsh effort chunk --help 2>&1 | sed -n 1,30p; wsh effort chunk note --help 2>&1 | sed -n 1,20p",
+        "wsh jarvis dag retry --help 2>&1 | head -20; wsh jarvis dag tell --help 2>&1 | head -12",
+    ])("a help call has no key: %s", (cmd) => {
+        expect(firstWshCall(cmd)).toBeNull();
+    });
+
+    it("a help call beside a real one keys the real one", () => {
+        expect(keyOf("wsh jarvis dag submit --help; wsh jarvis dag submit --plan p.md")).toBe("dag-submit");
     });
 
     it("separates views from cards", () => {
@@ -245,6 +269,41 @@ describe("parseWshCalls", () => {
     it("firstWshCall of nothing is null", () => {
         expect(firstWshCall(undefined)).toBeNull();
         expect(firstWshCall("")).toBeNull();
+    });
+});
+
+describe("printsOnlyWsh", () => {
+    // census specimens 45, 50, 63 (wsh's own output) and 108 (a sed after the wsh call prints the file)
+    const s45 =
+        'E=b758746d-5105-4456-b80a-d73acc8ccffb && \\\nwsh effort chunk status $E "Compare /swarm with the engine on the resource-management replay" done --note "Report: ~/arc-bench/plan-skill-2026-11-17/arc-vs-swarm.md (raw data in swarm-final/, mutation/). Swarm hit account quota at 24 min: 10 files +1.4k, nothing wired, no verifier added (its skill says 1 per 2-4 workers), workers moved to Sonnet against its own model rule. Arc arms f371fd9d/23076bcc: full spec in ~95 min, \\$25-27 list, Final first try. jobobject mutation: swarm 0.65 (82), plan 1.00 (21), writing-plans 0.79 (38). No contamination either side. Swarm tree committed as found: b535aaf44 on bench/resource-swarm." >/dev/null && \\\nwsh effort chunk note $E "Decide: bench delegated cheap-model exploration before the lead plans?" --note "The swarm coordinator handed code mapping to one explorer (19 turns, ~4 min) and briefed workers from its report; first implementers at 9 min vs 16-19 for Arc. Lead exploration is 66% of plan-phase cost (\\$3.40/run, 46 turns; memory lead-plan-phase-cost-breakdown), which already says cheaper-model exploration trades quality and needs a bench. The swarm run never finished, so it shows the shape, not plan quality." >/dev/null && \\\nwsh effort chunk note $E "Decide: keep a worker\'s conversation when escalating its model?" --note "Swarm switched two quota-stopped workers to another model with their conversations kept; both finished. Arc\'s dag escalate --model starts a fresh worker. Rare in Arc: 7 \'last turn failed\' wakes in 30 days over 1,006 worker spawns (packaged store, 11-18). Low priority." >/dev/null && \\\nwsh effort chunk status $E "Decide: rerun a full swarm once Antigravity quota resets (~11-25)?" deferred --note "Account quota exhausted 11-18 10:16 (resets in ~167h). A finished run is the only way to see verifiers, integration and merges, which this run never reached. Setup to reuse: worktree from d82662791 with the spec copied in, prompt in swarm-prompt.txt, preset Turbo (Auto\'s sandbox denies git in a linked worktree), App launched with --remote-debugging-port=9333." >/dev/null && \\\nwsh effort chunk status $E "Decide: bench delegated cheap-model exploration before the lead plans?" active >/dev/null && wsh effort show $E 2>&1 | head -30';
+    const s50 =
+        "wsh effort chunk note effort:25e5eb18-863e-4e80-b585-60124822822b 1 --note \"Design approved 2026-11-16: docs/superpowers/specs/2026-11-16-slim-superpowers-design.md (brainstorm .superpowers/brainstorm/slim-superpowers). Engine plugin-off override lands first; then Arc's own brainstorm skill, arc:plan + Arc's copy of writing-plans behind a per-run Settings choice (whole contract per skill), superpowers off. Bench gets its own plan after a couple of weeks of use.\" 2>&1 | tail -1";
+    const s63 =
+        'E=effort:f2ce52d6-4889-4be7-8258-39348ddd83bf; wsh effort chunk add $E "Decide: the transcript\'s Mockup card drops its live board for one row: topic, boards, updated, Open canvas, Mark (proposed)" --at 6 && wsh effort chunk note $E "Decide: the transcript\'s Mockup card drops its live board for one row: topic, boards, updated, Open canvas, Mark (proposed)" --note "11-18: MockupCard (renderedbsboards.tsx, da2e7e071) predates the pane; with the Canvas tab open the same board renders live twice and the poller reloads both. Its Open canvas and Mark already open the pane tab. Keep a row, not nothing: a canvas reveal does not open the tab, so the card is what tells the transcript a mockup appeared or was redrawn." && wsh effort chunk add $E "Decide: the brainstorm question card drops its boards block; option board chips open the pane at that board (proposed)" --at 7 && wsh effort chunk note $E "Decide: the brainstorm question card drops its boards block; option board chips open the pane at that board (proposed)" --note "11-18: the pane\'s Brainstorm tab renders the full BrainstormPane, boards included, so useQuestionBoards/LiveBoards in the question card duplicates it. The question and options stay in the transcript: the composer answers them." && wsh effort show $E';
+    const s108 =
+        'cd "C:/Users/kael02/IdeaProjects/SIEM/src/cyber_ai/cyber_anomaly_detector" && wsh effort chunk status 7ea571f2-62cc-4fee-878f-1e525cf6b86a "LLM 1: one verdict rubric (real = attack step shown, succeeded or not, however common; benign = identified, not an attack; cannot_tell = not identified) plus attack_result and scope enums on finish" active --note "11-18: user approved doing all five chunks; starting 1, 2, 4 together (all edit investigation_goal.py), then 3, then 5" >/dev/null; sed -n 130,246p src/services/hypothesis/investigation_goal.py';
+
+    it.each([
+        ["specimen 45", s45],
+        ["specimen 50", s50],
+        ["specimen 63", s63],
+        ["a cd before the call", "cd repo && wsh effort show e1"],
+        ["a stage filtering wsh's output", "wsh effort list 2>&1 | head -30"],
+        ["a prefixed call", "time wsh effort show e1 > out.txt"],
+    ])("true for %s", (_, cmd) => {
+        expect(printsOnlyWsh(cmd)).toBe(true);
+    });
+
+    it.each([
+        ["specimen 108", s108],
+        ["a pipeline started by another command", "cat plan.md | wsh effort show e1"],
+        ["a command after ;", "wsh effort show e1; ls"],
+        ["a command after ||", "wsh effort show e1 || echo failed"],
+        ["no wsh call", "cd repo && E=1"],
+        ["an empty command", ""],
+        ["no command", undefined],
+    ])("false for %s", (_, cmd) => {
+        expect(printsOnlyWsh(cmd)).toBe(false);
     });
 });
 

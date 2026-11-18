@@ -8,6 +8,7 @@ import {
     brainstormLineView,
     briefView,
     builderCountsOf,
+    failingLogLine,
     finalRoundOf,
     judgeResultOf,
     LEAD_ASK_DEADLINE_MS,
@@ -233,6 +234,71 @@ describe("wakeParts: each wake phrase", () => {
         expect(parts.map((p) => p.kind)).toEqual(["never-started", "worker-exited", "questions", "caveats", "quiet"]);
         expect(parts[3].items).toEqual(["t-1 test order"]);
         expect(parts[4].items).toHaveLength(2);
+    });
+
+    it("final stage failed: a log body keeps each line's indentation and markers, its CR and trailing space dropped", () => {
+        const p = one(
+            [
+                "wake: the final stage failed on the merged result in round 1. Write a fix plan:",
+                "Final `sh scripts/final.sh` failed (exit 1):",
+                "  ok 23 [chromium] › a.spec.ts:1:1 › shows the note (443ms)\r",
+                "  x  55 [chromium] › b.spec.ts:278:1 › boxes glide (1.2s)  ",
+                "  -  58 [chromium] › b.spec.ts:377:1 › skipped one",
+                "    Error: expect(received).not.toEqual(expected)",
+            ].join("\n")
+        );
+        expect(p.items).toEqual([
+            "Final `sh scripts/final.sh` failed (exit 1):",
+            "  ok 23 [chromium] › a.spec.ts:1:1 › shows the note (443ms)",
+            "  x  55 [chromium] › b.spec.ts:278:1 › boxes glide (1.2s)",
+            "  -  58 [chromium] › b.spec.ts:377:1 › skipped one",
+            "    Error: expect(received).not.toEqual(expected)",
+        ]);
+    });
+
+    it("drops the engine's cut tail, inline in plan review findings and as its own body line", () => {
+        const p = one(
+            "wake: plan review failed in round 1: [Full review] 1) First. 2) Second lists. … 1750 more characters: wsh jarvis dag planreview findings. Revise the plan and run `wsh jarvis dag submit` again."
+        );
+        expect(p.findings?.map((f) => f.text)).toEqual(["First.", "Second lists."]);
+
+        const parts = wakeParts(
+            [
+                "wake: run finished. wsh jarvis dag status",
+                "Unverified:",
+                "t-1 Differs from plan: long",
+                "… 1001 more characters: wsh jarvis dag report t-1 not-verified",
+            ].join("\n")
+        );
+        expect(parts[1].items).toEqual(["t-1 Differs from plan: long"]);
+    });
+});
+
+describe("failingLogLine", () => {
+    it.each([
+        "  x  55 [chromium] › b.spec.ts:278:1 › boxes glide (1.2s)",
+        "  ✘  3 [chromium] › c.spec.ts:1:1 › fails",
+        "  FAIL  boards-draw · step 4: the arrow stays",
+        "FAILED tests/agent/test_clarify.py::TestRespond::test_x",
+        "E       AssertionError: assert None == '2026'",
+        "    Error: expect(received).not.toEqual(expected)",
+        "TypeError: x is not a function",
+        "  1 failed",
+        "=========== 3 failed, 3956 passed, 10 skipped in 164.37s ============",
+    ])("fails: %s", (line) => {
+        expect(failingLogLine(line)).toBe(true);
+    });
+
+    it.each([
+        "  ok 23 [chromium] › a.spec.ts:1:1 › a failed mark keeps the answer (223ms)",
+        "  PASS  merged with a failed final check: the brainstorm stays",
+        "  -  58 [chromium] › b.spec.ts:377:1 › skipped one",
+        "[WebServer] answer for quiz 1 failed: Error: fake coach failure",
+        "    Error Context: test-results/x/error-context.md",
+        "Final `sh scripts/final.sh` failed (exit 1):",
+        "196/197 steps passed",
+    ])("passes: %s", (line) => {
+        expect(failingLogLine(line)).toBe(false);
     });
 });
 

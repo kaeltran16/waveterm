@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { AgentActionEntry } from "./agentsviewmodel";
-import { dagActionOf, dagRunIds, type DagAnswerCard } from "./dagactioncards";
+import { dagActionOf, dagRunIds, pickedLabel, type DagAnswerCard } from "./dagactioncards";
 import { parseWshCalls, wshKey, type WshCall, type WshCardKey } from "./wshcall";
 
 const callOf = (command: string): { call: WshCall; key: WshCardKey } => {
@@ -187,6 +187,26 @@ describe("answer card", () => {
         const model = dagActionOf(key, call, action("", 2_000), events) as DagAnswerCard;
         expect(model.options.map((o) => o.picked)).toEqual([false, false]);
         expect(model.extra).toEqual([{ text: "neither: use a tilde" }]);
+    });
+
+    // specimen 85: `dag asks` numbers the options from 0, and the answer's indexes are 0-based
+    it("selectedindexes [0] names option 0's label", () => {
+        const { call, key } = answerCall(`[{"selectedindexes":[0]}]`);
+        const events = [
+            ask(1_000, {
+                label: "Residual model module and settings",
+                options: [{ label: "Pin old widths in test (Recommended)" }, { label: "Leave them failing" }],
+            }),
+        ];
+        const card = dagActionOf(key, call, action("", 2_000), events) as DagAnswerCard;
+        expect(card.options.filter((o) => o.picked).map((o) => o.label)).toEqual([
+            "Pin old widths in test (Recommended)",
+        ]);
+    });
+
+    it("a pick no known option names reads its 0-based index, as dag asks lists it", () => {
+        expect(pickedLabel([0])).toBe("Picked option 0");
+        expect(pickedLabel([0, 2])).toBe("Picked options 0, 2");
     });
 
     it("malformed answers json leaves the card with no answers, not a throw", () => {

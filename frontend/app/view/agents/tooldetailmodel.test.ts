@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { groupGrepMatches, isCodePath, newFileLines, parseLineGutter } from "./tooldetailmodel";
+import {
+    groupGrepMatches,
+    isCodePath,
+    newFileLines,
+    parseLineGutter,
+    pathSegmentsDroppable,
+    pathTail,
+} from "./tooldetailmodel";
 
 describe("parseLineGutter", () => {
     it("parses cat -n's tab form into numbers and text", () => {
@@ -158,5 +165,35 @@ describe("newFileLines", () => {
             { no: 1, text: "one" },
             { no: 2, text: "two" },
         ]);
+    });
+});
+
+describe("pathTail", () => {
+    it("keeps the whole path when nothing is dropped", () => {
+        expect(pathTail("src/a/b.ts", 0)).toBe("src/a/b.ts");
+    });
+
+    it("drops leading segments whole, so the rest starts at a segment", () => {
+        expect(pathTail("src/components/hypotheses/FindingReport.jsx", 1)).toBe(
+            "…/components/hypotheses/FindingReport.jsx"
+        );
+        expect(pathTail("src/components/hypotheses/FindingReport.jsx", 3)).toBe("…/FindingReport.jsx");
+    });
+
+    it("keeps the file name when asked to drop more segments than the path has", () => {
+        expect(pathTail("src/a/b.ts", 9)).toBe("…/b.ts");
+        expect(pathTail("b.ts", 1)).toBe("b.ts");
+    });
+
+    it("splits a Windows path on its backslashes", () => {
+        expect(pathTail("C:\\Users\\dev\\retry.go", 2)).toBe("…\\dev\\retry.go");
+    });
+});
+
+describe("pathSegmentsDroppable", () => {
+    it("counts the segments a path can drop before only its file name is left", () => {
+        expect(pathSegmentsDroppable("src/a/b.ts")).toBe(2);
+        expect(pathSegmentsDroppable("C:\\Users\\dev\\retry.go")).toBe(3);
+        expect(pathSegmentsDroppable("b.ts")).toBe(0);
     });
 });

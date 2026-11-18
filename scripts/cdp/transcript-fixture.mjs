@@ -2,6 +2,8 @@
 // window.__narrationFeedFixture seam (frontend/app/view/agents/narrationfeedfixture.tsx), which seeds the wsh data
 // cache and run events and hands the timeline a TranscriptContext holding the live cockpit model.
 
+import { fileURLToPath } from "node:url";
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const SEAM_POLLS = 25;
@@ -51,6 +53,28 @@ export async function openFolds(h) {
     })()`);
     await sleep(FOLD_MOTION_MS);
     return opened;
+}
+
+// the census's two hosts: the rendered view (a card's width, thoughts and renderers drawn) and the compact row
+export const HOSTS = {
+    rendered: { width: 736, renderers: true, thoughts: true, accentLatest: true },
+    compact: { width: 360, compact: true, accentLatest: true },
+};
+
+// one transcript at a host; extra rides over the host's props (seed, ctx, nowLine...)
+export function showAt(h, host, entries, extra = {}) {
+    return showTranscript(h, { entries, ...host, ...extra });
+}
+
+// the dev server serves any file under the workspace as /@fs/<absolute path>: resolved from this script's location, so
+// the tree under test projects, not whichever checkout the app was started from
+const PROJECTION_MODULE = `/@fs/${fileURLToPath(new URL("../../frontend/app/view/agents/transcriptprojection.ts", import.meta.url)).replaceAll("\\", "/")}`;
+
+// the tree's own projectTranscript over raw jsonl lines (strings), run in the page: the projected AgentEntry[]
+export function projectInPage(h, lines) {
+    return h.ev(
+        `import(${JSON.stringify(PROJECTION_MODULE)}).then((m) => m.projectTranscript(${JSON.stringify(lines)}))`
+    );
 }
 
 export const user = (text, ts) => ({ kind: "user", text, ts });

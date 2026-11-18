@@ -77,20 +77,3 @@ export function parseUnifiedDiff(output: string): EditFile[] | null {
     }
     return files.length > 0 ? files : null;
 }
-
-// keeps the first `max` lines across the files (counts untouched) so a huge diff never renders unbounded
-export function capDiffLines(files: EditFile[], max: number): { files: EditFile[]; hidden: number } {
-    let left = max;
-    let hidden = 0;
-    const capped = files.map((f) => {
-        const keep = Math.min(left, f.lines.length);
-        left -= keep;
-        hidden += f.lines.length - keep;
-        return keep === f.lines.length ? f : { ...f, lines: f.lines.slice(0, keep) };
-    });
-    return { files: capped, hidden };
-}
-
-export function hiddenLinesLabel(hidden: number): string {
-    return `${hidden} more ${hidden === 1 ? "line" : "lines"} in raw`;
-}

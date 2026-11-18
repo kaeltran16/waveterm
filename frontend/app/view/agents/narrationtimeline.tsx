@@ -25,7 +25,7 @@ import { cardVariants, shouldFadeEntry, viewFade } from "@/app/element/motiontok
 import { PaneReveal } from "@/app/element/panereveal";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { conversationText, formatTokens, type AgentEntry } from "./agentsviewmodel";
-import { ArcMessageRow } from "./arcmessagerow";
+import { ArcMessageRow, HumanActionRow } from "./arcmessagerow";
 import { ClampedText } from "./clampedtext";
 import { MarkdownMessage } from "./markdownmessage";
 import { placeMarks, type TimelineMark } from "./permissionmodel";
@@ -159,15 +159,29 @@ export function CommandChip({
     return (
         <div data-command-chip={isSkill ? "skill" : "command"} className="my-2.5 flex justify-end">
             <div className="flex min-w-0 max-w-[88%] flex-col items-end gap-1">
+                {/* only the command is code; its arguments are what the person typed */}
                 <span
                     className={cn(
-                        "inline-flex max-w-full flex-wrap items-baseline gap-x-2 rounded-[12px] bg-surface-hover px-3 py-1.5 font-mono",
-                        compact ? "text-[12px]" : "text-[12.5px]"
+                        "inline-flex max-w-full flex-wrap items-baseline gap-x-2 rounded-[12px] bg-surface-hover px-3 py-1.5 font-sans",
+                        compact ? "text-[12.5px]" : "text-[13px]"
                     )}
                 >
                     {isSkill ? <span className="text-[11.5px] text-skill">✦</span> : null}
-                    <span className={cn("font-semibold", isSkill ? "text-skill-soft" : "text-accent-soft")}>{name}</span>
-                    {args ? <span className="min-w-0 text-ink-mid [overflow-wrap:anywhere]">{args}</span> : null}
+                    <span
+                        data-command-name
+                        className={cn(
+                            "font-mono font-semibold",
+                            compact ? "text-[12px]" : "text-[12.5px]",
+                            isSkill ? "text-skill-soft" : "text-accent-soft"
+                        )}
+                    >
+                        {name}
+                    </span>
+                    {args ? (
+                        <span data-command-args className="min-w-0 text-ink-mid [overflow-wrap:anywhere]">
+                            {args}
+                        </span>
+                    ) : null}
                 </span>
                 {output ? (
                     <div
@@ -242,17 +256,16 @@ function CompactionDivider({
         </div>
     );
 }
-// The human interrupted the agent mid-turn: a divider, not a bubble.
+// The human interrupted the agent mid-turn: a human action's row, not a bubble.
 function InterruptedDivider({ compact }: { compact: boolean }) {
     return (
-        <div data-interrupted className={cn("flex items-center gap-3", compact ? "my-3.5" : "my-5")}>
-            <span className={EVENT_RULE} />
-            <span className={cn("inline-flex items-center gap-1.5 whitespace-nowrap text-ink-mid", compact ? "text-[12px]" : "text-[12.5px]")}>
-                <Ban size={12} strokeWidth={2.2} aria-hidden />
-                You interrupted
-            </span>
-            <span className={EVENT_RULE} />
-        </div>
+        <HumanActionRow
+            data-interrupted
+            icon={<Ban size={13} strokeWidth={2} className="shrink-0" aria-hidden />}
+            phrase="You interrupted"
+            compact={compact}
+            className={compact ? "my-3.5" : "my-5"}
+        />
     );
 }
 
@@ -279,6 +292,26 @@ function notificationHead(
         : { label: fallback, text: summary, icon: Info };
 }
 
+const NOTIFICATION_COMPLETED = "completed";
+const NOTIFICATION_FAILED = "failed";
+const NOTIFICATION_RUNNING = "running";
+
+// a background task's status in its tone (E4): failed in the error tone, completed in success, any other end (stopped,
+// killed) or a running one in warning
+function statusTone(status: string): string {
+    return status === NOTIFICATION_FAILED
+        ? "text-error"
+        : status === NOTIFICATION_COMPLETED
+          ? "text-success"
+          : "text-warning";
+}
+
+// the status word after the summary, unless the summary already says it ("… failed with exit code 2")
+function statusWordOf(summary: string, status: string | undefined): string | undefined {
+    if (status == null) return undefined;
+    return new RegExp(`\\b${status.replace(/\W/g, "")}\\b`, "i").test(summary) ? undefined : status;
+}
+
 // A finished background task (<task-notification> as its own record): "<label> · summary · status", opening to its
 // full result (which can be large) through MarkdownMessage.
 function TaskNotificationRow({
@@ -296,9 +329,9 @@ function TaskNotificationRow({
 }) {
     const [open, setOpen] = useState(false);
     const canExpand = !!result;
-    const ok = status == null || status === "completed";
-    const tone = ok ? "text-success" : "text-warning";
+    const tone = statusTone(status ?? NOTIFICATION_COMPLETED);
     const head = notificationHead(source, summary, "Background task");
+    const word = statusWordOf(head.text, status);
     return (
         <div data-task-notification data-notification-source={source} className={compact ? "my-3" : "my-5"}>
             <button
@@ -316,7 +349,7 @@ function TaskNotificationRow({
                 <span className="shrink-0 text-secondary">{head.label}</span>
                 {head.text ? <span className="min-w-0 truncate">{head.text}</span> : null}
                 <span className="min-w-[6px] flex-1" />
-                {status ? <span className={cn("shrink-0 text-[12px]", tone)}>{status}</span> : null}
+                {word ? <span className={cn("shrink-0 text-[12px]", tone)}>{word}</span> : null}
                 {canExpand ? (
                     <span className="flex shrink-0 text-muted">
                         <TurnChevron open={open} size={13} strokeWidth={2} />
@@ -352,6 +385,7 @@ function NoticeRow({
     const canExpand = summary.includes("\n") || !!result;
     const size = compact ? "text-[12.5px]" : "text-[13.5px]";
     const head = notificationHead(source, summary.split("\n")[0], status ? "Background task" : "Notice");
+    const word = statusWordOf(head.text, status);
     return (
         <div data-notice data-notification-source={source} className={compact ? "my-2" : "my-3"}>
             <button
@@ -365,11 +399,23 @@ function NoticeRow({
                     canExpand ? "cursor-pointer hover:text-ink-mid" : "cursor-default"
                 )}
             >
-                <Info size={13} strokeWidth={2.2} className="shrink-0" aria-hidden />
+                {/* a notice stays muted while it runs or when it went well; its icon carries a failure or a stop */}
+                <Info
+                    size={13}
+                    strokeWidth={2.2}
+                    className={cn(
+                        "shrink-0",
+                        status != null &&
+                            status !== NOTIFICATION_COMPLETED &&
+                            status !== NOTIFICATION_RUNNING &&
+                            statusTone(status)
+                    )}
+                    aria-hidden
+                />
                 <span className="shrink-0 text-ink-mid">{head.label}</span>
                 <span className="min-w-0 truncate">{head.text}</span>
-                {status ? (
-                    <span className={cn("shrink-0", status !== "completed" && "text-warning")}>· {status}</span>
+                {word ? (
+                    <span className={cn("shrink-0", word !== NOTIFICATION_COMPLETED && statusTone(word))}>· {word}</span>
                 ) : null}
                 {canExpand ? (
                     <span className="flex shrink-0">
@@ -379,7 +425,7 @@ function NoticeRow({
             </button>
             <PaneReveal open={open && canExpand}>
                 <div data-notice-body className={cn("mt-1 ml-[21px] text-muted", size)}>
-                    <div className="whitespace-pre-wrap [overflow-wrap:anywhere]">{summary}</div>
+                    <MarkdownMessage text={summary} breaks className="[overflow-wrap:break-word]" />
                     {result ? <MarkdownMessage text={result} className="mt-1.5" /> : null}
                 </div>
             </PaneReveal>
@@ -387,19 +433,39 @@ function NoticeRow({
     );
 }
 
-// A You bubble keeps the prompt's line breaks; a long one (a run's goal, a pasted spec) is clamped behind Show more.
+// a prompt that is one JSON document (a pasted payload) reads as code, not as prose
+function isJsonDocument(text: string): boolean {
+    if (!/^[[{]/.test(text)) return false;
+    try {
+        JSON.parse(text);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+// A You bubble renders its markdown as the agent's prose does, keeping the prompt's line breaks; a long one (a run's
+// goal, a pasted spec) is clamped behind Show more.
 function UserBubbleText({ text, clamp, compact }: { text: string; clamp: boolean; compact: boolean }) {
+    const body = text.trim();
+    const json = isJsonDocument(body);
     return (
         <ClampedText
             lines="bubble"
             clamp={clamp}
             findTurn
             className={cn(
-                "whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]",
+                "text-foreground [overflow-wrap:anywhere]",
                 compact ? "text-[13px] leading-[1.5]" : "text-[14px] leading-[1.55]"
             )}
         >
-            {text.trim()}
+            {json ? (
+                <div data-bubble-code className={cn("whitespace-pre-wrap font-mono", compact ? "text-[11.5px]" : "text-[12.5px]")}>
+                    {body}
+                </div>
+            ) : (
+                <MarkdownMessage text={body} breaks />
+            )}
         </ClampedText>
     );
 }
