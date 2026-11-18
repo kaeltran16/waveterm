@@ -136,6 +136,15 @@ export function tabLabel(tab: WorkspaceTab, name: string | undefined): string {
     }
 }
 
+export const TAB_GAP_PX = 2;
+
+// decided from every tab's full width, never the compacted ones, so dropping to icons cannot flip the decision back;
+// shown is the active tab's index (-1 for none), which always keeps its label
+export function iconOnlyTabs(fullWidths: number[], roomPx: number, shown: number): boolean[] {
+    const need = fullWidths.reduce((sum, w) => sum + w, 0) + TAB_GAP_PX * Math.max(0, fullWidths.length - 1);
+    return fullWidths.map((_, i) => need > roomPx && i !== shown);
+}
+
 export type WaitInput = {
     // each run's dag asks, as childAsksAtom holds them
     runAsks: Record<string, { owner?: string }[]>;
