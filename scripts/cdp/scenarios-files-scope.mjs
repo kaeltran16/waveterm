@@ -336,7 +336,9 @@ function restoreIndex(dir) {
     renameSync(index + ".verify", index);
 }
 
-// the second fixture agent: its transcript names the project's folder and has no timestamp to anchor a session on
+// the second fixture agent: its transcript names the project's folder and has no timestamp to anchor a session on.
+// A pi agent, which opens on the session range: a claude one opens on its own edits and offers the session range
+// only once a start exists, so it never shows that range measured from HEAD.
 function seedNoStartAgent(h, ctx) {
     const root = mkdtempSync(join(tmpdir(), "verify-diff-nostart-"));
     ctx.dirs.push(root);
@@ -348,7 +350,7 @@ function seedNoStartAgent(h, ctx) {
         const { devMockAgentsAtom } = await mod("app/view/agents/devmock.ts");
         const cur = globalStore.get(devMockAgentsAtom) ?? [];
         const base = cur.find((a) => a.id === ${JSON.stringify(SCOPE.agentId)}) ?? {};
-        globalStore.set(devMockAgentsAtom, [...cur, { ...base, id: ${JSON.stringify(SCOPE.noStartId)}, name: ${JSON.stringify(SCOPE.noStart)}, activeMs: 0, transcriptPath: ${JSON.stringify(transcriptPath)} }]);
+        globalStore.set(devMockAgentsAtom, [...cur, { ...base, id: ${JSON.stringify(SCOPE.noStartId)}, name: ${JSON.stringify(SCOPE.noStart)}, agent: "pi", activeMs: 0, transcriptPath: ${JSON.stringify(transcriptPath)} }]);
         return globalStore.get(devMockAgentsAtom).length;
     `);
 }

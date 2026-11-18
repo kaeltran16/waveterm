@@ -16,6 +16,7 @@ import {
     type DiffScope,
 } from "./diffscope";
 import { NO_FILTERS } from "./historyquery";
+import { reviewSubjectFor } from "./reviewmarks";
 
 const agentScope: DiffScope = {
     repo: { origin: { kind: "agent", id: "a1" }, label: "jarvis-recall" },
@@ -36,8 +37,8 @@ const kinds = (s: DiffScope, ctx = { sessionStartTs: 1719000000, sessionRef: "a3
 describe("availableRanges", () => {
     // The whole point of the refactor: a chip is drawn only when it has something to switch to, so
     // no permanently-inert control can exist in the bar.
-    it("offers working tree, session and compare for an agent", () => {
-        expect(kinds(agentScope)).toEqual(["working", "session", "compare"]);
+    it("offers working tree, the agent's edits, session and compare for a Claude agent", () => {
+        expect(kinds(agentScope)).toEqual(["working", "edits", "session", "compare"]);
         expect(
             availableRanges(agentScope, { sessionStartTs: 1719000000, sessionRef: "a3f9c21" }).every((o) => o.available)
         ).toBe(true);
@@ -256,8 +257,8 @@ describe("originCwd", () => {
 });
 
 describe("defaultRangeFor", () => {
-    it("opens an agent on its session, a project on its working tree, and a run on the run", () => {
-        expect(defaultRangeFor({ kind: "agent", id: "a1" })).toEqual({ kind: "session", agentId: "a1" });
+    it("opens a pi agent on its session, a project on its working tree, and a run on the run", () => {
+        expect(defaultRangeFor({ kind: "agent", id: "a1", runtime: "pi" })).toEqual({ kind: "session", agentId: "a1" });
         expect(defaultRangeFor({ kind: "project", name: "w", path: "/r" })).toEqual({ kind: "working" });
         expect(defaultRangeFor({ kind: "run", runId: "r1", cwd: "/r", baseCommit: "9f2c1de" })).toEqual({
             kind: "run",
@@ -406,5 +407,76 @@ describe("pollAnchor", () => {
         expect(pollAnchor(run, "9f2c1de", "c0ffee1", 1700000000)).toStrictEqual({ ref: "9f2c1de", end: "c0ffee1" });
         expect(pollAnchor({ kind: "working" }, "", "", 1700000000)).toStrictEqual({ ref: "", end: "" });
         expect(pollAnchor(compare, "", "", 1700000000)).toStrictEqual({ ref: "", end: "" });
+    });
+});
+
+describe("the Agent's edits range", () => {
+    const edits: DiffRange = { kind: "edits", agentId: "a1" };
+    const agentOf = (runtime?: string): DiffScope => ({
+        repo: { origin: { kind: "agent", id: "a1", runtime }, label: "a1" },
+        range: { kind: "working" },
+    });
+
+    it("is the default range of a Claude agent, named or by the absent runtime", () => {
+        expect(defaultRangeFor({ kind: "agent", id: "a1", runtime: "claude" })).toEqual(edits);
+        expect(defaultRangeFor({ kind: "agent", id: "a1" })).toEqual(edits);
+    });
+
+    it("leaves pi, codex and opencode agents on their session range", () => {
+        for (const runtime of ["pi", "codex", "opencode"]) {
+            expect(defaultRangeFor({ kind: "agent", id: "a1", runtime })).toEqual({ kind: "session", agentId: "a1" });
+        }
+    });
+
+    it("lists the edits chip for a Claude agent, beside the session chip", () => {
+        const ctx = { sessionStartTs: 1719000000, sessionRef: "" };
+        for (const runtime of [undefined, "claude"]) {
+            const opts = availableRanges(agentOf(runtime), ctx);
+            expect(opts.map((o) => o.range.kind)).toEqual(["working", "edits", "session", "compare"]);
+            const chip = opts.find((o) => o.range.kind === "edits");
+            expect(chip).toMatchObject({ range: edits, label: "Agent's edits", available: true });
+        }
+    });
+
+    it("lists no edits chip for an agent the range can never apply to", () => {
+        for (const runtime of ["pi", "codex", "opencode"]) {
+            expect(kinds(agentOf(runtime))).toEqual(["working", "session", "compare"]);
+        }
+        expect(kinds(projectScope)).not.toContain("edits");
+        expect(kinds(runScope)).not.toContain("edits");
+    });
+
+    it("keys on the agent, and review marks key on the cwd and that range", () => {
+        expect(rangeKey(edits)).toBe("edits:a1");
+        expect(reviewSubjectFor("/repo", edits, null)).toBe("/repo|edits:a1");
+    });
+
+    // B and H are synthetic commits, so the history column lists none of them
+    it("reads no commit list, and names the scope's own row", () => {
+        expect(historyOptsFor(edits, "b0b0b0b")).toEqual({ noCommits: true, rowLabel: "Agent's edits" });
+    });
+
+    describe("caption", () => {
+        const at = { ...base, range: edits, ref: "b0b0b0b" };
+
+        it("states the file count, with no Bash sentence when no Bash call ran", () => {
+            expect(summaryLine({ ...at, changes: ch(3), bashCalls: 0 })).toBe("3 files by this agent · +10 −2");
+            expect(summaryLine({ ...at, changes: ch(1) })).toBe("1 file by this agent · +10 −2");
+        });
+
+        it("says how many Bash calls may have changed files not shown", () => {
+            expect(summaryLine({ ...at, changes: ch(3), bashCalls: 1 })).toBe(
+                "3 files by this agent · +10 −2 · 1 Bash call may have changed files not shown"
+            );
+            expect(summaryLine({ ...at, changes: ch(2), bashCalls: 4 })).toBe(
+                "2 files by this agent · +10 −2 · 4 Bash calls may have changed files not shown"
+            );
+        });
+
+        it("shows the reason when there is no base to show", () => {
+            expect(
+                summaryLine({ ...at, ref: "", changes: ch(0), bashCalls: 2, reason: "no Edit or Write calls yet" })
+            ).toBe("no Edit or Write calls yet");
+        });
     });
 });
