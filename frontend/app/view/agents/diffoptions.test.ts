@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { isNewFile, LABELLED_MIN_PX, paneHeaderLayout, paneOptions, SPLIT_MIN_PX, splitHintText } from "./diffoptions";
+import {
+    isNewFile,
+    LABELLED_MIN_PX,
+    paneHeaderLayout,
+    paneOptions,
+    SPLIT_MIN_PX,
+    splitHintText,
+    wrapSignLines,
+} from "./diffoptions";
 
 describe("the hint on removed lines in the unified view", () => {
     it("points at the split toggle when the pane can draw split", () => {
@@ -118,5 +126,33 @@ describe("folding", () => {
             minimumLineCount: 3,
             revealLineCount: 20,
         });
+    });
+});
+
+// monaco draws its indicator on every visual row of a wrapped line, so with wrap on the pane draws its own
+describe("the +/- signs when wrapped", () => {
+    it("turns monaco's indicators off with wrap, and keeps the new-file rule without it", () => {
+        expect(paneOptions(false, false, false, true).renderIndicators).toBe(false);
+        expect(paneOptions(false, false, false, false).renderIndicators).toBe(true);
+        expect(paneOptions(false, false, true, true).renderIndicators).toBe(false);
+        expect(paneOptions(false, false, true, false).renderIndicators).toBe(false);
+    });
+
+    const change = (os: number, oe: number, ms: number, me: number) => ({
+        originalStartLineNumber: os,
+        originalEndLineNumber: oe,
+        modifiedStartLineNumber: ms,
+        modifiedEndLineNumber: me,
+    });
+
+    it("lists every inserted line once and every deleted line once", () => {
+        // a pure insert of lines 2-3, a replace of original 5-6 by modified 7, a pure delete of original 9
+        const r = wrapSignLines([change(1, 0, 2, 3), change(5, 6, 7, 7), change(9, 9, 10, 0)], false);
+        expect(r).toEqual({ inserted: [2, 3, 7], deleted: [5, 6, 9] });
+    });
+
+    it("lists nothing for a new file or no changes", () => {
+        expect(wrapSignLines([change(0, 0, 1, 4)], true)).toEqual({ inserted: [], deleted: [] });
+        expect(wrapSignLines([], false)).toEqual({ inserted: [], deleted: [] });
     });
 });

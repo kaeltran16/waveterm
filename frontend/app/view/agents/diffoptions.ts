@@ -44,6 +44,28 @@ export function isNewFile(original: string, modified: string): boolean {
     return original === "" && modified !== "";
 }
 
+type LineChange = Pick<
+    MonacoTypes.editor.ILineChange,
+    "originalStartLineNumber" | "originalEndLineNumber" | "modifiedStartLineNumber" | "modifiedEndLineNumber"
+>;
+
+function lineRange(start: number, end: number): number[] {
+    // monaco marks a side with no lines in the change by an end of 0
+    return end === 0 ? [] : Array.from({ length: end - start + 1 }, (_, i) => start + i);
+}
+
+// The lines the wrapped pane signs itself: inserted lines in the modified editor, deleted lines in the
+// original. A new file signs none, as its indicators are off without wrap too.
+export function wrapSignLines(changes: LineChange[], newFile: boolean): { inserted: number[]; deleted: number[] } {
+    if (newFile) {
+        return { inserted: [], deleted: [] };
+    }
+    return {
+        inserted: changes.flatMap((c) => lineRange(c.modifiedStartLineNumber, c.modifiedEndLineNumber)),
+        deleted: changes.flatMap((c) => lineRange(c.originalStartLineNumber, c.originalEndLineNumber)),
+    };
+}
+
 // wrap is the workspace pane's Changes tab: its column is narrow, so a long line would scroll sideways
 export function paneOptions(
     split: boolean,
@@ -58,7 +80,8 @@ export function paneOptions(
         originalEditable: false,
         renderSideBySide: split,
         ignoreTrimWhitespace: ignoreWs,
-        renderIndicators: !newFile,
+        // monaco repeats its indicator on every row of a wrapped line, so with wrap DiffPane draws its own
+        renderIndicators: !newFile && !wrap,
         hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 3, revealLineCount: 20 },
         scrollBeyondLastLine: false,
         minimap: { enabled: false },
