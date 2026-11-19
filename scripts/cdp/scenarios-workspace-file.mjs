@@ -85,6 +85,7 @@ const TOKEN_COLORS = `const probe = document.createElement("div");
     };
     const accentbg = token("--color-accentbg");
     const accentSoft = token("--color-accent-soft");
+    const muted = token("--color-muted");
     probe.remove();`;
 
 const page = (h, body) =>
@@ -467,9 +468,18 @@ export const workspaceFile = {
                 await until(() => wrote != null, 2000);
                 delete clip.writeText;
                 const open = card?.querySelector("[data-peek-open]");
+                const header = card?.querySelector("[data-peek-path]");
+                const [dirSpan, fileSpan] = header ? [...header.querySelectorAll(":scope > span")] : [];
+                ${TOKEN_COLORS}
                 return {
                     active: ws(${A}).active,
                     state: card?.dataset.peekState ?? null,
+                    path: header?.textContent.trim() ?? null,
+                    title: header?.getAttribute("title") ?? null,
+                    dir: dirSpan?.textContent ?? null,
+                    dirColor: dirSpan ? getComputedStyle(dirSpan).color : null,
+                    muted,
+                    file: fileSpan?.textContent ?? null,
                     natural: img?.naturalWidth ?? 0,
                     shown: b ? Math.round(b.width) : null,
                     inside: !!b && !!body && b.left >= body.left && b.right <= body.right && b.top >= body.top && b.bottom <= body.bottom,
@@ -489,6 +499,11 @@ export const workspaceFile = {
                 drawn &&
                 f.active === imageKey &&
                 f.state === "binary" &&
+                f.path === IMAGE_REL &&
+                f.dir === IMAGE_REL.slice(0, IMAGE_REL.lastIndexOf("/") + 1) &&
+                f.dirColor === f.muted &&
+                f.file === IMAGE_REL.slice(IMAGE_REL.lastIndexOf("/") + 1) &&
+                samePath(f.title, ctx.image) &&
                 f.natural === IMAGE_SIZE.w &&
                 f.shown < f.natural &&
                 f.inside &&

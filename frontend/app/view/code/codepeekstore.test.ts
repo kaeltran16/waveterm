@@ -95,7 +95,7 @@ describe("togglePeek", () => {
                 head: { kind: "absent" },
                 change: { adds: 0, dels: 0 },
             },
-            open: { projectPath: "C:/repo", rel: "docs/notes.md" },
+            open: { projectPath: "C:/repo", rel: "docs/notes.md", inRepo: true },
         });
     });
 
@@ -151,7 +151,7 @@ describe("togglePeek", () => {
 
         expect(globalStore.get(codePeekAtom)?.file).toEqual({
             kind: "folder",
-            open: { projectPath: "C:/repo", rel: "docs/src" },
+            open: { projectPath: "C:/repo", rel: "docs/src", inRepo: true },
         });
         expect(rpc.FileReadCommand).not.toHaveBeenCalled();
     });
@@ -164,7 +164,7 @@ describe("togglePeek", () => {
         expect(globalStore.get(codePeekAtom)?.file).toEqual({
             kind: "toolarge",
             size: MAX_VIEW_BYTES + 1,
-            open: { projectPath: "C:/repo", rel: "docs/big.log" },
+            open: { projectPath: "C:/repo", rel: "docs/big.log", inRepo: true },
         });
         expect(rpc.FileReadCommand).not.toHaveBeenCalled();
     });
@@ -186,7 +186,7 @@ describe("togglePeek", () => {
             kind: "text",
             text: "hello\n",
             git: { kind: "norepo" },
-            open: { projectPath: "C:\\repo\\docs", rel: "a.ts" },
+            open: { projectPath: "C:\\repo\\docs", rel: "a.ts", inRepo: false },
         });
         expect(rpc.GitChangesCommand).not.toHaveBeenCalled();
     });

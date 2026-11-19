@@ -8,6 +8,7 @@ import {
     binaryPeekMessage,
     initialPeekMode,
     PEEK_PREFERRED_PX,
+    peekHeaderPath,
     peekModes,
     peekPlacement,
     peekRow,
@@ -19,7 +20,7 @@ import {
     type PeekHead,
 } from "./codepeekmodel";
 
-const open = { projectPath: "C:\\repo", rel: "a.ts" };
+const open = { projectPath: "C:\\repo", rel: "a.ts", inRepo: true };
 
 function textFile(git: PeekGit, text = "x\n"): PeekFile {
     return { kind: "text", text, git, open };
@@ -293,5 +294,39 @@ describe("tabDiffBody", () => {
     it("reads Binary file when git says the file's patch is binary", () => {
         const bin: EditFile = { ...entry, lines: [], binary: true };
         expect(tabDiffBody(head, read([bin]), "internal/a.go", 13)).toEqual({ kind: "note", note: "binary" });
+    });
+});
+
+describe("peekHeaderPath", () => {
+    const abs = "C:\\repo\\docs\\shots\\stats-panel.png";
+    const raw = "shots/stats-panel.png";
+    function kinds(inRepo: boolean): PeekFile[] {
+        const o = {
+            projectPath: inRepo ? "C:\\repo" : "C:\\repo\\docs\\shots",
+            rel: inRepo ? "docs/shots/stats-panel.png" : "stats-panel.png",
+            inRepo,
+        };
+        return [
+            { kind: "text", text: "x\n", git: { kind: "norepo" }, open: o },
+            { kind: "binary", size: 10, open: o },
+            { kind: "toolarge", size: 10, open: o },
+            { kind: "folder", open: o },
+        ];
+    }
+    it("is repo-relative for every kind of file inside a repository", () => {
+        for (const file of kinds(true)) {
+            expect(peekHeaderPath({ abs, raw, file })).toBe("docs/shots/stats-panel.png");
+        }
+    });
+    it("is the absolute path for the same kinds outside a repository", () => {
+        for (const file of kinds(false)) {
+            expect(peekHeaderPath({ abs, raw, file })).toBe(abs);
+        }
+    });
+    it("is the raw path when nothing resolved", () => {
+        expect(peekHeaderPath({ abs: null, raw, file: { kind: "nocwd" } })).toBe(raw);
+    });
+    it("is the absolute path for a file with nothing to open", () => {
+        expect(peekHeaderPath({ abs, raw, file: { kind: "missing" } })).toBe(abs);
     });
 });

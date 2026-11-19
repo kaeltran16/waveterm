@@ -10,7 +10,7 @@ import { isCitedRow, splitHunks, type ChangesHunk } from "@/app/view/agents/work
 import { isImagePath, isMarkdownPath, NOT_TRACKED } from "./codeclassify";
 
 export type PeekMode = "preview" | "source" | "diff";
-export type PeekOpen = { projectPath: string; rel: string };
+export type PeekOpen = { projectPath: string; rel: string; inRepo: boolean };
 export type PeekHead = { kind: "text"; text: string } | { kind: "absent" } | { kind: "error"; message: string };
 export type PeekChange = { adds: number; dels: number; lineCounts?: false };
 export type PeekGit =
@@ -97,6 +97,14 @@ export function needsHome(raw: string, cwd: string | null): boolean {
 
 export function initialPeekMode(path: string): PeekMode {
     return isMarkdownPath(path) ? "preview" : "source";
+}
+
+// repo-relative inside a repository, else the absolute path (or what was clicked, when nothing resolved)
+export function peekHeaderPath(peek: { abs: string | null; raw: string; file: PeekFile }): string {
+    if ("open" in peek.file && peek.file.open.inRepo) {
+        return peek.file.open.rel;
+    }
+    return peek.abs ?? peek.raw;
 }
 
 export function binaryPeekMessage(path: string): string {

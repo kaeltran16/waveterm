@@ -29,6 +29,7 @@ import { ImageView } from "./codeimageview";
 import { TabDiffBlank, TabDiffHunks, TabDiffNote, useTabDiffRead } from "./codepeekdiff";
 import {
     binaryPeekMessage,
+    peekHeaderPath,
     peekModes,
     peekStat,
     tabDiffBody,
@@ -72,14 +73,6 @@ const TAB_SOURCE_OPTIONS: MonacoTypes.editor.IEditorOptions = {
     fontSize: 12.5,
     lineHeight: 20,
 };
-
-// repo-relative inside a repository, else the absolute path (or what was clicked, when nothing resolved)
-function headerPath(peek: CodePeek): string {
-    if (peek.file.kind === "text" && peek.file.git.kind === "repo") {
-        return peek.file.git.rel;
-    }
-    return peek.abs ?? peek.raw;
-}
 
 function stateMessage(peek: CodePeek): string | null {
     const file = peek.file;
@@ -358,7 +351,7 @@ export function CodePeekCard({
         () => peekModes(peek.abs ?? peek.raw, peek.file, variant),
         [peek.abs, peek.raw, peek.file, variant]
     );
-    const path = headerPath(peek);
+    const path = peekHeaderPath(peek);
     const canOpen = "open" in peek.file;
     const isFolder = peek.file.kind === "folder";
     const inTab = variant === "tab";
