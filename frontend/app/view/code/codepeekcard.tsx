@@ -26,6 +26,7 @@ import {
 import type * as MonacoTypes from "monaco-editor";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { isImagePath } from "./codeclassify";
+import { ImageView } from "./codeimageview";
 import { binaryPeekMessage, peekModes, peekStat, type PeekFile, type PeekMode } from "./codepeekmodel";
 import { closePeek, codePeekFocusedAtom, openPeekInCode, setPeekMode, type CodePeek } from "./codepeekstore";
 
@@ -58,6 +59,14 @@ const DIFF_OPTIONS: MonacoTypes.editor.IDiffEditorOptions = {
 
 // the File tab draws its diff as the Diff surface does, wrapped since the column is narrow
 const TAB_DIFF_OPTIONS = paneOptions(false, false, true);
+
+// the File tab's Source, fixed whatever the editor settings say: wrapped at the Changes tab's diff rows' size
+const TAB_SOURCE_OPTIONS: MonacoTypes.editor.IEditorOptions = {
+    minimap: { enabled: false },
+    wordWrap: "on",
+    fontSize: 12.5,
+    lineHeight: 20,
+};
 
 // repo-relative inside a repository, else the absolute path (or what was clicked, when nothing resolved)
 function headerPath(peek: CodePeek): string {
@@ -139,7 +148,7 @@ function PeekStat({ file }: { file: PeekFile }) {
     );
 }
 
-function SourceView({ peek, blockId, text }: { peek: CodePeek; blockId: string; text: string }) {
+function SourceView({ peek, blockId, text, inTab }: { peek: CodePeek; blockId: string; text: string; inTab: boolean }) {
     const line = peek.line;
     return (
         <CodeEditor
@@ -147,6 +156,7 @@ function SourceView({ peek, blockId, text }: { peek: CodePeek; blockId: string; 
             text={text}
             fileName={MODEL_PREFIX + (peek.abs ?? peek.raw)}
             readonly
+            options={inTab ? TAB_SOURCE_OPTIONS : undefined}
             onMount={(ed) => {
                 if (line == null) {
                     return () => {};
@@ -238,6 +248,10 @@ function PeekNotice({ peek }: { peek: CodePeek }) {
 
 function PeekBody({ peek, blockId, inTab }: { peek: CodePeek; blockId: string; inTab: boolean }) {
     const file = peek.file;
+    // the card keeps its "open it in Code" line for an image; the tab draws it
+    if (inTab && file.kind === "binary" && isImagePath(file.open.rel)) {
+        return <ImageView root={file.open.projectPath} path={file.open.rel} size={file.size} />;
+    }
     if (file.kind !== "text") {
         return inTab ? <PeekNotice peek={peek} /> : <PeekMessage text={stateMessage(peek) ?? ""} />;
     }
@@ -251,7 +265,7 @@ function PeekBody({ peek, blockId, inTab }: { peek: CodePeek; blockId: string; i
     if (peek.mode === "diff") {
         return <DiffView key={key} peek={peek} text={file.text} inTab={inTab} />;
     }
-    return <SourceView key={`${key}|${peek.line}`} peek={peek} blockId={blockId} text={file.text} />;
+    return <SourceView key={`${key}|${peek.line}`} peek={peek} blockId={blockId} text={file.text} inTab={inTab} />;
 }
 
 // the card offers every mode, a disabled one titled with why; the tab shows only the ones the file has, and none
