@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { diffStatsByIdAtom, diffStatsFromChanges, refreshCardGit, sharedCheckoutCount } from "./cardgitstore";
 import type { GitChanges } from "./gitstatus";
 
-vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { GitChangesCommand: vi.fn() } }));
+vi.mock("@/app/store/wshclientapi", () => ({ RpcApi: { GitChangesCommand: vi.fn(), GitAgentEditsCommand: vi.fn() } }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 vi.mock("./agentcwdresolve", () => ({ resolveCwd: vi.fn(async () => "C:/src/demo") }));
 vi.mock("./agentsessionstore", () => ({ ensureSessionStart: vi.fn(async () => null) }));
@@ -19,7 +19,7 @@ describe("refreshCardGit", () => {
         globalStore.set(diffStatsByIdAtom, { a1: { files: 3, adds: 4, dels: 5 } });
         vi.mocked(RpcApi.GitChangesCommand).mockRejectedValueOnce(new Error("git exploded"));
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-        await refreshCardGit("a1", "t.jsonl");
+        await refreshCardGit("a1", "t.jsonl", undefined, "pi");
         expect("a1" in globalStore.get(diffStatsByIdAtom)).toBe(false);
         expect(warn).toHaveBeenCalledTimes(1);
         expect(String(warn.mock.calls[0][0])).toContain("a1");
@@ -36,11 +36,24 @@ describe("refreshCardGit", () => {
             numstaterror: "git diff --numstat --relative HEAD: exit status 128: fatal: cannot hash src/old.py",
         });
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-        await refreshCardGit("a1", "t.jsonl");
+        await refreshCardGit("a1", "t.jsonl", undefined, "pi");
         expect("a1" in globalStore.get(diffStatsByIdAtom)).toBe(false);
         expect(warn).toHaveBeenCalledTimes(1);
         expect(String(warn.mock.calls[0][0])).toContain("a1");
         expect(warn.mock.calls[0].join(" ")).toContain("cannot hash src/old.py");
+    });
+
+    // a fresh Claude agent's card counted the other sessions' uncommitted work in its checkout
+    it("counts nothing for a Claude agent with no edits of its own", async () => {
+        vi.mocked(RpcApi.GitAgentEditsCommand).mockResolvedValueOnce({ base: "", end: "", files: [], bashcalls: 0 });
+        vi.mocked(RpcApi.GitChangesCommand).mockResolvedValueOnce({
+            branch: "main",
+            statusz: " M someone-else.ts\0",
+            numstat: "3\t1\tsomeone-else.ts\0",
+            isrepo: true,
+        });
+        await refreshCardGit("a1", "t.jsonl", undefined, "claude");
+        expect("a1" in globalStore.get(diffStatsByIdAtom)).toBe(false);
     });
 });
 

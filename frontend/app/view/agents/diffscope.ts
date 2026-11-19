@@ -123,7 +123,7 @@ export function originCwd(o: DiffOrigin): string | null {
 export function defaultRangeFor(o: DiffOrigin): DiffRange {
     switch (o.kind) {
         case "agent":
-            return editsApply(o) ? { kind: "edits", agentId: o.id } : { kind: "session", agentId: o.id };
+            return editsApply(o.runtime) ? { kind: "edits", agentId: o.id } : { kind: "session", agentId: o.id };
         case "project":
             return { kind: "working" };
         case "run":
@@ -134,8 +134,8 @@ export function defaultRangeFor(o: DiffOrigin): DiffRange {
 }
 
 // Only Claude Code writes the file-history backups the edits range is rebuilt from.
-function editsApply(o: Extract<DiffOrigin, { kind: "agent" }>): boolean {
-    return (o.runtime || "claude") === "claude";
+export function editsApply(runtime: string | undefined): boolean {
+    return (runtime || "claude") === "claude";
 }
 
 export interface RangeCtx {
@@ -150,7 +150,7 @@ export interface RangeCtx {
 export function availableRanges(scope: DiffScope, ctx: RangeCtx): RangeOption[] {
     const out: RangeOption[] = [{ range: { kind: "working" }, label: "Working tree", detail: "", available: true }];
     const origin = scope.repo.origin;
-    if (origin.kind === "agent" && editsApply(origin)) {
+    if (origin.kind === "agent" && editsApply(origin.runtime)) {
         out.push({ range: { kind: "edits", agentId: origin.id }, label: EDITS_LABEL, detail: "", available: true });
     }
     if (origin.kind === "agent") {

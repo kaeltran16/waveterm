@@ -234,8 +234,10 @@ type CommandGitBlameRtnData struct {
 
 // Ref "" diffs against HEAD. IgnoreWs is git's -w, the Diff surface's Hide whitespace.
 type CommandGitPatchData struct {
-	Cwd      string `json:"cwd"`
-	Ref      string `json:"ref,omitempty"`
+	Cwd string `json:"cwd"`
+	Ref string `json:"ref,omitempty"`
+	// End, with Ref, bounds the patch to Ref..End (an agent's edits range); untracked files are then left out
+	End      string `json:"end,omitempty"`
 	IgnoreWs bool   `json:"ignorews,omitempty"`
 }
 

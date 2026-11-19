@@ -1,7 +1,8 @@
 // Scenario `workspace-header`: the Rendered header's checkout facts (Task 3 of
 // docs/superpowers/plans/2026-11-17-workspace-pane.md; Main board). A temp git repo holds a linked worktree with two
 // changed files; a real orchestrator run held in planning (no model starts) makes a fixture claude agent working in
-// that worktree its lead, and a second fixture agent works in the repo's clean main checkout. Both are real tabs with
+// that worktree its lead, and a second fixture agent works in the repo's clean main checkout. The lead's transcript
+// makes the two edits; a third file someone else wrote stays off its changes row. Both are real tabs with
 // no controller. The lead's user-owned asks are injected into the page's ask map. Teardown closes what the steps
 // opened, cancels the run, deletes its channel and the repo, and puts back the default view.
 
@@ -18,6 +19,8 @@ import {
     restoreDefaultView,
     restoreRoster,
     setRoster,
+    toolResult,
+    toolUse,
     userText,
     writeTranscript,
 } from "./agent-page-fixtures.mjs";
@@ -30,8 +33,10 @@ const WAIT_MS = 10_000;
 const SETTLE_MS = 700;
 const BRANCH = "feature-header";
 const WORKTREE = ".worktrees/header";
-// the worktree's edits: two lines added to a.txt, one line of b.txt rewritten
+// the lead's edits: two lines added to a.txt, one line of b.txt rewritten; not the stray file beside them
 const CHIP_TEXT = "2 files +3 −1";
+// the records sit a minute after the seed commit, so the session-start anchor is that commit whatever the clocks' rounding
+const AHEAD_MS = 60_000;
 const CHIP_TITLE = "Open the Changes tab";
 const ask = (n) => ({ taskid: "t-1", askid: `fx-header-ask-${n}`, owner: "user", questions: [], blockoref: "", ts: n });
 
@@ -114,7 +119,25 @@ function makeRepo(ctx) {
     git(repo, "worktree", "add", "-q", "-b", BRANCH, wt);
     writeFileSync(join(wt, "a.txt"), "one\ntwo\nthree\n");
     writeFileSync(join(wt, "b.txt"), "uno\n");
+    writeFileSync(join(wt, "stray.txt"), "written by someone else\n");
     return wt;
+}
+
+// the Edit calls that made the worktree's a.txt and b.txt, so the lead's changes row counts them as its own
+function leadTranscript(ctx, name) {
+    const t0 = Date.now() + AHEAD_MS;
+    let n = 0;
+    const at = () => ({ cwd: ctx.wt, ts: new Date(t0 + n++ * 1000).toISOString() });
+    const edit = (id, file, from, to) => [
+        toolUse(id, "Edit", { file_path: join(ctx.wt, file), old_string: from, new_string: to }, at()),
+        toolResult(id, "ok", at()),
+    ];
+    return writeTranscript(join(ctx.cwd, ".transcripts"), name, [
+        userText("Tidy the lead notes.", at()),
+        ...edit("tu-a", "a.txt", "one\n", "one\ntwo\nthree\n"),
+        ...edit("tu-b", "b.txt", "one\n", "uno\n"),
+        assistantText("The lead notes are tidy.", at()),
+    ]);
 }
 
 async function focusRendered(h, id, name) {
@@ -174,7 +197,9 @@ export const workspaceHeader = {
                 cleanName: `header-clean-${tag}`,
             });
             await setRoster(h, [
-                rosterAgent(lead.tabId, lead.blockId, ctx.leadName, path("lead"), { runId: ctx.runId }),
+                rosterAgent(lead.tabId, lead.blockId, ctx.leadName, leadTranscript(ctx, `header-lead-${tag}`), {
+                    runId: ctx.runId,
+                }),
                 rosterAgent(clean.tabId, clean.blockId, ctx.cleanName, path("clean")),
             ]);
             await focusRendered(h, ctx.leadId, ctx.leadName);

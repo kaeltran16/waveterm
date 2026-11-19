@@ -155,7 +155,7 @@ export function CockpitSurface({ model }: { model: AgentsViewModel }) {
     useEffect(() => {
         for (const a of [...asking, ...working, ...recentlyIdle]) {
             if (a.transcriptPath) {
-                void refreshCardGit(a.id, a.transcriptPath, a.blockId);
+                void refreshCardGit(a.id, a.transcriptPath, a.blockId, a.agent);
             }
         }
     }, []);

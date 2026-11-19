@@ -12,7 +12,7 @@ import (
 
 func getPatch(t *testing.T, cwd, ref string, ignoreWs bool) *Patch {
 	t.Helper()
-	p, err := GetPatch(context.Background(), cwd, ref, ignoreWs)
+	p, err := GetPatch(context.Background(), cwd, ref, "", ignoreWs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,6 +171,32 @@ func TestGetPatchRefIncludesCommittedSince(t *testing.T) {
 	}
 }
 
+// an agent's edits range: only ref..end, never what else sits in the working tree
+func TestGetPatchEndBoundsToRange(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "other.txt", "1\n")
+	commitAll(t, dir)
+	base := gitRun(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "mine.txt", "2\n")
+	commitAll(t, dir)
+	end := gitRun(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "other.txt", "changed\n")
+	writeFile(t, dir, "stray.txt", "untracked\n")
+	p, err := GetPatch(context.Background(), dir, base, end, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var headers []string
+	for _, line := range strings.Split(p.Patch, "\n") {
+		if strings.HasPrefix(line, fileHeaderPrefix) {
+			headers = append(headers, line)
+		}
+	}
+	if want := []string{"diff --git a/mine.txt b/mine.txt"}; strings.Join(headers, "|") != strings.Join(want, "|") {
+		t.Errorf("files = %q, want %q", headers, want)
+	}
+}
+
 func TestGetPatchIgnoreWs(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "one\ntwo\n")
@@ -281,7 +307,7 @@ func TestUntrackedEntryVanishedFileIsSkipped(t *testing.T) {
 }
 
 func TestGetPatchNotARepo(t *testing.T) {
-	p, err := GetPatch(context.Background(), t.TempDir(), "", false)
+	p, err := GetPatch(context.Background(), t.TempDir(), "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +332,7 @@ func TestGetPatchUnknownRefErrorsWithStderr(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "a\n")
 	commitAll(t, dir)
-	_, err := GetPatch(context.Background(), dir, "no-such-ref", false)
+	_, err := GetPatch(context.Background(), dir, "no-such-ref", "", false)
 	if err == nil {
 		t.Fatal("want an error for an unknown ref")
 	}

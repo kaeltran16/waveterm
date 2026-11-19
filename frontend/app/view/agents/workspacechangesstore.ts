@@ -60,7 +60,7 @@ let readSeq = 0;
 let scrollSeq = 0;
 
 // the same agent's re-read keeps its rows until the new ones land; another agent's blanks them
-export async function loadChangesPatch(agentId: string, cwd: string, ref: string): Promise<void> {
+export async function loadChangesPatch(agentId: string, cwd: string, ref: string, end = ""): Promise<void> {
     const seq = ++readSeq;
     const ignoreWs = globalStore.get(ignoreWsAtom);
     if (globalStore.get(changesPatchAtom)?.agentId !== agentId) {
@@ -69,7 +69,7 @@ export async function loadChangesPatch(agentId: string, cwd: string, ref: string
     try {
         const rtn = await RpcApi.GitPatchCommand(
             TabRpcClient,
-            { cwd, ref, ignorews: ignoreWs },
+            { cwd, ref, end: end || undefined, ignorews: ignoreWs },
             { timeout: PATCH_RPC_TIMEOUT_MS }
         );
         if (seq !== readSeq) {
