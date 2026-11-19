@@ -9,6 +9,7 @@
 import { turnTransition } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
+import { useLocalImage } from "@/app/view/jarvis/localimage";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Check, ChevronDown, Lightbulb } from "lucide-react";
@@ -19,13 +20,11 @@ import type { AgentEntry, AgentVM } from "./agentsviewmodel";
 import { arcMessageOf } from "./arcmessage";
 import { ArcMessageRow } from "./arcmessagerow";
 import { brainstormAnswersAtom, brainstormAtom, getBrainstorm, openBrainstormAt } from "./brainstormstore";
-import { boardLabel, canvasDesignDir, canvasDir } from "./canvasmodel";
-import { tauriCanvasIO } from "./canvaspoller";
+import { boardLabel, canvasDir, canvasFeedbackFile } from "./canvasmodel";
 import { attachCanvas, canvasStateAtom } from "./canvasstore";
 import { COMPACT_CARD_PX } from "./renderedbrainstormmodel";
 import { entryRowView, type EntryRowView } from "./renderedbsrowsmodel";
 import { useTranscriptContext } from "./transcriptcontext";
-import { useWshData } from "./wshdata";
 
 const ORIGIN_WORDS = { transcript: "picked here", pane: "picked in the brainstorm pane" } as const;
 const NO_RECORDS: never[] = [];
@@ -198,21 +197,14 @@ function openMarkedBoard(agent: AgentVM, view: MarkView, projectDir: string) {
     openPaneTab(agent.id, "canvas", now);
 }
 
-// the crop is served from the canvas folder: through the agent's canvas while it shows this one, else asked for
-function useCropUrl(view: MarkView, projectDir: string | null, base: string | null): string | null {
-    const served = useWshData(base == null && projectDir != null ? `canvas-serve:${projectDir}` : null, () =>
-        tauriCanvasIO.serve(canvasDesignDir(projectDir!))
-    );
-    const root = base ?? served.data ?? null;
-    return root == null ? null : `${root}/${encodeURIComponent(view.canvas)}/feedback/${encodeURIComponent(view.file)}`;
-}
-
 // the mark's crop URL, its board's label and how to open the board at it, for the bubble and the pinned bar
 function useMark(view: MarkView, agent: AgentVM) {
     const c = useAtomValue(canvasStateAtom(agent.id));
     const projectDir = projectDirOf(agent, view.canvas, c?.topic ?? null, c?.projectDir ?? null);
-    const base = c?.topic === view.canvas && c.projectDir === projectDir ? c.base : null;
-    const url = useCropUrl(view, projectDir, base);
+    // read as a blob: the packaged app's CSP img-src does not take the canvas route's http url
+    const { url } = useLocalImage(
+        projectDir == null ? null : canvasFeedbackFile(canvasDir(projectDir, view.canvas), view.file)
+    );
     const board = boardLabel(view.board);
     const open = projectDir != null ? () => openMarkedBoard(agent, view, projectDir) : undefined;
     return { url, board, open };
