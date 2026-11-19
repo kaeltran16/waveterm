@@ -227,7 +227,9 @@ const dagModal = (h) =>
         h,
         `const M = await mod("app/view/orchestrate/dagmodalstate.ts");
         const S = await mod("app/view/orchestrate/dagstore.ts");
-        return { open: globalStore.get(M.dagModalStateAtom) != null, task: globalStore.get(S.selectedTaskIdAtom) ?? null };`
+        // open means drawn: the state atom alone once read open while no surface mounting the modal was showing
+        const drawn = await until(() => document.querySelector("[data-dag-modal-kind]") != null, 3000);
+        return { open: globalStore.get(M.dagModalStateAtom) != null && drawn, task: globalStore.get(S.selectedTaskIdAtom) ?? null };`
     );
 const closeDag = (h) => page(h, `const M = await mod("app/view/orchestrate/dagmodalstate.ts"); M.closeDagModal(); await nap(300); return true;`);
 

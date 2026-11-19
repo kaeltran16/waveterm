@@ -344,6 +344,8 @@ export const seedRun = (h, now, { version = 1, finished = false } = {}) =>
         for (const child of ${JSON.stringify(TASKS.map((t) => childRunObj(t, now - (finished ? T0_DONE : T0_LIVE), version)))}) put(child);
         put(${JSON.stringify(dagObj(now, version, finished))});
         put(${JSON.stringify(runObj(now, version, finished))});
+        // the router opens a dag on its owner run's sheet, which it finds through the channel
+        put(${JSON.stringify({ otype: "channel", oid: CHANNEL, version, name: TITLE, createdts: now })});
         globalStore.set(L.runDigestsAtom, (prev) => ({ ...prev, ${JSON.stringify(RUN_ID)}: ${JSON.stringify(digestOf(now, version, finished))} }));
         globalStore.set(U.runUsageAtom, (prev) => ({ ...prev, ${JSON.stringify(RUN_ID)}: { rows: ${JSON.stringify(usageOf(finished))}, sealed: true } }));
         E.seedRunEvents(${JSON.stringify(RUN_ID)}, ${JSON.stringify(eventsOf(now, finished).reverse())});
