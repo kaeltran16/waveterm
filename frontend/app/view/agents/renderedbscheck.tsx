@@ -34,9 +34,18 @@ import { approveAndOpenRun, sendBrainstorm } from "./brainstormsend";
 import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
 import { CHIP, ErrorLine, SMALL_DOT, useAction } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN } from "./canvaspane";
-import { CardFrame } from "./renderedbrainstorm";
+import { CardFrame, useCardRow } from "./renderedbrainstorm";
 import type { CardProps } from "./renderedbrainstormmodel";
-import { builderHead, cardClock, checkCardState, clockBar, settledLine } from "./renderedbscheckmodel";
+import {
+    builderHead,
+    cardClock,
+    CHECK_FAILED_LINE,
+    CHECK_SETTLED_LINE,
+    checkCardState,
+    checkRowTitle,
+    clockBar,
+    settledLine,
+} from "./renderedbscheckmodel";
 import { OptionRows } from "./renderedbsquestion";
 import { picksHint } from "./renderedbsquestionmodel";
 
@@ -150,7 +159,7 @@ function FailedBox({ agent, reason, compact }: { agent: AgentVM; reason: string;
                         )}
                     >
                         <span className={cn(SMALL_DOT, "bg-error")} />
-                        The builder check did not finish
+                        {CHECK_FAILED_LINE}
                     </span>
                     {reason ? (
                         <span
@@ -283,6 +292,7 @@ function BuilderQuestion({
             asking={true}
             lead={false}
             status=""
+            title={head.lead}
             compact={compact}
             attr="data-rendered-bs-builder-question"
             head={
@@ -380,7 +390,7 @@ function ApproveBar({
         >
             <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
                 <span className={cn("font-semibold text-primary", compact ? "text-[14px]" : "text-[15px]")}>
-                    A builder read the design
+                    {CHECK_SETTLED_LINE}
                 </span>
                 <span className={cn("leading-[1.5] text-ink-mid", compact ? "text-[12.5px]" : "text-[13px]")}>
                     {settledLine(handoffView(f).questions)}
@@ -431,7 +441,21 @@ export function CheckCard({ model, agent, s, f, compact }: CardProps): JSX.Eleme
         s.turnStartMs,
         s.checkTakenTs
     );
+    const row = useCardRow();
     const state = checkCardState(f, check, s.sent != null);
+    if (row) {
+        return (
+            <CardFrame
+                agent={agent}
+                s={s}
+                f={f}
+                asking={state === "asking"}
+                title={checkRowTitle(f, check, s.sent != null)}
+                compact={compact}
+                attr="data-rendered-bs-check-row"
+            />
+        );
+    }
     // each builder question is a new card, as each talk question is
     const swapKey = state === "asking" ? `asking:${checkAsk(f).index}` : state;
     return (

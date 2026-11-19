@@ -39,6 +39,24 @@ export function builderHead(f: BrainstormFile): { lead: string; part: { id: stri
     };
 }
 
+export const CHECK_FAILED_LINE = "The builder check did not finish";
+export const CHECK_SETTLED_LINE = "A builder read the design";
+
+// the one-row card's title while the Brainstorm tab shows: the step the full card names in its state
+export function checkRowTitle(f: BrainstormFile, check: BuilderCheckView, linePending: boolean): string {
+    switch (checkCardState(f, check, linePending)) {
+        case "reading":
+        case "taking-in":
+            return check.kind === "pending" ? check.text : "";
+        case "failed":
+            return CHECK_FAILED_LINE;
+        case "asking":
+            return builderHead(f).lead;
+        case "settled":
+            return CHECK_SETTLED_LINE;
+    }
+}
+
 export function settledLine(questions: number): string {
     const verb = questions === 1 ? "is" : "are";
     return `Its ${plural(questions, "question", "questions")} ${verb} settled. Approving starts an orchestrator run from the spec.`;

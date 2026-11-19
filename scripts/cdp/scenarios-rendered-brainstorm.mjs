@@ -91,7 +91,8 @@ function writeFile(ctx, file) {
 
 // opts: topic, file (the first brainstorm.json, an object or raw text), transcript (record lines; a prompt and a reply
 // by default), boards (canvas board names: writes the brainstorm's canvas project), noBrainstorm (an agent with only
-// the canvas). A throw past the temp dir still returns ctx, so teardown removes whatever was made
+// the canvas), noTab (auto-open's Brainstorm tab turned down, so the full card draws: while the tab shows, the card is
+// one row). A throw past the temp dir still returns ctx, so teardown removes whatever was made
 async function arrange(h, name, opts = {}) {
     const tag = Date.now().toString(36);
     const topic = opts.topic ?? `rbs-${tag}`;
@@ -112,6 +113,7 @@ async function arrange(h, name, opts = {}) {
         await h.goto("agent");
         const t = await makeTab(h, ctx, { label: `rbs-${tag}`, blockMeta: { view: "term", controller: null } });
         Object.assign(ctx, { agentId: t.tabId, blockId: t.blockId });
+        if (opts.noTab) await turnDownTab(h, ctx);
         await setRoster(h, [rosterAgent(t.tabId, t.blockId, `rbs-${tag}`, transcript, opts.noBrainstorm ? undefined : ctx.file)]);
         await focusAgent(h, ctx.agentId);
         ctx.rendered = await showRendered(h);
@@ -128,6 +130,27 @@ async function arrange(h, name, opts = {}) {
     }
     return ctx;
 }
+
+// dismisses the first Brainstorm tab auto-open brings, as its x does, which turns auto-open's brainstorm down for the
+// agent; on the next tick, since auto-open records the tab it opened only after it opened it, and dismissing counts only
+// a tab it recorded. A tab a step opens after that stays
+const turnDownTab = (h, ctx) =>
+    agentPage(
+        h,
+        `const W = await mod("app/view/agents/workspacestore.ts");
+        const A = await mod("app/view/agents/autoopen.ts");
+        const id = ${JSON.stringify(ctx.agentId)};
+        const ws = W.workspaceAtom(id);
+        window.__rbsNoTab ??= {};
+        const off = globalStore.sub(ws, () => {
+            if (!globalStore.get(ws).tabs.some((t) => t.kind === "brainstorm")) return;
+            off();
+            delete window.__rbsNoTab[id];
+            setTimeout(() => A.dismissWorkspaceTab(id, { kind: "brainstorm" }), 0);
+        });
+        window.__rbsNoTab[id] = off;
+        return true;`
+    );
 
 const brainstormRead = (h, ctx) =>
     agentPage(
@@ -272,6 +295,14 @@ async function teardown(h, ctx) {
         }
     };
     await step("stop recording sends", () => stopRecording(h));
+    await step("stop watching for the Brainstorm tab", () =>
+        h.ev(`(() => {
+            const id = ${JSON.stringify(ctx.agentId ?? "")};
+            window.__rbsNoTab?.[id]?.();
+            delete window.__rbsNoTab?.[id];
+            return true;
+        })()`)
+    );
     await step("restore the roster", () => restoreRoster(h));
     await step("drop the focus", () => agentPage(h, `globalStore.set(agentsModel().focusIdAtom, undefined); return true;`));
     await step("close the tabs", () => closeTabs(h, ctx));
