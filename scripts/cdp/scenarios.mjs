@@ -224,6 +224,8 @@ import { motionDiff } from "./scenarios-motion-diff.mjs";
 import { motionCode } from "./scenarios-motion-code.mjs";
 import { SESSIONS_KIT } from "./scenarios-shared.mjs";
 import { BOARDS_ASK_SCENARIOS } from "./scenarios-boards-ask.mjs";
+import { BOARDS_WORKSPACE_SCENARIOS } from "./scenarios-boards-workspace.mjs";
+import { BOARDS_TRANSCRIPT_SCENARIOS } from "./scenarios-boards-transcript.mjs";
 
 
 export const SCENARIOS = [
@@ -431,6 +433,8 @@ export const SCENARIOS = [
     jiraDetails,
     jiraWsh,
     ...BOARDS_ASK_SCENARIOS,
+    ...BOARDS_WORKSPACE_SCENARIOS,
+    ...BOARDS_TRANSCRIPT_SCENARIOS,
     // last: its fixture roster stands in for the live one until its teardown reloads
     agentComposer,
 ];

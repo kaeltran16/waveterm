@@ -299,6 +299,14 @@ declare global {
         workspaceid?: string;
     };
 
+    // wshrpc.BoardAgent
+    type BoardAgent = {
+        tabid: string;
+        title: string;
+        runtime: string;
+        readts?: number;
+    };
+
     // wshrpc.BoardAgentDrawRtnData
     type BoardAgentDrawRtnData = {
         boardid: string;
@@ -332,6 +340,18 @@ declare global {
         ask: string;
     };
 
+    // wshrpc.BoardForward
+    type BoardForward = {
+        state: string;
+        tabid?: string;
+        title?: string;
+        runtime?: string;
+        reason?: string;
+        sentts?: number;
+        reply?: string;
+        replyts?: number;
+    };
+
     // wshrpc.BoardHandoff
     type BoardHandoff = {
         fromboardid: string;
@@ -353,6 +373,9 @@ declare global {
         about?: string;
         answeredts?: number;
         activets?: number;
+        agenttabid?: string;
+        drawings?: number;
+        drawnts?: number;
     };
 
     // wshrpc.BoardListRtnData
@@ -394,6 +417,7 @@ declare global {
         sessionid?: string;
         contexttokens?: number;
         handoff?: BoardHandoff;
+        agent?: BoardAgent;
         turns: BoardTurn[];
     };
 
@@ -416,6 +440,9 @@ declare global {
         answeredts?: number;
         reason?: string;
         choice?: string;
+        route?: string;
+        from?: string;
+        forward?: BoardForward;
     };
 
     // wshrpc.BoardUpdateData
@@ -427,6 +454,7 @@ declare global {
         turnid?: string;
         state?: string;
         from?: string;
+        agenttabid?: string;
     };
 
     // wshrpc.BrainstormCheckTimes
@@ -803,6 +831,13 @@ declare global {
         boardid: string;
         data: string;
         baserev: string;
+    };
+
+    // wshrpc.CommandBoardSetAgentData
+    type CommandBoardSetAgentData = {
+        channelid: string;
+        boardid: string;
+        tabid: string;
     };
 
     // wshrpc.CommandBoardStartData

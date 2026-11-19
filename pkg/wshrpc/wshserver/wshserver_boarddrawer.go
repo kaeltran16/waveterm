@@ -30,7 +30,11 @@ const (
 	boardUpdateTalk    = "talk"
 	boardAnsweringMark = "answering"
 	boardSourceAgent   = "agent"
+	boardUpdateJoin    = "join"
 )
+
+// boardAgentRuntimes are the agents a board can be tied to.
+var boardAgentRuntimes = map[string]bool{"claude": true, "pi": true}
 
 // boardAboutKinds is what a talk can be about; empty is the project's code.
 var boardAboutKinds = map[string]bool{
@@ -91,12 +95,28 @@ func newBoardDrawer(run func(ctx context.Context, cwd string, c boarddrawer.Call
 			return boardstore.PutAnswer(dir, a)
 		},
 		Publish: publishBoardUpdate,
+		Forward: func(b boarddrawer.Board, turnId string) { forwardBoardTurn(b, turnId) },
 		Run:     run,
 	})
 }
 
 func publishBoardUpdate(u wshrpc.BoardUpdateData) {
 	wps.Broker.Publish(wps.WaveEvent{Event: wps.Event_BoardUpdate, Data: u})
+}
+
+// publishBoardJoin tells the frontend a board now belongs in an agent's workspace.
+func publishBoardJoin(channelId, boardId, tabId string) {
+	publishBoardUpdate(wshrpc.BoardUpdateData{ChannelId: channelId, BoardId: boardId, What: boardUpdateJoin, AgentTabId: tabId})
+}
+
+// boardAgentOf is the agent a board is tied to when tab is it, or false for a runtime other than claude or pi.
+// The runtime reads as agentSourceTitle does: a tab that names none is claude.
+func boardAgentOf(tab *waveobj.Tab, project string) (wshrpc.BoardAgent, bool) {
+	runtime := tab.Meta.GetString(waveobj.MetaKey_SessionAgent, "claude")
+	if !boardAgentRuntimes[runtime] {
+		return wshrpc.BoardAgent{}, false
+	}
+	return wshrpc.BoardAgent{TabId: tab.OID, Title: agentSourceTitle(tab, project), Runtime: runtime, ReadTs: time.Now().UnixMilli()}, true
 }
 
 // drawerBoard resolves a board for the drawer. A board whose file won't parse still resolves, with LoadError set,

@@ -24,9 +24,18 @@ const (
 	StateWaiting   = "waiting"
 	StateAnswering = "answering"
 	StateAnswered  = "answered"
+	StateForwarded = "forwarded"
 	StateAsks      = "asks"
 	StateFailed    = "failed"
 	StateStopped   = "stopped"
+
+	RouteDraw  = "draw"
+	RouteAgent = "agent"
+
+	ForwardHeld       = "held"
+	ForwardSent       = "sent"
+	ForwardReplied    = "replied"
+	ForwardNeedsAgent = "needsagent"
 
 	// SummarizeAboveTokens: a talk whose session holds more context than this starts its next turn in a new session,
 	// from a summary. The 11-13 talks reached 33k-57k, and one 143k by turn 13.
@@ -56,9 +65,11 @@ type Deps struct {
 	ReadThing  func(ctx context.Context, src wshrpc.BoardSource, sinceTs int64) (text, reading string, cursorTs int64, err error)
 	Deliver    func(a wshrpc.BoardAnswer) error
 	Publish    func(u wshrpc.BoardUpdateData)
-	Run        func(ctx context.Context, cwd string, c Call) (Reply, error) // nil: RunModel
-	Now        func() int64
-	NewId      func() string // nil: uuid.NewString
+	// Forward is called, outside any talk update, once a turn is saved as forwarded
+	Forward func(b Board, turnId string)
+	Run     func(ctx context.Context, cwd string, c Call) (Reply, error) // nil: RunModel
+	Now     func() int64
+	NewId   func() string // nil: uuid.NewString
 	// RemoveSession deletes a session's transcript; only ever given sessions the drawer made. nil: RemoveSession
 	RemoveSession func(sessionId string) error
 }
