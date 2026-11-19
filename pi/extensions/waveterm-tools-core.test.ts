@@ -6,10 +6,21 @@ import {
     openFileArgs,
     querySessionsArgs,
     runCommandArgs,
+    shouldAutoCompact,
     withOrchestrationRules,
 } from "./waveterm-tools-core";
 
 describe("waveterm-tools-core", () => {
+    it.each([
+        ["a 1M window at 35%", { contextWindow: 1_000_000, percent: 35 }, true],
+        ["a 1M window below 35%", { contextWindow: 1_000_000, percent: 34.9 }, false],
+        ["a smaller window past 35%", { contextWindow: 400_000, percent: 80 }, false],
+        ["unknown usage after a compaction", { contextWindow: 1_000_000, percent: null }, false],
+        ["no model", undefined, false],
+    ])("auto-compacts %s: %s", (_name, usage, want) => {
+        expect(shouldAutoCompact(usage)).toBe(want);
+    });
+
     it("builds the dag rules argv", () => {
         expect(dagRulesArgs()).toEqual(["jarvis", "dag", "rules"]);
     });

@@ -10,6 +10,7 @@ import {
     openFileArgs,
     querySessionsArgs,
     runCommandArgs,
+    shouldAutoCompact,
     withOrchestrationRules,
 } from "./waveterm-tools-core";
 
@@ -133,6 +134,18 @@ export function registerWavetermTools(pi: any, wshPath: string): void {
         if (event?.error || ctx?.lastError) {
             await notify("Pi session ended with an error", { level: "error" });
         }
+    });
+
+    // --- early compaction on 1M-window models ------------------------------------------------------
+
+    // ctx.compact aborts a running turn, so the check waits for the session to settle.
+    pi.on("agent_settled", (_event: any, ctx: any) => {
+        if (!shouldAutoCompact(ctx.getContextUsage?.())) {
+            return;
+        }
+        ctx.compact({
+            onError: (e: Error) => notify("Pi auto-compaction failed", { message: e.message, level: "warn" }),
+        });
     });
 
     // --- orchestrator lead: the rules after a compaction ------------------------------------------
