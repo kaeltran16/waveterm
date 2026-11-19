@@ -10,7 +10,7 @@ import { holdRailGit } from "./railgit";
 import { railStateAtom } from "./railstore";
 
 vi.mock("@/app/store/wshclientapi", () => ({
-    RpcApi: { GitChangesCommand: vi.fn(), GitListWorktreesCommand: vi.fn() },
+    RpcApi: { GitChangesCommand: vi.fn(), GitAgentEditsCommand: vi.fn(), GitListWorktreesCommand: vi.fn() },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 vi.mock("./agentcwdresolve", () => ({ resolveCwd: vi.fn(async () => "C:/src/demo") }));
@@ -35,6 +35,10 @@ beforeEach(() => {
     vi.mocked(RpcApi.GitChangesCommand)
         .mockReset()
         .mockResolvedValue(CHANGES as never);
+    // a Claude agent with no edits of its own: the plain read supplies the branch
+    vi.mocked(RpcApi.GitAgentEditsCommand)
+        .mockReset()
+        .mockResolvedValue({ base: "", end: "", files: [], bashcalls: 0 } as never);
     vi.mocked(RpcApi.GitListWorktreesCommand)
         .mockReset()
         .mockResolvedValue({ worktrees: [] } as never);
