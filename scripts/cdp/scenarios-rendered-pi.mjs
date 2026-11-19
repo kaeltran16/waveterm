@@ -51,6 +51,13 @@ const PUBLISHED = [
 ];
 const GROUPS = ["Built-in", "Extensions", "Prompts", "Skills"];
 const BASH_CMD = "echo from-pi";
+// a `!` command already in P's transcript, as pi writes one the person ran
+const BANG_CMD = "git status --short";
+const BANG_OUT = "fatal: not a git repository";
+const BANG_EXIT = 128;
+// a box message sent while P works: pi takes it as a steer, so it waits in the foot
+const STEER = "Also rename the call sites in cmd/.";
+const QUEUED_TAIL = "Esc to stop and send now";
 const ASK_QUESTION = { header: "Scope", question: "Which scope should the rename cover?", options: [{ label: "this file" }, { label: "the package" }] };
 
 // every query is scoped to the Agent surface
@@ -115,6 +122,26 @@ async function publishStatus(h, ctx, fields) {
     await h.rpc("eventpublish", { event: "agent:status", scopes: [oref], data: { oref, agent: "pi", ts, ...fields } });
 }
 
+// P's roster state: the fixture roster stands in for the live one, so a published state does not reach it
+const setPState = (h, ctx, state) =>
+    agentPage(
+        h,
+        `const D = await mod("app/view/agents/devmock.ts");
+        globalStore.set(D.devMockAgentsAtom, globalStore.get(D.devMockAgentsAtom).map((a) =>
+            a.id === ${JSON.stringify(ctx.pId)} ? { ...a, state: ${JSON.stringify(state)} } : a));
+        return true;`
+    );
+
+// the foot's items and its Queued line
+const FOOT = `(() => {
+    ${FLAT}
+    const foot = ${RV}?.querySelector("[data-queued-foot]");
+    return {
+        items: [...(foot?.querySelectorAll("[data-queued-item]") ?? [])].map((el) => flat(el.firstElementChild)),
+        line: flat(foot?.querySelector("[data-queued-line]")),
+    };
+})()`;
+
 const probeLines = (ctx) => (existsSync(ctx.probe) ? readFileSync(ctx.probe, "utf8").split("\n").filter(Boolean) : []);
 
 // waits for the probe's input after its first `from` lines, decoded as text, to contain every string in want
@@ -176,6 +203,15 @@ export const renderedPi = {
             const pPath = writePiTranscript(ctx.dir, `pi-p-${tag}`, [
                 { role: "user", content: PROMPT, timestamp: Date.now() - 60_000 },
                 { role: "assistant", content: [{ type: "text", text: REPLY }], model: MODEL_ID, provider: "anthropic" },
+                {
+                    role: "bashExecution",
+                    command: BANG_CMD,
+                    output: `${BANG_OUT}\n`,
+                    exitCode: BANG_EXIT,
+                    cancelled: false,
+                    truncated: false,
+                    timestamp: Date.now() - 50_000,
+                },
             ]);
             await h.goto("agent");
             // the cwd is ~, not the temp dir, which the probe would keep locked past teardown. An agent session's block
@@ -235,6 +271,19 @@ export const renderedPi = {
             const ring = await h.ev(`(${RING}?.textContent ?? "").trim()`);
             await h.shot(SHOT(1, "rendered"));
             return [drawn && view.rendered && !view.termShown && ring === `${USAGE.contextpct}%`, { drawn, view, ring }];
+        });
+
+        await step(`rendered-pi: P's transcript's !${BANG_CMD} draws as a command row with its output and exit ${BANG_EXIT}`, async () => {
+            const rowOf = `[...(${RV}?.querySelectorAll("[data-shell-run]") ?? [])].find((r) => flat(r.querySelector("[data-shell-command]")) === ${JSON.stringify(BANG_CMD)})`;
+            const drawn = await wait(`(() => { ${FLAT} return ${rowOf} != null; })()`);
+            const row = await h.ev(`(() => {
+                ${FLAT}
+                const row = ${rowOf};
+                return row ? { exit: flat(row.querySelector('[data-shell-mark="exit"]')), out: flat(row.querySelector("[data-shell-stdout]")) } : null;
+            })()`);
+            await agentPage(h, `${RV}?.querySelector("[data-shell-run]")?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+            await h.shot(SHOT(1, "bang-row"));
+            return [drawn && row?.exit === `exit ${BANG_EXIT}` && row.out.includes(BANG_OUT), { drawn, row }];
         });
 
         await step("rendered-pi: / lists pi's built-ins with /settings opening in Terminal, then the published commands under Extensions, Prompts and Skills", async () => {
@@ -300,6 +349,43 @@ export const renderedPi = {
             const ordered = bang >= 0 && at > bang && decoded.text.indexOf("\r", at) > at;
             const left = await wait(`${TA}?.value === "" && !${BOX}?.hasAttribute("data-bash-mode")`);
             return [on && decoded.ok && ordered && left, { on, ordered, left, input: JSON.stringify(decoded.text.slice(-120)) }];
+        });
+
+        await step("rendered-pi: a box send while P works waits in the foot with the Queued · Esc to stop and send now line", async () => {
+            await setPState(h, ctx, "working");
+            // a new turn: the send comes after its boundary
+            await publishStatus(h, ctx, { state: "working", detail: "running go test" });
+            await new Promise((r) => setTimeout(r, 50));
+            await wait(`${RV}?.querySelector("[data-rendered-composer] [data-composer-interrupt]") != null`);
+            const from = probeLines(ctx).length;
+            await typeComposer(h, STEER);
+            await pressInBox(h, "Enter");
+            const typed = await waitDecoded(ctx, from, [STEER]);
+            const queued = await wait(
+                `(() => { const f = ${FOOT}; return f.items.length === 1 && f.items[0] === ${JSON.stringify(STEER)} && f.line.includes(${JSON.stringify(QUEUED_TAIL)}); })()`
+            );
+            const foot = await h.ev(FOOT);
+            await agentPage(h, `${RV}?.querySelector("[data-queued-foot]")?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
+            await h.shot(SHOT(4, "queued"));
+            return [typed.ok && queued, { typed: typed.ok, foot }];
+        });
+
+        await step("rendered-pi: Stop types Esc, then Enter only after P's idle report, and the foot clears", async () => {
+            const from = probeLines(ctx).length;
+            const clicked = await h.ev(`(() => { const b = ${RV}?.querySelector("[data-rendered-composer] [data-composer-interrupt]"); b?.click(); return b != null; })()`);
+            const esc = await waitDecoded(ctx, from, ["\x1b"]);
+            // pi has not settled yet, so nothing more is typed
+            await new Promise((r) => setTimeout(r, HOLD_MS));
+            const before = await waitDecoded(ctx, from, ["\x1b"]);
+            const early = before.text.slice(before.text.indexOf("\x1b")).includes("\r");
+            await publishStatus(h, ctx, { state: "idle" });
+            const after = await waitDecoded(ctx, from, ["\x1b", "\r"]);
+            const ordered = after.text.indexOf("\r", after.text.indexOf("\x1b")) > 0;
+            const enters = after.text.split("\r").length - 1;
+            const cleared = await wait(`${RV}?.querySelector("[data-queued-foot]") == null`);
+            await setPState(h, ctx, "idle");
+            const ok = clicked && esc.ok && !early && after.ok && ordered && enters === 1 && cleared;
+            return [ok, { clicked, esc: esc.ok, early, ordered, enters, cleared, input: JSON.stringify(after.text.slice(-40)) }];
         });
 
         await step("rendered-pi: an ask raised for P's block docks as the card in its column, and the box's notice names Pi", async () => {

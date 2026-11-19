@@ -7,6 +7,7 @@
 // scrolled out of view, a bar pinned at the top holds it. A file path in a reply opens in a File tab of the workspace
 // pane beside the transcript.
 
+import { pushToast } from "@/app/cockpit/notificationstore";
 import { cardVariants, composerReveal } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -17,7 +18,7 @@ import { useAtomValue } from "jotai";
 import { ArrowUp } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { interruptAgent } from "./agentactions";
+import { driveAgent, interruptAgent } from "./agentactions";
 import type { AgentComposerHandle } from "./agentcomposer";
 import type { AgentsViewModel } from "./agents";
 import { sentPromptsAtom } from "./agentsend";
@@ -34,15 +35,16 @@ import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
 import { PI_HARNESS } from "./picommands";
 import { lastPrompt, pinnedPrompt, samePin, type PinnedPrompt, type RowOf } from "./pinnedprompt";
-import { footList, type FootItem } from "./queuedprompts";
+import { footList, piFootList, type FootItem } from "./queuedprompts";
 import { NeedsInputPill, RenderedBrainstorm } from "./renderedbrainstorm";
 import { PinnedRow, useEntryRowView, useRenderedEntryRow } from "./renderedbsrows";
 import { RenderedComposer } from "./renderedcomposer";
 import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip, shouldUnflipAtBoundary } from "./renderedmode";
 import type { ReplyFileLink } from "./replyfilelinks";
-import { getLastHookAtom, getPromptBoundaryAtom } from "./session-models/agentstatusstore";
+import { getAgentStatusAtom, getLastHookAtom, getPromptBoundaryAtom } from "./session-models/agentstatusstore";
 import { ShowEarlier } from "./showearlier";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
+import { sendsQueuedOnStop, stopAndSend } from "./stopsend";
 import { useTranscriptContext, type TranscriptContext } from "./transcriptcontext";
 import { lastCanvasReveal } from "./transcriptlayout";
 import { TranscriptSkeleton } from "./transcriptskeleton";
@@ -245,11 +247,56 @@ function QueuedFoot({ items }: { items: FootItem[] }) {
     );
 }
 
-// the foot's list for the agent
-function useQueuedFoot(agent: AgentVM): FootItem[] {
+// the foot's list for the agent: Claude's own queue, or for pi, which writes none, the box's sends it has not taken
+function useQueuedFoot(agent: AgentVM, entries: AgentEntry[]): FootItem[] {
     const waiting = useAtomValue(waitingAtomFor(agent.id));
     const sent = useAtomValue(sentPromptsAtom(agent.blockId ?? ""));
-    return useMemo(() => footList(waiting, sent), [waiting, sent]);
+    const since = useAtomValue(getPromptBoundaryAtom(agent.blockId ? `block:${agent.blockId}` : ""));
+    // pi's inputs only, so a Claude foot is not recomputed on each transcript change
+    const pi = agent.agent === PI_HARNESS;
+    const piEntries = pi ? entries : null;
+    const piWorking = pi && agent.state === "working";
+    const piSince = pi ? since : null;
+    return useMemo(
+        () => (piEntries != null ? piFootList(sent, piEntries, piWorking, piSince) : footList(waiting, sent)),
+        [waiting, sent, piEntries, piWorking, piSince]
+    );
+}
+
+// per block, the cancel of a stop still waiting to send pi's queue, so a second Stop cannot press Enter twice. Kept
+// outside the view, which may unmount before pi settles
+const pendingStops = new Map<string, () => void>();
+
+// Stop: the bare Esc, or for pi with a foot, Esc and then Enter once pi's abort settles, which submits the steers pi
+// moved back into its editor
+function stopAgent(agent: AgentVM, queued: number): void {
+    const blockId = agent.blockId;
+    if (!blockId) {
+        return;
+    }
+    pendingStops.get(blockId)?.();
+    pendingStops.delete(blockId);
+    if (!sendsQueuedOnStop(agent.agent, queued)) {
+        interruptAgent(blockId);
+        return;
+    }
+    const statusAtom = getAgentStatusAtom(`block:${blockId}`);
+    const cancel = stopAndSend({
+        type: (data) => driveAgent(blockId, data),
+        onIdle: (cb) =>
+            globalStore.sub(statusAtom, () => {
+                if (globalStore.get(statusAtom)?.state === "idle") {
+                    cb();
+                }
+            }),
+        warn: () =>
+            pushToast({
+                title: "Queued messages not sent",
+                message: "Pi did not settle after the stop, so the queued messages stayed in its editor.",
+                level: "warn",
+            }),
+    });
+    pendingStops.set(blockId, cancel);
 }
 
 export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
@@ -268,7 +315,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     const canvasReveal = useMemo(() => lastCanvasReveal(entries) ?? undefined, [entries]);
     const timelineCtx = useMemo(() => ({ ...ctx, canvasReveal }), [ctx, canvasReveal]);
     const working = useWorkingTail(model.nowAtom, agent, entries);
-    const foot = useQueuedFoot(agent);
+    const foot = useQueuedFoot(agent, entries);
     // one node per change of either, so the memoized timeline does not re-render on every view render; an idle feed
     // gets no foot element, so its list holds only the rows it draws
     const tail = useMemo(() => {
@@ -370,7 +417,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                         model={model}
                         agent={agent}
                         hasTranscript={entries.length > 0}
-                        onInterrupt={() => interruptAgent(agent.blockId)}
+                        onInterrupt={() => stopAgent(agent, foot.length)}
                         onSubmitText={onSubmitText}
                     />
                 </div>
