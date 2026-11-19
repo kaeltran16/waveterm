@@ -94,6 +94,10 @@ Cockpit and surfaces:
   (`filestore.db`, `db_file_data`, `name='term'`) and resizing did not repaint. Never reproduced. Revive
   when it is seen again: note the block id and keep `waveapp.log` before touching the pane. No repro
   loop exists, because nothing exposes the xterm buffer to CDP.
+- **`diff-source-row` step 3 flake** (2026-11-18) — after a reload, picking the agent source sometimes failed
+  (`reloadListed=false`). Not seen in a Final since (2/2, plus an isolated run 2026-11-19). `fb61503fa` split that
+  one boolean into `listed`, `onEdits`, `onSession` and `readme` in the step's detail. Revive when it fails again:
+  the detail names the wait that timed out. From `effort:66a0e8e3-48e1-4906-9db4-e964f056701e`, closed 2026-11-19.
 - **Session target in `openTarget`** (2026-09-17) — revive when opening a session from a Usage session
   page is wanted.
 - **Builder check end to end, with a real reviewer** (2026-10-22) — revive when the reviewer's prompt
