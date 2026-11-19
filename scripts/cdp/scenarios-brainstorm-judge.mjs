@@ -336,7 +336,7 @@ function judgeWaitScenario(kit) {
                 treeLine: flat(${BS_TREE_LINE}),
             };
         })()`);
-    const rowText = (a, i) => `${String.fromCharCode(65 + i)} ${a.name} ${a.description}`;
+    const rowText = (a, i) => `${i + 1} ${a.name} ${a.description}`;
     const wantRows = WAIT_APPROACHES.map((a, i) => ({ option: String(i), text: rowText(a, i), facts: a.facts }));
     const drawn = (w) => w.judging && w.status === WAIT_WORKING && eqJson(w.rows, wantRows);
     const ROW = (i) => `${BS_PANE}?.querySelector('[data-brainstorm-approach][data-brainstorm-option="${i}"]')`;

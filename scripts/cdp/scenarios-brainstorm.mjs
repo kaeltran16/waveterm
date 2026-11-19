@@ -681,9 +681,9 @@ export const brainstormMode = {
                 s2.check === null,
             { ...bsBrief(s2), phase: s2.phase, progress: s2.progress, segments: s2.segments, toolbar: s2.toolbar, question: s2.question, title: s2.title, check: s2.check }
         );
-        const optionText = (o, i) => `${"ABC"[i]} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
+        const optionText = (o, i) => `${i + 1} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
         rec(
-            "2p. the asking state (Main board): why under the question, answers lettered A B C with the agent's pick on A, the free-text box with OK, Guess for me, Skip, The design · 3 of 8 yours, the bar 3 answered then this one",
+            "2p. the asking state (Main board): why under the question, answers numbered 1 2 3 with the agent's pick on 1, the free-text box with OK, Guess for me, Skip, The design · 3 of 8 yours, the bar 3 answered then this one",
             s2.why === BS_Q4.why &&
                 JSON.stringify(s2.options.map((o) => o.text)) === JSON.stringify(BS_Q4_OPTIONS.map(optionText)) &&
                 JSON.stringify(s2.options.map((o) => o.pick)) === JSON.stringify([true, false, false]) &&
@@ -977,7 +977,7 @@ export const brainstormMode = {
         );
         await h.shot("cdp-shots/brainstorm-mode-2-layout-question.png");
         rec(
-            "2l3. a question between the part's layouts whose answers name no board: the two answers, and above them, once, under For every answer, the two boards unlettered",
+            "2l3. a question between the part's layouts whose answers name no board: the two answers, and above them, once, under For every answer, the two boards unnumbered",
             s2o.ok &&
                 JSON.stringify(s2o.options.map((o) => o.text)) === JSON.stringify(BS_Q5_LAYOUT.options.map(optionText)) &&
                 sharedOnce(s2o.qBoards) &&
@@ -1611,11 +1611,10 @@ export const brainstormQuestionReasons = bsBoardScenario("brainstorm-question-re
     await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-read]")?.scrollIntoView({ block: "start" })`);
     const shown = await h.ev(BSR_READ_OPTIONS);
     await h.shot("cdp-shots/brainstorm-question-reasons.png");
-    const letters = "ABCD";
-    const optionText = (o, i) => `${letters[i]} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
+    const optionText = (o, i) => `${i + 1} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
     const sign = (mark, items) => items.map((t) => `${mark} ${t}`);
     rec(
-        "1. the open question (Question-Reasons): Agent’s read above the answers with Hide pros and cons, each answer keeps letter, label, detail and the agent's pick, then its pros (+) and cons (−) in two lists",
+        "1. the open question (Question-Reasons): Agent’s read above the answers with Hide pros and cons, each answer keeps number, label, detail and the agent's pick, then its pros (+) and cons (−) in two lists",
         drawn.ok &&
             shown.read === `Agent’s read: ${BSR_Q.read}` &&
             shown.toggle?.text === "Hide pros and cons" &&
@@ -1662,7 +1661,7 @@ export const brainstormMainBoard = bsBoardScenario("brainstorm-main", BS_TOPIC, 
     const extra = await h.ev(BSR_READ_OPTIONS);
     const proscons = await h.ev(`${BS_PANE}?.querySelectorAll("[data-brainstorm-proscons]").length ?? -1`);
     await h.shot("cdp-shots/brainstorm-main.png");
-    const optionText = (o, i) => `${"ABC"[i]} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
+    const optionText = (o, i) => `${i + 1} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
     rec(
         "1. a question with no pros, cons or read (Main): why under it, answers A B C with the agent's pick, the answer box, Guess, Skip and The design, and no read line, toggle or reason lists",
         s.ok &&
@@ -2013,7 +2012,7 @@ const BSAB_FILE = bsFile({
     },
     parts: [{ id: "status", title: "Run sheet status", state: "asked", body: "", boards: [BSAB_TODAY, BSAB_RAIL, BSAB_STRIP] }],
 });
-const BSAB_TABS_WANT = ["All", "A · Left-rail", "A · Left-rail-failed", "B · Top-strip", "Every answer · Run-sheet-today"];
+const BSAB_TABS_WANT = ["All", "1 · Left-rail", "1 · Left-rail-failed", "2 · Top-strip", "Every answer · Run-sheet-today"];
 // the same question while the judge weighs it: the approaches carry the boards, so the rows and tabs follow them
 const BSAB_JUDGING = {
     ...BSAB_FILE,
@@ -2029,7 +2028,7 @@ const BSAB_JUDGING = {
         ],
     },
 };
-const BSAB_JUDGING_TABS_WANT = ["All", "C · Left-rail", "C · Left-rail-failed", "A · Top-strip", "Every answer · Run-sheet-today"];
+const BSAB_JUDGING_TABS_WANT = ["All", "3 · Left-rail", "3 · Left-rail-failed", "1 · Top-strip", "Every answer · Run-sheet-today"];
 
 // the question's rows (the Answers group, or Approaches during the judge's wait) and the boards in and above them,
 // with where each thumbnail sits
@@ -2224,12 +2223,12 @@ export const brainstormAnswerBoards = {
         const back = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-row-boards]")`, 3000);
         const tabsHold = (t) => JSON.stringify(t.labels) === JSON.stringify(BSAB_TABS_WANT);
         rec(
-            `4. (Open-full-answer) Open full size on A's Left-rail shows it, the tabs lettered by answer in canvas order; ] steps to the next board and All keeps the labels; Back returns to the question (${via === "keys" ? "a real ] key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            `4. (Open-full-answer) Open full size on 1's Left-rail shows it, the tabs numbered by answer in canvas order; ] steps to the next board and All keeps the labels; Back returns to the question (${via === "keys" ? "a real ] key" : "a keydown on the document: CDP keys did not reach the page"})`,
             opened.canvas &&
                 tabsHold(opened) &&
-                opened.selected === "A · Left-rail" &&
+                opened.selected === "1 · Left-rail" &&
                 tabsHold(stepped) &&
-                stepped.selected === "A · Left-rail-failed" &&
+                stepped.selected === "1 · Left-rail-failed" &&
                 tabsHold(all) &&
                 all.selected === "All" &&
                 backed === "clicked" &&
@@ -2249,7 +2248,7 @@ export const brainstormAnswerBoards = {
         await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
         await polishNap(300);
         const allPicks = await h.ev(BSAB_TABS);
-        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "B · Top-strip")?.click()`);
+        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "2 · Top-strip")?.click()`);
         await polishNap(300);
         const stripPicks = await h.ev(BSAB_TABS);
         await h.shot("cdp-shots/brainstorm-answer-boards-4b-pick.png");
@@ -2259,10 +2258,10 @@ export const brainstormAnswerBoards = {
         const leftBoard = await polishWaitFor(h, `!${BS_PANE}?.querySelector("[data-canvas-pane]") && !!${BS_PANE}?.querySelector("[data-brainstorm-working]")`, 3000);
         await h.ev(BS_TYPED_REMOVE);
         rec(
-            "4b. (Pick from full size) A's Left-rail offers Pick A with its label, All offers none, B's Top-strip offers Pick B; clicking it sends B's label as the answer and leaves the board for the agent writing it up",
-            JSON.stringify(railPicks.picks) === JSON.stringify([`Pick A· ${RAIL_LABEL}`]) &&
+            "4b. (Pick from full size) 1's Left-rail offers Pick 1 with its label, All offers none, 2's Top-strip offers Pick 2; clicking it sends 2's label as the answer and leaves the board for the agent writing it up",
+            JSON.stringify(railPicks.picks) === JSON.stringify([`Pick 1· ${RAIL_LABEL}`]) &&
                 allPicks.picks.length === 0 &&
-                JSON.stringify(stripPicks.picks) === JSON.stringify([`Pick B· ${STRIP_LABEL}`]) &&
+                JSON.stringify(stripPicks.picks) === JSON.stringify([`Pick 2· ${STRIP_LABEL}`]) &&
                 pickTyped.ok &&
                 leftBoard,
             { rail: railPicks.picks, all: allPicks.picks, strip: stripPicks.picks, typed: pickTyped.detail, leftBoard }
@@ -2316,11 +2315,11 @@ export const brainstormAnswerBoards = {
         const jBacked = await bsClick(h, BS_PANE, "Back to the question");
         const jBack = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-judging] [data-brainstorm-row-boards]")`, 3000);
         rec(
-            "6. (Judge wait full size) Open full size on C's Left-rail shows it with the tabs lettered by approach and Pick C for that approach; Back returns to the judge's wait",
+            "6. (Judge wait full size) Open full size on 3's Left-rail shows it with the tabs numbered by approach and Pick 3 for that approach; Back returns to the judge's wait",
             jOpened.canvas &&
                 JSON.stringify(jOpened.labels) === JSON.stringify(BSAB_JUDGING_TABS_WANT) &&
-                jOpened.selected === "C · Left-rail" &&
-                JSON.stringify(jOpened.picks) === JSON.stringify([`Pick C· ${BSAB_JUDGING.question.approaches[2].name}`]) &&
+                jOpened.selected === "3 · Left-rail" &&
+                JSON.stringify(jOpened.picks) === JSON.stringify([`Pick 3· ${BSAB_JUDGING.question.approaches[2].name}`]) &&
                 jBacked === "clicked" &&
                 jBack,
             { opened: jOpened, backed: jBacked, back: jBack }

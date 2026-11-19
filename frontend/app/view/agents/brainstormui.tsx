@@ -15,7 +15,7 @@ import { codeSegments } from "@/app/view/jarvis/effortfeed";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
 import { motion } from "motion/react";
-import { Fragment, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import {
     answerLine,
@@ -23,7 +23,7 @@ import {
     hasProsCons,
     hiddenMockups,
     judgeWork,
-    optionLetter,
+    optionNumber,
     partBoards,
     partSpikes,
     partTitle,
@@ -83,9 +83,19 @@ export const CHIP =
 export const FIELD =
     "resize-none rounded-[8px] border border-border bg-background px-[12px] py-[9px] text-[13px] leading-[1.5] text-primary outline-none placeholder:text-muted focus:border-warning/60";
 export const LINK = "cursor-pointer text-accent-soft hover:underline";
+// Below this width the brainstorm is narrow, as the workspace's Brainstorm tab is: BrainstormPane measures itself and
+// provides it, for what a class string cannot do (swap what the main area draws, the answer rows' sizes)
+export const BS_NARROW_PX = 760;
+export const BsNarrowContext = createContext(false);
+
+// false outside a BrainstormPane
+export function useBsNarrow(): boolean {
+    return useContext(BsNarrowContext);
+}
+
 // The pane's main column and its rail side by side, and stacked, the rail under the main column, once the pane
 // (BrainstormPane's bs container) is narrower than 760px, as the workspace's Brainstorm tab is: beside a 260px rail the
-// question kept too little room
+// question kept too little room. 760 is BS_NARROW_PX's twin, literal because Tailwind reads only literal classes
 export const BS_SPLIT = "flex min-h-0 flex-1 @max-[760px]/bs:flex-col";
 export const BS_RAIL_STACK =
     "@max-[760px]/bs:max-h-[40%] @max-[760px]/bs:w-auto @max-[760px]/bs:min-w-0 @max-[760px]/bs:max-w-none @max-[760px]/bs:border-l-0 @max-[760px]/bs:border-t";
@@ -183,11 +193,13 @@ export function Toolbar({
     f,
     progress = true,
     merged = false,
+    trailing,
 }: {
     topic: string;
     f?: BrainstormFile;
     progress?: boolean;
     merged?: boolean;
+    trailing?: ReactNode;
 }) {
     return (
         <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint bg-surface px-[22px] py-[8px]">
@@ -204,6 +216,7 @@ export function Toolbar({
                     ) : null}
                 </>
             ) : null}
+            {trailing}
         </div>
     );
 }
@@ -520,7 +533,7 @@ export function Options({
                                     compact ? "h-[24px] w-[24px] text-[11.5px]" : "h-[30px] w-[30px] text-[13px]"
                                 )}
                             >
-                                {optionLetter(i)}
+                                {optionNumber(i)}
                             </span>
                             <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                                 <span
@@ -1095,7 +1108,7 @@ export function JudgingMain({
                                         )}
                                     >
                                         <span className={cn(OPTION_LETTER, "h-[24px] w-[24px] text-[11.5px]")}>
-                                            {optionLetter(i)}
+                                            {optionNumber(i)}
                                         </span>
                                         <span className="flex min-w-0 flex-1 flex-col gap-[3px] pt-[2px]">
                                             <span className="text-[14px] font-semibold leading-[1.4] text-primary">
@@ -1372,12 +1385,14 @@ export function WorkingMain({
     f,
     nowAtom,
     openDesign,
+    children,
 }: {
     agent: AgentVM;
     s: BrainstormState;
     f: BrainstormFile;
     nowAtom: Atom<number>;
     openDesign: () => void;
+    children?: ReactNode;
 }) {
     const turn = useWorkingTurn(agent, s, nowAtom);
     return (
@@ -1402,6 +1417,7 @@ export function WorkingMain({
                 <div className="flex">
                     <DesignButton f={f} onClick={openDesign} />
                 </div>
+                {children}
             </MainBody>
         </div>
     );

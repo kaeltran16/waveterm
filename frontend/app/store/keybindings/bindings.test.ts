@@ -18,6 +18,7 @@ import {
     getBrainstorm,
     openBrainstormBoard,
     openBrainstormDesign,
+    openBrainstormHistory,
     setBrainstormMode,
     setReviewCursor,
     updateBrainstorm,
@@ -999,6 +1000,25 @@ describe("brainstorm pane Escape", () => {
         globalStore.set(focusSubagentAtom, null);
         globalStore.set(shellTaskPeekAtom, null);
         vi.unstubAllGlobals();
+    });
+
+    it("the history open over the question: Esc closes it, leaving the question showing", () => {
+        openBrainstormHistory("a1", true);
+        expect(claiming()).toEqual(["agent:brainstorm-back"]);
+        back().run(nav);
+        expect(getBrainstorm("a1")!.historyOpen).toBe(false);
+        expect(pane()).toEqual({ board: null, designOpen: false });
+        expect(claiming()).toEqual([]);
+    });
+
+    it("a board opened over the history: Esc closes the board first, then the history", () => {
+        openBrainstormHistory("a1", true);
+        openBrainstormBoard("a1", "Split.dc.html");
+        back().run(nav);
+        expect(getBrainstorm("a1")!.historyOpen).toBe(true);
+        expect(pane()).toEqual({ board: null, designOpen: false });
+        back().run(nav);
+        expect(getBrainstorm("a1")!.historyOpen).toBe(false);
     });
 
     it("a board opened full size from the question: Esc goes back to the question, and is the only Escape claim", () => {

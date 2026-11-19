@@ -22,7 +22,7 @@ import {
     checkMain,
     checkReview,
     OPTION_KEYS,
-    optionLetter,
+    optionNumber,
     paneBack,
     paneView,
     pickableOptions,
@@ -35,6 +35,7 @@ import {
     moveReviewCursor,
     openBrainstormBoard,
     openBrainstormDesign,
+    openBrainstormHistory,
     shownBrainstormFile,
     toggleReviewRow,
 } from "@/app/view/agents/brainstormstore";
@@ -1249,7 +1250,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             id: "agent:brainstorm-back",
             keys: "Escape",
             group: "Agent",
-            label: "Back in the brainstorm: from a full-size board, or from the design to the question",
+            label: "Back in the brainstorm: from a full-size board, or from the history or the design to the question",
             when: (ctx) =>
                 agentNavStrict(ctx) &&
                 noEscapeMenuOpen() &&
@@ -1264,6 +1265,8 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 }
                 if (step === "board") {
                     openBrainstormBoard(focusId(), null);
+                } else if (step === "history") {
+                    openBrainstormHistory(focusId(), false);
                 } else {
                     openBrainstormDesign(focusId(), false);
                 }
@@ -1620,7 +1623,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 id: `agent:brainstorm-option-${key}`,
                 keys: key,
                 group: "Agent",
-                label: `Pick answer ${optionLetter(i)} of the brainstorm's question`,
+                label: `Pick answer ${optionNumber(i)} of the brainstorm's question`,
                 paletteHidden: true,
                 when: (ctx) => inBrainstorm(ctx) && pickable() > i,
                 run: () => {

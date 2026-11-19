@@ -47,6 +47,9 @@ export type BrainstormState = {
     board: string | null;
     // the design opened over the question or the working note; kept here so a board's Back returns to it
     designOpen: boolean;
+    // the narrow pane's "Decided so far" history over its main area; here, beside designOpen, because Esc reads it.
+    // Never set with designOpen: opening either closes the other
+    historyOpen: boolean;
     boards: CanvasBoard[];
     // where wavesrv serves the project's design folder; null until the poller has asked it to
     base: string | null;
@@ -159,6 +162,7 @@ export function attachBrainstorm(
         lastViewedMs: now,
         board: null,
         designOpen: false,
+        historyOpen: false,
         boards: [],
         base: null,
         turn: { read: [], canvases: {} },
@@ -210,7 +214,11 @@ export function openBrainstormBoard(agentId: string, board: string | null): void
 }
 
 export function openBrainstormDesign(agentId: string, open: boolean): void {
-    updateBrainstorm(agentId, (s) => ({ ...s, designOpen: open }));
+    updateBrainstorm(agentId, (s) => ({ ...s, designOpen: open, historyOpen: open ? false : s.historyOpen }));
+}
+
+export function openBrainstormHistory(agentId: string, open: boolean): void {
+    updateBrainstorm(agentId, (s) => ({ ...s, historyOpen: open, designOpen: open ? false : s.designOpen }));
 }
 
 // The pane at a place, for a control outside it (the Rendered transcript's cards): a part opens the design at that
@@ -235,6 +243,7 @@ export function openBrainstormAt(
             ...x,
             board: null,
             designOpen: true,
+            historyOpen: false,
             partTarget: part,
             review: x.file?.check != null ? { ...x.review, cursor: part } : x.review,
         }));

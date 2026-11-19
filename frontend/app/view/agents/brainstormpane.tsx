@@ -8,6 +8,7 @@
 import { cardVariants, turnTransition, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { StepSwap } from "@/app/element/stepswap";
+import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -39,7 +40,7 @@ import {
     lineBox,
     mainView,
     noteParts,
-    optionLetter,
+    optionNumber,
     paneView,
     partAnswer,
     partGist,
@@ -75,10 +76,12 @@ import {
     type BrainstormState,
 } from "./brainstormstore";
 import {
-    ChangeDiff,
-    CheckMark,
+    BS_NARROW_PX,
     BS_RAIL_STACK,
     BS_SPLIT,
+    BsNarrowContext,
+    ChangeDiff,
+    CheckMark,
     CHIP,
     DesignHead,
     DOT,
@@ -159,7 +162,7 @@ function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
                     onClick={() => void pick(p)}
                     className={cn(CANVAS_PRIMARY_BTN, "min-w-0 max-w-[480px]")}
                 >
-                    <span className="flex-none">Pick {optionLetter(p.index)}</span>
+                    <span className="flex-none">Pick {optionNumber(p.index)}</span>
                     <span className="min-w-0 truncate font-normal">· {p.label}</span>
                 </button>
             ))}
@@ -168,8 +171,11 @@ function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
     );
 }
 
-export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+// inTab: the pane is the workspace's Brainstorm tab, not the Terminal center, so its copy names the tab
+export function BrainstormPane({ model, agent, inTab }: { model: AgentsViewModel; agent: AgentVM; inTab?: boolean }) {
     const s = useAtomValue(brainstormAtom(agent.id));
+    const [measure, , rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
+    const narrow = rect != null && rect.width < BS_NARROW_PX;
     if (s == null) {
         return null;
     }
@@ -185,49 +191,55 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
         // replaying every row's entrance
         <motion.div
             key={`${agent.id}:${view}`}
+            ref={measure}
             variants={viewFade}
             initial="initial"
             animate="animate"
             data-brainstorm-pane
             data-brainstorm-view={view}
+            data-brainstorm-narrow={narrow ? "" : undefined}
             className="@container/bs flex min-h-0 flex-1 flex-col"
         >
-            {view === "removed" ? (
-                <Removed agent={agent} topic={s.topic} path={s.path} />
-            ) : view === "error" ? (
-                <Unreadable s={s} />
-            ) : view === "board" ? (
-                <CanvasPane
-                    model={model}
-                    agent={agent}
-                    onBack={() => openBrainstormBoard(agent.id, null)}
-                    backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
-                    tabLabels={f != null ? (boardTabLabels(f, judgeWait(f, s.sent != null)) ?? undefined) : undefined}
-                    boardActions={
-                        f != null
-                            ? (board) => (
-                                  <BoardPicks
-                                      agent={agent}
-                                      picks={boardPicks(f, board, judgeWait(f, s.sent != null))}
-                                  />
-                              )
-                            : undefined
-                    }
-                />
-            ) : view === "run" ? (
-                <RunStep model={model} agent={agent} s={s} f={f!} />
-            ) : view === "check" ? (
-                <Check model={model} agent={agent} s={s} f={f!} />
-            ) : f == null ? (
-                <>
-                    <Toolbar topic={s.topic} />
-                    <EdgeState>
-                        <span className={EXPLAINER}>Reading {s.path}…</span>
-                    </EdgeState>
-                </>
-            ) : (
-                <Design agent={agent} s={s} f={f} nowAtom={model.nowAtom} />
-            )}
+            <BsNarrowContext.Provider value={narrow}>
+                {view === "removed" ? (
+                    <Removed agent={agent} topic={s.topic} path={s.path} inTab={inTab === true} />
+                ) : view === "error" ? (
+                    <Unreadable s={s} />
+                ) : view === "board" ? (
+                    <CanvasPane
+                        model={model}
+                        agent={agent}
+                        onBack={() => openBrainstormBoard(agent.id, null)}
+                        backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
+                        tabLabels={
+                            f != null ? (boardTabLabels(f, judgeWait(f, s.sent != null)) ?? undefined) : undefined
+                        }
+                        boardActions={
+                            f != null
+                                ? (board) => (
+                                      <BoardPicks
+                                          agent={agent}
+                                          picks={boardPicks(f, board, judgeWait(f, s.sent != null))}
+                                      />
+                                  )
+                                : undefined
+                        }
+                    />
+                ) : view === "run" ? (
+                    <RunStep model={model} agent={agent} s={s} f={f!} />
+                ) : view === "check" ? (
+                    <Check model={model} agent={agent} s={s} f={f!} />
+                ) : f == null ? (
+                    <>
+                        <Toolbar topic={s.topic} />
+                        <EdgeState>
+                            <span className={EXPLAINER}>Reading {s.path}…</span>
+                        </EdgeState>
+                    </>
+                ) : (
+                    <Design agent={agent} s={s} f={f} nowAtom={model.nowAtom} />
+                )}
+            </BsNarrowContext.Provider>
         </motion.div>
     );
 }
@@ -1178,12 +1190,15 @@ function Unreadable({ s }: { s: BrainstormState }) {
     );
 }
 
-function Removed({ agent, topic, path }: { agent: AgentVM; topic: string; path: string }) {
+function Removed({ agent, topic, path, inTab }: { agent: AgentVM; topic: string; path: string; inTab: boolean }) {
     return (
         <EdgeState>
             <span className="text-[14px] font-semibold text-primary">{topic}'s brainstorm file is gone</span>
             <span data-brainstorm-gone className={cn(EXPLAINER, "break-words")}>
-                {brainstormGoneText(path)} The switch disappears once you close it.
+                {brainstormGoneText(path)}{" "}
+                {inTab
+                    ? "The Brainstorm tab disappears once you close it."
+                    : "The switch disappears once you close it."}
             </span>
             <button
                 type="button"
