@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { cn, fireAndForget } from "@/util/util";
+import { atom, useAtom, type PrimitiveAtom } from "jotai";
 import {
     forwardRef,
     useImperativeHandle,
     useLayoutEffect,
+    useMemo,
     useRef,
-    useState,
     type Dispatch,
     type ForwardedRef,
     type KeyboardEvent,
@@ -51,6 +52,19 @@ export async function submitComposer(
     clear(text);
 }
 
+// the typed draft per terminal block, outside the component: the Rendered view remounts per agent and the cockpit
+// card unmounts with its surface, and either would drop a draft held in component state
+const draftAtoms = new Map<string, PrimitiveAtom<string>>();
+
+function composerDraftAtom(blockId: string): PrimitiveAtom<string> {
+    let a = draftAtoms.get(blockId);
+    if (a == null) {
+        a = atom("");
+        draftAtoms.set(blockId, a);
+    }
+    return a;
+}
+
 export interface AgentComposerHandle {
     fill: (text: string) => void;
     focus: () => void;
@@ -90,7 +104,9 @@ export function useAgentComposer({
     attachments,
     send: deliver = sendTypedText,
 }: UseAgentComposerOpts): UseAgentComposer {
-    const [text, setText] = useState("");
+    // without a block there is no agent to keep a draft for, so the text stays with this mount
+    const draftAtom = useMemo(() => (blockId != null ? composerDraftAtom(blockId) : atom("")), [blockId]);
+    const [text, setText] = useAtom(draftAtom);
     const taRef = useRef<HTMLTextAreaElement>(null);
     const sendingRef = useRef(false);
     useLayoutEffect(() => {

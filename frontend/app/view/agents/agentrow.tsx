@@ -57,6 +57,7 @@ import type { CardShare } from "./cardgridlayout";
 import { finishes, nextSnap, type AgentSnap } from "./cockpitevents";
 import { cardBody } from "./cockpitsurfacemodel";
 import { CommitTick, useCommitDone } from "./committick";
+import { editsApply } from "./diffscope";
 import { parseDocReview } from "./docreview";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
@@ -369,8 +370,10 @@ export const AgentRow = memo(function AgentRow({
     const question = qs[qIdx]?.question;
     const review = parseDocReview(agent.ask);
     const diff = useAtomValue(diffStatsByIdAtom)[agent.id];
-    // the git numbers are the checkout's, so a checkout shared with other cards is charged to none of them alone
-    const sharedBy = sharedCheckoutCount(agent.id, useAtomValue(cardCwdByIdAtom));
+    // a claude agent's numbers are its own edits; anyone else's are the checkout's, so a checkout shared with other
+    // cards is charged to none of them alone
+    const cwdById = useAtomValue(cardCwdByIdAtom);
+    const sharedBy = editsApply(agent.agent) ? 1 : sharedCheckoutCount(agent.id, cwdById);
     const body = cardBody(agent, liveEntries.length > 0);
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const shellTasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];

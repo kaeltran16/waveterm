@@ -90,9 +90,9 @@ export function ChangesTab({
             clearChangesPatch();
             return;
         }
-        const { cwd, ref } = rail;
+        const { cwd, ref, end } = rail;
         if (onScreen && cwd && rail.isRepo && (rail.changes?.files.length ?? 0) > 0) {
-            fireAndForget(() => loadChangesPatch(agent.id, cwd, ref ?? ""));
+            fireAndForget(() => loadChangesPatch(agent.id, cwd, ref ?? "", end ?? ""));
         }
     }, [onScreen, rail, ignoreWs, agent.id]);
 
@@ -121,7 +121,7 @@ export function ChangesTab({
     }
     const line = rail != null && view === "files" ? changesLine(rail) : null;
     const counted = lineCountsShown(rail?.changes);
-    const retry = () => cwd && fireAndForget(() => loadChangesPatch(agent.id, cwd, rail?.ref ?? ""));
+    const retry = () => cwd && fireAndForget(() => loadChangesPatch(agent.id, cwd, rail?.ref ?? "", rail?.end ?? ""));
     return (
         <div data-workspace-changes className="flex min-h-0 flex-1 flex-col">
             <div className="flex h-[44px] flex-none items-center gap-[2px] border-b border-border pl-[18px] pr-[10px] font-mono">
@@ -417,7 +417,7 @@ function ChangesEmpty({
                             Retry
                         </>
                     ),
-                    onClick: () => fireAndForget(() => loadRailForAgent(agent.transcriptPath, agent.blockId)),
+                    onClick: () => fireAndForget(() => loadRailForAgent(agent)),
                     data: { "data-workspace-changes-retry": "" },
                 }}
             />

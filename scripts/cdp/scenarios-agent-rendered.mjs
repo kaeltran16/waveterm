@@ -579,6 +579,20 @@ export default function (_kit) {
                     ];
                 });
 
+                await step("rendered: draft — text typed on A and left unsent is still in A's box after focusing P and coming back, and P's box is empty", async () => {
+                    const DRAFT = "draft kept across agents";
+                    const box = `(${RV}?.querySelector("[data-rendered-composer] textarea")?.value ?? null)`;
+                    await typeComposer(h, DRAFT);
+                    await focus(ctx.pId);
+                    await wait(`${RV} != null`);
+                    const onP = await h.ev(box);
+                    await focus(ctx.aId);
+                    await wait(`${box} === ${JSON.stringify(DRAFT)}`);
+                    const back = await h.ev(box);
+                    await typeComposer(h, "");
+                    return [onP === "" && back === DRAFT, { onP, back }];
+                });
+
                 await step("rendered: timeline fills — at narrow and wide widths the column spans the scroll area up to its measure, prose keeps its reading measure, the diff card fills its opened step", async () => {
                     await wait(`(${RV}?.textContent ?? "").includes(${JSON.stringify(PROMPT)})`);
                     await openTurnFolds();

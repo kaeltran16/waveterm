@@ -12,6 +12,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { readAgentChanges } from "./agentchanges";
 import { resolveCwd } from "./agentcwdresolve";
 import { linkedWorktree } from "./agentrailmodel";
 import { ensureSessionStart } from "./agentsessionstore";
@@ -28,6 +29,9 @@ export interface RailGitState {
     // so a file's diff reads the same range the list counts
     ref?: string;
     head?: string;
+    // set when the list is the agent's own edits: ref..end, end "" while it has none
+    edits?: boolean;
+    end?: string;
     // why the git read failed; changes is then null and isRepo false
     failure?: string;
 }
@@ -56,10 +60,10 @@ const EMPTY: RailGitState = { cwd: null, branch: "", isRepo: false, changes: nul
 
 // silent keeps the shown state until the new read lands, so a reload for the same agent never blanks the list
 export async function loadRailForAgent(
-    transcriptPath: string | undefined,
-    blockId?: string,
+    agent: { transcriptPath?: string; blockId?: string; agent?: string },
     opts?: { silent?: boolean }
 ): Promise<void> {
+    const { transcriptPath, blockId } = agent;
     const seq = ++loadSeq;
     if (!opts?.silent) {
         globalStore.set(railStateAtom, null);
@@ -74,11 +78,9 @@ export async function loadRailForAgent(
         return;
     }
     try {
-        // sessionstartts: match the card pill / Diff tab — the branch's changed-file list vs the
-        // session-start commit. Null ts degrades to the live working-tree-vs-HEAD diff.
         // the worktree list only names the worktree, so a failure there leaves the line out rather than the rail
-        const [ch, wts] = await Promise.all([
-            RpcApi.GitChangesCommand(TabRpcClient, { cwd, sessionstartts: startTs ?? undefined }),
+        const [{ ch, edits, end }, wts] = await Promise.all([
+            readAgentChanges(cwd, { transcriptPath, runtime: agent.agent }, startTs),
             RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd }).catch(() => null),
         ]);
         if (seq !== loadSeq) {
@@ -94,6 +96,8 @@ export async function loadRailForAgent(
             worktree,
             ref: ch.ref ?? "",
             head: ch.head ?? "",
+            edits,
+            end,
         });
     } catch (e) {
         if (seq === loadSeq) {

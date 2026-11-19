@@ -58,6 +58,10 @@ describe("the tab's summary line", () => {
         expect(changesLine(repo([file("a.ts", 1)], { ref: "abc123" })).where).toBe("main, since session start");
     });
 
+    it("names the agent's edits when the list is only those", () => {
+        expect(changesLine(repo([file("a.ts", 1)], { ref: "B", edits: true })).where).toBe("main, agent's edits");
+    });
+
     it("leaves out a branch git did not name", () => {
         expect(changesLine(repo([file("a.ts", 1)], { branch: "" })).where).toBe("uncommitted");
     });

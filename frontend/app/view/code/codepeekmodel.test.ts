@@ -15,6 +15,7 @@ import {
     peekStat,
     resolvePeekPath,
     tabDiffBody,
+    uniqueBareNameMatch,
     type PeekFile,
     type PeekGit,
     type PeekHead,
@@ -83,6 +84,22 @@ describe("resolvePeekPath", () => {
     });
     it("gives null for a ~user path, which names another user's home", () => {
         expect(resolvePeekPath("~bob/a.md", "C:\\repo", HOME)).toBeNull();
+    });
+});
+
+describe("uniqueBareNameMatch", () => {
+    const files = ["frontend/app/a.tsx", "pkg/b.go", "pkg/x/b.go", "c.md", "docs/xc.md"];
+    it("finds the one file with that name at any depth", () => {
+        expect(uniqueBareNameMatch("a.tsx", files)).toBe("frontend/app/a.tsx");
+        expect(uniqueBareNameMatch("c.md", files)).toBe("c.md");
+    });
+    it("gives null when several files share the name, or none has it", () => {
+        expect(uniqueBareNameMatch("b.go", files)).toBeNull();
+        expect(uniqueBareNameMatch("z.ts", files)).toBeNull();
+    });
+    it("gives null for a path with a folder in it", () => {
+        expect(uniqueBareNameMatch("app/a.tsx", files)).toBeNull();
+        expect(uniqueBareNameMatch("app\\a.tsx", files)).toBeNull();
     });
 });
 

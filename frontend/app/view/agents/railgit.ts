@@ -24,13 +24,16 @@ let loadedAgent = "";
 // starts a read unless one for this key already serves a holder; the release forgets the key once nobody holds it,
 // so the next mount reads again as the rail did on each open. A new agent blanks the list while it loads; the same
 // agent's later edits reload under the list it shows.
-export function holdRailGit(agent: Pick<AgentVM, "id" | "transcriptPath" | "blockId">, key: string): () => void {
+export function holdRailGit(
+    agent: Pick<AgentVM, "id" | "transcriptPath" | "blockId" | "agent">,
+    key: string
+): () => void {
     holders++;
     if (key !== loadedKey) {
         const silent = loadedAgent === agent.id;
         loadedKey = key;
         loadedAgent = agent.id;
-        fireAndForget(() => loadRailForAgent(agent.transcriptPath, agent.blockId, { silent }));
+        fireAndForget(() => loadRailForAgent(agent, { silent }));
     }
     return () => {
         holders--;

@@ -28,12 +28,16 @@ export function imageStatus(httpStatus: number): Exclude<LocalImageStatus, "load
     return httpStatus >= 200 && httpStatus < 300 ? "ok" : "error";
 }
 
-export function useLocalImage(path: string): LocalImage {
+// a null path is an image not known yet: it stays loading
+export function useLocalImage(path: string | null): LocalImage {
     const [image, setImage] = useState<LocalImage>({ url: null, status: "loading" });
     useEffect(() => {
         let cancelled = false;
         let url: string | null = null;
         setImage({ url: null, status: "loading" });
+        if (path == null) {
+            return;
+        }
         (async () => {
             try {
                 const resp = await fetch(localFileUrl(getWebServerEndpoint(), path));

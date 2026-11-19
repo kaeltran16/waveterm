@@ -8,9 +8,8 @@
 import { morphTransition } from "@/app/element/motiontokens";
 import { TickNumber } from "@/app/element/ticknumber";
 import { ViewSwap } from "@/app/element/viewswap";
-import { globalStore } from "@/app/store/jotaiStore";
-import { openDagLive, openDagTask, setDagModalAgentsContext } from "@/app/view/orchestrate/dagmodalstate";
-import { cn } from "@/util/util";
+import { openTarget } from "@/app/view/jarvis/openref";
+import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUpRight } from "lucide-react";
 import { motion } from "motion/react";
@@ -81,17 +80,13 @@ function RunTabBody({ model, agent, tab, run }: RunTabProps & { run: RunInfo }) 
     const pick = (view: RunView) => updateWorkspaceTab(agent.id, tabKey(tab), { view });
     const props: RunViewProps = { model, agent, tab, run, asks, events };
     const dag = run.dag;
-    // on the focused task while the graph is in Focus; the modal's worker rail resolves agents from its context
+    // on the focused task while the graph is in Focus. Through the router: the modal is mounted on Jarvis, not here,
+    // so setting its state alone opened nothing
     const openDag = dag
-        ? () => {
-              setDagModalAgentsContext(model, globalStore.get(model.agentsAtom));
-              const task = dagFocusTask(tab.graph);
-              if (task) {
-                  openDagTask(`dag:${dag.oid}`, task);
-              } else {
-                  openDagLive(`dag:${dag.oid}`);
-              }
-          }
+        ? () =>
+              fireAndForget(() =>
+                  openTarget(model, { kind: "dag", dagId: dag.oid, taskId: dagFocusTask(tab.graph) ?? undefined })
+              )
         : undefined;
     return (
         <div data-workspace-run={run.runId} className="flex min-h-0 flex-1 flex-col">

@@ -29,8 +29,9 @@ type Patch struct {
 
 // GetPatch returns the unified patch of the working tree against ref (HEAD when ""), cwd-relative like
 // GetChanges, with untracked files appended in git's own new-file form: git diff never shows them.
-// A non-empty path (cwd-relative, forward slashes) narrows it to that one path, matched literally.
-func GetPatch(ctx context.Context, cwd, ref, path string, ignoreWs bool) (*Patch, error) {
+// With end set it is the patch of ref..end alone, so nothing else in the working tree shows. A non-empty path
+// (cwd-relative, forward slashes) narrows it to that one path, matched literally.
+func GetPatch(ctx context.Context, cwd, ref, end, path string, ignoreWs bool) (*Patch, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	facts := readRepoFacts(ctx, cwd)
@@ -38,16 +39,19 @@ func GetPatch(ctx context.Context, cwd, ref, path string, ignoreWs bool) (*Patch
 		return &Patch{}, nil
 	}
 	pathspec := patchPathspec(path)
-	tracked, err := trackedPatch(ctx, cwd, ref, facts.head, pathspec, ignoreWs)
+	tracked, err := trackedPatch(ctx, cwd, ref, end, facts.head, pathspec, ignoreWs)
 	if err != nil {
 		return nil, err
 	}
-	statusArgs := []string{"--no-optional-locks", "status", "--porcelain=v1", "-z", "-uall", "--", pathspec}
-	statusZ, err := run(ctx, cwd, statusArgs...)
-	if err != nil {
-		return nil, describeGitError(statusArgs, err)
+	untrackedZ := ""
+	if end == "" {
+		statusArgs := []string{"--no-optional-locks", "status", "--porcelain=v1", "-z", "-uall", "--", pathspec}
+		statusZ, err := run(ctx, cwd, statusArgs...)
+		if err != nil {
+			return nil, describeGitError(statusArgs, err)
+		}
+		untrackedZ = untrackedEntriesZ(stripPrefixZ(statusZ, facts.prefix))
 	}
-	untrackedZ := untrackedEntriesZ(stripPrefixZ(statusZ, facts.prefix))
 
 	var b strings.Builder
 	fits := func(n int) bool { return b.Len()+n <= maxPatchBytes }
@@ -120,7 +124,7 @@ func isBinary(content []byte) bool {
 
 // trackedPatch is git's own diff of the tracked files. With no commits and no ref there is nothing to
 // diff against, so only the untracked entries answer, as GetChanges does for numstat.
-func trackedPatch(ctx context.Context, cwd, ref, head, pathspec string, ignoreWs bool) (string, error) {
+func trackedPatch(ctx context.Context, cwd, ref, end, head, pathspec string, ignoreWs bool) (string, error) {
 	if ref == "" && head == "" {
 		return "", nil
 	}
@@ -134,7 +138,11 @@ func trackedPatch(ctx context.Context, cwd, ref, head, pathspec string, ignoreWs
 	if ignoreWs {
 		args = append(args, "-w")
 	}
-	args = append(args, ref, "--")
+	args = append(args, ref)
+	if end != "" {
+		args = append(args, end)
+	}
+	args = append(args, "--")
 	if pathspec != "." {
 		args = append(args, pathspec)
 	}

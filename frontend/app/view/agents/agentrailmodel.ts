@@ -218,7 +218,8 @@ export function checkoutFacts(input: {
     if (lineCountsShown(git.changes)) {
         chip.lines = { adds, dels };
     }
-    if (sharedBy > 1) {
+    // the agent's own edits are its own however many agents share the checkout
+    if (sharedBy > 1 && !git.edits) {
         chip.prefix = "repo";
         chip.title = `All changes in this checkout, shared by ${sharedBy} agents`;
     }

@@ -168,7 +168,7 @@ export function stepHunk(at: number, total: number, dir: "next" | "previous"): n
 
 // "N files +A −D · <branch>, <scope>": the scope is the base the list was read against
 export function changesLine(rail: RailGitState): { count: string; adds: number; dels: number; where: string } {
-    const scope = rail.ref ? "since session start" : "uncommitted";
+    const scope = rail.edits ? "agent's edits" : rail.ref ? "since session start" : "uncommitted";
     return {
         ...fileTotals(rail.changes?.files ?? []),
         where: rail.branch ? `${rail.branch}, ${scope}` : scope,
