@@ -127,7 +127,7 @@ describe("paneShown in Terminal", () => {
 
     it("reads mode for an agent Rendered cannot draw, whatever its view", () => {
         view("rendered");
-        model = fakeModel([{ ...claude(id), agent: "pi" }]);
+        model = fakeModel([{ ...claude(id), agent: "codex" }]);
         brainstorm();
         setBrainstormMode(id, "brainstorm", 1);
         expect(paneShown(model, id)).toBe("brainstorm");
