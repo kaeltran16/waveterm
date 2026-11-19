@@ -4,6 +4,7 @@
 package boardforward
 
 import (
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"strings"
 	"testing"
 )
@@ -47,5 +48,61 @@ func TestMarkerNeverStartsWithSlash(t *testing.T) {
 	got := Marker("/clear", "/etc", "t-4", "/compact")
 	if strings.HasPrefix(got, "/") {
 		t.Errorf("a board named like a command made a slash command: %q", got)
+	}
+}
+
+func TestReplyAfter(t *testing.T) {
+	asked := Marker("Auth flow", "", "t-9", "why two stores?")
+	user := func(text string, ts int64) agentsessions.Turn {
+		return agentsessions.Turn{Speaker: "user", Text: text, Ts: ts}
+	}
+	agent := func(text string, ts int64) agentsessions.Turn {
+		return agentsessions.Turn{Speaker: "agent", Text: text, Ts: ts}
+	}
+	cases := []struct {
+		name      string
+		turns     []agentsessions.Turn
+		wantReply string
+		wantTs    int64
+		wantOK    bool
+	}{
+		{
+			name:      "the last agent text between the marked entry and the next user entry",
+			turns:     []agentsessions.Turn{agent("an earlier answer", 1), user(asked, 2), agent("looking", 3), agent("one store caches", 4), user("next", 5), agent("later", 6)},
+			wantReply: "one store caches", wantTs: 4, wantOK: true,
+		},
+		{
+			name:      "up to the end when no user entry follows",
+			turns:     []agentsessions.Turn{user(asked, 2), agent("one store caches", 4)},
+			wantReply: "one store caches", wantTs: 4, wantOK: true,
+		},
+		{
+			name:  "no marked entry",
+			turns: []agentsessions.Turn{user("why two stores?", 2), agent("one store caches", 4)},
+		},
+		{
+			name:  "another turn's marker",
+			turns: []agentsessions.Turn{user(Marker("Auth flow", "", "t-1", "why two stores?"), 2), agent("one store caches", 4)},
+		},
+		{
+			name:  "a turn id that only starts the same",
+			turns: []agentsessions.Turn{user(Marker("Auth flow", "", "t-99", "why two stores?"), 2), agent("one store caches", 4)},
+		},
+		{
+			name:  "no agent text yet, with an earlier answer before the marked entry",
+			turns: []agentsessions.Turn{agent("an earlier answer", 1), user(asked, 2)},
+		},
+		{
+			name:  "the next user entry came before any answer",
+			turns: []agentsessions.Turn{user(asked, 2), user("never mind", 3), agent("ok", 4)},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reply, ts, ok := ReplyAfter(tc.turns, "t-9")
+			if reply != tc.wantReply || ts != tc.wantTs || ok != tc.wantOK {
+				t.Errorf("ReplyAfter = (%q, %d, %v), want (%q, %d, %v)", reply, ts, ok, tc.wantReply, tc.wantTs, tc.wantOK)
+			}
+		})
 	}
 }
