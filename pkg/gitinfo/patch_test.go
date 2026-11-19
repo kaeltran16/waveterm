@@ -218,6 +218,79 @@ func TestGetPatchPathIsLiteralNotGlob(t *testing.T) {
 	}
 }
 
+// fileHeaders lists a patch's file entries, one diff --git line each, in order.
+func fileHeaders(patch string) []string {
+	var headers []string
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, fileHeaderPrefix) {
+			headers = append(headers, line)
+		}
+	}
+	return headers
+}
+
+// without the literal magic git reads "[ab].txt" as a glob for a.txt and b.txt
+func TestGetPatchPathFindsTrackedFileNamedLikeGlob(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "[ab].txt", "1\n")
+	writeFile(t, dir, "a.txt", "1\n")
+	writeFile(t, dir, "b.txt", "1\n")
+	commitAll(t, dir)
+	writeFile(t, dir, "[ab].txt", "2\n")
+	writeFile(t, dir, "a.txt", "2\n")
+	writeFile(t, dir, "b.txt", "2\n")
+	p := getPathPatch(t, dir, "", "[ab].txt", false)
+	want := "diff --git a/[ab].txt b/[ab].txt"
+	if got := fileHeaders(p.Patch); len(got) != 1 || got[0] != want {
+		t.Fatalf("files = %q, want [%q]\n%s", got, want, p.Patch)
+	}
+	if !strings.Contains(p.Patch, "@@ -1 +1 @@\n-1\n+2\n") {
+		t.Errorf("entry lacks its hunk:\n%s", p.Patch)
+	}
+}
+
+func TestGetPatchPathFindsUntrackedFileNamedLikeGlob(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "base.txt", "b\n")
+	commitAll(t, dir)
+	writeFile(t, dir, "[ab].txt", "u\n")
+	writeFile(t, dir, "a.txt", "a\n")
+	p := getPathPatch(t, dir, "", "[ab].txt", false)
+	want := "diff --git a/[ab].txt b/[ab].txt\nnew file mode 100644\n--- /dev/null\n+++ b/[ab].txt\n@@ -0,0 +1,1 @@\n+u\n"
+	if p.Patch != want {
+		t.Fatalf("patch =\n%s\nwant\n%s", p.Patch, want)
+	}
+}
+
+// main's ref..end range and this run's pathspec meet in one git call
+func TestGetPatchPathNarrowsRange(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "x.go", "package x\n")
+	writeFile(t, dir, "y.go", "package y\n")
+	commitAll(t, dir)
+	base := gitRun(t, dir, "rev-parse", "HEAD")
+	writeFile(t, dir, "x.go", "package x\n\nvar X = 1\n")
+	writeFile(t, dir, "y.go", "package y\n\nvar Y = 1\n")
+	commitAll(t, dir)
+	end := gitRun(t, dir, "rev-parse", "HEAD")
+	cases := []struct {
+		path string
+		want []string
+	}{
+		{"x.go", []string{"diff --git a/x.go b/x.go"}},
+		{"", []string{"diff --git a/x.go b/x.go", "diff --git a/y.go b/y.go"}},
+	}
+	for _, c := range cases {
+		p, err := GetPatch(context.Background(), dir, base, end, c.path, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fileHeaders(p.Patch); strings.Join(got, "|") != strings.Join(c.want, "|") {
+			t.Errorf("path %q: files = %q, want %q", c.path, got, c.want)
+		}
+	}
+}
+
 func TestGetPatchRefIncludesCommittedSince(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "1\n")
