@@ -95,8 +95,10 @@ export function useBsNarrow(): boolean {
 
 // The pane's main column and its rail side by side, and stacked, the rail under the main column, once the pane
 // (BrainstormPane's bs container) is narrower than 760px, as the workspace's Brainstorm tab is: beside a 260px rail the
-// question kept too little room. 760 is BS_NARROW_PX's twin, literal because Tailwind reads only literal classes
-export const BS_SPLIT = "flex min-h-0 flex-1 @max-[760px]/bs:flex-col";
+// question kept too little room. Stacked, each side keeps to its height (min-h-0), so a long question scrolls in its
+// column rather than growing past the pane. 760 is BS_NARROW_PX's twin, literal because Tailwind reads only literal
+// classes
+export const BS_SPLIT = "flex min-h-0 flex-1 @max-[760px]/bs:flex-col @max-[760px]/bs:*:min-h-0";
 export const BS_RAIL_STACK =
     "@max-[760px]/bs:max-h-[40%] @max-[760px]/bs:w-auto @max-[760px]/bs:min-w-0 @max-[760px]/bs:max-w-none @max-[760px]/bs:border-l-0 @max-[760px]/bs:border-t";
 // the width of the rail beside the check, review and run: a third of the pane, so a narrow pane keeps its main column
@@ -201,8 +203,26 @@ export function Toolbar({
     merged?: boolean;
     trailing?: ReactNode;
 }) {
+    const narrow = useBsNarrow();
+    if (narrow) {
+        // one row at the tab's width: the tab's own label names the topic, and the count reads without its segments
+        return (
+            <div
+                data-brainstorm-toolbar
+                className="flex flex-none items-center gap-[12px] border-b border-edge-faint bg-surface py-[8px] pl-[22px] pr-[16px]"
+            >
+                {f != null ? <Phases f={f} merged={merged} /> : null}
+                <div className="flex-1" />
+                {f != null && progress ? <Progress f={f} segments={false} /> : null}
+                {trailing}
+            </div>
+        );
+    }
     return (
-        <div className="flex flex-none items-center gap-[14px] border-b border-edge-faint bg-surface px-[22px] py-[8px]">
+        <div
+            data-brainstorm-toolbar
+            className="flex flex-none items-center gap-[14px] border-b border-edge-faint bg-surface px-[22px] py-[8px]"
+        >
             <span className="min-w-0 truncate font-mono text-[12px] font-semibold text-secondary">{topic}</span>
             <div className="flex-1" />
             {f != null ? (
@@ -263,22 +283,24 @@ function Phases({ f, merged }: { f: BrainstormFile; merged: boolean }) {
     );
 }
 
-function Progress({ f }: { f: BrainstormFile }) {
+function Progress({ f, segments = true }: { f: BrainstormFile; segments?: boolean }) {
     const p = progressView(f);
     return (
         <div data-brainstorm-progress className="flex flex-none items-center gap-[8px]">
-            <div className="flex gap-[3px]">
-                {p.segments.map((s) => (
-                    <span
-                        key={s.id}
-                        aria-hidden="true"
-                        data-state={s.state}
-                        title={`${s.title}: ${STATE_NAME[s.state]}`}
-                        className={cn(SEGMENT, SEGMENT_STATE[s.state])}
-                    />
-                ))}
-            </div>
-            <span className="text-[11.5px] text-ink-mid">
+            {segments ? (
+                <div className="flex gap-[3px]">
+                    {p.segments.map((s) => (
+                        <span
+                            key={s.id}
+                            aria-hidden="true"
+                            data-state={s.state}
+                            title={`${s.title}: ${STATE_NAME[s.state]}`}
+                            className={cn(SEGMENT, SEGMENT_STATE[s.state])}
+                        />
+                    ))}
+                </div>
+            ) : null}
+            <span className="whitespace-nowrap text-[11.5px] text-ink-mid">
                 <span className="font-semibold text-primary">{p.lead}</span> {p.rest}
             </span>
         </div>
@@ -305,8 +327,13 @@ export function StaleBanner({ s }: { s: BrainstormState }) {
 
 // one segment per question answered, the one asked now, and one per question still to come
 export function Track({ segments }: { segments: TrackSegment[] }) {
+    const narrow = useBsNarrow();
     return (
-        <div data-brainstorm-track aria-hidden="true" className="flex flex-none gap-[4px] px-[36px] pt-[14px]">
+        <div
+            data-brainstorm-track
+            aria-hidden="true"
+            className={cn("flex flex-none gap-[4px] pt-[14px]", narrow ? "px-[28px]" : "px-[36px]")}
+        >
             {segments.map((t, i) => (
                 <span key={i} data-state={t} className={cn("h-[4px] flex-1 rounded-[2px]", TRACK_STATE[t])} />
             ))}
@@ -315,8 +342,17 @@ export function Track({ segments }: { segments: TrackSegment[] }) {
 }
 
 // a third of the way down while it fits, where the eye lands rather than mid-pane; scrolled from its top once it does
-// not, when the spacers have nothing left to take
+// not, when the spacers have nothing left to take. Narrow, from the top: at the tab's width the spacer only pushes the
+// answers under the fold
 export function MainBody({ children }: { children: ReactNode }) {
+    const narrow = useBsNarrow();
+    if (narrow) {
+        return (
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[28px] pb-[24px] pt-[20px]">
+                <div className="flex flex-none flex-col gap-[18px]">{children}</div>
+            </div>
+        );
+    }
     return (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[7%] py-[24px]">
             <div aria-hidden="true" className="flex-[1]" />
@@ -501,10 +537,32 @@ export function Options({
     pickLabel: string;
     rowBoards?: (i: number) => RowBoards | null;
 }) {
+    // narrow, the pick tag follows the label, so the row's right is left to its board chips
+    const narrow = useBsNarrow();
     return (
         <div role="group" aria-label="Answers" className={cn("flex flex-col", compact ? "gap-[6px]" : "gap-[10px]")}>
             {options.map((o, i) => {
                 const side = rowBoards?.(i);
+                // hidden while there is no pick, so the empty mark takes no gap
+                const pickTag = (
+                    <CrossFade
+                        swapKey={o.pick ? pickLabel : ""}
+                        className={o.pick ? "flex-none text-[12px] font-semibold text-accent-soft" : "hidden"}
+                    >
+                        {o.pick ? pickLabel : null}
+                    </CrossFade>
+                );
+                const label = (
+                    <span
+                        data-brainstorm-option-label
+                        className={cn(
+                            "font-semibold text-primary",
+                            compact ? "text-[13.5px] leading-[1.4]" : "text-[17px] leading-[1.35]"
+                        )}
+                    >
+                        {o.label}
+                    </span>
+                );
                 return (
                     <div
                         key={i}
@@ -536,14 +594,14 @@ export function Options({
                                 {optionNumber(i)}
                             </span>
                             <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                                <span
-                                    className={cn(
-                                        "font-semibold text-primary",
-                                        compact ? "text-[13.5px] leading-[1.4]" : "text-[17px] leading-[1.35]"
-                                    )}
-                                >
-                                    {o.label}
-                                </span>
+                                {narrow ? (
+                                    <span className="flex flex-wrap items-baseline gap-x-[10px]">
+                                        {label}
+                                        {pickTag}
+                                    </span>
+                                ) : (
+                                    label
+                                )}
                                 {o.detail ? (
                                     <span
                                         className={cn(
@@ -555,18 +613,19 @@ export function Options({
                                     </span>
                                 ) : null}
                             </span>
-                            {/* hidden while there is no pick, so the empty mark takes no gap */}
-                            <CrossFade
-                                swapKey={o.pick ? pickLabel : ""}
-                                className={o.pick ? "flex-none text-[12px] font-semibold text-accent-soft" : "hidden"}
-                            >
-                                {o.pick ? pickLabel : null}
-                            </CrossFade>
+                            {narrow ? null : pickTag}
                         </button>
                         {o.pros != null || o.cons != null ? (
                             <PaneReveal open={reasons}>
                                 <ProsCons o={o} compact={compact} />
                             </PaneReveal>
+                        ) : null}
+                        {side?.under != null ? (
+                            <div
+                                className={compact ? "pb-[10px] pl-[48px] pr-[12px]" : "pb-[16px] pl-[68px] pr-[20px]"}
+                            >
+                                {side.under}
+                            </div>
                         ) : null}
                         {side != null ? (
                             <div
@@ -813,7 +872,8 @@ export function QuestionMain({
     const chips = q.part !== "";
     const ans = useAnswer(agent);
     const offers = (q.options?.length ?? 0) > 0;
-    const { shared, rowBoards } = questionBoards(agent.id, s, f, false);
+    const narrow = useBsNarrow();
+    const { shared, rowBoards } = questionBoards(agent.id, s, f, false, narrow);
     return (
         <div data-brainstorm-question className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
@@ -833,7 +893,7 @@ export function QuestionMain({
                     <HiddenMockupsLink f={f} s={s} judging={false} open={openParts ?? ((ids) => goTo(ids[0]))} />
                 </QuestionHead>
                 <SharedBoards shared={shared} heading={offers} />
-                <QuestionAnswers key={q.n} q={q} ans={ans} compact={false} rowBoards={rowBoards} />
+                <QuestionAnswers key={q.n} q={q} ans={ans} compact={narrow} rowBoards={rowBoards} />
                 <AnswerBox ans={ans} options={q.options != null} />
                 <div className="flex flex-col gap-[10px]">
                     <div className="flex items-center gap-[10px]">
@@ -874,16 +934,18 @@ export function QuestionMain({
 }
 
 // a row's boards and spikes, and whether they take a band under its text: several boards side by side would squeeze
-// the text to a sliver beside them
-type RowBoards = { node: ReactNode; below: boolean };
+// the text to a sliver beside them. under is a band under the text beside node, as the narrow row's spikes take
+type RowBoards = { node: ReactNode; below: boolean; under?: ReactNode };
 
 // the asked question's boards and spikes: shared draws over the rows, rowBoards(i) in row i (judging: the approach
-// rows)
+// rows). narrow, a row's boards are chips at its right and its spikes a band under its text: a thumbnail beside the
+// text leaves it a sliver at the tab's width
 function questionBoards(
     agentId: string,
     s: BrainstormState,
     f: BrainstormFile,
-    judging: boolean
+    judging: boolean,
+    narrow: boolean
 ): { shared: ReactNode | null; rowBoards: (i: number) => RowBoards | null } {
     const layout = questionBoardLayout(
         f,
@@ -906,8 +968,27 @@ function questionBoards(
     const spikes = questionSpikes(f, s.base, judging);
     const links = (paths: string[] | undefined) =>
         paths != null && paths.length > 0 ? <Spikes base={s.base!} canvas={f.canvas!} spikes={paths} /> : null;
+    const chipRow = (i: number): RowBoards | null => {
+        const boards = layout?.rows[i] ?? [];
+        const live = links(spikes?.rows[i]);
+        if (boards.length === 0 && live == null) {
+            return null;
+        }
+        const chips =
+            boards.length === 0 ? null : (
+                <div className="flex flex-col items-end gap-[4px]">
+                    {boards.map((name) => (
+                        <BoardChip key={name} name={name} onOpen={() => openBoard(agentId, s, f.canvas!, name)} />
+                    ))}
+                </div>
+            );
+        return chips == null ? { node: live, below: true } : { node: chips, below: false, under: live };
+    };
     // a row with nothing to show has no slot; an only board needs no caption, since the row's label names it
     const rowBoards = (i: number): RowBoards | null => {
+        if (narrow) {
+            return chipRow(i);
+        }
         const boards = layout?.rows[i] ?? [];
         const live = links(spikes?.rows[i]);
         const below = boards.length > 1;
@@ -992,9 +1073,10 @@ function HiddenMockupsLink({
 // the asked question's part link and number, its text and its why; children go under them
 function QuestionHead({ f, goTo, children }: { f: BrainstormFile; goTo: (id: string) => void; children?: ReactNode }) {
     const q = f.question!;
+    const narrow = useBsNarrow();
     return (
-        <div className="flex flex-col gap-[14px]">
-            <span className="flex items-center gap-[10px] text-[13px] text-warning">
+        <div className={cn("flex flex-col", narrow ? "gap-[8px]" : "gap-[14px]")}>
+            <span className={cn("flex items-center gap-[10px] text-warning", narrow ? "text-[12.5px]" : "text-[13px]")}>
                 {q.part ? (
                     <>
                         <span className="font-mono font-semibold">{q.n} →</span>
@@ -1010,9 +1092,24 @@ function QuestionHead({ f, goTo, children }: { f: BrainstormFile; goTo: (id: str
                     <span className="font-mono font-semibold">Question {q.n}</span>
                 )}
             </span>
-            <h1 className="m-0 whitespace-pre-line text-[30px] font-bold leading-[1.3] text-primary">{q.text}</h1>
+            <h1
+                className={cn(
+                    "m-0 whitespace-pre-line text-primary",
+                    narrow
+                        ? "break-words text-[20px] font-semibold leading-[1.35]"
+                        : "text-[30px] font-bold leading-[1.3]"
+                )}
+            >
+                {q.text}
+            </h1>
             {q.why ? (
-                <p data-brainstorm-why className="m-0 text-[16px] leading-[1.6] text-ink-mid">
+                <p
+                    data-brainstorm-why
+                    className={cn(
+                        "m-0 text-ink-mid",
+                        narrow ? "text-[13px] leading-[1.55]" : "text-[16px] leading-[1.6]"
+                    )}
+                >
                     {q.why}
                 </p>
             ) : null}
@@ -1045,7 +1142,8 @@ export function JudgingMain({
     const q = f.question!;
     const approaches = q.approaches!;
     const ans = useAnswer(agent);
-    const { shared, rowBoards } = questionBoards(agent.id, s, f, true);
+    const narrow = useBsNarrow();
+    const { shared, rowBoards } = questionBoards(agent.id, s, f, true, narrow);
     const [factsShown, setFactsShown] = useState(true);
     const hasFacts = approaches.some((a) => a.facts.length > 0);
     return (
@@ -1111,10 +1209,21 @@ export function JudgingMain({
                                             {optionNumber(i)}
                                         </span>
                                         <span className="flex min-w-0 flex-1 flex-col gap-[3px] pt-[2px]">
-                                            <span className="text-[14px] font-semibold leading-[1.4] text-primary">
+                                            <span
+                                                data-brainstorm-option-label
+                                                className={cn(
+                                                    "font-semibold leading-[1.4] text-primary",
+                                                    narrow ? "text-[13.5px]" : "text-[14px]"
+                                                )}
+                                            >
                                                 {a.name}
                                             </span>
-                                            <span className="text-[13px] leading-[1.5] text-ink-mid">
+                                            <span
+                                                className={cn(
+                                                    "leading-[1.5] text-ink-mid",
+                                                    narrow ? "text-[12.5px]" : "text-[13px]"
+                                                )}
+                                            >
                                                 <CodeText text={a.description} />
                                             </span>
                                         </span>
@@ -1146,6 +1255,9 @@ export function JudgingMain({
                                         >
                                             {side.node}
                                         </div>
+                                    ) : null}
+                                    {side?.under != null ? (
+                                        <div className="pb-[12px] pl-[50px] pr-[16px] pt-[4px]">{side.under}</div>
                                     ) : null}
                                 </div>
                             );
@@ -1220,6 +1332,40 @@ function Spikes({ base, canvas, spikes }: { base: string; canvas: string; spikes
     );
 }
 
+// a board full size in the pane, on its canvas
+function openBoard(agentId: string, s: BrainstormState, canvas: string, board: string): void {
+    attachCanvas(agentId, { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board }, Date.now());
+    openBrainstormBoard(agentId, board);
+}
+
+// a board an answer row names, at the tab's width: its icon and name, opening it full size
+function BoardChip({ name, onOpen }: { name: string; onOpen: () => void }) {
+    return (
+        <button
+            type="button"
+            data-brainstorm-board-chip={name}
+            title={`Open ${name} full size`}
+            onClick={onOpen}
+            className="inline-flex max-w-[160px] flex-none cursor-pointer items-center gap-[5px] rounded-[6px] border border-edge-mid bg-transparent px-[8px] py-[2px] text-[11.5px] text-secondary hover:bg-surface-hover"
+        >
+            <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden="true"
+                className="flex-none"
+            >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M3 9h18M9 21V9" />
+            </svg>
+            <span className="min-w-0 truncate">{boardLabel(name)}</span>
+        </button>
+    );
+}
+
 // boards, each as a scaled live thumbnail with its caption (the file name unless the caller says otherwise; null for
 // none) and a way to open it full size. compact puts the caption under the board and the boards side by side. sizes
 // are the canvas's boards when it is not the file's own canvas; latest is the board marked as written last
@@ -1246,10 +1392,7 @@ export function Thumbnails({
     sizes?: CanvasBoard[];
     latest?: string;
 }) {
-    const open = (board: string) => {
-        attachCanvas(agentId, { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board }, Date.now());
-        openBrainstormBoard(agentId, board);
-    };
+    const open = (board: string) => openBoard(agentId, s, canvas, board);
     return (
         <div className={cn("flex flex-none", compact ? "flex-wrap items-start gap-[14px]" : "flex-col gap-[10px]")}>
             {boards.map((name) => {
@@ -1395,16 +1538,25 @@ export function WorkingMain({
     children?: ReactNode;
 }) {
     const turn = useWorkingTurn(agent, s, nowAtom);
+    const narrow = useBsNarrow();
     return (
         <div data-brainstorm-working aria-live="polite" className="flex min-h-0 flex-1 flex-col">
             <Track segments={questionTrack(f)} />
             <MainBody>
-                <div className="flex flex-col gap-[14px]">
+                <div className={cn("flex flex-col", narrow ? "gap-[10px]" : "gap-[14px]")}>
                     <span className="flex items-center gap-[8px] text-[13px] font-semibold text-success">
                         <span className={cn(SMALL_DOT, "pulse-dot bg-success")} />
                         Working
                     </span>
-                    <p className="m-0 text-[22px] font-semibold leading-[1.4] text-primary">{f.working}</p>
+                    <p
+                        data-brainstorm-working-title
+                        className={cn(
+                            "m-0 font-semibold text-primary",
+                            narrow ? "break-words text-[18px] leading-[1.35]" : "text-[22px] leading-[1.4]"
+                        )}
+                    >
+                        {f.working}
+                    </p>
                     {turn?.step != null ? (
                         <WorkingStepLine step={turn.step} elapsed={turn.elapsed} />
                     ) : (
