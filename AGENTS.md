@@ -125,6 +125,12 @@ Full map: `docs/reference/architecture.md`. Read it before working in an area yo
   headings, the ask headers and labels `docreview.ts` reads). No assertions on fixed wording, no lists of
   removed wording, and no whole-text equality. A prose-only prompt edit needs no new test, TDD included. The
   one exception is a single pin whose comment names the observed model failure it guards.
+- **Test code is upkeep, so add the least that proves the change.** A new case joins the existing table for
+  that function (`it.each`, table-driven Go) when one exists, and builds its state with the package's
+  existing seed or fixture helper. A fix earns a regression test when the bug lived in logic a unit test
+  reaches; a rendering or timing fix gets a scenario step instead, or no test. A change that replaces a
+  behavior deletes the old behavior's tests in the same commit. (Test lines grew 176% against source's 74%
+  from 2026-10-01 to 11-19; test:source passed 1.0.)
 
 ## Docs
 
