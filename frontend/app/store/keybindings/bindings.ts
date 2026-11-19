@@ -22,7 +22,7 @@ import {
     checkMain,
     checkReview,
     OPTION_KEYS,
-    optionLetter,
+    optionNumber,
     paneBack,
     paneView,
     pickableOptions,
@@ -35,6 +35,7 @@ import {
     moveReviewCursor,
     openBrainstormBoard,
     openBrainstormDesign,
+    openBrainstormHistory,
     shownBrainstormFile,
     toggleReviewRow,
 } from "@/app/view/agents/brainstormstore";
@@ -1028,7 +1029,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         }
         pickPart(agent, row.id, pick).catch((e) => reportSendFailure(agent.id, e));
     };
-    // the asked question's options the pane draws, each picked by its letter
+    // the asked question's options the pane draws, each picked by its digit
     const pickable = () => {
         const s = brainstorm();
         return s == null ? 0 : pickableOptions(shownBrainstormFile(s), s);
@@ -1251,7 +1252,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             id: "agent:brainstorm-back",
             keys: "Escape",
             group: "Agent",
-            label: "Back in the brainstorm: from a full-size board, or from the design to the question",
+            label: "Back in the brainstorm: from a full-size board, or from the history or the design to the question",
             when: (ctx) =>
                 agentNavStrict(ctx) &&
                 noEscapeMenuOpen() &&
@@ -1266,6 +1267,8 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 }
                 if (step === "board") {
                     openBrainstormBoard(focusId(), null);
+                } else if (step === "history") {
+                    openBrainstormHistory(focusId(), false);
                 } else {
                     openBrainstormDesign(focusId(), false);
                 }
@@ -1386,8 +1389,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "d",
             group: "Agent",
             label: "Collapse or restore the workspace pane",
-            // a shown Brainstorm tab asking with a fourth answer keeps d for it
-            when: (ctx) => nav(ctx) && workspaceTabs() > 0 && rendered() && !(inBrainstorm(ctx) && pickable() > 3),
+            when: (ctx) => nav(ctx) && workspaceTabs() > 0 && rendered(),
             run: () => {
                 toggleWorkspaceCollapsed(focusId()!);
             },
@@ -1453,7 +1455,8 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 group: "Agent",
                 label: `Answer the permission prompt with choice ${i + 1}`,
                 paletteHidden: true,
-                when: (ctx) => nav(ctx) && !ctx.editable,
+                // a shown Brainstorm tab's answer row claims its digit
+                when: (ctx) => nav(ctx) && !ctx.editable && !(inBrainstorm(ctx) && pickable() > i),
                 run: () => {
                     const button = document.querySelector<HTMLButtonElement>(
                         `[data-permission-band] [data-permission-choice="${i}"]`
@@ -1586,8 +1589,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "b",
             group: "Agent",
             label: "Close the brainstorm",
-            // while the question offers a B, b picks it
-            when: (ctx) => inBrainstorm(ctx) && pickable() < 2,
+            when: inBrainstorm,
             run: () => showPane(model, focusId()!, "brainstorm", false, Date.now()),
         },
         {
@@ -1616,13 +1618,13 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 toggleViewMode(id);
             },
         },
-        // a letter focuses its answer row, so Enter, the row's own key, sends it
+        // a digit focuses its answer row, so Enter, the row's own key, sends it
         ...OPTION_KEYS.map(
             (key, i): Binding => ({
                 id: `agent:brainstorm-option-${key}`,
                 keys: key,
                 group: "Agent",
-                label: `Pick answer ${optionLetter(i)} of the brainstorm's question`,
+                label: `Pick answer ${optionNumber(i)} of the brainstorm's question`,
                 paletteHidden: true,
                 when: (ctx) => inBrainstorm(ctx) && pickable() > i,
                 run: () => {

@@ -42,6 +42,7 @@ import {
     drawnDecisionParts,
     droppedQuestion,
     editLock,
+    foldedHistory,
     handoffView,
     hasMockups,
     hasProsCons,
@@ -59,7 +60,7 @@ import {
     nextSentCheckAt,
     notAttached,
     noteParts,
-    optionLetter,
+    optionNumber,
     orderedParts,
     paneBack,
     paneView,
@@ -988,6 +989,36 @@ describe("historyRows", () => {
     });
 });
 
+describe("foldedHistory", () => {
+    const offered = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `O${i}`, detail: `d${i}` }));
+    const row = (n: number, over: Partial<HistoryEntry> = {}) =>
+        historyRows(
+            file({ history: [{ kind: "question", n: 1, q: "q", a: "O1", into: [], options: offered(n), ...over }] })
+        )[0];
+
+    it("three options show all, nothing folded", () => {
+        const r = row(3, { picked: 1 });
+        expect(foldedHistory(r, false)).toEqual({ options: r.options, folded: 0 });
+    });
+
+    it("more than three show only the picked one and fold the rest", () => {
+        const { options, folded } = foldedHistory(row(5, { picked: 1 }), false);
+        expect(options.map((o) => o.label)).toEqual(["O1"]);
+        expect(folded).toBe(4);
+    });
+
+    it("unfolded shows every option", () => {
+        const r = row(5, { picked: 1 });
+        expect(foldedHistory(r, true)).toEqual({ options: r.options, folded: 0 });
+    });
+
+    it("an own-words answer over more than three folds every option and keeps the answer", () => {
+        const r = row(6, { a: "Only at night." });
+        expect(foldedHistory(r, false)).toEqual({ options: [], folded: 6 });
+        expect(r.answer).toBe("Only at night.");
+    });
+});
+
 describe("question options", () => {
     const opts = [
         { label: "Owner first", detail: "Pages the owner", pick: true },
@@ -1081,8 +1112,8 @@ describe("question options", () => {
         expect(r.ok && r.file.history[0].options).toEqual(opts);
     });
 
-    it("letter the options A, B, C", () => {
-        expect([0, 1, 2, 3].map(optionLetter)).toEqual(["A", "B", "C", "D"]);
+    it("number the options from 1", () => {
+        expect([0, 1, 2, 3].map(optionNumber)).toEqual(["1", "2", "3", "4"]);
     });
 });
 
@@ -1152,6 +1183,7 @@ describe("boardBackLabel", () => {
 
 describe("pickableOptions", () => {
     const options = ["A", "B", "C", "D", "E"].map((label) => ({ label, detail: "" }));
+    const many = Array.from({ length: 11 }, (_, i) => ({ label: `O${i + 1}`, detail: "" }));
     const q = { n: 1, text: "Q", part: "a", options: options.slice(0, 3) };
     const s = { designOpen: false, board: null, removed: false };
     const check = { yours: [], calls: [], answered: [] };
@@ -1161,8 +1193,9 @@ describe("pickableOptions", () => {
         expect(pickableOptions(file({ question: { ...q, options: undefined } }), s)).toBe(0);
     });
 
-    it("stops at the number of letter keys", () => {
-        expect(pickableOptions(file({ question: { ...q, options } }), s)).toBe(4);
+    it("takes every option up to the nine digit keys", () => {
+        expect(pickableOptions(file({ question: { ...q, options } }), s)).toBe(5);
+        expect(pickableOptions(file({ question: { ...q, options: many } }), s)).toBe(9);
     });
 
     it("is none when nothing draws them: no file, the agent writing, the design or a board open, the file gone", () => {
@@ -1195,14 +1228,15 @@ describe("pickableOptions", () => {
         expect(pickableOptions(file({ check: { ...check, yours: [{ q: "B?", a: "yes", options }] } }), s)).toBe(0);
     });
 
-    it("during the judge's wait, is the approaches the pane draws as the rows, up to the letter keys", () => {
-        expect(pickableOptions(waitFile(), s)).toBe(4);
+    it("during the judge's wait, is the approaches the pane draws as the rows, up to the digit keys", () => {
+        expect(pickableOptions(waitFile(), s)).toBe(7);
+        expect(pickableOptions(waitFile({ question: waitQuestion(12) }), s)).toBe(9);
         expect(pickableOptions(waitFile({ question: waitQuestion(2) }), s)).toBe(2);
         expect(pickableOptions(waitFile({ question: waitQuestion(2) }), { ...s, sent: null })).toBe(2);
     });
 
     it("during the judge's wait in the check, is the approaches too", () => {
-        expect(pickableOptions(waitFile({ check }), s)).toBe(4);
+        expect(pickableOptions(waitFile({ check }), s)).toBe(7);
         expect(pickableOptions(waitFile({ check, question: waitQuestion(3) }), s)).toBe(3);
     });
 
@@ -2195,6 +2229,7 @@ describe("paneBack", () => {
         removed: false,
         board: null,
         designOpen: false,
+        historyOpen: false,
     };
     const back = (over: Partial<typeof s> & { file?: BrainstormFile | null; error?: string | null } = {}) => {
         const x = { ...s, ...over };
@@ -2210,6 +2245,21 @@ describe("paneBack", () => {
     it("the design opened over the question or the working note steps back to it", () => {
         expect(back({ designOpen: true })).toBe("design");
         expect(back({ designOpen: true, file: file({ working: "w" }) })).toBe("design");
+    });
+
+    it("the history opened over the question or the judge's wait steps back to it, a board first", () => {
+        const approaches = [{ name: "N", description: "d", facts: [] }];
+        expect(back({ historyOpen: true })).toBe("history");
+        expect(back({ historyOpen: true, file: file({ working: "w", question: { ...q, approaches } }) })).toBe(
+            "history"
+        );
+        expect(back({ historyOpen: true, board: "B.dc.html" })).toBe("board");
+    });
+
+    it("the history open over the working note, the design or the check has no history step", () => {
+        expect(back({ historyOpen: true, file: file({ working: "w" }) })).toBeNull();
+        expect(back({ historyOpen: true, file: file() })).toBeNull();
+        expect(back({ historyOpen: true, file: file({ question: q, check }) })).toBeNull();
     });
 
     it("the design opened with nothing under it has no step, a pending builder check's design included", () => {
@@ -2272,7 +2322,7 @@ describe("questionBoardLayout and boardTabLabels", () => {
             ["One.dc.html", "Two.dc.html"]
         );
         expect(layout).toEqual({ rows: [["Two.dc.html", "One.dc.html"], []], shared: [] });
-        expect(labels).toEqual({ "Two.dc.html": "A · Two", "One.dc.html": "A · One" });
+        expect(labels).toEqual({ "Two.dc.html": "1 · Two", "One.dc.html": "1 · One" });
     });
 
     it("an answer with no boards has an empty row", () => {
@@ -2295,13 +2345,13 @@ describe("questionBoardLayout and boardTabLabels", () => {
         expect(labels).toEqual({ "One.dc.html": "Every answer · One", "Two.dc.html": "Every answer · Two" });
     });
 
-    it("a board two answers name draws in both rows and its tab lists both letters", () => {
+    it("a board two answers name draws in both rows and its tab lists both numbers", () => {
         const { layout, labels } = asked(
             [opt("A", ["Left-rail.dc.html"]), opt("B"), opt("C", ["Left-rail.dc.html"])],
             ["Left-rail.dc.html"]
         );
         expect(layout).toEqual({ rows: [["Left-rail.dc.html"], [], ["Left-rail.dc.html"]], shared: [] });
-        expect(labels).toEqual({ "Left-rail.dc.html": "A, C · Left-rail" });
+        expect(labels).toEqual({ "Left-rail.dc.html": "1, 3 · Left-rail" });
     });
 
     it("a board an answer names that is not on the part draws in its row, labeled, not shared", () => {
@@ -2311,7 +2361,7 @@ describe("questionBoardLayout and boardTabLabels", () => {
             ["Extra.dc.html", "Other.dc.html"]
         );
         expect(layout).toEqual({ rows: [["Extra.dc.html"], []], shared: ["Other.dc.html"] });
-        expect(labels).toEqual({ "Extra.dc.html": "A · Extra", "Other.dc.html": "Every answer · Other" });
+        expect(labels).toEqual({ "Extra.dc.html": "1 · Extra", "Other.dc.html": "Every answer · Other" });
     });
 
     it("a canvas.json not loaded yet draws no row thumbnail, the shared boards still draw, and nothing throws", () => {
@@ -2403,15 +2453,15 @@ describe("questionBoardLayout and boardTabLabels", () => {
                 },
             }).f;
 
-        it("each approach's boards draw in its row and its tab carries its letter", () => {
+        it("each approach's boards draw in its row and its tab carries its number", () => {
             const f = weighing(["Main.dc.html", "Box.dc.html", "Page.dc.html"]);
             expect(questionBoardLayout(f, BASE, ["Main.dc.html", "Box.dc.html", "Page.dc.html"], true)).toEqual({
                 rows: [["Main.dc.html"], [], ["Box.dc.html"]],
                 shared: ["Page.dc.html"],
             });
             expect(boardTabLabels(f, true)).toEqual({
-                "Main.dc.html": "A · Main",
-                "Box.dc.html": "C · Box",
+                "Main.dc.html": "1 · Main",
+                "Box.dc.html": "3 · Box",
                 "Page.dc.html": "Every answer · Page",
             });
         });

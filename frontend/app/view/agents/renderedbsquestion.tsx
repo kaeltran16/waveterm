@@ -17,7 +17,7 @@ import { partTitle, type AnswerOption, type BrainstormAction, type JudgeWork } f
 import { sendBrainstorm } from "./brainstormsend";
 import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
 import { CHIP, ErrorLine, SMALL_DOT, useAction } from "./brainstormui";
-import { CardFrame } from "./renderedbrainstorm";
+import { CardFrame, useCardRow } from "./renderedbrainstorm";
 import type { CardProps } from "./renderedbrainstormmodel";
 import { useQuestionBoards } from "./renderedbsboards";
 import {
@@ -271,6 +271,7 @@ export function QuestionCard({
 }: CardProps & { judging: boolean }): JSX.Element | null {
     const act = useAction();
     const boards = useQuestionBoards(agent, s, f, judging);
+    const row = useCardRow();
     const q = f.question;
     if (q == null) {
         return null;
@@ -298,7 +299,7 @@ export function QuestionCard({
     );
     return (
         <div className="flex flex-col gap-4">
-            {started != null ? (
+            {started != null && !row ? (
                 <StartedRow agent={agent} s={s} decisions={started.decisions} compact={compact} />
             ) : null}
             <CardFrame
@@ -307,6 +308,8 @@ export function QuestionCard({
                 f={f}
                 asking={true}
                 head={head}
+                title={q.text}
+                step={q.part ? `${q.n} →` : `Question ${q.n}`}
                 compact={compact}
                 attr="data-rendered-bs-question"
             >
@@ -379,7 +382,7 @@ export function QuestionCard({
                 </div>
                 <ErrorLine error={act.error} attrs={{ "data-rendered-bs-error": "" }} />
             </CardFrame>
-            {judging ? (
+            {judging && !row ? (
                 <div
                     data-rendered-bs-judge-wait
                     className={cn("flex items-center gap-[10px] text-muted", compact ? "text-[12.5px]" : "text-[13px]")}

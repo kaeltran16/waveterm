@@ -284,8 +284,8 @@ describe("keybinding conflict invariant", () => {
         }
     });
 
-    // a question's options take a-d while the pane draws them, b among them, so b back to the terminal stands down
-    it("the option letters pick while the question shows them, and b picks B instead of leaving", () => {
+    // a question's options take digits while the pane draws them, so b back to the terminal stays live beside them
+    it("the option digits pick while the question shows them, and b still leaves", () => {
         const model = withCanvas();
         attachBrainstorm("a1", { topic: "bs", cwd: "/p" }, 0);
         globalStore.set(listNavAtom, null);
@@ -311,36 +311,31 @@ describe("keybinding conflict invariant", () => {
         try {
             setBrainstormMode("a1", "brainstorm", 1);
             ask(["A", "B", "C"]);
-            expect(["a", "b", "c", "d"].map((k) => live(`agent:brainstorm-option-${k}`))).toEqual([
-                true,
-                true,
-                true,
-                false,
-            ]);
-            expect(live("agent:brainstorm-close")).toBe(false);
+            expect([1, 2, 3, 4].map((k) => live(`agent:brainstorm-option-${k}`))).toEqual([true, true, true, false]);
+            expect(live("agent:brainstorm-close")).toBe(true);
             expect(() => assertNoConflicts(all)).not.toThrow();
-            // while b picks B, the chord still leaves, and from the terminal it comes back
+            // the chord leaves too, and from the terminal it comes back
             const chord = all.find((x) => x.id === "agent:view-chord")!;
             chord.run(agentCtx);
             expect(globalStore.get(brainstormAtom("a1"))!.mode).toBe("terminal");
             expect(chord.when!({ ...agentCtx, editable: true })).toBe(true);
             chord.run({ ...agentCtx, editable: true });
             expect(globalStore.get(brainstormAtom("a1"))!.mode).toBe("brainstorm");
-            // a typed answer keeps its letters: the dispatcher leaves an editable target alone
-            expect(all.find((x) => x.id === "agent:brainstorm-option-a")!.when!({ ...agentCtx, editable: true })).toBe(
+            // a typed answer keeps its digits: the dispatcher leaves an editable target alone
+            expect(all.find((x) => x.id === "agent:brainstorm-option-1")!.when!({ ...agentCtx, editable: true })).toBe(
                 false
             );
             ask(["A"]);
-            expect(live("agent:brainstorm-option-a")).toBe(true);
+            expect(live("agent:brainstorm-option-1")).toBe(true);
             expect(live("agent:brainstorm-close")).toBe(true);
             expect(() => assertNoConflicts(all)).not.toThrow();
             openBrainstormDesign("a1", true);
             ask(["A", "B"]);
-            expect(live("agent:brainstorm-option-a")).toBe(false);
+            expect(live("agent:brainstorm-option-1")).toBe(false);
             expect(live("agent:brainstorm-close")).toBe(true);
             setBrainstormMode("a1", "terminal", 2);
             openBrainstormDesign("a1", false);
-            expect(live("agent:brainstorm-option-a")).toBe(false);
+            expect(live("agent:brainstorm-option-1")).toBe(false);
             expect(live("agent:brainstorm-open")).toBe(true);
         } finally {
             detachBrainstorm("a1");

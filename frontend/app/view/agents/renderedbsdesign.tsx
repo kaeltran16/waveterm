@@ -208,6 +208,7 @@ function SettledDesign({
 // the confirm card trading for the settled row fades as a view swap: the same ViewSwap, its key changed
 const SETTLED_KEY = "settled";
 const CONFIRM_KEY = "confirm";
+const CONFIRM_TITLE = "Confirm the design";
 
 export function DesignCard({ agent, s, f, compact }: CardProps): JSX.Element | null {
     const act = useAction();
@@ -250,7 +251,8 @@ export function DesignCard({ agent, s, f, compact }: CardProps): JSX.Element | n
                 s={s}
                 f={f}
                 asking={true}
-                head={<span className="whitespace-nowrap font-mono font-semibold">Confirm the design</span>}
+                head={<span className="whitespace-nowrap font-mono font-semibold">{CONFIRM_TITLE}</span>}
+                title={CONFIRM_TITLE}
                 compact={compact}
                 attr="data-rendered-bs-design"
             >

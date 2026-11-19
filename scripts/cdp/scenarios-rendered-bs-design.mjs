@@ -115,7 +115,7 @@ export default (kit) => {
   const THAT_S_RIGHT = "That’s right";
 
   return [
-    scenario(NAME, { file: DESIGN_READY }, async (h, ctx, step) => {
+    scenario(NAME, { noTab: true, file: DESIGN_READY }, async (h, ctx, step) => {
       await step(
         "DesignReady: Confirm the design, 2 guesses, Confirm all 2 guesses, That's right and Edit on each guess, the waiting line",
         async () => {

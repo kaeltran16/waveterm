@@ -476,7 +476,7 @@ function TabBody({ model, agent, ws }: { model: AgentsViewModel; agent: AgentVM;
             ) : tab.kind === "file" ? (
                 <FileTab model={model} agent={agent} tab={tab} />
             ) : tab.kind === "brainstorm" ? (
-                <BrainstormPane model={model} agent={agent} />
+                <BrainstormPane model={model} agent={agent} inTab />
             ) : (
                 <WorkspaceCanvasTab model={model} agent={agent} />
             )}

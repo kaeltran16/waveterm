@@ -545,14 +545,14 @@ export default function (kit) {
                 ];
                 const blocker = "Answer the builder’s 3 questions, then review what they change";
                 rec(
-                    "1. builder question 1 fills the main area (Main): Builder 1 of 3 · for Where the forecast sits, three lettered answers with pros and cons and Agent's pick on B; the rail's For you · 3 (first tinted), The agent decided · 8 under 3 parts, Nothing the builder asked…; no Progress segments; Approve disabled saying why",
+                    "1. builder question 1 fills the main area (Main): Builder 1 of 3 · for Where the forecast sits, three numbered answers with pros and cons and Agent's pick on 2; the rail's For you · 3 (first tinted), The agent decided · 8 under 3 parts, Nothing the builder asked…; no Progress segments; Approve disabled saying why",
                     s1.ok &&
                         a1.head === `Builder 1 of 3 · for ${PART.role.title}` &&
                         a1.h1 === YOURS[0].q &&
                         s1.why === YOURS[0].why &&
                         JSON.stringify(a1.track) === JSON.stringify(["now", "ahead", "ahead"]) &&
                         s1.options.length === 3 &&
-                        s1.options.every((o, i) => o.text.startsWith(`${String.fromCharCode(65 + i)} ${OPTIONS[i].label}`)) &&
+                        s1.options.every((o, i) => o.text.startsWith(`${i + 1} ${OPTIONS[i].label}`)) &&
                         JSON.stringify(s1.options.map((o) => o.pick)) === JSON.stringify([false, true, false]) &&
                         s1.options[1].text.endsWith("Agent’s pick") &&
                         a1.proscons === 3 &&

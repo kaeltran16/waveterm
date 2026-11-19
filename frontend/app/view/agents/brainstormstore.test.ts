@@ -21,6 +21,8 @@ import {
     moveReviewCursor,
     openBrainstormAt,
     openBrainstormBoard,
+    openBrainstormDesign,
+    openBrainstormHistory,
     setBrainstormMode,
     setReviewCursor,
     toggleReviewRow,
@@ -54,6 +56,7 @@ describe("attachBrainstorm", () => {
             lastViewedMs: 100,
             board: null,
             designOpen: false,
+            historyOpen: false,
             boards: [],
             base: null,
             turn: { read: [], canvases: {} },
@@ -134,6 +137,19 @@ describe("brainstorm state", () => {
         expect(getBrainstorm("a1")?.board).toBe("Main.dc.html");
         openBrainstormBoard("a1", null);
         expect(getBrainstorm("a1")?.board).toBeNull();
+    });
+
+    it("the history and the design never stack: opening one closes the other", () => {
+        attachBrainstorm("a1", LAG, 100);
+        openBrainstormDesign("a1", true);
+        openBrainstormHistory("a1", true);
+        expect(getBrainstorm("a1")).toMatchObject({ historyOpen: true, designOpen: false });
+        openBrainstormDesign("a1", true);
+        expect(getBrainstorm("a1")).toMatchObject({ historyOpen: false, designOpen: true });
+        openBrainstormDesign("a1", false);
+        openBrainstormHistory("a1", true);
+        openBrainstormHistory("a1", false);
+        expect(getBrainstorm("a1")).toMatchObject({ historyOpen: false, designOpen: false });
     });
 
     it("ignores an update for an agent with nothing attached", () => {
@@ -233,9 +249,11 @@ describe("openBrainstormAt", () => {
     it("with a part, shows the Brainstorm pane with the design open and the part to open", () => {
         arrange(TALK);
         openBrainstormBoard("a1", "Main.dc.html");
+        openBrainstormHistory("a1", true);
         openBrainstormAt("a1", { part: "intent" });
         expect(getBrainstorm("a1")).toMatchObject({
             designOpen: true,
+            historyOpen: false,
             board: null,
             partTarget: "intent",
         });

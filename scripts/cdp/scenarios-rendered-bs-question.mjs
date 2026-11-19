@@ -144,7 +144,7 @@ export default (kit) => {
     const clockOf = (text, lead) => text.replace(lead, "").trim().split(" ")[0];
 
     return [
-        scenario(NAME, { file: FIRST }, async (h, ctx, step) => {
+        scenario(NAME, { noTab: true, file: FIRST }, async (h, ctx, step) => {
             await step("FirstQuestion: the Started a brainstorm row over question 1, Guess for me and Skip the questions, 0 of 5 yours", async () => {
                 await waitCard(h, "question");
                 const r = await readQ(h);

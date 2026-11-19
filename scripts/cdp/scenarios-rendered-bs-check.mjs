@@ -150,7 +150,7 @@ export default (kit) => {
             };
         })()`);
 
-    const base = scenario(NAME, { file: READY }, async (h, ctx, step) => {
+    const base = scenario(NAME, { noTab: true, file: READY }, async (h, ctx, step) => {
         await step("BuilderCheck reading: Builder check, A builder is reading the design., the usual and longest times, the clock running and a bar filling toward the usual mark", async () => {
             await fakeTimes(h);
             await setRecord(h, ctx, { state: "reading", ts: Date.now() - READING_AGO_MS });
