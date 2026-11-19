@@ -2,10 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import type { DiffLine } from "./agentsviewmodel";
 import type { GitChange } from "./gitstatus";
 import type { RailGitState } from "./railstore";
 import { parseUnifiedDiff } from "./unifieddiff";
-import { changesGroups, changesLine, changesView, fileOpen, hunkWalk, stepHunk } from "./workspacechangesmodel";
+import {
+    changesGroups,
+    changesLine,
+    changesView,
+    fileOpen,
+    hunkWalk,
+    isCitedRow,
+    splitHunks,
+    stepHunk,
+} from "./workspacechangesmodel";
 
 const file = (path: string, adds: number, dels = 0): GitChange => ({ path, status: "M", adds, dels });
 const repo = (files: GitChange[], extra: Partial<RailGitState> = {}): RailGitState => ({
@@ -167,6 +177,56 @@ describe("a file's hunks", () => {
             ["", "package a", 1],
             ["", "// new", 2],
         ]);
+    });
+});
+
+describe("splitting diff lines into hunks", () => {
+    const head = (text: string): DiffLine => ({ sign: "", text, hunk: true });
+
+    it("labels a hunk by git's context, or by its line when there is none", () => {
+        const hunks = splitHunks(
+            [
+                head("@@ -40,7 +41,11 @@ func Groups()"),
+                { sign: "+", text: "b", newNo: 41 },
+                head("@@ -90,2 +95,2 @@"),
+                { sign: "", text: "c", oldNo: 90, newNo: 95 },
+            ],
+            false
+        );
+        expect(hunks.map((h) => [h.label, h.newStart, h.rows.length])).toEqual([
+            ["func Groups()", 41, 1],
+            ["line 95", 95, 1],
+        ]);
+    });
+
+    it("gives a new file's hunk no label and rows with no sign", () => {
+        const [hunk] = splitHunks([head("@@ -0,0 +1,1 @@"), { sign: "+", text: "x", newNo: 1 }], true);
+        expect(hunk.label).toBeNull();
+        expect(hunk.rows).toEqual([{ sign: "", text: "x", newNo: 1 }]);
+    });
+});
+
+describe("which row is the cited one", () => {
+    const added: DiffLine = { sign: "+", text: "a", newNo: 12 };
+    const context: DiffLine = { sign: "", text: "c", oldNo: 11, newNo: 12 };
+    const removed: DiffLine = { sign: "-", text: "r", oldNo: 12 };
+
+    it("is an added or context row numbered the cited line", () => {
+        expect(isCitedRow(added, 12)).toBe(true);
+        expect(isCitedRow(context, 12)).toBe(true);
+    });
+
+    it("is not a removed row, whose number is the old side's", () => {
+        expect(isCitedRow(removed, 12)).toBe(false);
+    });
+
+    it("is not a row of another number", () => {
+        expect(isCitedRow(added, 13)).toBe(false);
+    });
+
+    it("is no row when nothing is cited", () => {
+        expect(isCitedRow(added, null)).toBe(false);
+        expect(isCitedRow(added, undefined)).toBe(false);
     });
 });
 

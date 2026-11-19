@@ -49,7 +49,12 @@ export interface ChangesGroup {
 const HUNK_HEAD = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/;
 const NEW_FILE_STATUSES = ["A", "?"];
 
-function splitHunks(lines: DiffLine[], isNew: boolean): ChangesHunk[] {
+// a removed row's number is the old side's, so only an added or context row can be the cited line
+export function isCitedRow(row: DiffLine, cited: number | null | undefined): boolean {
+    return cited != null && row.sign !== "-" && row.newNo === cited;
+}
+
+export function splitHunks(lines: DiffLine[], isNew: boolean): ChangesHunk[] {
     const hunks: ChangesHunk[] = [];
     for (const line of lines) {
         if (line.hunk) {

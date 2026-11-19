@@ -11,12 +11,12 @@ import { useEffect, useMemo, useRef } from "react";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { DIFF_NOTES, DiffHunks } from "./diffhunks";
 import { ignoreWsAtom } from "./diffoptions";
 import { lineCountsShown, statusColor } from "./gitstatus";
 import { useRailGit } from "./railgit";
 import { loadRailForAgent } from "./railstore";
 import { SurfaceEmptyState } from "./surfacescaffold";
-import { DiffRow } from "./tooldetailbody";
 import { changesLine, changesView, fileOpen, hunkWalk, type ChangesFile } from "./workspacechangesmodel";
 import {
     changesAtAtom,
@@ -32,8 +32,6 @@ import {
 } from "./workspacechangesstore";
 import type { WorkspaceTab } from "./workspacemodel";
 
-// as the transcript's inline panels: a long line wraps inside its row rather than scrolling sideways
-const ROW_WRAP = "whitespace-pre-wrap break-words";
 const LOADING_ROWS = 3;
 
 // the header's buttons: borderless, one style
@@ -45,13 +43,6 @@ const emptyGlyph = (
         <FileText size={16} />
     </span>
 );
-
-const NOTES: Record<string, string> = {
-    binary: "Binary file",
-    whitespace: "Only whitespace changed",
-    toolarge: "Too large to show here",
-    empty: "No line changes",
-};
 
 const fileSelector = (path: string) => `[data-changes-file="${CSS.escape(path)}"]`;
 
@@ -389,36 +380,14 @@ function FileBody({ f, foldered, failed }: { f: ChangesFile; foldered: boolean; 
                 data-changes-note={f.body}
                 className="border-t border-edge-faint px-[13px] py-[8px] font-mono text-[11.5px] text-muted"
             >
-                {NOTES[f.body]}
+                {DIFF_NOTES[f.body]}
             </div>
         );
     }
     return (
         <div className="border-t border-edge-faint pb-[6px] pt-[4px]">
-            {f.hunks.map((h, i) => (
-                <div
-                    key={i}
-                    data-changes-hunk={i}
-                    // a jump lands the hunk under what sticks over it: the 34px file header, under a 32px folder label
-                    className={foldered ? "scroll-mt-[66px]" : "scroll-mt-[34px]"}
-                >
-                    {h.label != null ? (
-                        <div
-                            data-changes-hunk-label
-                            className={cn(
-                                "flex h-[24px] items-center pl-[3px] font-mono text-[11px] text-muted",
-                                i > 0 && "mt-[6px]"
-                            )}
-                        >
-                            <span className="w-[42px] flex-none pr-[14px] text-right text-ink-faint">⋯</span>
-                            <span className="min-w-0 truncate">{h.label}</span>
-                        </div>
-                    ) : null}
-                    {h.rows.map((row, k) => (
-                        <DiffRow key={k} line={row} numbered wrap={ROW_WRAP} />
-                    ))}
-                </div>
-            ))}
+            {/* a jump lands the hunk under what sticks over it: the 34px file header, under a 32px folder label */}
+            <DiffHunks hunks={f.hunks} hunkClassName={foldered ? "scroll-mt-[66px]" : "scroll-mt-[34px]"} />
         </div>
     );
 }
