@@ -17,6 +17,10 @@ import { WFS_LENS, workflowScan, wfsScan, wfsSeed } from "./scenarios-usage.mjs"
 
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const SETTLE_MS = 700;
+// how long a frame sampler waits for the end state it asserts, well above a solo animation's ~530 ms
+const SAMPLER_END_WAIT_MS = 4000;
+// after the end state is reached, so the sampler records the resting frame
+const REST_FRAME_MS = 100;
 const CANVAS_REMOVED_WAIT_MS = 6000;
 // past two of the canvas poller's 3s ticks
 const CANVAS_POLL_WAIT_MS = 8000;
@@ -392,7 +396,13 @@ async function canvasSteps(h, ctx) {
     // 6. Main -> Cards is a step forward: the old board leaves to the left, the new one arrives from the right
     await h.ev(startFrames(translateX(`document.querySelector('[data-canvas-scroll] > div')`)));
     await h.ev(`[...(${CANVAS_TABS}?.querySelectorAll('[role="tab"]') ?? [])].find((b) => (b.textContent || "").trim() === "Cards")?.click()`);
-    await polishNap(900);
+    await polishWaitFor(
+        h,
+        `JSON.stringify([...document.querySelectorAll("[data-canvas-frame]")].map((f) => f.getAttribute("data-canvas-frame"))) === '["Cards.dc.html"]' &&
+            (() => { ${translateX(`document.querySelector('[data-canvas-scroll] > div')`)} })() === 0`,
+        SAMPLER_END_WAIT_MS
+    );
+    await polishNap(REST_FRAME_MS);
     const slide = distinct(await h.ev(stopFrames));
     const frames = await h.ev(`[...document.querySelectorAll("[data-canvas-frame]")].map((f) => f.getAttribute("data-canvas-frame"))`);
     await h.shot("cdp-shots/motion-lens-canvas-board.png");
@@ -492,7 +502,8 @@ async function boardActionsSteps(h, ctx) {
     await h.ev(watchAdded(`[data-brainstorm-board-picks]`, "return getComputedStyle(el.parentElement).opacity;"));
     await h.ev(startFrames(`return ${PICKS}?.parentElement?.offsetHeight ?? null;`));
     await h.ev(`${TAB(JSON.stringify(board))}?.click()`);
-    await polishNap(SETTLE_MS);
+    await polishWaitFor(h, `(() => { const p = ${PICKS}?.parentElement; return !!p && getComputedStyle(p).opacity === "1"; })()`, SAMPLER_END_WAIT_MS);
+    await polishNap(REST_FRAME_MS);
     const grow = distinct(await h.ev(stopFrames));
     const added = await h.ev(readAdded);
     const settled = await h.ev(`(() => { const p = ${PICKS}?.parentElement; return p ? getComputedStyle(p).opacity : null; })()`);
@@ -576,13 +587,15 @@ async function docReviewSteps(h, ctx) {
     const FADE = `const p = ${NOTES_PANE}; return p ? Math.round(Number(getComputedStyle(p).opacity) * 100) / 100 : null;`;
     await h.ev(startFrames(FADE));
     await h.ev(`${TOGGLE}?.click()`);
-    await polishNap(SETTLE_MS);
+    await polishWaitFor(h, `!${NOTES_PANE} && ${TOGGLE}?.getAttribute("aria-expanded") === "false"`, SAMPLER_END_WAIT_MS);
+    await polishNap(REST_FRAME_MS);
     const collapse = distinct(await h.ev(stopFrames));
     const collapsed = await h.ev(`!${NOTES_PANE} && ${TOGGLE}?.getAttribute("aria-expanded") === "false"`);
     await h.ev(watchAdded(`[data-doc-notes-list]`, "return getComputedStyle(el.parentElement).opacity;"));
     await h.ev(startFrames(`return ${NOTES_PANE}?.offsetHeight ?? null;`));
     await h.ev(`${TOGGLE}?.click()`);
-    await polishNap(SETTLE_MS);
+    await polishWaitFor(h, `(() => { const p = ${NOTES_PANE}; return !!p && Number(getComputedStyle(p).opacity) === 1; })()`, SAMPLER_END_WAIT_MS);
+    await polishNap(REST_FRAME_MS);
     const expand = distinct(await h.ev(stopFrames));
     const expandAdded = await h.ev(readAdded);
     await h.shot("cdp-shots/motion-lens-doc-notes.png");
