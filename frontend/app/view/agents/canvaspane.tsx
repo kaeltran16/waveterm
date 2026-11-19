@@ -185,11 +185,12 @@ export function CanvasPane({
     return (
         <div data-canvas-pane className="flex min-h-0 flex-1 flex-col">
             {/* wraps in a narrow pane (a board in the workspace's Brainstorm tab): unwrapped, the board tabs shrank to nothing and
-                keeping the picked one in view scrolled the whole pane sideways */}
+                keeping the picked one in view scrolled the whole pane sideways. The window is wide enough to keep one row:
+                its tabs take the rest of the width and scroll */}
             <div
                 className={cn(
-                    "flex flex-none flex-wrap items-center gap-x-[10px] gap-y-[8px] border-b border-edge-faint bg-surface py-[8px] pl-[22px]",
-                    inWindow ? "pr-[10px]" : "pr-[22px]"
+                    "flex flex-none items-center gap-x-[10px] gap-y-[8px] border-b border-edge-faint bg-surface py-[8px] pl-[22px]",
+                    inWindow ? "pr-[10px]" : "flex-wrap pr-[22px]"
                 )}
             >
                 {onBack != null ? (
@@ -207,7 +208,7 @@ export function CanvasPane({
                         onWheel={(e) => {
                             e.currentTarget.scrollLeft += e.deltaY;
                         }}
-                        className="flex min-w-0 overflow-x-auto [scrollbar-width:none]"
+                        className={cn("flex min-w-0 overflow-x-auto [scrollbar-width:none]", inWindow && "flex-1")}
                         style={tabsFade.style}
                     >
                         <Segmented
@@ -223,7 +224,7 @@ export function CanvasPane({
                         />
                     </div>
                 ) : null}
-                <div className="flex-1" />
+                {inWindow && s.boards.length > 0 ? null : <div className="flex-1" />}
                 {pane === "board" && !(inWindow && marking) ? (
                     <span className="flex-none whitespace-nowrap font-mono text-[10.5px] text-muted">{meta}</span>
                 ) : null}

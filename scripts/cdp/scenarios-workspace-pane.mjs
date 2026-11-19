@@ -661,6 +661,8 @@ export const workspacePane = {
 const CANVAS_NAME = "workspace-pane-canvas";
 const CANVAS_BOARDS = ["Main.dc.html", "States.dc.html", "Empty.dc.html", "Error.dc.html", "Narrow.dc.html", "Wide.dc.html"];
 const TWO_BOARDS = CANVAS_BOARDS.slice(0, 2);
+// enough tabs that the window's head cannot fit them beside its controls
+const MANY_BOARDS = Array.from({ length: 12 }, (_, i) => `Board${String(i + 1).padStart(2, "0")}.dc.html`);
 const BOARD_W = 1440;
 const BOARD_H = 900;
 // ModalShell's p-10 around the window
@@ -715,6 +717,12 @@ const canvasFacts = (h, ctx) =>
         `const c = C.getCanvas(id);
         return { window: globalStore.get(C.canvasWindowAtom), board: c?.board ?? null, all: c?.all ?? null, marking: c?.marking ?? null, mark: c?.mark != null, boards: c?.boards.length ?? 0, reloadKey: c?.reloadKey ?? null };`
     );
+
+// the poller has listed n boards in the canvas state
+async function waitBoardCount(h, ctx, n) {
+    const deadline = Date.now() + RBS_KIT.BS_POLL_WAIT_MS;
+    while ((await canvasFacts(h, ctx)).boards !== n && Date.now() < deadline) await polishNap(500);
+}
 
 // the Canvas tab's previews as drawn, against the list's inner width and the scroller's box
 const listFacts = (h) =>
@@ -1029,12 +1037,73 @@ const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true, topic: CA
         return [two && rows.length === 1 && rowsInOrder(rows, TWO_BOARDS, [2]) && closeTitle === "Close (Esc)" && closed, { two, rows, closed }];
     });
 
+    await step("with 12 boards the window's head stays one row: the tabs scroll under an edge fade, the picked tab in view, Close at the right end", async () => {
+        writeCanvasJson(ctx, MANY_BOARDS);
+        const last = MANY_BOARDS.at(-1);
+        // the poller has to list all twelve before the window can open on the last one
+        await waitBoardCount(h, ctx, MANY_BOARDS.length);
+        await canvasStore(h, ctx, `C.openCanvasWindow(id, { board: ${JSON.stringify(last)} }); return true;`);
+        const drawn = await polishWaitFor(
+            h,
+            `${C_WIN}?.querySelectorAll('[role="tablist"] [role="tab"]').length === ${MANY_BOARDS.length + 1}`,
+            RBS_KIT.BS_POLL_WAIT_MS
+        );
+        await polishNap(SETTLE_MS);
+        const head = await h.ev(`(() => {
+            const win = ${C_WIN};
+            const head = win?.querySelector("[data-canvas-pane]")?.firstElementChild;
+            const scroller = win?.querySelector('[role="tablist"]')?.parentElement;
+            const picked = win?.querySelector('[role="tablist"] [aria-selected="true"]');
+            if (!head || !scroller || !picked) return null;
+            const kids = [...head.children].map((el) => el.getBoundingClientRect());
+            const centres = kids.map((r) => r.top + r.height / 2);
+            const hs = getComputedStyle(head);
+            const sc = scroller.getBoundingClientRect();
+            const pk = picked.getBoundingClientRect();
+            const close = head.lastElementChild;
+            const mask = getComputedStyle(scroller).maskImage || getComputedStyle(scroller).webkitMaskImage;
+            return {
+                kids: kids.length,
+                spread: Math.round(Math.max(...centres) - Math.min(...centres)),
+                height: Math.round(head.getBoundingClientRect().height),
+                rowMax: Math.round(Math.max(...kids.map((r) => r.height))),
+                padBorder: parseFloat(hs.paddingTop) + parseFloat(hs.paddingBottom) + parseFloat(hs.borderBottomWidth),
+                scrollWidth: scroller.scrollWidth,
+                clientWidth: scroller.clientWidth,
+                masked: mask != null && mask !== "none",
+                pickedLabel: picked.textContent.trim(),
+                pickedInside: pk.left >= sc.left - 1 && pk.right <= sc.right + 1,
+                closeIsLast: close?.getAttribute("aria-label") === "Close",
+                closeGap: Math.round(head.getBoundingClientRect().right - parseFloat(hs.paddingRight) - close.getBoundingClientRect().right),
+            };
+        })()`);
+        await h.shot(CANVAS_SHOT(9, "window-many"));
+        // back as found: the two boards, the window closed
+        writeCanvasJson(ctx, TWO_BOARDS);
+        await h.ev(`${C_WIN}?.querySelector('button[aria-label="Close"]')?.click()`);
+        const closed = await polishWaitFor(h, `${C_WIN} == null`, WAIT_MS);
+        await waitBoardCount(h, ctx, TWO_BOARDS.length);
+        const ok =
+            drawn &&
+            head != null &&
+            head.spread <= 2 &&
+            head.height <= head.rowMax + head.padBorder + 2 &&
+            head.scrollWidth > head.clientWidth &&
+            head.masked &&
+            head.pickedLabel === boardLabel(MANY_BOARDS.at(-1)) &&
+            head.pickedInside &&
+            head.closeIsLast &&
+            Math.abs(head.closeGap) <= 2 &&
+            closed;
+        return [ok, { drawn, head, closed }];
+    });
+
     await step("Mark in the pane opens the window with marking on and the header hint", async () => {
         const clicked = await clickByText(h, C_TAB, "Mark");
         const opened = await polishWaitFor(h, `(${C_WIN}?.textContent ?? "").includes(${JSON.stringify(MARK_HINT)})`, WAIT_MS);
         await polishNap(SETTLE_MS);
         const at = await canvasFacts(h, ctx);
-        await h.shot(CANVAS_SHOT(9, "pane-mark"));
+        await h.shot(CANVAS_SHOT(10, "pane-mark"));
         await canvasStore(h, ctx, `C.closeCanvasWindow(); return true;`);
         return [clicked && opened && at.window === ctx.agentId && at.marking && !at.mark, { clicked, opened, ...at }];
     });
