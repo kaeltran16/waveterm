@@ -1,9 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// the Rendered box's `/` command panel. A leading `/` lists the session's commands (the list the arc mod publishes
-// for the block, read again on each open, or the built-ins when none is published), grouped and filtered as you type;
-// a pick writes `/name ` into the text. slashpanelmodel.ts holds the rules.
+// the Rendered box's `/` command panel. A leading `/` lists the session's commands (the list the arc mod or the arc pi
+// extension publishes for the block, read again on each open, with the built-ins as panelCommands adds them), grouped
+// and filtered as you type; a pick writes `/name ` into the text. slashpanelmodel.ts holds the rules.
 
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -19,10 +19,11 @@ import {
 import { ComposerSuggest } from "./composersuggest";
 import { stillDismissed, suggestKey } from "./composersuggestmodel";
 import { isPickerCommand } from "./renderedmode";
+import { runtimeMeta } from "./runtimemeta";
 import {
-    BUILTIN_COMMANDS,
     fromLive,
     insertSlash,
+    panelCommands,
     slashGroups,
     slashMatches,
     slashQueryAt,
@@ -44,7 +45,7 @@ export interface SlashPanel {
     onCaret: () => void;
 }
 
-function CommandRow({ c }: { c: SlashCommand }) {
+function CommandRow({ c, harness }: { c: SlashCommand; harness: string | undefined }) {
     return (
         <>
             <span data-slash-name className="shrink-0 font-mono">
@@ -56,10 +57,10 @@ function CommandRow({ c }: { c: SlashCommand }) {
                     {c.plugin}
                 </span>
             ) : null}
-            {isPickerCommand(`/${c.name}`) ? (
+            {isPickerCommand(`/${c.name}`, harness) ? (
                 <span
                     data-opens-terminal
-                    title="Opens a menu on Claude Code's own screen"
+                    title={`Opens a menu on ${runtimeMeta(harness ?? "claude").label}'s own screen`}
                     className="shrink-0 text-[10.5px] text-muted"
                 >
                     opens in Terminal
@@ -80,18 +81,20 @@ function footerOf(known: Known | null): string | undefined {
     return `${n} ${n === 1 ? "command" : "commands"} in this session`;
 }
 
-// off (bash mode) turns the panel off
+// off (bash mode) turns the panel off; harness: the agent's (AgentVM.agent), which picks the built-ins and the pickers
 export function useSlashPanel({
     text,
     setText,
     taRef,
     blockId,
+    harness,
     off,
 }: {
     text: string;
     setText: (text: string) => void;
     taRef: RefObject<HTMLTextAreaElement>;
     blockId: string | undefined;
+    harness: string | undefined;
     off?: boolean;
 }): SlashPanel {
     const [caret, setCaret] = useState(0);
@@ -139,7 +142,7 @@ export function useSlashPanel({
         );
     }, [active, blockId]);
 
-    const all = live != null && live.commands.length > 0 ? live.commands : BUILTIN_COMMANDS;
+    const all = panelCommands(harness, live?.commands ?? []);
     const groups = active ? slashGroups(slashMatches(query, all)) : [];
     const items = groups.flatMap((g) => g.items);
     let start = 0;
@@ -202,7 +205,7 @@ export function useSlashPanel({
             at={hi}
             groups={starts}
             itemKey={(c) => c.name}
-            renderItem={(c) => <CommandRow c={c} />}
+            renderItem={(c) => <CommandRow c={c} harness={harness} />}
             onPick={pick}
             onHover={setAt}
             footer={footerOf(live)}

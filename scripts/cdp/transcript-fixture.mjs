@@ -68,12 +68,22 @@ export function showAt(h, host, entries, extra = {}) {
 
 // the dev server serves any file under the workspace as /@fs/<absolute path>: resolved from this script's location, so
 // the tree under test projects, not whichever checkout the app was started from
-const PROJECTION_MODULE = `/@fs/${fileURLToPath(new URL("../../frontend/app/view/agents/transcriptprojection.ts", import.meta.url)).replaceAll("\\", "/")}`;
+const treeModule = (file) =>
+    `/@fs/${fileURLToPath(new URL(`../../frontend/app/view/agents/${file}`, import.meta.url)).replaceAll("\\", "/")}`;
+const PROJECTION_MODULE = treeModule("transcriptprojection.ts");
+const PI_PROJECTION_MODULE = treeModule("pitranscriptprojection.ts");
 
 // the tree's own projectTranscript over raw jsonl lines (strings), run in the page: the projected AgentEntry[]
 export function projectInPage(h, lines) {
     return h.ev(
         `import(${JSON.stringify(PROJECTION_MODULE)}).then((m) => m.projectTranscript(${JSON.stringify(lines)}))`
+    );
+}
+
+// the same over a pi v3 transcript, through the tree's own projectPiTranscript
+export function projectPiInPage(h, lines) {
+    return h.ev(
+        `import(${JSON.stringify(PI_PROJECTION_MODULE)}).then((m) => m.projectPiTranscript(${JSON.stringify(lines)}))`
     );
 }
 

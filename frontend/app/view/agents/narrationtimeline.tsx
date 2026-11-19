@@ -910,7 +910,16 @@ export const NarrationTimeline = memo(function NarrationTimeline({
         if (item.kind === "shell") {
             return (
                 <motion.div key={"sh" + item.index} variants={cardVariants} initial="initial" animate="animate">
-                    <ShellRunRow command={item.command} stdout={item.stdout} stderr={item.stderr} compact={isCompact} />
+                    <ShellRunRow
+                        command={item.command}
+                        stdout={item.stdout}
+                        stderr={item.stderr}
+                        exit={item.exit}
+                        cancelled={item.cancelled}
+                        truncated={item.truncated}
+                        excluded={item.excluded}
+                        compact={isCompact}
+                    />
                 </motion.div>
             );
         }

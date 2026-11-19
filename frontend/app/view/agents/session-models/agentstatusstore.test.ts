@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeAgentStatusData, normalizeAgentUsage, seedAgentStatus } from "./agentstatusstore";
+import { isPromptBoundary, mergeAgentStatusData, normalizeAgentUsage, seedAgentStatus } from "./agentstatusstore";
 
 function status(over: Partial<AgentStatusData>): AgentStatusData {
     return { oref: "block:uuid-1", state: "working", ts: 1, ...over };
@@ -93,5 +93,29 @@ describe("seedAgentStatus", () => {
     it("seeds nothing from a missing or stateless event", () => {
         expect(seedAgentStatus(null, undefined)).toBeNull();
         expect(seedAgentStatus(null, status({ state: "" }))).toBeNull();
+    });
+});
+
+describe("isPromptBoundary", () => {
+    // the states a run of reports passes through, and which of them land on a prompt boundary
+    const boundaries = (states: string[]) =>
+        states.map((next, i) => isPromptBoundary(i === 0 ? undefined : states[i - 1], next));
+
+    it("is an idle report: a settled turn, a picker's choice applied, a new session", () => {
+        expect(isPromptBoundary("working", "idle")).toBe(true);
+        expect(isPromptBoundary("idle", "idle")).toBe(true);
+        expect(isPromptBoundary(undefined, "idle")).toBe(true);
+    });
+    it("is a working report after a state that was not working: a new prompt", () => {
+        expect(isPromptBoundary("idle", "working")).toBe(true);
+        expect(isPromptBoundary("asking", "working")).toBe(true);
+        expect(isPromptBoundary(undefined, "working")).toBe(true);
+    });
+    it("is no working report mid-turn (a tool start, a message end)", () => {
+        expect(isPromptBoundary("working", "working")).toBe(false);
+        expect(boundaries(["idle", "working", "working", "working", "idle"])).toEqual([true, true, false, false, true]);
+    });
+    it("is no asking report", () => {
+        expect(isPromptBoundary("working", "asking")).toBe(false);
     });
 });

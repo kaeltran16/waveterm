@@ -144,7 +144,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Shift`+`N` / `Shift`+`P` | In Rendered, with the workspace pane open on its Changes tab: next / previous change, walking every hunk of every changed file (wraps at both ends). A step opens a collapsed file, and the next step into another file closes it again, unless you opened it yourself |
 | `Shift`+`W` | The same scope: hide whitespace in the Changes tab (the Diff surface's setting) |
 | `f` | Toggle terminal fullscreen (in Rendered it hides the tree and keeps the workspace pane) |
-| `v` | Toggle the focused Claude Code agent between Terminal and Rendered |
+| `v` | Toggle the focused Claude Code or pi agent between Terminal and Rendered |
 | `Ctrl`+`Shift`+`B` | The same toggle, also while typing in the terminal or the composer, when the agent has no brainstorm or canvas (with one, it switches to that instead) |
 | `1`…`9` | In Rendered, with a permission prompt docked and focus outside the composer: answer it with that choice; with a question docked instead, pick that option |
 | `Enter` | In Rendered, with a question docked and focus outside the composer: send the answer once every question is answered, else move to the next unanswered question |

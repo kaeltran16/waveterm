@@ -80,15 +80,15 @@ describe("rendersNow", () => {
     });
 
     it("is false for another runtime, a plain terminal, or no block", () => {
-        const pi = freshId("pi");
+        const codex = freshId("codex");
         const term = freshId("term");
         const noBlock = freshId("nb");
         const model = fakeModel([
-            claude(pi, { agent: "pi" }),
+            claude(codex, { agent: "codex" }),
             claude(term, { kind: "terminal" }),
             claude(noBlock, { blockId: undefined }),
         ]);
-        expect(rendersNow(model, pi)).toBe(false);
+        expect(rendersNow(model, codex)).toBe(false);
         expect(rendersNow(model, term)).toBe(false);
         expect(rendersNow(model, noBlock)).toBe(false);
     });

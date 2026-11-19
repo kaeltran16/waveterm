@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { footList, SEND_TO_ENQUEUE_MS, waitingPrompts } from "./queuedprompts";
+import { footList, piFootList, SEND_TO_ENQUEUE_MS, waitingPrompts } from "./queuedprompts";
 
 const T = Date.UTC(2026, 10, 17, 9, 0, 0);
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -107,5 +107,47 @@ describe("footList", () => {
     it("gives every item a distinct key", () => {
         const items = footList(waitingPrompts([enqueue("same", T), enqueue("same", T)]));
         expect(new Set(items.map((i) => i.key)).size).toBe(2);
+    });
+});
+
+describe("piFootList (a pi agent's box sends pi has not taken)", () => {
+    const user = (text: string, ts?: number) => ({ kind: "user" as const, text, ...(ts == null ? {} : { ts }) });
+    const shown = (...args: Parameters<typeof piFootList>) => piFootList(...args).map((i) => i.text);
+
+    it("a send while the agent works waits", () => {
+        expect(shown([{ text: "also fix b", ts: T }], [], true, T - 1000)).toEqual(["also fix b"]);
+    });
+
+    it("a pi user entry containing its text at or after the send takes it", () => {
+        const sent = [{ text: "also fix b", ts: T }];
+        expect(shown(sent, [user("also fix b", T)], true, T - 1000)).toEqual([]);
+        expect(shown(sent, [user("steer: also fix b\n", T + 500)], true, T - 1000)).toEqual([]);
+    });
+
+    it("a user entry from before the send, or with no time, does not take it", () => {
+        const sent = [{ text: "again", ts: T }];
+        expect(shown(sent, [user("again", T - 1), user("again")], true, T - 1000)).toEqual(["again"]);
+    });
+
+    it("draws nothing while the agent is idle", () => {
+        expect(shown([{ text: "x", ts: T }], [], false, T - 1000)).toEqual([]);
+    });
+
+    it("a send from before the agent's last prompt boundary has left the foot", () => {
+        // the turn it was sent in ended with no row answering it, and the agent works again
+        expect(shown([{ text: "lost", ts: T }], [], true, T + 2000)).toEqual([]);
+        expect(shown([{ text: "kept", ts: T }], [], true, null)).toEqual(["kept"]);
+    });
+
+    it("keeps send order, draws a slash send as its command, and keys each send apart", () => {
+        const sent = [
+            { text: "first", ts: T },
+            { text: "/compact keep the plan", ts: T + 10 },
+            { text: "first", ts: T + 10 },
+        ];
+        const items = piFootList(sent, [], true, T - 1000);
+        expect(items.map((i) => i.text)).toEqual(["first", "/compact keep the plan", "first"]);
+        expect(items[1].command).toEqual({ name: "/compact", args: "keep the plan" });
+        expect(new Set(items.map((i) => i.key)).size).toBe(3);
     });
 });
