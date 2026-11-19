@@ -28,6 +28,12 @@ automatically a visual question.
 
 ## The loop
 
+Before the first board, ask only when the brief leaves two or more decisions open that would change
+what you draw: one AskUserQuestion of at most 4 questions, each naming what you read and the gap in
+it, its options 2–4 concrete directions that differ on an axis you can name, your pick first and
+marked "(Recommended)". Otherwise, or with nobody to answer, decide, state your assumptions in a
+line and draw. Never re-ask what an answer or the chat settled.
+
 1. Write every artboard and `canvas.json` for the change in ONE message, with the Write tool.
 2. Inside Arc (`wsh` is on PATH), run `wsh ui reveal canvas:<topic>` from your terminal. Arc
    serves the folder itself and attaches the canvas to you on the Agent surface without switching
@@ -46,9 +52,16 @@ automatically a visual question.
    each shows and the assumptions you made. Outside Arc, give each one's URL
    (`http://127.0.0.1:<port>/<topic>/project/<Name>.dc.html`). When the brief asks for states,
    derive the state list from the component and its stores, not the brief, and map each state to
-   the artboard that draws it; name any state left undrawn. End your turn.
+   the artboard that draws it; name any state left undrawn. When the boards are options, end on
+   your pick and one line on why. End your turn.
 4. On feedback, read the files you will change, edit them in place, and go back to step 2. Small
    requested changes stay small.
+   - When the user picks an option, keep the other boards and add a row that develops the pick: its
+     states and hard cases (empty, the largest real data, a narrow window) and, where it helps, a
+     clickable prototype.
+   - On a vague rejection ("boring", "generic", "not it"), say in one line which axis the redraw
+     changes: content, layout, treatment or density. Unsure which, ask that one question, with
+     those axes as its options.
 
 Hand over and stop. Render, screenshot or re-read the files only when the user asks.
 
@@ -164,9 +177,14 @@ The long form, for pushback on a design call or a specific kind of piece: `refer
   stats or filler. Include at least one detail only this subject has (its real units, terms or
   data shapes), as content, not ornament.
 - Rationale and option notes go in your reply; an artboard's `title` names what it shows.
-- Options differ in layout and treatment of what the brief asks for. A control, step or section
-  the brief did not ask for is a question in your reply, not an artboard. Start from the simplest
-  design the brief allows: no multi-step flows, merged controls or extra variants unless asked.
+- Options differ in layout and treatment of what the brief asks for, each on an axis you can name,
+  never shades of one idea.
+- Redrawing an existing screen: a control, step or section the brief did not ask for is a question
+  in your reply, not an artboard. Start from the simplest design the brief allows: no multi-step
+  flows, merged controls or extra variants unless asked.
+- An open brief (a new screen, alternatives, ideas, "something like X"): draw today's screen as a
+  baseline board when one exists, then 3–4 options whose layouts differ. When the user names a
+  product, one option takes its layout; the design system still sets the look.
 - When an artboard redraws an existing screen, every piece of information it shows today (cost,
   time, tokens, counts) stays visible, and its labels and names stay as they are. Moving one
   behind a tooltip, dropping or renaming it is a question in your reply, not a design choice.
