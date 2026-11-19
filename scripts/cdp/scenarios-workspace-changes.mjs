@@ -1,5 +1,7 @@
 // Scenario `workspace-changes`: the workspace pane's Changes tab, every changed file in one scroll by folder (Task 3
-// of docs/superpowers/plans/2026-11-18-changes-tab-polish.md; board Main). The roster is a fixture of two claude
+// of docs/superpowers/plans/2026-11-18-changes-tab-polish.md; board Main), opening collapsed with folder toggles,
+// Expand all / Collapse all and step-collapse (docs/superpowers/plans/2026-11-19-changes-collapse-all.md: boards Main,
+// Opened, Expanded), so a step that reads a file's body opens it first. The roster is a fixture of two claude
 // agents backed by real tabs with no controller, in the Rendered view: A's block names a temp repo holding every kind
 // of change the tab draws, B's a clean one. The steps open the tab through the workspace store, as the header chip
 // does. States the repo cannot produce (a slow or failing patch read) come from stubbing RpcApi.GitPatchCommand on
@@ -125,6 +127,28 @@ const LIB = `
     const block = (p) => tab()?.querySelector('[data-changes-file="' + CSS.escape(p) + '"]');
     const header = (p) => block(p)?.querySelector("[data-changes-toggle]")?.parentElement;
     const toggle = (p) => block(p)?.querySelector("[data-changes-toggle]")?.click();
+    const isOpen = (p) => block(p)?.dataset.changesOpen != null;
+    // the tab opens collapsed: a step that reads a file's body opens it first, through its header
+    const ensureOpen = async (...ps) => {
+        for (const p of ps) if (!isOpen(p)) toggle(p);
+        await nap(100);
+    };
+    const folder = (dir) => tab()?.querySelector('[data-changes-group="' + CSS.escape(dir) + '"] [data-changes-folder]');
+    const toggleAll = () => tab()?.querySelector("[data-changes-toggle-all]");
+    // per group, in order: each list box as its files, each open card as "card <path>"
+    const segments = () =>
+        [...(tab()?.querySelectorAll("[data-changes-group]") ?? [])].map((g) => [
+            g.dataset.changesGroup,
+            [...g.children]
+                .filter((c) => c.matches("[data-changes-list], [data-changes-file]"))
+                .map((c) => (c.matches("[data-changes-list]") ? [...c.querySelectorAll("[data-changes-file]")].map((r) => r.dataset.changesFile) : "card " + c.dataset.changesFile)),
+        ]);
+    const folderFacts = () =>
+        [...(tab()?.querySelectorAll("[data-changes-folder]") ?? [])].map((b) => ({
+            dir: b.closest("[data-changes-group]")?.dataset.changesGroup,
+            expanded: b.getAttribute("aria-expanded"),
+            turned: b.querySelector("svg")?.classList.contains("rotate-90") ?? false,
+        }));
     const counter = () => flat(tab()?.querySelector("[data-changes-counter]"));
     const click = (sel) => tab()?.querySelector(sel)?.click();
     const pressed = () => tab()?.querySelector("[data-changes-ignore-ws]")?.getAttribute("aria-pressed");
@@ -152,7 +176,7 @@ const LIB = `
             rail: (files.length === 1 ? "1 file" : files.length + " files") + " +" + files.reduce((n, f) => n + f.adds, 0) + " −" + files.reduce((n, f) => n + f.dels, 0),
             groups: all("[data-changes-group]").map((g) => [
                 g.dataset.changesGroup,
-                [...(g.querySelector("[data-changes-folder]")?.children ?? [])].map(flat).join(" "),
+                [...(g.querySelector("[data-changes-folder]")?.children ?? [])].map(flat).filter(Boolean).join(" "),
                 [...g.querySelectorAll("[data-changes-file]")].map((b) => b.dataset.changesFile),
             ]),
             open: all("[data-changes-file][data-changes-open]").map((b) => b.dataset.changesFile),
@@ -160,7 +184,8 @@ const LIB = `
             hunks: all("[data-changes-hunk]").length,
             loading: all("[data-changes-loading]").length,
             counter: counter(),
-            band: flat(t?.querySelector("[data-workspace-changes-patch-failed]")),
+            all: flat(toggleAll()),
+            band:flat(t?.querySelector("[data-workspace-changes-patch-failed]")),
             empty: document.querySelector("[data-workspace-changes-empty]")?.dataset.workspaceChangesEmpty ?? null,
         };
     };
@@ -205,7 +230,13 @@ async function waitPage(h, cond, ms = WAIT_MS) {
     return false;
 }
 const waitTab = (h, cond, ms = WAIT_MS) => waitPage(h, `await (async () => { const f = await tabFacts(); return ${cond}; })()`, ms);
-const loaded = `f.hunks > 0 && f.loading === 0`;
+// the patch is read: the counter counts its hunks, and no open body waits on it. The tab opens collapsed, so no hunk
+// need be drawn
+const loaded = `f.counter !== "" && f.loading === 0`;
+// every file in display order, and each folder's files as one list box
+const EVERY = ORDER.flatMap(([, files]) => files);
+const ONE_LIST = JSON.stringify(ORDER.map(([dir, files]) => [dir, [files]]));
+const DEDUPE = "internal/dedupe";
 
 // what the Diff surface shows: its scope's origin, the file its diff pane draws and the pair it loaded
 const diffSurface = (h) =>
@@ -360,12 +391,130 @@ export const workspaceChanges = {
                 JSON.stringify(f.groups) === JSON.stringify(want);
             return [ok, { line: f.line, rail: f.rail, groups: f.groups }];
         });
-        await h.shot("cdp-shots/workspace-changes-main.png");
+
+        await step("opens collapsed: every file a row in its folder's one list box, the header reads Expand all; a folder label opens its files and closes them again (Main board)", async () => {
+            const look = `const f = await tabFacts();
+                return { open: f.open, all: f.all, segs: segments(), folders: folderFacts(), newFiles: [${q(COUNTERS)}, ${q(HUGE)}].map((p) => flat(block(p)?.querySelector("[data-changes-new]"))) };`;
+            const before = await page(h, look);
+            await h.shot("cdp-shots/workspace-changes-main.png");
+            const opened = await page(h, `folder(${q(DEDUPE)})?.click(); await nap(${SETTLE_MS}); ${look}`);
+            const closed = await page(h, `folder(${q(DEDUPE)})?.click(); await nap(${SETTLE_MS}); ${look}`);
+            const dedupe = (r) => r.folders.find((x) => x.dir === DEDUPE);
+            const segsOf = (r, dir) => JSON.stringify(r.segs.find(([d]) => d === dir)?.[1]);
+            const ok =
+                before.open.length === 0 &&
+                before.all === "Expand all" &&
+                JSON.stringify(before.segs) === ONE_LIST &&
+                before.folders.length === ORDER.length - 1 &&
+                before.folders.every((x) => x.expanded === "false" && !x.turned) &&
+                before.newFiles.every((t) => t === "new file") &&
+                JSON.stringify(opened.open) === JSON.stringify([GROUPS, OLD]) &&
+                opened.all === "Collapse all" &&
+                dedupe(opened)?.expanded === "true" &&
+                dedupe(opened)?.turned &&
+                segsOf(opened, DEDUPE) === JSON.stringify([`card ${GROUPS}`, `card ${OLD}`]) &&
+                closed.open.length === 0 &&
+                closed.all === "Expand all" &&
+                JSON.stringify(closed.segs) === ONE_LIST &&
+                dedupe(closed)?.expanded === "false" &&
+                !dedupe(closed)?.turned;
+            return [ok, { before, opened, closed }];
+        });
+
+        await step("Shift+N opens the stepped-into file as its own card between list boxes; the next step into another file closes it; a file opened from its header stays open across steps (Opened board)", async () => {
+            const look = `({ counter: counter(), open: [...tab().querySelectorAll("[data-changes-file][data-changes-open]")].map((b) => b.dataset.changesFile) })`;
+            const r = await page(
+                h,
+                `const S = await mod("app/view/agents/workspacechangesstore.ts");
+                globalStore.set(S.changesAtAtom(${A}), 0);
+                await nap(100);
+                const seen = [];
+                for (let i = 0; i < 3; i++) {
+                    await press("n");
+                    await nap(${SETTLE_MS});
+                    seen.push(${look});
+                }
+                return { seen, segs: segments() };`
+            );
+            await h.shot("cdp-shots/workspace-changes-opened.png");
+            const rest = await page(
+                h,
+                `await press("n");
+                await nap(${SETTLE_MS});
+                const sameFile = ${look};
+                await press("n");
+                await nap(${SETTLE_MS});
+                const nextFile = ${look};
+                toggle(${q(README)});
+                await nap(100);
+                for (let i = 0; i < 3; i++) await press("n");
+                await nap(${SETTLE_MS});
+                const kept = ${look};
+                toggleAll()?.click();
+                await nap(100);
+                return { sameFile, nextFile, kept, after: (await tabFacts()).open };`
+            );
+            const at = (n, open) => ({ counter: `${n}/${HUNKS}`, open });
+            const want = {
+                seen: [at(1, [README]), at(2, [STYLE]), at(3, [GROUPS])],
+                segs: ORDER.map(([dir, files]) => [dir, dir === DEDUPE ? [`card ${GROUPS}`, [OLD]] : [files]]),
+                sameFile: at(4, [GROUPS]),
+                nextFile: at(5, [OLD]),
+                // past counters (6) and round to README (1): the step-opened files close, the header-opened README stays
+                kept: at(2, [README, STYLE]),
+            };
+            const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+            const ok =
+                same(r.seen, want.seen) &&
+                same(r.segs, want.segs) &&
+                same(rest.sameFile, want.sameFile) &&
+                same(rest.nextFile, want.nextFile) &&
+                same(rest.kept, want.kept) &&
+                rest.after.length === 0;
+            return [ok, { ...r, ...rest }];
+        });
+
+        await step("Expand all opens every file, new ones too, and reads Collapse all; stepping closes nothing; Collapse all returns each folder to one list box (Expanded board)", async () => {
+            const r = await page(
+                h,
+                `toggleAll()?.click();
+                await nap(${SETTLE_MS});
+                const f = await tabFacts();
+                return { open: f.open, all: f.all, segs: segments(), folders: folderFacts() };`
+            );
+            await h.shot("cdp-shots/workspace-changes-expanded.png");
+            const back = await page(
+                h,
+                `for (let i = 0; i < 3; i++) {
+                    click("[data-changes-next]");
+                    await nap(150);
+                }
+                const stepped = (await tabFacts()).open;
+                toggleAll()?.click();
+                await nap(${SETTLE_MS});
+                const f = await tabFacts();
+                const S = await mod("app/view/agents/workspacechangesstore.ts");
+                globalStore.set(S.changesAtAtom(${A}), 0);
+                return { stepped, open: f.open, all: f.all, segs: segments() };`
+            );
+            const cards = JSON.stringify(ORDER.map(([dir, files]) => [dir, files.map((p) => `card ${p}`)]));
+            const ok =
+                JSON.stringify(r.open) === JSON.stringify(EVERY) &&
+                r.all === "Collapse all" &&
+                JSON.stringify(r.segs) === cards &&
+                r.folders.every((x) => x.expanded === "true" && x.turned) &&
+                JSON.stringify(back.stepped) === JSON.stringify(EVERY) &&
+                back.open.length === 0 &&
+                back.all === "Expand all" &&
+                JSON.stringify(back.segs) === ONE_LIST;
+            return [ok, { r, back }];
+        });
 
         await step("a hunk's label row is the function line's text, and no row shows a raw @@", async () => {
             const r = await page(
                 h,
-                `const labels = [...(block(${q(GROUPS)})?.querySelectorAll("[data-changes-hunk-label]") ?? [])].map((l) => [...l.children].map(flat));
+                `await ensureOpen(${q(GROUPS)});
+                const labels = [...(block(${q(GROUPS)})?.querySelectorAll("[data-changes-hunk-label]") ?? [])].map((l) => [...l.children].map(flat));
                 return { labels, raw: (tab()?.textContent ?? "").includes("@@") };`
             );
             const label = (i, text) => JSON.stringify(r.labels[i]) === JSON.stringify(["⋯", text]);
@@ -375,7 +524,8 @@ export const workspaceChanges = {
         await step("diff rows carry the added and removed tints, numbered by the new side (a removed line's old one)", async () => {
             const r = await page(
                 h,
-                `const rows = [...(block(${q(GROUPS)})?.querySelectorAll("[data-diff-line]") ?? [])];
+                `await ensureOpen(${q(GROUPS)});
+                const rows = [...(block(${q(GROUPS)})?.querySelectorAll("[data-diff-line]") ?? [])];
                 const row = (text) => rows.find((x) => x.textContent.includes(text));
                 const fact = (text) => { const x = row(text); return x ? { cls: x.className, no: flat(x.querySelector("[data-diff-no]")) } : null; };
                 return { removed: fact(${q(OLD_MARK)}), added: fact(${q(NEW_MARK)}), context: fact("_ = k") };`
@@ -403,9 +553,11 @@ export const workspaceChanges = {
                     numbers: rows.map((x) => flat(x.querySelector("[data-diff-no]"))),
                     tinted: rows.filter((x) => /diff-line-(added|removed)/.test(x.className)).length,
                 };
+                await ensureOpen(${q(STYLE)});
+                const styleWasOpen = isOpen(${q(STYLE)});
                 toggle(${q(STYLE)});
                 await nap(${SETTLE_MS});
-                return { before, after, styleOpen: block(${q(STYLE)})?.dataset.changesOpen != null };`
+                return { before, after, styleWasOpen, styleOpen: block(${q(STYLE)})?.dataset.changesOpen != null };`
             );
             const ok =
                 !r.before.open &&
@@ -414,6 +566,7 @@ export const workspaceChanges = {
                 r.after.newFile === "" &&
                 r.after.numbers.join(",") === Array.from({ length: COUNTERS_LINES }, (_, i) => i + 1).join(",") &&
                 r.after.tinted === 0 &&
+                r.styleWasOpen &&
                 !r.styleOpen;
             return [ok, r];
         });
@@ -454,9 +607,10 @@ export const workspaceChanges = {
                 h,
                 `const note = (p) => block(p)?.querySelector("[data-changes-note]")?.dataset.changesNote ?? null;
                 const hunks = (p) => block(p)?.querySelectorAll("[data-changes-hunk]").length ?? 0;
+                await ensureOpen(${[LOGO, README, GROUPS, OLD, COUNTERS].map(q).join(",")});
                 return {
                     binary: [note(${q(LOGO)}), flat(block(${q(LOGO)})?.querySelector("[data-changes-note]"))],
-                    hugeText: (toggle(${q(HUGE)}), await nap(${SETTLE_MS}), flat(block(${q(HUGE)})?.querySelector("[data-changes-note]"))),
+                    hugeText: (await ensureOpen(${q(HUGE)}), await nap(${SETTLE_MS}), flat(block(${q(HUGE)})?.querySelector("[data-changes-note]"))),
                     before: [${[README, GROUPS, OLD, COUNTERS].map(q).join(",")}].map(hunks),
                 };`
             );

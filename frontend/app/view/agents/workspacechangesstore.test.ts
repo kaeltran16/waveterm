@@ -183,12 +183,59 @@ describe("stepping the change counter", () => {
         expect(s.globalStore.get(s.changesScrollAtom("a"))).toMatchObject({ path: "lib/n.ts", hunk: 0 });
     });
 
-    it("opens a closed file it lands in, and leaves an open one open", async () => {
+    it("opens a closed file it lands in, and the next step into another file closes it", async () => {
         const s = await loaded();
         s.stepChangesHunk("a", "previous");
-        expect(s.isChangesFileOpen("a", "lib/n.ts", true)).toBe(true);
+        expect(s.isChangesFileOpen("a", "lib/n.ts")).toBe(true);
         s.stepChangesHunk("a", "next");
-        expect(s.isChangesFileOpen("a", "a.ts", false)).toBe(true);
+        expect(s.isChangesFileOpen("a", "a.ts")).toBe(true);
+        expect(s.isChangesFileOpen("a", "lib/n.ts")).toBe(false);
+    });
+
+    it("keeps a step-opened file open while the steps stay in it", async () => {
+        const s = await loaded();
+        s.stepChangesHunk("a", "next");
+        s.stepChangesHunk("a", "next");
+        expect(s.globalStore.get(s.changesScrollAtom("a"))).toMatchObject({ path: "a.ts", hunk: 1 });
+        expect(s.isChangesFileOpen("a", "a.ts")).toBe(true);
+    });
+
+    // each opens a.ts by a user action, then steps into a.ts and on into lib/n.ts
+    const userOpens: [string, (s: Awaited<ReturnType<typeof loaded>>) => void][] = [
+        ["its header", (s) => s.toggleChangesFile("a", "a.ts")],
+        ["its folder label", (s) => s.toggleChangesFolder("a", ["a.ts"])],
+        ["Expand all", (s) => s.toggleAllChangesFiles("a", ["a.ts", "lib/n.ts"])],
+        ["the tab's selected file", (s) => s.openChangesFile("a", "a.ts")],
+    ];
+    for (const [by, open] of userOpens) {
+        it(`never closes a file opened by ${by}`, async () => {
+            const s = await loaded();
+            open(s);
+            s.stepChangesHunk("a", "next");
+            s.stepChangesHunk("a", "next");
+            s.stepChangesHunk("a", "next");
+            expect(s.globalStore.get(s.changesScrollAtom("a"))).toMatchObject({ path: "lib/n.ts" });
+            expect(s.isChangesFileOpen("a", "a.ts")).toBe(true);
+        });
+    }
+
+    it("takes a step-opened file over once the user opens it, so the next step leaves it", async () => {
+        const s = await loaded();
+        s.stepChangesHunk("a", "previous");
+        s.openChangesFile("a", "lib/n.ts");
+        s.stepChangesHunk("a", "next");
+        expect(s.isChangesFileOpen("a", "lib/n.ts")).toBe(true);
+    });
+
+    it("keeps each agent's open files and step-opened file apart", async () => {
+        const s = await loaded();
+        s.stepChangesHunk("a", "previous");
+        s.toggleChangesFile("b", "a.ts");
+        expect(s.isChangesFileOpen("b", "lib/n.ts")).toBe(false);
+        expect(s.isChangesFileOpen("a", "a.ts")).toBe(false);
+        s.stepChangesHunk("a", "next");
+        expect(s.isChangesFileOpen("b", "a.ts")).toBe(true);
+        expect(s.isChangesFileOpen("a", "lib/n.ts")).toBe(false);
     });
 
     it("asks for a fresh scroll each step, even to the same hunk", async () => {
@@ -204,22 +251,38 @@ describe("stepping the change counter", () => {
 });
 
 describe("a file's open state", () => {
-    it("toggles per agent", async () => {
+    it("starts closed and toggles per agent", async () => {
         const s = await freshStore();
-        expect(s.isChangesFileOpen("a", "x.ts", false)).toBe(true);
+        expect(s.isChangesFileOpen("a", "x.ts")).toBe(false);
         s.toggleChangesFile("a", "x.ts");
-        expect(s.isChangesFileOpen("a", "x.ts", false)).toBe(false);
-        expect(s.isChangesFileOpen("b", "x.ts", false)).toBe(true);
+        expect(s.isChangesFileOpen("a", "x.ts")).toBe(true);
+        expect(s.isChangesFileOpen("b", "x.ts")).toBe(false);
         s.toggleChangesFile("a", "x.ts");
-        expect(s.isChangesFileOpen("a", "x.ts", false)).toBe(true);
+        expect(s.isChangesFileOpen("a", "x.ts")).toBe(false);
     });
 
-    it("opens a file whether it is new or not", async () => {
+    it("opens a file, and leaves an open one open", async () => {
         const s = await freshStore();
-        s.openChangesFile("a", "n.ts", true);
-        expect(s.isChangesFileOpen("a", "n.ts", true)).toBe(true);
-        s.toggleChangesFile("a", "m.ts");
-        s.openChangesFile("a", "m.ts", false);
-        expect(s.isChangesFileOpen("a", "m.ts", false)).toBe(true);
+        s.openChangesFile("a", "n.ts");
+        s.openChangesFile("a", "n.ts");
+        expect(s.isChangesFileOpen("a", "n.ts")).toBe(true);
+    });
+
+    it("a folder label opens its files when none is open, else closes them all", async () => {
+        const s = await freshStore();
+        s.toggleChangesFolder("a", ["src/a.ts", "src/b.ts"]);
+        expect([s.isChangesFileOpen("a", "src/a.ts"), s.isChangesFileOpen("a", "src/b.ts")]).toEqual([true, true]);
+        s.toggleChangesFile("a", "src/a.ts");
+        s.toggleChangesFolder("a", ["src/a.ts", "src/b.ts"]);
+        expect([s.isChangesFileOpen("a", "src/a.ts"), s.isChangesFileOpen("a", "src/b.ts")]).toEqual([false, false]);
+    });
+
+    it("Expand all opens every listed file and Collapse all closes them", async () => {
+        const s = await freshStore();
+        const listed = ["a.ts", "lib/n.ts"];
+        s.toggleAllChangesFiles("a", listed);
+        expect(listed.map((p) => s.isChangesFileOpen("a", p))).toEqual([true, true]);
+        s.toggleAllChangesFiles("a", listed);
+        expect(listed.map((p) => s.isChangesFileOpen("a", p))).toEqual([false, false]);
     });
 });
