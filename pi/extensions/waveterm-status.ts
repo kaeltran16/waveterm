@@ -3,6 +3,10 @@
 // __WSH_PATH__ substituted for the absolute wsh path. pi auto-loads every file in that directory.
 // A bare pi outside a Wave block is fully inert: nothing runs without WAVETERM_BLOCKID + JWT.
 
+import { spawn } from "node:child_process";
+
+const REPLACEMENT_REASONS = new Set(["new", "resume", "fork", "reload"]);
+
 /** Session title for the cockpit row: pi's explicit session name, else "" — the backend
  *  (PiTitleProvider) generates auto titles from the first user message, so the extension never
  *  fabricates a fallback that could overwrite a generated one. */
@@ -37,6 +41,26 @@ export function detailForTool(toolName: string, args: any): string {
             return typeof args?.command === "string" && args.command ? "running " + args.command.slice(0, 60) : name;
     }
     return name || "tool";
+}
+
+// the cockpit's `/` panel lists what this session offers; pi's own source (extension, prompt, skill) is kept.
+// stdin, not argv: the list does not fit Windows' command line, and pi.exec has no stdin.
+export function publishCommands(pi: any, wshPath: string): void {
+    try {
+        if (typeof pi.getCommands !== "function") return;
+        const list = pi.getCommands().map((c: any) => ({
+            name: String(c.name ?? "").replace(/^\//, ""),
+            description: c.description ?? "",
+            source: c.source,
+        }));
+        const child = spawn(wshPath, ["claudecmds", "set"], { stdio: ["pipe", "ignore", "ignore"], windowsHide: true });
+        // pi's TUI owns the terminal and the panel's footer already says it shows built-ins only
+        child.on("error", () => {});
+        child.stdin.on("error", () => {});
+        child.stdin.end(JSON.stringify(list));
+    } catch {
+        /* publishing is best-effort */
+    }
 }
 
 export function registerWavetermStatus(pi: any, wshPath: string): void {
@@ -92,7 +116,11 @@ export function registerWavetermStatus(pi: any, wshPath: string): void {
         }
     };
 
-    pi.on("session_start", (_event: any, ctx: any) => report(ctx, "idle"));
+    // every startup, /reload, /new, /resume, /fork and /clone fires one, so the published list follows the session
+    pi.on("session_start", async (_event: any, ctx: any) => {
+        publishCommands(pi, wshPath);
+        await report(ctx, "idle");
+    });
     pi.on("session_info_changed", (_event: any, ctx: any) => report(ctx, state));
     pi.on("model_select", (_event: any, ctx: any) => report(ctx, state));
     pi.on("agent_start", (_event: any, ctx: any) => report(ctx, "working"));
@@ -104,7 +132,10 @@ export function registerWavetermStatus(pi: any, wshPath: string): void {
         await reportUsage(ctx);
     });
     pi.on("agent_settled", (_event: any, ctx: any) => report(ctx, "idle"));
-    pi.on("session_shutdown", (_event: any, ctx: any) => report(ctx, "idle", "", true));
+    // only quit ends the session: a replacement's session_start reports the new file, and the view follows it
+    pi.on("session_shutdown", (event: any, ctx: any) =>
+        report(ctx, "idle", "", !REPLACEMENT_REASONS.has(event?.reason))
+    );
     // a compaction holds the session like a turn: it confirms a typed handoff /compact and keeps wakes out
     // while it runs. afterwards the session is back in whatever state the compaction interrupted.
     let beforeCompact: "working" | "idle" = "idle";

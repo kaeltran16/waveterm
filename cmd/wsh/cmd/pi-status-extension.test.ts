@@ -199,6 +199,17 @@ describe("registerWavetermStatus", () => {
         }
     });
 
+    it("reports --ended on a quit shutdown only, not on a session replacement", async () => {
+        const endedFor = async (reason: string) => {
+            const pi = fakePi();
+            registerWavetermStatus(pi, "wsh");
+            await pi.handlers.get("session_shutdown")![0]({ reason }, sessionCtx());
+            return (pi.exec.mock.calls.at(-1)![1] as string[]).includes("--ended");
+        };
+        expect(await endedFor("quit")).toBe(true);
+        for (const reason of ["new", "resume", "fork", "reload"]) expect(await endedFor(reason)).toBe(false);
+    });
+
     it("message_end reports current state then usage", async () => {
         const pi = fakePi();
         registerWavetermStatus(pi, "wsh");
