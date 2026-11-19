@@ -1,13 +1,15 @@
 // Cockpit review scenarios: card header, chips and ask scroll.
-// F8: two cards in one checkout charge its changes to neither alone, so both diff chips read "repo", while a card in
-// a worktree of the same repo keeps its own chip. F12: an idle card's mute reads Move to Idle, in its menu and on its
+// F8: two claude cards in one checkout each count only their own edits (since fd40f2cf3), so neither chip reads "repo",
+// and a card in a worktree of the same repo keeps its own chip too. F12: an idle card's mute reads Move to Idle, in its menu and on its
 // button. F22: at the 1000x700 dev window the standing-by card's name keeps its room beside its chips, and an asking
 // card opens on its first option, whether the ask is there at mount or arrives later. F6: the Finished strip's Open
 // stays inside a card held just below and just above the width where its button words show. The diff chips come from
-// a real temp repo and worktree the transcripts point at; the fixture roster is read once at boot, so arrange reloads.
+// a real temp repo and worktree the transcripts point at and edit; the fixture roster is read once at boot, so arrange
+// reloads.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { editCall } from "./agent-page-fixtures.mjs";
 import { TREE_RAIL_FIXTURE, git, lookEval, polishNap, polishReload, polishWaitFor } from "./scenarios-shared.mjs";
 
 const SMALL_WINDOW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
@@ -20,7 +22,6 @@ const ID = {
     ask: "fx-card-asking",
     arrive: "fx-card-arrive",
 };
-const SHARED_TITLE = "All changes in this checkout, shared by 2 agents";
 const SHELL = [
     { id: "bshcardserve", description: "serve the preview" },
     { id: "bshcardwatch", description: "watch the test suite" },
@@ -92,13 +93,20 @@ function writeSubagents(dir, name) {
 }
 
 // a transcript whose cwd record points the card's git chip at `cwd`; written after the repo's commit, so the
-// session start anchors on it
-function writeTranscript(dir, name, cwd, shellTasks = []) {
+// session start anchors on it. A claude card counts only its transcript's edits, so `edit` writes the file and
+// records the Edit that made it.
+function writeTranscript(dir, name, cwd, { shellTasks = [], edit } = {}) {
     const timestamp = new Date().toISOString();
     const records = [{ type: "user", cwd, timestamp, message: { role: "user", content: `verify ${name}` } }];
     for (const t of shellTasks) records.push(...shellStart(t, dir, timestamp));
+    const lines = records.map((r) => JSON.stringify(r));
+    if (edit) {
+        const file = join(cwd, edit.file);
+        writeFileSync(file, edit.after);
+        lines.push(...editCall(`toolu_${name}_edit`, file, edit.before, edit.after, { cwd }));
+    }
     const path = join(dir, `${name}.jsonl`);
-    writeFileSync(path, records.map((r) => JSON.stringify(r) + "\n").join(""));
+    writeFileSync(path, lines.map((l) => l + "\n").join(""));
     return path;
 }
 
@@ -169,26 +177,40 @@ export const cockpitCardLayout = {
             const wt = join(ctx.root, "repo-wt");
             mkdirSync(repo);
             git(repo, "init", "-q", "--initial-branch=main");
-            writeFileSync(join(repo, "parser.go"), "package parser\n\nfunc Parse() int {\n    return 1\n}\n");
+            const parser = "package parser\n\nfunc Parse() int {\n    return 1\n}\n";
+            const lexer = "package parser\n\nfunc Lex() {}\n";
+            writeFileSync(join(repo, "parser.go"), parser);
+            writeFileSync(join(repo, "lexer.go"), lexer);
             git(repo, "add", ".");
             git(repo, "commit", "-q", "-m", "seed the parser");
             git(repo, "worktree", "add", "-q", "-b", "feature", wt);
-            writeFileSync(join(repo, "parser.go"), "package parser\n\nfunc Parse() int {\n    return 2\n}\n");
-            writeFileSync(join(wt, "parser.go"), "package parser\n\n// Parse parses.\nfunc Parse() int {\n    return 3\n}\n");
             // the idle card's own checkout, so its Finished strip carries a Review changes button
             const finishedRepo = join(ctx.root, "finished-repo");
             mkdirSync(finishedRepo);
             git(finishedRepo, "init", "-q", "--initial-branch=main");
-            writeFileSync(join(finishedRepo, "notes.go"), "package notes\n");
+            const notes = "package notes\n";
+            writeFileSync(join(finishedRepo, "notes.go"), notes);
             git(finishedRepo, "add", ".");
             git(finishedRepo, "commit", "-q", "-m", "seed the notes");
-            writeFileSync(join(finishedRepo, "notes.go"), "package notes\n\nvar Count = 12\n");
             const transcripts = {
-                idle: writeTranscript(ctx.root, "finished", finishedRepo),
-                a: writeTranscript(ctx.root, "shared-a", repo),
-                // the same checkout, spelled with forward slashes
-                b: writeTranscript(ctx.root, "shared-b", repo.replace(/\\/g, "/")),
-                standing: writeTranscript(ctx.root, "standing", wt, SHELL),
+                idle: writeTranscript(ctx.root, "finished", finishedRepo, {
+                    edit: { file: "notes.go", before: notes, after: "package notes\n\nvar Count = 12\n" },
+                }),
+                a: writeTranscript(ctx.root, "shared-a", repo, {
+                    edit: { file: "parser.go", before: parser, after: parser.replace("return 1", "return 2") },
+                }),
+                // the same checkout, spelled with forward slashes; its own edit is another file
+                b: writeTranscript(ctx.root, "shared-b", repo.replace(/\\/g, "/"), {
+                    edit: { file: "lexer.go", before: lexer, after: "package parser\n\n// Lex lexes.\nfunc Lex() {}\n" },
+                }),
+                standing: writeTranscript(ctx.root, "standing", wt, {
+                    shellTasks: SHELL,
+                    edit: {
+                        file: "parser.go",
+                        before: parser,
+                        after: "package parser\n\n// Parse parses.\nfunc Parse() int {\n    return 3\n}\n",
+                    },
+                }),
             };
             writeSubagents(ctx.root, "standing");
             mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
@@ -212,10 +234,15 @@ export const cockpitCardLayout = {
             await until(() => ${card(ID.a)}?.querySelector('[data-diff-chip]') && ${card(ID.b)}?.querySelector('[data-diff-chip]') && ${card(ID.standing)}?.querySelector('[data-diff-chip]'), 20000);
             return { a: ${chipOf(ID.a)}, b: ${chipOf(ID.b)}, worktree: ${chipOf(ID.standing)} };
         `);
-        const repoChip = (c) => c?.kind === "repo" && c.text.startsWith("repo") && c.title === SHARED_TITLE;
+        // a's edit swaps one line and b's adds one, so each chip shows its own count, not the checkout's +2 -1
+        const ownChip = (c, text) => c?.kind === "agent" && c.text === text;
         steps.push({
-            step: "two cards in one checkout show the repo-wide diff chip",
-            ok: repoChip(chips.a) && repoChip(chips.b) && chips.worktree?.kind === "agent" && !chips.worktree.text.startsWith("repo"),
+            step: "two claude cards in one checkout each show only their own edits, no repo label",
+            ok:
+                ownChip(chips.a, "+1−1") &&
+                ownChip(chips.b, "+1−0") &&
+                chips.worktree?.kind === "agent" &&
+                !chips.worktree.text.startsWith("repo"),
             detail: JSON.stringify(chips),
         });
         await h.shot("cdp-shots/cockpit-card-layout-repo-chip.png");

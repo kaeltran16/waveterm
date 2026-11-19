@@ -91,12 +91,14 @@ export const surfaceSmoke = {
         });
         const order = surfaceOrder();
         const lastLabel = SURFACE_LABEL[order[order.length - 1]];
+        // Ctrl+N jumps to the Nth surface, so the last one's digit follows the order's length (8 since 95538b652)
+        const lastDigit = String(order.length);
         await h.goto("cockpit");
-        await h.ev(keydown({ key: "7", code: "Digit7", ctrlKey: true }));
+        await h.ev(keydown({ key: lastDigit, code: `Digit${lastDigit}`, ctrlKey: true }));
         await h.ev(`new Promise((r) => setTimeout(r, ${SMOKE_KEY_WAIT_MS}))`);
         const chorded = await h.activeSurfaceLabel();
         steps.push({
-            step: "Ctrl+7 lands on the last surface",
+            step: `Ctrl+${lastDigit} lands on the last surface`,
             ok: chorded === lastLabel,
             detail: `active=${chorded} want=${lastLabel} order=${JSON.stringify(order)}`,
         });
