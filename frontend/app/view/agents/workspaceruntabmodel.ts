@@ -12,7 +12,7 @@ import { formatTokens, type AgentEntry } from "./agentsviewmodel";
 import { shortRunId } from "./brainstormrunmodel";
 import { finalStageView, type FinalStageView } from "./finalstage";
 import { fmtClock } from "./runcompletion";
-import { formatLeft, runFinished, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
+import { formatLeft, PLAN_REVIEWER_ROLE, runFinished, taskStateLabel, workerAsk, type RunInfo } from "./runlineage";
 import { runStatusView } from "./runmodel";
 import { runElapsedMs } from "./runrail";
 import { STRIP_MAX } from "./runstrip";
@@ -323,13 +323,32 @@ const PLAN_REVIEW_DOT: Record<string, RowDot> = {
     failed: "failed",
 };
 
+// from the first plan reviewer's start to the last verdict, or to now while it reviews; "" with no reviewer started
+function planReviewTime(state: string, events: RunEvent[], now: number): string {
+    const starts = events.filter(
+        (e) => e.kind === "stage-session-started" && detailOf<{ role?: string }>(e)?.role === PLAN_REVIEWER_ROLE
+    );
+    if (starts.length === 0) {
+        return "";
+    }
+    const from = Math.min(...starts.map((e) => e.ts));
+    const verdicts = events.filter((e) => e.kind === "plan-reviewed").map((e) => e.ts);
+    const to = state === "reviewing" || verdicts.length === 0 ? now : Math.max(...verdicts);
+    return formatElapsed(Math.max(0, to - from));
+}
+
 // planReviewRow is the stage row above the tasks; a dag with no plan review has none
-export function planReviewRow(dag: TaskGroup | undefined): StageRowView | null {
+export function planReviewRow(dag: TaskGroup | undefined, events: RunEvent[], now: number): StageRowView | null {
     const review = dag?.planreview;
     if (review == null) {
         return null;
     }
-    return { label: "Plan review", dot: PLAN_REVIEW_DOT[review.state] ?? "waits", word: review.state, time: "" };
+    return {
+        label: "Plan review",
+        dot: PLAN_REVIEW_DOT[review.state] ?? "waits",
+        word: review.state,
+        time: planReviewTime(review.state, events, now),
+    };
 }
 
 const FINAL_RUNNING = new Set(["checking", "final", "verifying"]);
@@ -376,7 +395,7 @@ export function finalRow(dag: TaskGroup | undefined, events: RunEvent[], now: nu
 }
 
 export interface TaskBodyView {
-    // the body's first line: the report's headline, the state's sentence, or a waiting task's description
+    // the body's first line: the report's headline, the state's sentence, or a waiting or running task's description
     lead: string;
     // a merged task's running Verify
     ran?: { command: string; time: string; lastLine?: string };
@@ -440,7 +459,7 @@ function bodyLead(task: TaskNode, ev: RunEvidence | undefined): string {
     if (task.state === "reviewing") {
         return REVIEWING_LEAD;
     }
-    if (NOT_STARTED.has(task.state)) {
+    if (NOT_STARTED.has(task.state) || task.state === "running") {
         return task.description?.split("\n")[0].trim() ?? "";
     }
     const headline = ev?.summary ? reportHeadline(ev.summary) : null;

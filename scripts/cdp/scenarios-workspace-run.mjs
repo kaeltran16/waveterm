@@ -53,7 +53,8 @@ const PULSING = new Set(["working", "asked"]);
 const FINAL_WAITS = "waits for every task";
 // the Main board's state word per task: none on merged and plainly running rows; t-2's Verify time is a prefix
 const MAIN_WORDS = ["", "verifying ", "asked the lead", "", "reviewing", "failed", "waits on t-3, t-4", "queued"];
-
+const PLAN_REVIEW_MS = 3 * 60_000;
+const PLAN_REVIEW_TIME = "3m";
 // the Tasks view's box as drawn: its stage rows, and per task row its dot, whether it pulses, and its state word
 const readTasks = (h) =>
     page(
@@ -93,6 +94,7 @@ const readAsk = (h, id) =>
             expanded: row?.querySelector(":scope > button")?.getAttribute("aria-expanded") ?? null,
             dot: row?.querySelector(":scope > button [data-row-dot]")?.dataset.rowDot ?? null,
             word: flat(row?.querySelector(":scope > button [data-task-state]")),
+            lead: flat(row?.querySelector("[data-body-lead]")),
             owner: box?.dataset.rowAsk ?? null,
             head: flat(box?.firstElementChild),
             header: q("[data-ask-header]"),
@@ -228,13 +230,28 @@ export const workspaceRun = {
             return [ok, runs];
         });
 
-        await step("Tasks: Plan review row, 8 task rows with their dots (merged, working pulsing, asked pulsing, failed, waits) and state words, Final verification row (Main board)", async () => {
+        await step("Tasks: Plan review row with its time, 8 task rows with their dots (merged, working pulsing, asked pulsing, failed, waits) and state words, Final verification row (Main board)", async () => {
+            // the reviewer's start, which the shared fixture leaves out to keep the Activity scenario's rows: 3m before its verdict
+            const seeded = await page(
+                h,
+                `const E = await mod("app/view/agents/runeventstore.ts");
+                const RUN = ${JSON.stringify(RUN_ID)};
+                const prev = globalStore.get(E.runEventsAtom(RUN));
+                const verdict = prev.find((e) => e.kind === "plan-reviewed");
+                if (verdict == null) return false;
+                const started = { id: "fx-wr-pr-start", runid: RUN, channelid: verdict.channelid, kind: "stage-session-started", ts: verdict.ts - ${PLAN_REVIEW_MS}, detail: JSON.stringify({ role: "plan-reviewer" }) };
+                E.seedRunEvents(RUN, [...prev, started]);
+                return true;`
+            );
+            await polishNap(SETTLE_MS);
             const t = await readTasks(h);
             await h.shot(SHOT(3, "tasks"));
             const ok =
+                seeded &&
                 JSON.stringify(t.order) === JSON.stringify(["planreview", ...TASK_IDS, "final"]) &&
                 t.review?.word === "passed" &&
                 t.review?.dot === "merged" &&
+                t.review?.text.endsWith(PLAN_REVIEW_TIME) &&
                 t.final?.word === FINAL_WAITS &&
                 t.final?.dot === "waits" &&
                 JSON.stringify(t.rows.map((r) => r.dot)) === JSON.stringify(MAIN_DOTS) &&
@@ -243,11 +260,12 @@ export const workspaceRun = {
             return [ok, t];
         });
 
-        await step("t-3 is open on arrival with the lead's question, its options, the countdown and Take over", async () => {
+        await step("t-3 is open on arrival with its description, the lead's question, its options, the countdown and Take over", async () => {
             const a = await readAsk(h, "t-3");
             await h.shot(SHOT(8, "t3-lead-ask"));
             const ok =
                 a.expanded === "true" &&
+                a.lead === TASKS.find((t) => t.id === "t-3").description &&
                 a.owner === "lead" &&
                 /^t-3 asked the lead · lead is answering · \dm left$/.test(a.head) &&
                 a.header === QUESTION_HEADER &&

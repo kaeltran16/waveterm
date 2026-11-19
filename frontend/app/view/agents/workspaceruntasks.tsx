@@ -103,7 +103,7 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
             return next;
         });
     const ctx = { dag: run.dag, digest: run.digest, evidence, events, now, live: !runFinished(run) };
-    const review = planReviewRow(run.dag);
+    const review = planReviewRow(run.dag, events, now);
     const final = finalRow(run.dag, events, now);
     return (
         <div className="px-[18px] pb-[18px] pt-[4px]">

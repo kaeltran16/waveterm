@@ -79,7 +79,7 @@ export function GraphView({ model, agent, tab, run, events }: RunViewProps) {
     const byId = new Map(nodes.map((n) => [n.id, n]));
     const focus = g.mode === "focus" && g.focus != null && byId.has(g.focus) ? g.focus : null;
     const flights = flightIds(nodes);
-    const planReview = planReviewRow(dag);
+    const planReview = planReviewRow(dag, events, now);
     const final = finalRow(dag, events, now);
     return (
         <div data-workspace-run-graph data-graph-mode={focus ? "focus" : "lanes"} className="flex flex-col">

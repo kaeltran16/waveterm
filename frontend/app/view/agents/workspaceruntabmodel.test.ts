@@ -458,11 +458,28 @@ describe("taskRows", () => {
 
 describe("stage rows", () => {
     it("Plan review reads the dag's plan review: passed, reviewing, failed; none with no plan review", () => {
-        expect(planReviewRow(MAIN)).toBeNull();
-        const at = (state: string) => planReviewRow({ ...MAIN, planreview: { state, round: 1 } });
+        expect(planReviewRow(MAIN, [], NOW)).toBeNull();
+        const at = (state: string) => planReviewRow({ ...MAIN, planreview: { state, round: 1 } }, [], NOW);
         expect(at("passed")).toMatchObject({ label: "Plan review", dot: "merged", word: "passed" });
         expect(at("reviewing")).toMatchObject({ dot: "working", word: "reviewing" });
         expect(at("failed")).toMatchObject({ dot: "failed", word: "failed" });
+    });
+
+    it("Plan review times the stage from its first reviewer to its last verdict, or to now while reviewing", () => {
+        const started = (ts: number, role = "plan-reviewer") => event(`s-${ts}`, "stage-session-started", ts, { role });
+        const reviewed = (ts: number, state: string) => event(`r-${ts}`, "plan-reviewed", ts, { state });
+        const at = (state: string, events: RunEvent[]) =>
+            planReviewRow({ ...MAIN, planreview: { state, round: 2 } }, events, NOW)?.time;
+        const twoRounds = [
+            started(NOW - 9 * MIN),
+            reviewed(NOW - 8 * MIN, "failed"),
+            started(NOW - 6 * MIN),
+            reviewed(NOW - 5 * MIN, "passed"),
+        ];
+        expect(at("passed", twoRounds)).toBe("4m");
+        expect(at("reviewing", [started(NOW - 2 * MIN)])).toBe("2m");
+        expect(at("passed", [started(NOW - 30 * MIN, "verifier"), reviewed(NOW - MIN, "passed")])).toBe("");
+        expect(at("passed", [])).toBe("");
     });
 
     it("Final verification waits for every task until the stage starts", () => {
@@ -596,6 +613,11 @@ describe("taskBody", () => {
             lead: "Runs go test ./... and go vet ./... on the merged tree.",
             depends: "depends on t-3, t-4",
         });
+    });
+
+    it("a running task leads with its description's first line", () => {
+        const t4 = byId("t-4", { description: "Groups bookmarks by normalized URL.\nThen dedupes." });
+        expect(taskBody(t4, ctx()).lead).toBe("Groups bookmarks by normalized URL.");
     });
 
     it("waiting for a free worker adds to its depends line; a queued task with no deps and no reason has none", () => {

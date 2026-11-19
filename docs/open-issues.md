@@ -98,6 +98,11 @@ Cockpit and surfaces:
   (`reloadListed=false`). Not seen in a Final since (2/2, plus an isolated run 2026-11-19). `fb61503fa` split that
   one boolean into `listed`, `onEdits`, `onSession` and `readme` in the step's detail. Revive when it fails again:
   the detail names the wait that timed out. From `effort:66a0e8e3-48e1-4906-9db4-e964f056701e`, closed 2026-11-19.
+- **`motion-lens` step 7a flake** (2026-11-19) — the server-down fade failed once in run b049039b's Final under
+  load and passes solo. Its wait is already a `polishWaitFor` on the poller, so the fix round that moved 6, 8a and
+  9b off fixed naps left it alone (`docs/superpowers/plans/2026-11-19-canvas-tab-polish-fix-1.md`, decision 3).
+  Revive when it fails again: keep the step's detail and screenshot, and check whether its sampler stopped before
+  the fade began. From `effort:f2ce52d6-4889-4be7-8258-39348ddd83bf`, closed 2026-11-19.
 - **Session target in `openTarget`** (2026-09-17) — revive when opening a session from a Usage session
   page is wanted.
 - **Builder check end to end, with a real reviewer** (2026-10-22) — revive when the reviewer's prompt
