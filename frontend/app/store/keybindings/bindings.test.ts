@@ -2721,21 +2721,37 @@ describe("Agent keys, stepping and toggles", () => {
             expect(globalStore.get(viewModeAtom("r"))).toBe("rendered");
         });
 
-        it("the answer letters pick on the shown tab only, and d collapses the pane unless it is the fourth answer", () => {
+        it("the answer digits pick on the shown tab only, and b and d keep closing and collapsing", () => {
             const { claiming } = rendered();
             attachBrainstorm("r", { topic: "bs", cwd: "/p" }, 0);
-            updateBrainstorm("r", (s) => ({ ...s, file: asking(["A", "B", "C"]) }));
-            openWorkspaceTab("r", { kind: "brainstorm" });
-            expect(claiming("a")).toEqual(["agent:brainstorm-option-a"]);
-            expect(claiming("d")).toEqual(["agent:toggle-workspace"]);
             updateBrainstorm("r", (s) => ({ ...s, file: asking(["A", "B", "C", "D"]) }));
-            expect(claiming("d")).toEqual(["agent:brainstorm-option-d"]);
-            // the tab hidden behind another, or the pane collapsed: the letters stand down, d collapses or restores
+            openWorkspaceTab("r", { kind: "brainstorm" });
+            for (const n of [1, 2, 3, 4]) {
+                expect(claiming(String(n))).toEqual([`agent:brainstorm-option-${n}`]);
+            }
+            expect(claiming("5")).toEqual(["agent:permission-choice-5"]);
+            expect(claiming("d")).toEqual(["agent:toggle-workspace"]);
+            expect(claiming("b")).toEqual(["agent:brainstorm-close"]);
+            for (const key of ["a", "c"]) {
+                expect(claiming(key), key).toEqual([]);
+            }
+            // the tab hidden behind another, or the pane collapsed: the digits go back to the permission prompt
             openWorkspaceTab("r", { kind: "changes", selected: null });
-            expect(claiming("a")).toEqual([]);
+            expect(claiming("1")).toEqual(["agent:permission-choice-1"]);
             expect(claiming("d")).toEqual(["agent:toggle-workspace"]);
             setWorkspaceCollapsed("r", true);
+            expect(claiming("4")).toEqual(["agent:permission-choice-4"]);
             expect(claiming("d")).toEqual(["agent:toggle-workspace"]);
+        });
+
+        it("answers past the fourth take their digits up to 9", () => {
+            const { claiming } = rendered();
+            attachBrainstorm("r", { topic: "bs", cwd: "/p" }, 0);
+            const labels = Array.from({ length: 10 }, (_, i) => `O${i + 1}`);
+            updateBrainstorm("r", (s) => ({ ...s, file: asking(labels) }));
+            openWorkspaceTab("r", { kind: "brainstorm" });
+            expect(claiming("9")).toEqual(["agent:brainstorm-option-9"]);
+            expect(claiming("0")).toEqual([]);
         });
 
         it("the transcript's keys stay live beside a shown tab, and no key has two claims", () => {
@@ -2745,7 +2761,7 @@ describe("Agent keys, stepping and toggles", () => {
             openWorkspaceTab("r", { kind: "brainstorm" });
             expect(claiming("v")).toEqual(["agent:toggle-view"]);
             expect(claiming("f")).toEqual(["agent:fullscreen"]);
-            for (const key of ["a", "b", "c", "d", "Escape", "Enter", "j", "k", "[", "]", "1"]) {
+            for (const key of ["a", "b", "c", "d", "Escape", "Enter", "j", "k", "[", "]", "1", "4", "5", "9"]) {
                 expect(claiming(key).length, key).toBeLessThanOrEqual(1);
             }
         });

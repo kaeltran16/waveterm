@@ -849,7 +849,7 @@ export const brainstormMode = {
         rec("2r. a Went into link in the rail opens the design at its part", railJump, { railJump });
         await bsCloseDesign(h);
 
-        // a letter focuses its answer and Enter, the row's own key, sends the answer's label
+        // a digit focuses its answer and Enter, the row's own key, sends the answer's label
         const OPTION_C = `${BS_PANE}?.querySelector('[data-brainstorm-option="2"]')`;
         const pickLine = BS_Q4_OPTIONS[2].label;
         mark = await bsMark(h, ctx, pickLine);
@@ -857,7 +857,7 @@ export const brainstormMode = {
         const pickKeys = await bsKeysArrive(h);
         let focused = null;
         if (pickKeys) {
-            await pressCanvasKey(h, { key: "c", code: "KeyC", keyCode: 67 });
+            await pressCanvasKey(h, { key: "3", code: "Digit3", keyCode: 51 });
             focused = await h.ev(`document.activeElement?.getAttribute("data-brainstorm-option") ?? null`);
             await bsKey(h, OPTION_C, "Enter", "keys");
         } else {
@@ -866,13 +866,13 @@ export const brainstormMode = {
         const pickTyped = await bsTyped(h, ctx, mark, pickLine);
         rec(
             pickKeys
-                ? "2s. c focuses answer C and Enter sends its label as the answer"
-                : "2s. clicking answer C sends its label as the answer",
+                ? "2s. 3 focuses answer 3 and Enter sends its label as the answer"
+                : "2s. clicking answer 3 sends its label as the answer",
             (!pickKeys || focused === "2") && pickTyped.ok,
             { focused, ...pickTyped.detail }
         );
         if (!pickKeys) {
-            steps.push(skipStep("2s2. the letter key itself", "CDP key events never reached the page; clicked the answer instead"));
+            steps.push(skipStep("2s2. the digit key itself", "CDP key events never reached the page; clicked the answer instead"));
         }
         await bsAgentTook(h, ctx);
 

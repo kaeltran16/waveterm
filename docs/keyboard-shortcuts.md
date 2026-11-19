@@ -140,13 +140,13 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | Keys | Action |
 |---|---|
 | `j` / `k` (or `↓` / `↑`, `→` / `←`) | Next / previous row in the tree: agents, workers and terminals |
-| `d` | Toggle the agent rail (Terminal), or collapse the workspace pane (Rendered, with tabs open; while a shown Brainstorm tab asks with a fourth answer, `d` picks it) |
+| `d` | Toggle the agent rail (Terminal), or collapse the workspace pane (Rendered, with tabs open) |
 | `Shift`+`N` / `Shift`+`P` | In Rendered, with the workspace pane open on its Changes tab: next / previous change, walking every hunk of every changed file (wraps at both ends; opens a collapsed file) |
 | `Shift`+`W` | The same scope: hide whitespace in the Changes tab (the Diff surface's setting) |
 | `f` | Toggle terminal fullscreen (in Rendered it hides the tree and keeps the workspace pane) |
 | `v` | Toggle the focused Claude Code agent between Terminal and Rendered |
 | `Ctrl`+`Shift`+`B` | The same toggle, also while typing in the terminal or the composer, when the agent has no brainstorm or canvas (with one, it switches to that instead) |
-| `1`…`9` | In Rendered, with a permission prompt docked and focus outside the composer: answer it with that choice; with a question docked instead, pick that option |
+| `1`…`9` | In Rendered, with a permission prompt docked and focus outside the composer: answer it with that choice; with a question docked instead, pick that option. While the shown Brainstorm tab asks a question, the digits of its answers pick those instead |
 | `Enter` | In Rendered, with a question docked and focus outside the composer: send the answer once every question is answered, else move to the next unanswered question |
 | `r` | Review: open the focused agent's Plan review or Plan approval dialog |
 | `p` | Hand the agent to the phone, or take it back |
@@ -182,10 +182,10 @@ The canvas window opens over the Rendered view on one board, or on every board w
 
 | Keys | Action |
 |---|---|
-| `b` | Show or close the agent's brainstorm (in Rendered, its tab). While the question offers a B, `b` picks it instead |
-| `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal or while `b` picks an answer |
-| `a` / `b` / `c` / `d` | While the brainstorm asks a question with answers to pick from: focus that answer; `Enter` sends it |
-| `Esc` | Back one level, as the pane's back control does: from a full-size board to the question or design it was opened from; from the design opened over the question (or over the agent writing) back to it. A focused field keeps its own `Esc`, and on a board with a drawn mark `Esc` stays the mark note's |
+| `b` | Show or close the agent's brainstorm (in Rendered, its tab) |
+| `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal |
+| `1`…`9` | While the brainstorm asks a question with answers to pick from: focus the answer with that number; `Enter` sends it |
+| `Esc` | Back one level, as the pane's back control does: from a full-size board to the question or design it was opened from; from the "Decided so far" history opened over the question back to it; from the design opened over the question (or over the agent writing) back to it. A focused field keeps its own `Esc`, and on a board with a drawn mark `Esc` stays the mark note's |
 | `[` / `]` | On a full-size board: previous / next board (the global surface switch stands down there) |
 | `j` / `k` | In the builder check's review: next / previous decision |
 | `Enter` | In the review: open or close the cursor decision (a focused button keeps its own `Enter`) |

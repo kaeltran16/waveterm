@@ -1183,6 +1183,7 @@ describe("boardBackLabel", () => {
 
 describe("pickableOptions", () => {
     const options = ["A", "B", "C", "D", "E"].map((label) => ({ label, detail: "" }));
+    const many = Array.from({ length: 11 }, (_, i) => ({ label: `O${i + 1}`, detail: "" }));
     const q = { n: 1, text: "Q", part: "a", options: options.slice(0, 3) };
     const s = { designOpen: false, board: null, removed: false };
     const check = { yours: [], calls: [], answered: [] };
@@ -1192,8 +1193,9 @@ describe("pickableOptions", () => {
         expect(pickableOptions(file({ question: { ...q, options: undefined } }), s)).toBe(0);
     });
 
-    it("stops at the number of letter keys", () => {
-        expect(pickableOptions(file({ question: { ...q, options } }), s)).toBe(4);
+    it("takes every option up to the nine digit keys", () => {
+        expect(pickableOptions(file({ question: { ...q, options } }), s)).toBe(5);
+        expect(pickableOptions(file({ question: { ...q, options: many } }), s)).toBe(9);
     });
 
     it("is none when nothing draws them: no file, the agent writing, the design or a board open, the file gone", () => {
@@ -1226,14 +1228,15 @@ describe("pickableOptions", () => {
         expect(pickableOptions(file({ check: { ...check, yours: [{ q: "B?", a: "yes", options }] } }), s)).toBe(0);
     });
 
-    it("during the judge's wait, is the approaches the pane draws as the rows, up to the letter keys", () => {
-        expect(pickableOptions(waitFile(), s)).toBe(4);
+    it("during the judge's wait, is the approaches the pane draws as the rows, up to the digit keys", () => {
+        expect(pickableOptions(waitFile(), s)).toBe(7);
+        expect(pickableOptions(waitFile({ question: waitQuestion(12) }), s)).toBe(9);
         expect(pickableOptions(waitFile({ question: waitQuestion(2) }), s)).toBe(2);
         expect(pickableOptions(waitFile({ question: waitQuestion(2) }), { ...s, sent: null })).toBe(2);
     });
 
     it("during the judge's wait in the check, is the approaches too", () => {
-        expect(pickableOptions(waitFile({ check }), s)).toBe(4);
+        expect(pickableOptions(waitFile({ check }), s)).toBe(7);
         expect(pickableOptions(waitFile({ check, question: waitQuestion(3) }), s)).toBe(3);
     });
 

@@ -1043,7 +1043,7 @@ export function foldedHistory(h: HistoryRow, unfolded: boolean): { options: Hist
     return { options, folded: h.options.length - options.length };
 }
 
-export const OPTION_KEYS = ["a", "b", "c", "d"] as const;
+export const OPTION_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
 
 // the question carries the agent's reasons, which the pane draws under each answer behind one toggle
 export function hasProsCons(q: BrainstormQuestion): boolean {
@@ -1252,7 +1252,7 @@ export function checkClock(
     };
 }
 
-// how many of the asked question's options a letter key picks: as many as the pane draws, up to the keys there are.
+// how many of the asked question's options a digit key picks: as many as the pane draws, up to the keys there are.
 // During the judge's wait the pane draws the approaches as the rows, so a key picks one of them
 export function pickableOptions(
     f: BrainstormFile | null,

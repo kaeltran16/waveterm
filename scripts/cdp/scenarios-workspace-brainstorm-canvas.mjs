@@ -36,7 +36,7 @@ const CENTER = `document.querySelector("[data-agent-center]")`;
 const MOCKUP = `${RV}?.querySelector("[data-rendered-mockup]")`;
 const KEY = {
     b: { key: "b", code: "KeyB", keyCode: 66, text: "b" },
-    d: { key: "d", code: "KeyD", keyCode: 68, text: "d" },
+    four: { key: "4", code: "Digit4", keyCode: 52, text: "4" },
     Enter: { key: "Enter", code: "Enter", keyCode: 13, text: "\r" },
 };
 
@@ -146,24 +146,25 @@ const base = scenario(NAME, { file: WORKING }, async (h, ctx, step) => {
         ];
     });
 
-    await step("d picks the question's fourth answer in the tab rather than collapsing the pane, and Enter answers it; the asking dot goes", async () => {
+    await step("4 focuses the fourth answer and Enter answers it, the pane stays open; the asking dot goes", async () => {
         await recordSends(h);
         await focusSurface(h);
-        await press(h, KEY.d);
+        await press(h, KEY.four);
         const focused = await polishWaitFor(h, `document.activeElement === ${BS_IN_TAB}?.querySelector('[data-brainstorm-option="3"]')`, WAIT_MS);
         const stillOpen = (await readPane(h)).shape === "open";
         await press(h, KEY.Enter);
         const line = await waitSent(h, 0, WAIT_MS);
         const gone = await polishWaitFor(h, `!${TAB("brainstorm")}?.querySelector("[data-workspace-tab-waiting]")`, WAIT_MS);
+        const openAfter = (await readPane(h)).shape === "open";
         await h.shot(SHOT(2, "answered"));
         return [
-            focused && stillOpen && line != null && line.includes(FOURTH.label) && gone,
-            { focused, stillOpen, line, gone },
+            focused && stillOpen && line != null && line.includes(FOURTH.label) && gone && openAfter,
+            { focused, stillOpen, line, gone, openAfter },
         ];
     });
 
     await step("b closes the Brainstorm tab, the pane going with it, and b opens it again", async () => {
-        // the agent took the answer and asks nothing, so b is the brainstorm's own key again
+        // the agent took the answer and asks nothing
         writeFile(ctx, WORKING);
         await waitCard(h, "none");
         await focusSurface(h);
