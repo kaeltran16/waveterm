@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import type { EditFile } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
 import { NOT_TRACKED } from "./codeclassify";
 import {
@@ -12,6 +13,7 @@ import {
     peekRow,
     peekStat,
     resolvePeekPath,
+    tabDiffBody,
     type PeekFile,
     type PeekGit,
     type PeekHead,
@@ -106,6 +108,19 @@ describe("peekModes", () => {
         const m = peekModes("C:\\plain\\a.md", textFile({ kind: "norepo" }));
         expect(m.diff).toEqual({ enabled: false, reason: NOT_TRACKED });
         expect(m.preview.enabled).toBe(true);
+    });
+    // the tab's Source already shows a new file's every line; the card keeps its inserted-text Diff
+    it("disables diff in the tab for a file new since HEAD, and keeps it on the card", () => {
+        const fresh = textFile(repo({ kind: "absent" }, { adds: 1, dels: 0 }));
+        expect(peekModes("C:\\repo\\a.ts", fresh, "tab").diff.enabled).toBe(false);
+        expect(peekModes("C:\\repo\\a.ts", fresh, "card").diff.enabled).toBe(true);
+        expect(peekModes("C:\\repo\\a.ts", fresh).diff.enabled).toBe(true);
+    });
+    it("enables diff in the tab and on the card for a changed tracked file", () => {
+        const changed = textFile(repo(head, { adds: 1, dels: 1 }));
+        expect(peekModes("C:\\repo\\a.ts", changed, "tab").diff.enabled).toBe(true);
+        expect(peekModes("C:\\repo\\a.ts", changed, "card").diff.enabled).toBe(true);
+        expect(peekModes("C:\\repo\\a.ts", changed).diff.enabled).toBe(true);
     });
     it("disables all three in every non-text state", () => {
         const states: PeekFile[] = [
@@ -210,5 +225,73 @@ describe("binaryPeekMessage", () => {
     it("binaryPeekMessage names an image and a plain binary", () => {
         expect(binaryPeekMessage("assets/logo.PNG")).toBe("Image — open it in Code");
         expect(binaryPeekMessage("bin/blob.bin")).toBe("Binary file");
+    });
+});
+
+describe("tabDiffBody", () => {
+    const head: PeekHead = { kind: "text", text: "x\n" };
+    // two hunks: the first adds line 13 and changes 14, the second adds line 40
+    const entry: EditFile = {
+        path: "internal/a.go",
+        badge: "M",
+        adds: 3,
+        dels: 1,
+        lines: [
+            { sign: "", text: "@@ -12,3 +12,4 @@ func Normalize() {", hunk: true },
+            { sign: "", text: "\tfor {", oldNo: 12, newNo: 12 },
+            { sign: "+", text: "\t\t// long", newNo: 13 },
+            { sign: "-", text: "\t\told()", oldNo: 13 },
+            { sign: "+", text: "\t\tnew()", newNo: 14 },
+            { sign: "", text: "@@ -38,1 +39,2 @@", hunk: true },
+            { sign: "", text: "}", oldNo: 38, newNo: 39 },
+            { sign: "+", text: "// end", newNo: 40 },
+        ],
+    };
+    const read = (files: EditFile[], truncated = false) => ({ kind: "read" as const, files, truncated });
+
+    it("gives the HEAD side's own message when HEAD cannot be read", () => {
+        const body = tabDiffBody({ kind: "error", message: "binary at HEAD" }, read([entry]), "internal/a.go", 13);
+        expect(body).toEqual({ kind: "head", message: "binary at HEAD" });
+    });
+    it("passes a failed read's own text through", () => {
+        const body = tabDiffBody(head, { kind: "failed", message: "git: exit 128" }, "internal/a.go", 13);
+        expect(body).toEqual({ kind: "error", message: "git: exit 128" });
+    });
+    it("stays loading while the read is in flight", () => {
+        expect(tabDiffBody(head, { kind: "loading" }, "internal/a.go", 13)).toEqual({ kind: "loading" });
+    });
+    it("gives the file's hunks, landing on the cited added row", () => {
+        const body = tabDiffBody(head, read([entry]), "internal/a.go", 13);
+        expect(body.kind).toBe("hunks");
+        if (body.kind !== "hunks") return;
+        expect(body.hunks.map((h) => h.label)).toEqual(["func Normalize() {", "line 39"]);
+        expect(body.hunks.map((h) => h.rows.length)).toEqual([4, 2]);
+        expect(body.landOn).toBe(1);
+    });
+    it("counts the landing row across hunks", () => {
+        const body = tabDiffBody(head, read([entry]), "internal/a.go", 40);
+        expect(body.kind === "hunks" && body.landOn).toBe(5);
+    });
+    // 13 is also the removed row's old number: only a new-side number can be the cited line
+    it("lands on no row for a line outside every hunk", () => {
+        const body = tabDiffBody(head, read([entry]), "internal/a.go", 30);
+        expect(body.kind === "hunks" && body.landOn).toBeNull();
+        const none = tabDiffBody(head, read([entry]), "internal/a.go", null);
+        expect(none.kind === "hunks" && none.landOn).toBeNull();
+    });
+    it("reads No line changes when the patch has no entry for the file", () => {
+        expect(tabDiffBody(head, read([]), "internal/a.go", 13)).toEqual({ kind: "note", note: "empty" });
+        expect(tabDiffBody(head, read([entry]), "internal/b.go", 13)).toEqual({ kind: "note", note: "empty" });
+    });
+    it("reads Too large when a truncated patch left the file out", () => {
+        expect(tabDiffBody(head, read([], true), "internal/a.go", 13)).toEqual({ kind: "note", note: "toolarge" });
+    });
+    it("reads No line changes when the file's entry has no hunks", () => {
+        const bare: EditFile = { ...entry, lines: [] };
+        expect(tabDiffBody(head, read([bare]), "internal/a.go", 13)).toEqual({ kind: "note", note: "empty" });
+    });
+    it("reads Binary file when git says the file's patch is binary", () => {
+        const bin: EditFile = { ...entry, lines: [], binary: true };
+        expect(tabDiffBody(head, read([bin]), "internal/a.go", 13)).toEqual({ kind: "note", note: "binary" });
     });
 });

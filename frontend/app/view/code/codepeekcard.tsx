@@ -2,14 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The terminal Code peek's card: header, mode row, the body for the peek's file state, and the footer.
-// Read-only throughout; it renders CodeEditor, Markdown and the Monaco diff viewer directly, never
-// through the Code surface's atoms.
+// Read-only throughout; it renders CodeEditor, Markdown and the Monaco diff viewer (the File tab: the Changes tab's
+// hunk rows) directly, never through the Code surface's atoms.
 
 import { Markdown } from "@/app/element/markdown";
 import { ViewSwap } from "@/app/element/viewswap";
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
-import { paneOptions } from "@/app/view/agents/diffoptions";
 import { CodeEditor } from "@/app/view/codeeditor/codeeditor";
 import { cn, fireAndForget } from "@/util/util";
 import {
@@ -27,7 +26,16 @@ import type * as MonacoTypes from "monaco-editor";
 import { lazy, Suspense, useEffect, useMemo, useRef } from "react";
 import { isImagePath } from "./codeclassify";
 import { ImageView } from "./codeimageview";
-import { binaryPeekMessage, peekModes, peekStat, type PeekFile, type PeekMode } from "./codepeekmodel";
+import { TabDiffBlank, TabDiffHunks, TabDiffNote, useTabDiffRead } from "./codepeekdiff";
+import {
+    binaryPeekMessage,
+    peekModes,
+    peekStat,
+    tabDiffBody,
+    type PeekFile,
+    type PeekGit,
+    type PeekMode,
+} from "./codepeekmodel";
 import { closePeek, codePeekFocusedAtom, openPeekInCode, setPeekMode, type CodePeek } from "./codepeekstore";
 
 const MonacoDiffViewer = lazy(() => import("@/app/monaco/monaco-react").then((m) => ({ default: m.MonacoDiffViewer })));
@@ -56,9 +64,6 @@ const DIFF_OPTIONS: MonacoTypes.editor.IDiffEditorOptions = {
     minimap: { enabled: false },
     scrollbar: { useShadows: false, verticalScrollbarSize: 5, horizontalScrollbarSize: 5 },
 };
-
-// the File tab draws its diff as the Diff surface does, wrapped since the column is narrow
-const TAB_DIFF_OPTIONS = paneOptions(false, false, true);
 
 // the File tab's Source, fixed whatever the editor settings say: wrapped at the Changes tab's diff rows' size
 const TAB_SOURCE_OPTIONS: MonacoTypes.editor.IEditorOptions = {
@@ -180,7 +185,7 @@ function SourceView({ peek, blockId, text, inTab }: { peek: CodePeek; blockId: s
     );
 }
 
-function DiffView({ peek, text, inTab }: { peek: CodePeek; text: string; inTab: boolean }) {
+function DiffView({ peek, text }: { peek: CodePeek; text: string }) {
     const git = peek.file.kind === "text" ? peek.file.git : null;
     if (git?.kind !== "repo") {
         return null;
@@ -189,10 +194,8 @@ function DiffView({ peek, text, inTab }: { peek: CodePeek; text: string; inTab: 
         return <PeekMessage text={git.head.message} />;
     }
     const absent = git.head.kind === "absent";
-    const options = inTab ? TAB_DIFF_OPTIONS : DIFF_OPTIONS;
     return (
-        // in the tab a new file reads as the plain file, as the Diff surface draws one
-        <div data-diff-new-file={(inTab && absent) || undefined} className="flex h-full flex-col bg-surface-code">
+        <div className="flex h-full flex-col bg-surface-code">
             {absent ? (
                 <div className="flex-none px-[14px] pt-[10px] pb-[8px] text-[11px] text-muted">
                     New file, not in HEAD
@@ -204,20 +207,38 @@ function DiffView({ peek, text, inTab }: { peek: CodePeek; text: string; inTab: 
                         <MonacoInsertedText
                             path={INSERTED_PREFIX + (peek.abs ?? peek.raw)}
                             text={text}
-                            options={options}
+                            options={DIFF_OPTIONS}
                         />
                     ) : (
                         <MonacoDiffViewer
                             path={MODEL_PREFIX + (peek.abs ?? peek.raw)}
                             original={git.head.kind === "text" ? git.head.text : ""}
                             modified={text}
-                            options={options}
+                            options={DIFF_OPTIONS}
                         />
                     )}
                 </Suspense>
             </div>
         </div>
     );
+}
+
+// the tab offers no Diff for a file new since HEAD (peekModes), so its head is text or unreadable here
+function TabDiffView({ git, cited }: { git: Extract<PeekGit, { kind: "repo" }>; cited: number | null }) {
+    const read = useTabDiffRead(git.root, git.rel);
+    const body = tabDiffBody(git.head, read, git.rel, cited);
+    switch (body.kind) {
+        case "loading":
+            return <TabDiffBlank />;
+        case "head":
+            return <PeekMessage text={body.message} />;
+        case "error":
+            return <Notice Icon={CircleAlert} text={body.message} />;
+        case "note":
+            return <TabDiffNote note={body.note} />;
+        case "hunks":
+            return <TabDiffHunks hunks={body.hunks} cited={cited} landOn={body.landOn} />;
+    }
 }
 
 function PeekMessage({ text }: { text: string }) {
@@ -229,7 +250,10 @@ function PeekMessage({ text }: { text: string }) {
 }
 
 function PeekNotice({ peek }: { peek: CodePeek }) {
-    const { Icon, text, path } = tabNotice(peek);
+    return <Notice {...tabNotice(peek)} />;
+}
+
+function Notice({ Icon, text, path }: { Icon: LucideIcon; text: string; path?: string }) {
     return (
         <div
             data-peek-message
@@ -262,8 +286,11 @@ function PeekBody({ peek, blockId, inTab }: { peek: CodePeek; blockId: string; i
             <Markdown key={key} text={file.text} scrollable className="h-full" contentClassName="px-[26px] py-[20px]" />
         );
     }
+    if (peek.mode === "diff" && inTab && file.git.kind === "repo") {
+        return <TabDiffView key={key} git={file.git} cited={peek.line} />;
+    }
     if (peek.mode === "diff") {
-        return <DiffView key={key} peek={peek} text={file.text} inTab={inTab} />;
+        return <DiffView key={key} peek={peek} text={file.text} />;
     }
     return <SourceView key={`${key}|${peek.line}`} peek={peek} blockId={blockId} text={file.text} inTab={inTab} />;
 }
@@ -327,7 +354,10 @@ export function CodePeekCard({
     variant?: "card" | "tab";
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
-    const modes = useMemo(() => peekModes(peek.abs ?? peek.raw, peek.file), [peek.abs, peek.raw, peek.file]);
+    const modes = useMemo(
+        () => peekModes(peek.abs ?? peek.raw, peek.file, variant),
+        [peek.abs, peek.raw, peek.file, variant]
+    );
     const path = headerPath(peek);
     const canOpen = "open" in peek.file;
     const isFolder = peek.file.kind === "folder";

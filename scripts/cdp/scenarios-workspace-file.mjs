@@ -1,5 +1,5 @@
 // Scenario `workspace-file`: the workspace pane's File tab (Task 7 of docs/superpowers/plans/2026-11-17-workspace-pane.md;
-// the File board; the Main and Image boards of docs/superpowers/plans/2026-11-19-file-tab-polish.md). The roster is a
+// the File board; the Main, Diff and Image boards of docs/superpowers/plans/2026-11-19-file-tab-polish.md). The roster is a
 // fixture claude agent backed by a real tab with no controller, in the Rendered view, whose transcript's reply cites
 // files of a temp git repo by absolute path, three with a line and one image. A click on a cited path opens a File tab
 // holding the Code peek, landed on that line; Esc in the card closes its tab; Open in Code lands on the Code surface.
@@ -76,6 +76,16 @@ const ESC = { key: "Escape", code: "Escape", keyCode: 27 };
 const PANE = `document.querySelector('aside[aria-label="Workspace"]')`;
 const CARD = `${PANE}?.querySelector('[data-code-peek][data-peek-variant="tab"]')`;
 const tabSel = (key) => `[data-workspace-tab=${JSON.stringify(key)}]`;
+// page code: the theme tokens resolved to the computed form an element's colour reads back in
+const TOKEN_COLORS = `const probe = document.createElement("div");
+    document.body.append(probe);
+    const token = (name) => {
+        probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return getComputedStyle(probe).color;
+    };
+    const accentbg = token("--color-accentbg");
+    const accentSoft = token("--color-accent-soft");
+    probe.remove();`;
 
 const page = (h, body) =>
     agentPage(
@@ -212,7 +222,7 @@ export const workspaceFile = {
                     openInHeader: card?.querySelector("[data-peek-path]")?.parentElement.querySelector("[data-peek-open]")?.textContent.trim() ?? null,
                     closeButton: card?.querySelector('button[aria-label="Close the peek"]') != null,
                     footerKeys: [...(card?.querySelectorAll("kbd") ?? [])].map((k) => k.textContent),
-                    source: card?.querySelector('[data-peek-mode="source"]')?.getAttribute("aria-pressed") ?? null,
+                    modes: card?.querySelectorAll("[data-peek-mode]").length ?? null,
                     readOnly: (card?.textContent ?? "").includes("Read-only"),
                     stat: card?.querySelector("[data-peek-stat]")?.textContent ?? null,
                     preview: card?.querySelector('[data-peek-mode="preview"]') != null,
@@ -243,7 +253,7 @@ export const workspaceFile = {
                 f.openInHeader === "Open in Code" &&
                 !f.closeButton &&
                 f.footerKeys.length === 0 &&
-                f.source === "true" &&
+                f.modes === 0 &&
                 !f.readOnly &&
                 !f.preview &&
                 f.cited &&
@@ -256,26 +266,9 @@ export const workspaceFile = {
         });
         await h.shot("cdp-shots/workspace-file-board.png");
 
-        await step("Diff on a file new since HEAD reads as the plain file, as the Diff surface draws one; Source lands back on the line", async () => {
-            const diff = await page(
-                h,
-                `const card = () => ${CARD};
-                card()?.querySelector('[data-peek-mode="diff"]')?.click();
-                const drawn = await until(() => card()?.querySelector("[data-diff-new-file] .monaco-editor .view-line") != null, ${WAIT_MS});
-                await nap(400);
-                const insert = card()?.querySelector("[data-diff-new-file] .view-overlays .line-insert");
-                return {
-                    drawn,
-                    caption: (card()?.textContent ?? "").includes("New file, not in HEAD"),
-                    pressed: card()?.querySelector('[data-peek-mode="diff"]')?.getAttribute("aria-pressed") ?? null,
-                    band: insert ? getComputedStyle(insert).backgroundColor : null,
-                };`
-            );
-            await h.shot("cdp-shots/workspace-file-newfile-diff.png");
-            await h.ev(`(${CARD})?.querySelector('[data-peek-mode="source"]')?.click()`);
-            const back = await landedOn(STATS_LINE);
-            const ok = diff.drawn && diff.caption && diff.pressed === "true" && diff.band === "rgba(0, 0, 0, 0)" && back;
-            return [ok, { ...diff, back }];
+        await step("A file new since HEAD offers no Diff mode in the File tab", async () => {
+            const f = await facts();
+            return [f.active === statsKey && (f.stat ?? "").includes("new file") && f.modes === 0, f];
         });
 
         await step("a second click on the same link keeps the one tab and its card open", async () => {
@@ -324,16 +317,7 @@ export const workspaceFile = {
                 const viewLine = ed?.querySelector(".view-lines .view-line");
                 const band = card?.querySelector(".peek-cited-line");
                 const citedNo = card?.querySelector(".peek-cited-line-number");
-                // the tokens resolved to the computed form an element's colour reads back in
-                const probe = document.createElement("div");
-                document.body.append(probe);
-                const token = (name) => {
-                    probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-                    return getComputedStyle(probe).color;
-                };
-                const accentbg = token("--color-accentbg");
-                const accentSoft = token("--color-accent-soft");
-                probe.remove();
+                ${TOKEN_COLORS}
                 return {
                     active: ws(${A}).active,
                     tabs: ws(${A}).tabs.length,
@@ -368,6 +352,93 @@ export const workspaceFile = {
                 f.bandColor === f.accentbg &&
                 f.numberColor === f.accentSoft;
             return [ok, { clicked, landed, ...f }];
+        });
+
+        await step("Diff on the changed file draws the Changes tab's hunk rows: a function label, one number column, +/- bands, the long line wrapped, the cited number bold accent-soft with no extra band (Diff board)", async () => {
+            const f = await page(
+                h,
+                `const card = () => ${CARD};
+                card()?.querySelector('[data-peek-mode="diff"]')?.click();
+                const drawn = await until(() => card()?.querySelector("[data-changes-hunk] [data-diff-line]") != null, ${WAIT_MS});
+                await nap(${SETTLE_MS});
+                const c = card();
+                const body = c?.querySelector("[data-peek-diff]")?.getBoundingClientRect();
+                const rows = [...(c?.querySelectorAll("[data-diff-line]") ?? [])];
+                const no = (r) => r.querySelector("[data-diff-no]");
+                const bg = (r) => (r ? getComputedStyle(r).backgroundColor : null);
+                const cited = [...(c?.querySelectorAll("[data-diff-cited]") ?? [])];
+                const citedRow = cited[0];
+                const citedBox = citedRow?.getBoundingClientRect();
+                const plainAdded = rows.find((r) => r.dataset.diffLine === "+" && !r.hasAttribute("data-diff-cited"));
+                const removed = rows.find((r) => r.dataset.diffLine === "-");
+                ${TOKEN_COLORS}
+                return {
+                    drawn,
+                    pressed: c?.querySelector('[data-peek-mode="diff"]')?.getAttribute("aria-pressed") ?? null,
+                    monaco: c?.querySelector(".monaco-editor") != null,
+                    labels: [...(c?.querySelectorAll("[data-changes-hunk-label]") ?? [])].map((l) => l.lastElementChild?.textContent.trim()),
+                    numberColumns: citedRow ? citedRow.querySelectorAll("[data-diff-no]").length : null,
+                    addedBand: bg(plainAdded),
+                    removedBand: bg(removed),
+                    cited: cited.length,
+                    citedNo: citedRow ? no(citedRow).textContent.trim() : null,
+                    citedWeight: citedRow ? getComputedStyle(no(citedRow)).fontWeight : null,
+                    citedColor: citedRow ? getComputedStyle(no(citedRow)).color : null,
+                    accentSoft,
+                    citedBand: bg(citedRow),
+                    citedHeight: citedBox?.height ?? null,
+                    inView: !!body && !!citedBox && citedBox.top >= body.top && citedBox.bottom <= body.bottom,
+                };`
+            );
+            await h.shot("cdp-shots/workspace-file-diff.png");
+            await h.ev(`(${CARD})?.querySelector('[data-peek-mode="source"]')?.click()`);
+            const back = await landedOn(GROUPS_LINE);
+            const clear = "rgba(0, 0, 0, 0)";
+            const ok =
+                f.drawn &&
+                f.pressed === "true" &&
+                !f.monaco &&
+                f.labels.includes(GROUPS_HUNK_LABEL) &&
+                f.numberColumns === 1 &&
+                f.addedBand != null &&
+                f.addedBand !== clear &&
+                f.removedBand != null &&
+                f.removedBand !== clear &&
+                f.removedBand !== f.addedBand &&
+                f.cited === 1 &&
+                f.citedNo === String(GROUPS_LINE) &&
+                f.citedWeight === "700" &&
+                f.citedColor === f.accentSoft &&
+                f.citedBand === f.addedBand &&
+                f.citedHeight > 20 &&
+                f.inView &&
+                back;
+            return [ok, { ...f, back }];
+        });
+
+        await step("Diff on a committed, unchanged file reads No line changes", async () => {
+            await h.ev(`document.querySelector('${tabSel(dedupeKey)} [role="tab"]')?.click()`);
+            const landed = await landedOn(DEDUPE_LINE);
+            const f = await page(
+                h,
+                `const D = await mod("app/view/agents/diffhunks.tsx");
+                const card = () => ${CARD};
+                card()?.querySelector('[data-peek-mode="diff"]')?.click();
+                const drawn = await until(() => card()?.querySelector("[data-changes-note]") != null, ${WAIT_MS});
+                await nap(${SETTLE_MS});
+                const c = card();
+                return {
+                    drawn,
+                    active: ws(${A}).active,
+                    note: c?.querySelector("[data-changes-note]")?.textContent.trim() ?? null,
+                    expected: D.DIFF_NOTES.empty,
+                    rows: c?.querySelectorAll("[data-diff-line]").length ?? null,
+                    monaco: c?.querySelector(".monaco-editor") != null,
+                };`
+            );
+            await h.shot("cdp-shots/workspace-file-diff-empty.png");
+            const ok = landed && f.drawn && f.active === dedupeKey && f.note === f.expected && f.rows === 0 && !f.monaco;
+            return [ok, { landed, ...f }];
         });
 
         await step("An image is drawn fit to the pane, its size and Copy path under it, no modes, Open in Code (Image board)", async () => {
