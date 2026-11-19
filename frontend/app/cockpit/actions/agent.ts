@@ -3,7 +3,6 @@ import {
     confirmCloseSession,
     dismissAgent,
     driveAgent,
-    interruptAgent,
     NUDGE_INPUT,
     toggleAgentBackground,
 } from "@/app/view/agents/agentactions";
@@ -16,6 +15,7 @@ import { liveEntriesByIdAtom } from "@/app/view/agents/livetranscriptatoms";
 import { isEndedWorkerId } from "@/app/view/agents/runlineage";
 import { isStandingBy } from "@/app/view/agents/shelltasks";
 import { shellTasksByIdAtom } from "@/app/view/agents/shelltasksstore";
+import { stopAgent } from "@/app/view/agents/stopsend";
 import { subagentsByIdAtom } from "@/app/view/agents/subagentsstore";
 import { askBoardAction, boardChannelFor } from "./boardask";
 import type { ThingAction, ThingKindDef } from "./types";
@@ -99,7 +99,7 @@ const actions: ThingAction<AgentThing>[] = [
         label: "Interrupt",
         group: "steer",
         applies: ({ agent }) => agent.blockId != null,
-        run: ({ agent }) => interruptAgent(agent.blockId),
+        run: ({ agent }) => stopAgent(agent),
     },
     {
         id: "agent:compact",

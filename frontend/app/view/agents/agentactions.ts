@@ -97,11 +97,6 @@ export function driveAgent(blockId: string | undefined, data: string): void {
     );
 }
 
-// interruptAgent cancels the current turn: Esc typed into the terminal, as the composer would
-export function interruptAgent(blockId: string | undefined): void {
-    driveAgent(blockId, "\x1b");
-}
-
 export function toggleAgentBackground(model: Pick<AgentsViewModel, "backgroundedIdsAtom">, id: string): void {
     globalStore.set(model.backgroundedIdsAtom, toggleInSet(globalStore.get(model.backgroundedIdsAtom), id));
 }

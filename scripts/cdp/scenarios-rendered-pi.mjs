@@ -388,6 +388,46 @@ export const renderedPi = {
             return [ok, { clicked, esc: esc.ok, early, ordered, enters, cleared, input: JSON.stringify(after.text.slice(-40)) }];
         });
 
+        await step("rendered-pi: with a foot queued again, the header's Interrupt turn types Esc, then one Enter after P's idle report, and the foot clears", async () => {
+            await setPState(h, ctx, "working");
+            await publishStatus(h, ctx, { state: "working", detail: "running go test" });
+            await new Promise((r) => setTimeout(r, 50));
+            const sentFrom = probeLines(ctx).length;
+            await wait(`${TA} != null`);
+            await typeComposer(h, STEER);
+            await pressInBox(h, "Enter");
+            const typed = await waitDecoded(ctx, sentFrom, [STEER]);
+            const queued = await wait(`(() => { const f = ${FOOT}; return f.items.length === 1 && f.items[0] === ${JSON.stringify(STEER)}; })()`);
+            const from = probeLines(ctx).length;
+            const menu = await agentPage(
+                h,
+                `const { contextMenuAtom, closeContextMenu } = await mod("app/store/contextmenu.ts");
+                const hd = ${SURF}?.querySelector("[data-agent-header]");
+                if (hd == null) return { error: "no [data-agent-header]" };
+                hd.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+                await until(() => globalStore.get(contextMenuAtom) != null, 2000);
+                const hit = (globalStore.get(contextMenuAtom)?.items ?? []).find((i) => i.label === "Interrupt turn");
+                closeContextMenu();
+                hit?.click?.();
+                return { picked: hit != null };`
+            );
+            const esc = await waitDecoded(ctx, from, ["\x1b"]);
+            await new Promise((r) => setTimeout(r, HOLD_MS));
+            const before = await waitDecoded(ctx, from, ["\x1b"]);
+            const early = before.text.slice(before.text.indexOf("\x1b")).includes("\r");
+            await publishStatus(h, ctx, { state: "idle" });
+            await waitDecoded(ctx, from, ["\x1b", "\r"]);
+            // a second Enter would follow at once, so give it the time to land before counting
+            await new Promise((r) => setTimeout(r, HOLD_MS));
+            const after = await waitDecoded(ctx, from, ["\x1b", "\r"]);
+            const ordered = after.text.indexOf("\r", after.text.indexOf("\x1b")) > 0;
+            const enters = after.text.split("\r").length - 1;
+            const cleared = await wait(`${RV}?.querySelector("[data-queued-foot]") == null`);
+            await setPState(h, ctx, "idle");
+            const ok = typed.ok && queued && menu?.picked === true && esc.ok && !early && after.ok && ordered && enters === 1 && cleared;
+            return [ok, { typed: typed.ok, queued, menu, esc: esc.ok, early, ordered, enters, cleared, input: JSON.stringify(after.text.slice(-40)) }];
+        });
+
         await step("rendered-pi: an ask raised for P's block docks as the card in its column, and the box's notice names Pi", async () => {
             const rtn = await h.rpc("ask", { oref, questions: [ASK_QUESTION] });
             ctx.askRaised = true;

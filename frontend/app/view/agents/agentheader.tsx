@@ -32,7 +32,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { Fragment, useEffect, useRef } from "react";
-import { confirmCloseSession, interruptAgent } from "./agentactions";
+import { confirmCloseSession } from "./agentactions";
 import { getLastOutputAtom } from "./agentcontrollerstore";
 import { hungSilenceMs } from "./agenthung";
 import { showPane, usePaneShown } from "./agentpanes";
@@ -60,6 +60,7 @@ import { runtimeMeta } from "./runtimemeta";
 import { isStandingBy } from "./shelltasks";
 import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
+import { stopAgent } from "./stopsend";
 import { subagentsByIdAtom } from "./subagentsstore";
 import { openBeside } from "./workspacestore";
 
@@ -299,8 +300,8 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
         );
     }
 
-    // Esc cancels the current Claude turn — same PTY-write path as the composer (ControllerInputCommand).
-    const interrupt = () => interruptAgent(blockId);
+    // the Rendered box's Stop: Esc cancels the turn, then a pi agent's queued steers are sent once it settles
+    const interrupt = () => stopAgent(agent);
 
     // Close the whole session (a tab, per launchAgent) — shared with the double-Ctrl+C handler. The
     // header also fronts background terminals, so the noun follows what is actually focused.
