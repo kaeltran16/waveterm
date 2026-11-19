@@ -65,7 +65,7 @@ import {
     setWorkspaceCollapsed,
     workspaceAtom,
 } from "@/app/view/agents/workspacestore";
-import { boardOwnsEscapeAtom, setBoardEscape } from "@/app/view/boards/boardstore";
+import { boardOwnsEscapeAtom, registerBoardEscape } from "@/app/view/boards/boardstore";
 import { codePeekFocusedAtom, openPeekInCode } from "@/app/view/code/codepeekstore";
 import { codeSearchModeAtom } from "@/app/view/code/codesearchstore";
 import {
@@ -359,10 +359,12 @@ describe("Escape on the Boards surface", () => {
         buildGlobalBindings(model)
             .filter((b) => b.keys === "Escape" && (b.when ? b.when(c) : true))
             .map((b) => b.id);
+    let canvas: ReturnType<typeof registerBoardEscape> | null = null;
 
     afterEach(() => {
+        canvas?.unregister();
+        canvas = null;
         globalStore.set(boardOwnsEscapeAtom, false);
-        setBoardEscape(null);
     });
 
     it("g w goes to Boards", () => {
@@ -376,7 +378,7 @@ describe("Escape on the Boards surface", () => {
         globalStore.set(boardOwnsEscapeAtom, true);
         expect(liveEscapes(boards)).toEqual(["boards:clear"]);
         const clear = vi.fn();
-        setBoardEscape(clear);
+        canvas = registerBoardEscape(clear);
         buildGlobalBindings(model)
             .find((b) => b.id === "boards:clear")!
             .run(boards);

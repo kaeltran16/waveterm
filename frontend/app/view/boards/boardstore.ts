@@ -150,27 +150,37 @@ export function onLiveBoardRegistered(fn: (channelId: string, boardId: string) =
     };
 }
 
-// --- Escape: an open ask form's Cancel first, then the canvas's selection or tool
+// --- Escape: an open ask form's Cancel first, then the newest mounted canvas's selection or tool
 
-let boardEscape: (() => void) | null = null;
+type CanvasEscape = { clear: () => void; owns: boolean };
+
+// one board can be mounted twice (its workspace tab stays mounted with the Agent surface), so each canvas keeps
+// its own entry and only the newest one still mounted answers Escape; an off-screen canvas never holds it
+const canvasEscapes: CanvasEscape[] = [];
 let formEscape: (() => void) | null = null;
-let canvasOwnsEscape = false;
 
 function syncOwnsEscape(): void {
-    globalStore.set(boardOwnsEscapeAtom, formEscape != null || canvasOwnsEscape);
+    globalStore.set(boardOwnsEscapeAtom, formEscape != null || (canvasEscapes.at(-1)?.owns ?? false));
 }
 
 // the canvas registers what clearing its selection or tool means; the keybindings never import Excalidraw
-export function setBoardEscape(fn: (() => void) | null): void {
-    boardEscape = fn;
-    if (fn == null) {
-        setCanvasOwnsEscape(false);
-    }
-}
-
-export function setCanvasOwnsEscape(owns: boolean): void {
-    canvasOwnsEscape = owns;
+export function registerBoardEscape(clear: () => void): { setOwns(owns: boolean): void; unregister(): void } {
+    const entry: CanvasEscape = { clear, owns: false };
+    canvasEscapes.push(entry);
     syncOwnsEscape();
+    return {
+        setOwns(owns: boolean) {
+            entry.owns = owns;
+            syncOwnsEscape();
+        },
+        unregister() {
+            const i = canvasEscapes.indexOf(entry);
+            if (i >= 0) {
+                canvasEscapes.splice(i, 1);
+            }
+            syncOwnsEscape();
+        },
+    };
 }
 
 // an open ask form cancels on Escape even when focus is on its buttons, before the shell's Escape-home sees it
@@ -180,7 +190,7 @@ export function setBoardFormEscape(fn: (() => void) | null): void {
 }
 
 export function runBoardEscape(): boolean {
-    const fn = formEscape ?? boardEscape;
+    const fn = formEscape ?? canvasEscapes.at(-1)?.clear;
     if (fn == null) {
         return false;
     }

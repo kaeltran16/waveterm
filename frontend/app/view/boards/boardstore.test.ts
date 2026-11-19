@@ -24,12 +24,11 @@ import {
     onBoardUpdate,
     onLiveBoardRegistered,
     openBoardByChannelAtom,
+    registerBoardEscape,
     registerLiveBoard,
     runBoardEscape,
     selectBoard,
-    setBoardEscape,
     setBoardFormEscape,
-    setCanvasOwnsEscape,
 } from "./boardstore";
 
 const ABOUT: BoardSource = { kind: "project", ref: "", title: "" };
@@ -161,20 +160,46 @@ describe("the open canvas's hooks", () => {
         expect(liveBoardApply("b1")).toBeUndefined();
     });
 
-    it("runs the canvas's Escape while one is registered", () => {
-        const clear = vi.fn();
-        setBoardEscape(clear);
+    it("runs the top canvas's Escape, and falls back as canvases unmount in either order", () => {
+        const first = vi.fn();
+        const second = vi.fn();
+        const a = registerBoardEscape(first);
+        const b = registerBoardEscape(second);
         expect(runBoardEscape()).toBe(true);
-        expect(clear).toHaveBeenCalledOnce();
-        setBoardEscape(null);
+        expect(second).toHaveBeenCalledOnce();
+        expect(first).not.toHaveBeenCalled();
+        b.unregister();
+        runBoardEscape();
+        expect(first).toHaveBeenCalledOnce();
+        const c = registerBoardEscape(second);
+        a.unregister();
+        runBoardEscape();
+        expect(second).toHaveBeenCalledTimes(2);
+        expect(first).toHaveBeenCalledOnce();
+        c.unregister();
         expect(runBoardEscape()).toBe(false);
+    });
+
+    it("owns Escape by the top canvas's flag only", () => {
+        const lower = registerBoardEscape(vi.fn());
+        const top = registerBoardEscape(vi.fn());
+        lower.setOwns(true);
+        expect(globalStore.get(boardOwnsEscapeAtom)).toBe(false);
+        top.setOwns(true);
+        expect(globalStore.get(boardOwnsEscapeAtom)).toBe(true);
+        top.unregister();
+        expect(globalStore.get(boardOwnsEscapeAtom)).toBe(true);
+        lower.setOwns(false);
+        expect(globalStore.get(boardOwnsEscapeAtom)).toBe(false);
+        lower.setOwns(true);
+        lower.unregister();
+        expect(globalStore.get(boardOwnsEscapeAtom)).toBe(false);
     });
 
     it("an open form owns Escape before the canvas, and gives it back when it closes", () => {
         const clear = vi.fn();
         const cancel = vi.fn();
-        setBoardEscape(clear);
-        setCanvasOwnsEscape(false);
+        const canvas = registerBoardEscape(clear);
         setBoardFormEscape(cancel);
         expect(globalStore.get(boardOwnsEscapeAtom)).toBe(true);
         runBoardEscape();
@@ -182,9 +207,9 @@ describe("the open canvas's hooks", () => {
         expect(clear).not.toHaveBeenCalled();
         setBoardFormEscape(null);
         expect(globalStore.get(boardOwnsEscapeAtom)).toBe(false);
-        setCanvasOwnsEscape(true);
+        canvas.setOwns(true);
         expect(globalStore.get(boardOwnsEscapeAtom)).toBe(true);
-        setBoardEscape(null);
+        canvas.unregister();
         expect(globalStore.get(boardOwnsEscapeAtom)).toBe(false);
     });
 });

@@ -570,6 +570,43 @@ export const boardsWorkspace = {
             return { ok, detail: q({ onBoards, toasted, toast, landed, surface, s }) };
         });
 
+        await run("Escape with the board mounted twice: with the board tab active in the agent's workspace and the same board open on Boards, closing that tab leaves Escape to the Boards canvas: a selected shape clears and the surface stays Boards", async () => {
+            const CANVAS = `${BOARDS_SURFACE}?.querySelector(".excalidraw")`;
+            // Excalidraw's App component off the Boards canvas's fiber
+            const APP = `(() => {
+                const el = ${CANVAS};
+                const key = el && Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
+                for (let f = key ? el[key] : null; f != null; f = f.return) {
+                    if (typeof f.stateNode?.updateScene === "function" && f.stateNode?.scene != null) return f.stateNode;
+                }
+                return null;
+            })()`;
+            const SELECTED = `Object.values(${APP}?.state?.selectedElementIds ?? {}).filter(Boolean).length`;
+            const tabActive = (await readPane(h)).active === `Board · ${BOARD}`;
+            await page(h, `await B.loadBoardList(fx.channelId); B.selectBoard(fx.channelId, ${q(ctx.boardId)}); return true;`);
+            await h.goto("boards");
+            const onBoards = await polishWaitFor(h, `${text(SWITCHER)} === ${q(BOARD)} && !!${CANVAS} && ${APP} != null`, WAIT_MS);
+            const mountedTwice = await h.ev(`document.querySelectorAll(".excalidraw").length === 2 && !!${TAB}?.querySelector(".excalidraw")`);
+            await page(h, `W.closeWorkspaceTab(${q(ctx.agentId)}, ${q(BOARD_KEY(ctx))}); return true;`);
+            const unmounted = await polishWaitFor(h, `document.querySelectorAll(".excalidraw").length === 1 && !!${CANVAS}`, WAIT_MS);
+            await h.ev(`(() => {
+                const app = ${APP};
+                const shape = app.scene.getNonDeletedElements().find((e) => e.type === "rectangle");
+                app.updateScene({ appState: { selectedElementIds: { [shape.id]: true } }, captureUpdate: "NEVER" });
+            })()`);
+            const selected = await polishWaitFor(h, `${SELECTED} === 1`, WAIT_MS);
+            await h.ev(`(() => {
+                document.activeElement?.blur?.();
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
+            })()`);
+            const cleared = await polishWaitFor(h, `${SELECTED} === 0`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const surface = await h.activeSurfaceLabel();
+            await h.shot(SHOT("escape", "mounted-twice"));
+            const ok = tabActive && onBoards && mountedTwice && unmounted && selected && cleared && surface === "Boards";
+            return { ok, detail: q({ tabActive, onBoards, mountedTwice, unmounted, selected, cleared, surface }) };
+        });
+
         return steps;
     },
     async teardown(h, ctx) {
