@@ -25,7 +25,7 @@ import { cardVariants, shouldFadeEntry, viewFade } from "@/app/element/motiontok
 import { PaneReveal } from "@/app/element/panereveal";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { conversationText, formatTokens, type AgentEntry } from "./agentsviewmodel";
-import { ArcMessageRow, HumanActionRow } from "./arcmessagerow";
+import { ArcMessageRow, BoardChip, HumanActionRow } from "./arcmessagerow";
 import { ClampedText } from "./clampedtext";
 import { MarkdownMessage } from "./markdownmessage";
 import { placeMarks, type TimelineMark } from "./permissionmodel";
@@ -877,6 +877,24 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                     animate="animate"
                 >
                     <InterruptedDivider compact={isCompact} />
+                </motion.div>
+            );
+        }
+        if (item.kind === "arc" && item.message.kind === "board") {
+            return (
+                <motion.div
+                    key={"a" + item.index}
+                    data-arc-message="board"
+                    data-user-bubble
+                    data-entry-index={item.index}
+                    className={cn("flex flex-col items-end gap-1.5", isCompact ? "my-3.5 ml-7" : "my-6")}
+                    onContextMenu={copyMenu(item.message.text)}
+                    variants={viewFade}
+                    initial={shouldFadeEntry("user") ? "initial" : false}
+                    animate="animate"
+                >
+                    <BoardChip message={item.message} compact={isCompact} />
+                    <PersonBubble text={item.message.text} clamp={!unfold} compact={isCompact} />
                 </motion.div>
             );
         }

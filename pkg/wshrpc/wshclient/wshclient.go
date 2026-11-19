@@ -229,10 +229,22 @@ func BoardReadCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardRefData, opts *
 	return resp, err
 }
 
+// command "boardreroute", wshserver.BoardRerouteCommand
+func BoardRerouteCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardTurnData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "boardreroute", data, opts)
+	return err
+}
+
 // command "boardsave", wshserver.BoardSaveCommand
 func BoardSaveCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardSaveData, opts *wshrpc.RpcOpts) (*wshrpc.BoardSaveRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.BoardSaveRtnData](w, "boardsave", data, opts)
 	return resp, err
+}
+
+// command "boardsetagent", wshserver.BoardSetAgentCommand
+func BoardSetAgentCommand(w *wshutil.WshRpc, data wshrpc.CommandBoardSetAgentData, opts *wshrpc.RpcOpts) error {
+	_, err := sendRpcRequestCallHelper[any](w, "boardsetagent", data, opts)
+	return err
 }
 
 // command "boardstart", wshserver.BoardStartCommand

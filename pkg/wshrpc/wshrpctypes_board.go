@@ -20,6 +20,8 @@ type BoardCommands interface {
 	BoardAskChoiceCommand(ctx context.Context, data CommandBoardChoiceData) error
 	BoardAnswerInboxCommand(ctx context.Context, data CommandBoardInboxData) ([]BoardAnswer, error)
 	BoardAnswerAckCommand(ctx context.Context, data CommandBoardAnswerAckData) error
+	BoardRerouteCommand(ctx context.Context, data CommandBoardTurnData) error
+	BoardSetAgentCommand(ctx context.Context, data CommandBoardSetAgentData) error
 }
 
 type CommandBoardListData struct {
@@ -42,7 +44,10 @@ type BoardInfo struct {
 	Questions  int    `json:"questions,omitempty"`
 	About      string `json:"about,omitempty"` // the talk's about title; empty = the project's code
 	AnsweredTs int64  `json:"answeredts,omitempty"`
-	ActiveTs   int64  `json:"activets,omitempty"` // last turn or answer, else created
+	ActiveTs   int64  `json:"activets,omitempty"`   // last turn or answer, else created
+	AgentTabId string `json:"agenttabid,omitempty"` // the agent the board is tied to
+	Drawings   int    `json:"drawings,omitempty"`   // turns that drew
+	DrawnTs    int64  `json:"drawnts,omitempty"`    // when the last of them was applied
 }
 
 type CommandBoardRefData struct {
@@ -105,15 +110,36 @@ type BoardArcRecord struct {
 	CreatedTs int64  `json:"createdts"`
 }
 
-// BoardUpdateData is board:update's payload. What: list | talk | answer.
+// BoardUpdateData is board:update's payload. What: list | talk | answer | join.
 type BoardUpdateData struct {
-	ChannelId string `json:"channelid"`
-	BoardId   string `json:"boardid,omitempty"`
-	What      string `json:"what"`
-	Reason    string `json:"reason,omitempty"`
-	TurnId    string `json:"turnid,omitempty"`
-	State     string `json:"state,omitempty"`
-	From      string `json:"from,omitempty"` // a briefing's sender
+	ChannelId  string `json:"channelid"`
+	BoardId    string `json:"boardid,omitempty"`
+	What       string `json:"what"`
+	Reason     string `json:"reason,omitempty"`
+	TurnId     string `json:"turnid,omitempty"`
+	State      string `json:"state,omitempty"`
+	From       string `json:"from,omitempty"`       // a briefing's sender
+	AgentTabId string `json:"agenttabid,omitempty"` // join: the agent whose workspace the board opens in
+}
+
+// BoardAgent is the agent a board is tied to. Only claude and pi agents are tied.
+type BoardAgent struct {
+	TabId   string `json:"tabid"`
+	Title   string `json:"title"`            // "claude · waveterm", as agentSourceTitle names it
+	Runtime string `json:"runtime"`          // "claude" | "pi"
+	ReadTs  int64  `json:"readts,omitempty"` // the drawer has read the agent's turns up to here
+}
+
+// BoardForward is a turn sent to the board's agent instead of drawn. State: held | sent | replied | needsagent.
+type BoardForward struct {
+	State   string `json:"state"`
+	TabId   string `json:"tabid,omitempty"` // the agent it went to; kept when the board's agent changes
+	Title   string `json:"title,omitempty"`
+	Runtime string `json:"runtime,omitempty"`
+	Reason  string `json:"reason,omitempty"` // needsagent: no agent, or the agent's tab is gone
+	SentTs  int64  `json:"sentts,omitempty"`
+	Reply   string `json:"reply,omitempty"`
+	ReplyTs int64  `json:"replyts,omitempty"`
 }
 
 // BoardTalk is a board's conversation with its drawer, kept in the <id>.talk.json sidecar that only wavesrv writes.
@@ -126,6 +152,7 @@ type BoardTalk struct {
 	// session from a summary
 	ContextTokens int           `json:"contexttokens,omitempty"`
 	Handoff       *BoardHandoff `json:"handoff,omitempty"`
+	Agent         *BoardAgent   `json:"agent,omitempty"`
 	Turns         []BoardTurn   `json:"turns"`
 }
 
@@ -142,8 +169,8 @@ type BoardBriefing struct {
 	Ask  string `json:"ask"`
 }
 
-// BoardTurn is one question and its answer. State: waiting | answering | answered | asks | failed | stopped.
-// Choice, on an asks turn: keep | new.
+// BoardTurn is one question and its answer. State: waiting | answering | answered | forwarded | asks | failed |
+// stopped. Choice, on an asks turn: keep | new. Route: draw | agent, empty on a turn from before routing.
 type BoardTurn struct {
 	ID          string         `json:"id"`
 	Ts          int64          `json:"ts"`
@@ -162,6 +189,9 @@ type BoardTurn struct {
 	AnsweredTs  int64          `json:"answeredts,omitempty"`
 	Reason      string         `json:"reason,omitempty"`
 	Choice      string         `json:"choice,omitempty"`
+	Route       string         `json:"route,omitempty"`
+	From        string         `json:"from,omitempty"` // the turn a send-the-other-way redoes
+	Forward     *BoardForward  `json:"forward,omitempty"`
 }
 
 type CommandBoardStartData struct {
@@ -185,6 +215,12 @@ type CommandBoardTurnData struct {
 	ChannelId string `json:"channelid"`
 	BoardId   string `json:"boardid"`
 	TurnId    string `json:"turnid"`
+}
+
+type CommandBoardSetAgentData struct {
+	ChannelId string `json:"channelid"`
+	BoardId   string `json:"boardid"`
+	TabId     string `json:"tabid"`
 }
 
 type CommandBoardChoiceData struct {

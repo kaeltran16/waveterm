@@ -77,6 +77,7 @@ export async function loadBoardTalk(channelId: string, boardId: string): Promise
         about: rtn?.about ?? { kind: "", ref: "", title: "" },
         sessionid: rtn?.sessionid,
         handoff: rtn?.handoff,
+        agent: rtn?.agent,
         turns: rtn?.turns ?? [],
     };
     if (latest()) {
@@ -118,23 +119,28 @@ export function subscribeBoardUpdates(): () => void {
 // lands an answer on the open canvas and returns the shape ids it added or changed
 export type LiveBoardApply = (answer: BoardAnswer) => Promise<string[]>;
 
-const liveBoards = new Map<string, LiveBoardApply>();
+// a stack per board: one board can be mounted twice (its tab in the agent's workspace, which stays mounted, and the
+// Boards surface), the newest applies answers, and when it goes the one before takes them again
+const liveBoards = new Map<string, LiveBoardApply[]>();
 const registeredListeners = new Set<(channelId: string, boardId: string) => void>();
 
 // the open canvas takes answers itself (updateScene), so a hand edit is never overwritten by a stale-rev save.
 // listeners hear every open, so a board's waiting answers land when it opens (a first open, a re-open, a Retry).
 export function registerLiveBoard(channelId: string, boardId: string, apply: LiveBoardApply): () => void {
-    liveBoards.set(boardId, apply);
+    liveBoards.set(boardId, [...(liveBoards.get(boardId) ?? []), apply]);
     registeredListeners.forEach((fn) => fn(channelId, boardId));
     return () => {
-        if (liveBoards.get(boardId) === apply) {
+        const rest = (liveBoards.get(boardId) ?? []).filter((fn) => fn !== apply);
+        if (rest.length > 0) {
+            liveBoards.set(boardId, rest);
+        } else {
             liveBoards.delete(boardId);
         }
     };
 }
 
 export function liveBoardApply(boardId: string): LiveBoardApply | undefined {
-    return liveBoards.get(boardId);
+    return liveBoards.get(boardId)?.at(-1);
 }
 
 export function onLiveBoardRegistered(fn: (channelId: string, boardId: string) => void): () => void {
@@ -144,27 +150,37 @@ export function onLiveBoardRegistered(fn: (channelId: string, boardId: string) =
     };
 }
 
-// --- Escape: an open ask form's Cancel first, then the canvas's selection or tool
+// --- Escape: an open ask form's Cancel first, then the newest mounted canvas's selection or tool
 
-let boardEscape: (() => void) | null = null;
+type CanvasEscape = { clear: () => void; owns: boolean };
+
+// one board can be mounted twice (its workspace tab stays mounted with the Agent surface), so each canvas keeps
+// its own entry and only the newest one still mounted answers Escape; an off-screen canvas never holds it
+const canvasEscapes: CanvasEscape[] = [];
 let formEscape: (() => void) | null = null;
-let canvasOwnsEscape = false;
 
 function syncOwnsEscape(): void {
-    globalStore.set(boardOwnsEscapeAtom, formEscape != null || canvasOwnsEscape);
+    globalStore.set(boardOwnsEscapeAtom, formEscape != null || (canvasEscapes.at(-1)?.owns ?? false));
 }
 
 // the canvas registers what clearing its selection or tool means; the keybindings never import Excalidraw
-export function setBoardEscape(fn: (() => void) | null): void {
-    boardEscape = fn;
-    if (fn == null) {
-        setCanvasOwnsEscape(false);
-    }
-}
-
-export function setCanvasOwnsEscape(owns: boolean): void {
-    canvasOwnsEscape = owns;
+export function registerBoardEscape(clear: () => void): { setOwns(owns: boolean): void; unregister(): void } {
+    const entry: CanvasEscape = { clear, owns: false };
+    canvasEscapes.push(entry);
     syncOwnsEscape();
+    return {
+        setOwns(owns: boolean) {
+            entry.owns = owns;
+            syncOwnsEscape();
+        },
+        unregister() {
+            const i = canvasEscapes.indexOf(entry);
+            if (i >= 0) {
+                canvasEscapes.splice(i, 1);
+            }
+            syncOwnsEscape();
+        },
+    };
 }
 
 // an open ask form cancels on Escape even when focus is on its buttons, before the shell's Escape-home sees it
@@ -174,7 +190,7 @@ export function setBoardFormEscape(fn: (() => void) | null): void {
 }
 
 export function runBoardEscape(): boolean {
-    const fn = formEscape ?? boardEscape;
+    const fn = formEscape ?? canvasEscapes.at(-1)?.clear;
     if (fn == null) {
         return false;
     }

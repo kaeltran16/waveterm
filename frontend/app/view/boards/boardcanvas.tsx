@@ -17,7 +17,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import "./boardcanvas.css";
 import { landAnswer } from "./boardconvert";
 import { parseBoardFile, serializeBoard, type BoardScene } from "./boardmodel";
-import { boardViewportAtom, registerLiveBoard, setBoardEscape, setCanvasOwnsEscape } from "./boardstore";
+import { boardViewportAtom, registerBoardEscape, registerLiveBoard } from "./boardstore";
 
 const AUTOSAVE_MS = 500;
 const SAVE_TRIES = 3;
@@ -99,6 +99,7 @@ export default function BoardCanvas({
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const savingRef = useRef<Promise<void>>(Promise.resolve());
     const ownsEscapeRef = useRef(false);
+    const escapeRef = useRef<ReturnType<typeof registerBoardEscape> | null>(null);
     const selectionRef = useRef("");
     // the latest callbacks, so the long-lived handlers below never call a stale render's
     const cbRef = useRef({ onLoaded, onScene, onError, onSelection });
@@ -196,7 +197,8 @@ export default function BoardCanvas({
             flush: () => flush().catch((e) => console.warn("boards: saving before an ask failed", boardId, e)),
             elements: () => apiRef.current?.getSceneElements() ?? [],
         };
-        setBoardEscape(() => {
+        ownsEscapeRef.current = false;
+        const escape = registerBoardEscape(() => {
             const api = apiRef.current;
             if (api == null) {
                 return;
@@ -207,6 +209,7 @@ export default function BoardCanvas({
                 captureUpdate: CaptureUpdateAction.NEVER,
             });
         });
+        escapeRef.current = escape;
         (async () => {
             try {
                 const read = await RpcApi.BoardReadCommand(TabRpcClient, ref);
@@ -233,7 +236,8 @@ export default function BoardCanvas({
             }
             unregister();
             controlRef.current = null;
-            setBoardEscape(null);
+            escape.unregister();
+            escapeRef.current = null;
             ready.reject(new Error("the board closed"));
         };
     }, [channelId, boardId]);
@@ -262,7 +266,7 @@ export default function BoardCanvas({
         const owns = ownsEscape(appState);
         if (owns !== ownsEscapeRef.current) {
             ownsEscapeRef.current = owns;
-            setCanvasOwnsEscape(owns);
+            escapeRef.current?.setOwns(owns);
         }
         const vpAtom = boardViewportAtom(boardId);
         const vp = globalStore.get(vpAtom);

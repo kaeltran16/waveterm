@@ -631,6 +631,15 @@ describe("layoutTranscript statuses and Arc messages", () => {
         expect(items[3]).toMatchObject({ kind: "arc", message: { kind: "agent", text: "rebase please" } });
     });
 
+    it("draws a forwarded board question as a board row, not a plain user bubble", () => {
+        const entries = [user('[From board "Checkout" · on Cart · turn t1]\nwhy two spinners?'), prose("the loader remounts")];
+        const items = layoutTranscript(entries, { active: false });
+        expect(items[0]).toMatchObject({
+            kind: "arc",
+            message: { kind: "board", board: "Checkout", on: "Cart", turnId: "t1", text: "why two spinners?" },
+        });
+    });
+
     it("flags only the last reply as latest", () => {
         const items = layoutTranscript([prose("a"), user("b"), prose("c")], { active: false });
         expect(items.filter((i) => i.kind === "message").map((i) => (i as any).latest)).toEqual([false, true]);

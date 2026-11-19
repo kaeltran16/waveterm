@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,11 +27,15 @@ import (
 
 const (
 	errTypeName        = "Type a name first"
-	errNeedsContext    = "pass the briefing with --context"
+	errNeedsText       = "pass --ask, or --context to brief a new board"
 	boardUpdateTalk    = "talk"
 	boardAnsweringMark = "answering"
 	boardSourceAgent   = "agent"
+	boardUpdateJoin    = "join"
 )
+
+// boardAgentRuntimes are the agents a board can be tied to.
+var boardAgentRuntimes = map[string]bool{"claude": true, "pi": true}
 
 // boardAboutKinds is what a talk can be about; empty is the project's code.
 var boardAboutKinds = map[string]bool{
@@ -91,12 +96,28 @@ func newBoardDrawer(run func(ctx context.Context, cwd string, c boarddrawer.Call
 			return boardstore.PutAnswer(dir, a)
 		},
 		Publish: publishBoardUpdate,
+		Forward: func(b boarddrawer.Board, turnId string) { forwardBoardTurn(b, turnId) },
 		Run:     run,
 	})
 }
 
 func publishBoardUpdate(u wshrpc.BoardUpdateData) {
 	wps.Broker.Publish(wps.WaveEvent{Event: wps.Event_BoardUpdate, Data: u})
+}
+
+// publishBoardJoin tells the frontend a board now belongs in an agent's workspace.
+func publishBoardJoin(channelId, boardId, tabId string) {
+	publishBoardUpdate(wshrpc.BoardUpdateData{ChannelId: channelId, BoardId: boardId, What: boardUpdateJoin, AgentTabId: tabId})
+}
+
+// boardAgentOf is the agent a board is tied to when tab is it, or false for a runtime other than claude or pi.
+// The runtime reads as agentSourceTitle does: a tab that names none is claude.
+func boardAgentOf(tab *waveobj.Tab, project string) (wshrpc.BoardAgent, bool) {
+	runtime := tab.Meta.GetString(waveobj.MetaKey_SessionAgent, "claude")
+	if !boardAgentRuntimes[runtime] {
+		return wshrpc.BoardAgent{}, false
+	}
+	return wshrpc.BoardAgent{TabId: tab.OID, Title: agentSourceTitle(tab, project), Runtime: runtime, ReadTs: time.Now().UnixMilli()}, true
 }
 
 // drawerBoard resolves a board for the drawer. A board whose file won't parse still resolves, with LoadError set,
@@ -170,8 +191,9 @@ func (ws *WshServer) BoardStartCommand(ctx context.Context, data wshrpc.CommandB
 	if err != nil {
 		return nil, err
 	}
+	agent := aboutAgent(ctx, data.About, ch.Name)
 	_, err = boardstore.UpdateTalk(dir, info.ID, func(talk *wshrpc.BoardTalk) error {
-		talk.ChannelId, talk.About, talk.Handoff = ch.OID, data.About, handoff
+		talk.ChannelId, talk.About, talk.Handoff, talk.Agent = ch.OID, data.About, handoff, agent
 		return nil
 	})
 	if err != nil {
@@ -185,6 +207,24 @@ func (ws *WshServer) BoardStartCommand(ctx context.Context, data wshrpc.CommandB
 		}
 	}
 	return &info, nil
+}
+
+// aboutAgent is the agent a board about an agent is tied to: nil for any other about, for a runtime other than claude
+// or pi, and for a tab that cannot be loaded (the board is still made; it just starts untied).
+func aboutAgent(ctx context.Context, about wshrpc.BoardSource, project string) *wshrpc.BoardAgent {
+	if about.Kind != boardSourceAgent {
+		return nil
+	}
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, about.Ref)
+	if err != nil || tab == nil {
+		log.Printf("boards: not tying a board to agent %s: tab not loaded (%v)\n", about.Ref, err)
+		return nil
+	}
+	agent, ok := boardAgentOf(tab, project)
+	if !ok {
+		return nil
+	}
+	return &agent
 }
 
 func (ws *WshServer) BoardTalkCommand(ctx context.Context, data wshrpc.CommandBoardRefData) (*wshrpc.BoardTalk, error) {
@@ -321,9 +361,9 @@ func (ws *WshServer) BoardAgentDrawCommand(ctx context.Context, data wshrpc.Comm
 	if data.BlockId == "" || name == "" {
 		return nil, errors.New("a block id and a board name are required")
 	}
-	brief := strings.TrimSpace(data.Context)
-	if brief == "" {
-		return nil, errors.New(errNeedsContext)
+	brief, ask := strings.TrimSpace(data.Context), strings.TrimSpace(data.Ask)
+	if brief == "" && ask == "" {
+		return nil, errors.New(errNeedsText)
 	}
 	tabId, err := wstore.DBFindTabForBlockId(ctx, data.BlockId)
 	if err != nil {
@@ -338,26 +378,46 @@ func (ws *WshServer) BoardAgentDrawCommand(ctx context.Context, data wshrpc.Comm
 		return nil, err
 	}
 	dir := boardstore.ProjectDir(ch.Name)
-	info, created, err := boardByName(dir, ch.OID, name)
+	info, found, err := findBoardByName(dir, ch.OID, name)
 	if err != nil {
 		return nil, err
 	}
+	if !found && brief == "" {
+		return nil, fmt.Errorf("there is no board %q in %s: pass the briefing with --context to make it", name, ch.Name)
+	}
+	if !found {
+		if info, err = boardstore.Create(dir, ch.OID, name, "", time.Now().UnixMilli()); err != nil {
+			return nil, err
+		}
+	}
+	created := !found
 	if info.LoadError != "" {
 		return nil, fmt.Errorf("board %q won't open: %s", info.Name, info.LoadError)
 	}
 	from := agentSourceTitle(tab, ch.Name)
-	if created {
-		about := wshrpc.BoardSource{Kind: boarddrawer.KindBriefing, Ref: tabId, Title: from, Text: brief}
-		_, err := boardstore.UpdateTalk(dir, info.ID, func(talk *wshrpc.BoardTalk) error {
-			talk.ChannelId, talk.About = ch.OID, about
-			return nil
-		})
-		if err != nil {
-			return nil, fmt.Errorf("board %s was made, but its talk could not be written: %w", info.Name, err)
+	agent, tieable := boardAgentOf(tab, ch.Name)
+	var tied, joins bool
+	_, err = boardstore.UpdateTalk(dir, info.ID, func(talk *wshrpc.BoardTalk) error {
+		talk.ChannelId = ch.OID
+		if created {
+			talk.About = wshrpc.BoardSource{Kind: boarddrawer.KindBriefing, Ref: tabId, Title: from, Text: brief}
 		}
+		if talk.Agent == nil && tieable {
+			talk.Agent, tied = &agent, true
+		}
+		joins = talk.Agent != nil && talk.Agent.TabId == tabId
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("board %s: its talk could not be written: %w", info.Name, err)
+	}
+	if created || tied {
 		publishBoardList(ch.OID, info.ID)
 	}
-	ask := strings.TrimSpace(data.Ask)
+	if joins {
+		// before the turn runs, so the tab is there when the drawing lands
+		publishBoardJoin(ch.OID, info.ID, tabId)
+	}
 	b := boarddrawer.Board{ChannelId: ch.OID, BoardId: info.ID, Name: info.Name, ProjectPath: ch.ProjectPath}
 	turn := wshrpc.BoardTurn{Question: ask, Briefing: &wshrpc.BoardBriefing{From: from, Text: brief, Ask: ask}}
 	if _, err := boardDrawer.Ask(b, turn); err != nil {
@@ -414,8 +474,8 @@ func agentChannel(ctx context.Context, tab *waveobj.Tab, blockId string) (*waveo
 	return ch, nil
 }
 
-// boardByName finds the board named name (trimmed, any case), the most recently active match first, or creates it.
-func boardByName(dir, channelId, name string) (wshrpc.BoardInfo, bool, error) {
+// findBoardByName is the board named name (trimmed, any case), the most recently active match first.
+func findBoardByName(dir, channelId, name string) (wshrpc.BoardInfo, bool, error) {
 	boards, err := boardstore.List(dir, channelId, nil)
 	if err != nil {
 		return wshrpc.BoardInfo{}, false, err
@@ -423,12 +483,8 @@ func boardByName(dir, channelId, name string) (wshrpc.BoardInfo, bool, error) {
 	// List orders most recently active first, so the first match is the newest
 	for _, b := range boards {
 		if strings.EqualFold(strings.TrimSpace(b.Name), name) {
-			return b, false, nil
+			return b, true, nil
 		}
 	}
-	info, err := boardstore.Create(dir, channelId, name, "", time.Now().UnixMilli())
-	if err != nil {
-		return wshrpc.BoardInfo{}, false, err
-	}
-	return info, true, nil
+	return wshrpc.BoardInfo{}, false, nil
 }

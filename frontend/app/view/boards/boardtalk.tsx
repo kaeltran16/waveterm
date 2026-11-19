@@ -1,18 +1,23 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The Boards surface's talk column (boards B1, B4-B7, B11): About, the conversation and the ask box. Thin render:
-// the items and the ask box's words come from boardtalkmodel.ts, and every action is the surface's.
+// A board's talk column (boards B1, B4-B7, B11, A2, W2): About, the turns and the ask box, on the Boards surface and
+// in the agent's workspace tab expanded. A turn is drawn or sent to the board's agent, and each of yours can go the
+// other way. Thin render: the items and the ask box's words come from boardtalkmodel.ts, and every action is the
+// caller's. AskBox is the narrow workspace tab's too.
 
-import { cardVariants, settleClass } from "@/app/element/motiontokens";
-import { runtimeMeta } from "@/app/view/agents/runtimemeta";
+import { useChangeFlash } from "@/app/element/motionhooks";
+import { cardVariants, changeFlashClass, settleClass } from "@/app/element/motiontokens";
 import { cn } from "@/util/util";
 import { CircleAlert, Shapes, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import type { TalkItem } from "./boardtalkmodel";
+import { AgentChoiceList, RuntimeDot } from "./boardagentpicker";
+import type { AgentChoice, TalkItem } from "./boardtalkmodel";
 
-const SMALL_BTN =
+export { RuntimeDot };
+
+export const SMALL_BTN =
     "cursor-pointer rounded-md border border-edge-mid bg-surface-raised px-[9px] py-[3px] text-[12px] font-semibold text-secondary hover:border-edge-strong hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const PRIMARY_BTN =
     "cursor-pointer rounded-lg border-0 bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -23,6 +28,10 @@ const ERROR_BTN =
 // Ask and the Stop that takes its place while an answer runs share a size, so the box doesn't shift between them
 const SEND_BTN =
     "inline-flex min-w-18 items-center justify-center gap-1.5 rounded-lg border-0 px-3.5 py-1.5 text-[12.5px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+// Send to the agent, Draw instead, Open agent: quiet text actions under a turn
+export const TEXT_BTN =
+    "cursor-pointer rounded border-0 bg-transparent p-0 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+const REROUTE_LABEL = { agent: "Send to the agent", draw: "Draw instead" } as const;
 const SELECTED_PREFIX = "Selected ";
 // the briefing's sender is "<runtime> · <project>", so its first word names the runtime's dot
 const FROM_SEPARATOR = " · ";
@@ -37,6 +46,14 @@ export interface BoardTalkProps {
     onStop: () => void;
     onRetry: (turnId: string) => void;
     onChoice: (turnId: string, choice: "keep" | "new") => void;
+    onReroute: (turnId: string) => void; // send the other way
+    onOpenAgent: (tabId: string) => void;
+    onBack?: () => void; // Back to the transcript, where the talk is expanded over it
+    // a turn that needs an agent: the project's live claude and pi agents, picking one, or starting one
+    agentChoices: AgentChoice[];
+    project: string;
+    onPickAgent: (tabId: string) => void;
+    onStartAgent: () => void;
 }
 
 export function AboutChip({ title, className }: { title: string; className?: string }) {
@@ -54,10 +71,6 @@ export function AboutChip({ title, className }: { title: string; className?: str
     );
 }
 
-export function RuntimeDot({ runtime }: { runtime: string | undefined }) {
-    return <span className={cn("h-[7px] w-[7px] shrink-0 rounded-full bg-current", runtimeMeta(runtime).text)} />;
-}
-
 function Question({ item }: { item: Extract<TalkItem, { kind: "question" }> }) {
     return (
         <div className="flex max-w-[85%] flex-col items-end gap-1 self-end">
@@ -67,11 +80,45 @@ function Question({ item }: { item: Extract<TalkItem, { kind: "question" }> }) {
                     on <span className="font-mono text-ink-mid">{item.on}</span>
                 </span>
             ) : null}
+            {item.rerouted ? (
+                <span data-board-rerouted className="text-[11.5px] text-muted">
+                    {item.rerouted}
+                </span>
+            ) : null}
         </div>
     );
 }
 
+export function RerouteButton({
+    turnId,
+    to,
+    onReroute,
+}: {
+    turnId: string;
+    to: "agent" | "draw";
+    onReroute: () => void;
+}) {
+    return (
+        <button
+            type="button"
+            data-board-reroute={turnId}
+            onClick={onReroute}
+            className={cn(TEXT_BTN, "text-muted hover:text-secondary")}
+        >
+            {REROUTE_LABEL[to]}
+        </button>
+    );
+}
+
 function Briefing({ item }: { item: Extract<TalkItem, { kind: "briefing" }> }) {
+    if (item.asked) {
+        return (
+            <div className="flex flex-col gap-1">
+                <span className="text-[11.5px] text-muted">the agent asked · {item.time}</span>
+                {item.ask ? <span className="text-[12.5px] text-ink-mid">{item.ask}</span> : null}
+            </div>
+        );
+    }
     return (
         <div className="flex flex-col gap-2 rounded-lg border border-edge-mid px-[11px] py-[9px]">
             <span className="flex items-center gap-[7px] text-[12px]">
@@ -90,11 +137,13 @@ function Reply({
     shown,
     settle,
     onShow,
+    onReroute,
 }: {
     item: Extract<TalkItem, { kind: "reply" }>;
     shown: boolean;
     settle: boolean;
     onShow: () => void;
+    onReroute: () => void;
 }) {
     const card = item.card;
     return (
@@ -124,6 +173,87 @@ function Reply({
                     </button>
                 </div>
             ) : null}
+            {item.reroute != null ? (
+                <span className="flex justify-end">
+                    <RerouteButton turnId={item.turnId} to={item.reroute} onReroute={onReroute} />
+                </span>
+            ) : null}
+        </div>
+    );
+}
+
+function Forward({
+    item,
+    props,
+}: {
+    item: Extract<TalkItem, { kind: "forward" }>;
+    props: Pick<
+        BoardTalkProps,
+        "onReroute" | "onOpenAgent" | "onBack" | "agentChoices" | "project" | "onPickAgent" | "onStartAgent"
+    >;
+}) {
+    // the line changing under you (waiting to sent, sent to answered) flashes once (moment 14)
+    const flash = useChangeFlash(item.line);
+    const needs = item.state === "needsagent";
+    const reroute = (
+        <RerouteButton turnId={item.turnId} to={item.reroute} onReroute={() => props.onReroute(item.turnId)} />
+    );
+    return (
+        <div
+            data-board-forward={item.state}
+            className={cn(
+                "flex flex-col gap-2",
+                // a question waiting for an agent breathes until one is picked (moment 3)
+                needs && "pulse-glow rounded-lg border border-warning/40 bg-surface px-[11px] py-[9px]"
+            )}
+        >
+            <span
+                data-board-forward-line
+                className={cn(
+                    "self-start rounded text-[11.5px]",
+                    needs ? "font-semibold text-warning" : "text-muted",
+                    flash && changeFlashClass
+                )}
+            >
+                {item.line}
+            </span>
+            {item.reason ? <span className="text-[12.5px] text-secondary">{item.reason}</span> : null}
+            {item.reply != null ? (
+                <span data-board-forward-reply className="whitespace-pre-wrap text-ink-hi">
+                    {item.reply}
+                </span>
+            ) : null}
+            {needs ? (
+                <AgentChoiceList
+                    choices={props.agentChoices}
+                    project={props.project}
+                    onPick={props.onPickAgent}
+                    onStart={props.onStartAgent}
+                />
+            ) : null}
+            <span className="flex items-center gap-3">
+                {item.way === "open" && item.agentTabId ? (
+                    <button
+                        type="button"
+                        data-board-open-agent={item.agentTabId}
+                        onClick={() => props.onOpenAgent(item.agentTabId)}
+                        className={cn(TEXT_BTN, "text-accent-soft hover:text-primary")}
+                    >
+                        Open agent
+                    </button>
+                ) : null}
+                {item.way === "back" && props.onBack != null ? (
+                    <button
+                        type="button"
+                        data-board-back
+                        onClick={props.onBack}
+                        className={cn(TEXT_BTN, "text-accent-soft hover:text-primary")}
+                    >
+                        Back to the transcript
+                    </button>
+                ) : null}
+                {reroute}
+            </span>
         </div>
     );
 }
@@ -238,7 +368,7 @@ function itemKey(item: TalkItem): string {
     return `${item.kind}:${item.turnId}`;
 }
 
-function AskBox({
+export function AskBox({
     ask,
     onAsk,
     onStop,
@@ -362,8 +492,11 @@ export function BoardTalk(props: BoardTalkProps) {
                         shown={shownTurnId === item.turnId}
                         settle={seenWorking.current.has(item.turnId)}
                         onShow={() => props.onShow(item.turnId, item.card?.shapeIds ?? [])}
+                        onReroute={() => props.onReroute(item.turnId)}
                     />
                 );
+            case "forward":
+                return <Forward item={item} props={props} />;
             case "working":
                 return <Working item={item} onStop={props.onStop} />;
             case "failed":

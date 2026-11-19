@@ -1,9 +1,10 @@
-// Boards scenario `boards-ask` (boards B1-B12, E1): the Boards surface as a conversation with the drawer. The boards
-// are real, made through BoardStartCommand with no question (so no drawer runs) in a throwaway project. What would
-// start a drawer, or needs a fixed talk, is stubbed in the page: the talk read, the list's talk facts (as wavesrv
-// derives them, with an in-flight turn reading "answering" as it does while the drawer runs), Ask, Stop, Retry, the
-// choice, and the answer inbox and its ack. Updates reach the page's own board:update handlers, so the real
-// applier lands a fed answer on the open canvas and saves it through the real BoardSaveCommand.
+// Boards scenario `boards-ask` (boards B1-B12, E1, A2): the Boards surface, where each line you ask is drawn or sent
+// to the board's agent. The boards are real, made through BoardStartCommand with no question (so no drawer runs) in a
+// throwaway project. What would start a drawer, or needs a fixed talk, is stubbed in the page: the talk read, the
+// list's talk facts (as wavesrv derives them, with an in-flight turn reading "answering" as it does while the drawer
+// runs), Ask, Stop, Retry, the choice, send the other way, the board's agent, and the answer inbox and its ack.
+// Updates reach the page's own board:update handlers, so the real applier lands a fed answer on the open canvas and
+// saves it through the real BoardSaveCommand.
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,7 +35,13 @@ const HHMM = String.raw`\d\d:\d\d`;
 
 const AGENT_ID = "f0a0b0c0-0000-4000-8000-00000000b0a5";
 const AGENT_NAME = `claude · ${PROJECT}`;
+const PI_ID = "f0a0b0c0-0000-4000-8000-00000000b0a6";
+const PI_NAME = `pi · ${PROJECT}`;
+const CODEX_ID = "f0a0b0c0-0000-4000-8000-00000000b0a7";
 const PROJECT_ABOUT = { kind: "project", ref: "", title: "" };
+const fixtureAgent = (id, name, agent, cwd) => ({
+    id, name, task: "", state: "idle", agent, blockId: `fx-board-ask-blk-${id.slice(-4)}`, cwd, project: PROJECT,
+});
 
 const EMPTY_BOARD = "Scratch";
 const TALK_BOARD = "Run landing";
@@ -44,6 +51,9 @@ const BRIEFED_BOARD = "Landing internals";
 const ASKS_BOARD = "Rerun path";
 const HANDOFF_BOARD = "Run landing, retries";
 const BROKEN_BOARD = "Orchestrator landing";
+const ROUTED_BOARD = "App architecture";
+const AGENT_REPLY = "Because a run outlives any one agent tab: wavesrv holds the DAG and lands the merges.";
+const GONE_REASON = "the agent's tab is gone";
 
 const FAIL_REASON = "the drawer's reply was not JSON";
 const BRIEFING = {
@@ -130,6 +140,8 @@ const STUBBED = [
     "BoardAskChoiceCommand",
     "BoardAnswerInboxCommand",
     "BoardAnswerAckCommand",
+    "BoardRerouteCommand",
+    "BoardSetAgentCommand",
 ];
 async function installStubs(h, ctx) {
     await page(
@@ -140,22 +152,30 @@ async function installStubs(h, ctx) {
         RpcApi.BoardTalkCommand = async (c, d) =>
             talkOf(d.boardid) != null ? structuredClone(talkOf(d.boardid)) : fx.orig.talk.call(RpcApi, c, d);
         // wavesrv's list facts (boardstore.applyTalkFacts) over the fixed talks; an in-flight last turn reads
-        // "answering", as the drawer's busy state makes it
+        // "answering", as the drawer's busy state makes it, and a last turn that needs an agent asks you
         RpcApi.BoardListCommand = async (c, d) => {
             const rtn = await fx.orig.list.call(RpcApi, c, d);
             const boards = (rtn?.boards ?? []).map((b) => {
                 const talk = talkOf(b.id);
                 if (talk == null) return b;
-                const info = { ...b, questions: 0, answeredts: 0, activets: b.createdts, state: undefined, about: undefined };
+                const info = {
+                    ...b, questions: 0, answeredts: 0, activets: b.createdts, state: undefined, about: undefined,
+                    drawings: 0, drawnts: 0, agenttabid: talk.agent?.tabid,
+                };
                 if (talk.about.kind !== "" && talk.about.kind !== "project") info.about = talk.about.title;
                 for (const t of talk.turns) {
                     if (!t.kept && (t.question || t.briefing)) info.questions++;
                     info.answeredts = Math.max(info.answeredts, t.answeredts ?? 0);
                     info.activets = Math.max(info.activets, t.ts, t.answeredts ?? 0);
+                    if (t.state === "answered" && (t.added ?? 0) + (t.changed ?? 0) + (t.removed ?? 0) > 0) {
+                        info.drawings++;
+                        info.drawnts = Math.max(info.drawnts, t.answeredts ?? 0);
+                    }
                 }
                 const last = talk.turns.at(-1);
                 if (last?.state === "answering" || last?.state === "waiting") info.state = "answering";
                 else if (last?.state === "asks" && !last.choice) info.state = "asks";
+                else if (last?.state === "forwarded" && last.forward?.state === "needsagent") info.state = "asks";
                 else if (last?.state === "failed") info.state = "failed";
                 return info;
             });
@@ -181,6 +201,8 @@ async function installStubs(h, ctx) {
             await feed({ boardid: d.boardid, what: "talk" });
         };
         RpcApi.BoardAskRetryCommand = async (_c, d) => record("retry", d);
+        RpcApi.BoardRerouteCommand = async (_c, d) => record("reroute", d);
+        RpcApi.BoardSetAgentCommand = async (_c, d) => record("setagent", d);
         // Keep records the choice on the asking turn and runs a kept turn on this board (decision 15)
         RpcApi.BoardAskChoiceCommand = async (_c, d) => {
             record("choice", d);
@@ -340,7 +362,7 @@ export const boardsAsk = {
             const closed = await polishWaitFor(h, `!${DIALOG}`, 5000);
             const ok =
                 empty.includes(`No boards in ${PROJECT} yet`) &&
-                empty.includes("A board is a conversation with a drawer.") &&
+                empty.includes("A board is where your agent's explanations get drawn.") &&
                 button === "New board" &&
                 hint.includes("Ask a board about this…") &&
                 dialog?.name === "Name" &&
@@ -415,7 +437,7 @@ export const boardsAsk = {
             return { ok, detail: q({ started, talk, canvas, facts, name }) };
         });
 
-        await run("4. B1 talk: About, two questions on wavesrv with replies and cards; Show selects the card's shapes; a selection names itself; Ask sends it; a fed answer lands live, is acked with its shapes, and one undo takes it back", async () => {
+        await run("4. B1 talk: About, two drawn questions on wavesrv, each a card with no words; Show selects the card's shapes; a selection names itself; Ask sends it; a fed answer lands live, is acked with its shapes, and one undo takes it back", async () => {
             const now = Date.now();
             const made = await makeBoard(h, ctx, TALK_BOARD, {
                 drawings: [FIRST_DRAWING, SECOND_DRAWING],
@@ -423,12 +445,12 @@ export const boardsAsk = {
                     turns: [
                         {
                             id: "t1", ts: now - 40 * MIN, question: "How does a run land?", on: "wavesrv",
-                            selectedids: [byLabel.wavesrv], state: "answered", reply: "wavesrv hands the plan to orchestrate, which lands it.",
+                            selectedids: [byLabel.wavesrv], state: "answered", route: "draw",
                             title: "How a run lands", added: FIRST_DRAWING.length, shapeids: ids[0], answeredts: now - 39 * MIN,
                         },
                         {
                             id: "t2", ts: now - 20 * MIN, question: "Where do merges wait?", on: "wavesrv",
-                            selectedids: [byLabel.wavesrv], state: "answered", reply: "In the merge queue, one at a time.",
+                            selectedids: [byLabel.wavesrv], state: "answered", route: "draw",
                             title: "The merge queue", added: SECOND_DRAWING.length, shapeids: ids[1], answeredts: now - 19 * MIN,
                         },
                     ],
@@ -471,7 +493,7 @@ export const boardsAsk = {
                 `fx.answers.push({
                     id: ${q(answerId)}, channelid: fx.channelId, boardid: ${q(id)}, turnid: ${q(turnId)},
                     add: ${q(JSON.stringify(FED_ANSWER))}, ts: Date.now(),
-                    turn: { reply: "A failed landing retries after a rebase.", title: "Retrying a landing", added: ${FED_ANSWER.length} },
+                    turn: { route: "draw", title: "Retrying a landing", added: ${FED_ANSWER.length} },
                 });
                 await feed({ boardid: ${q(id)}, what: "answer" });
                 return true;`
@@ -513,7 +535,7 @@ export const boardsAsk = {
                 cards.length === 2 &&
                 new RegExp(`^How a run landsdrew ${FIRST_DRAWING.length} shapes · ${HHMM}Show$`).test(cards[0]) &&
                 new RegExp(`^The merge queueadded ${SECOND_DRAWING.length} shapes · ${HHMM}Show$`).test(cards[1]) &&
-                new RegExp(`^2 questions · ${START_SHAPES} shapes · answered ${HHMM}$`).test(factsBefore) &&
+                new RegExp(`^2 drawings · ${START_SHAPES} shapes · drawn ${HHMM}$`).test(factsBefore) &&
                 q(shown) === q([...made.ids[1]].sort()) &&
                 pressed === "true" &&
                 q(cleared) === "[]" &&
@@ -528,7 +550,7 @@ export const boardsAsk = {
                 landed.arrowGaps?.length === 2 &&
                 landed.arrowGaps.every((g) => g != null && g > 0 && g < ARROW_END_MAX_GAP) &&
                 landed.shapes === START_SHAPES + FED_ANSWER.length &&
-                new RegExp(`^3 questions · ${START_SHAPES + FED_ANSWER.length} shapes · answered ${HHMM}$`).test(factsAfter) &&
+                new RegExp(`^3 drawings · ${START_SHAPES + FED_ANSWER.length} shapes · drawn ${HHMM}$`).test(factsAfter) &&
                 new RegExp(`^Retrying a landingadded ${FED_ANSWER.length} shapes · ${HHMM}Show$`).test(lastCard) &&
                 undone.gone &&
                 undone.shapes === START_SHAPES;
@@ -641,7 +663,7 @@ export const boardsAsk = {
                 talk: ({ ids }) => ({
                     turns: [
                         {
-                            id: "r1", ts: now - 30 * MIN, question: "What lands a run?", state: "answered", reply: "orchestrate lands it after Final.",
+                            id: "r1", ts: now - 30 * MIN, question: "What lands a run?", state: "answered", route: "draw",
                             title: "What lands a run", added: FIRST_DRAWING.length, shapeids: ids[0], answeredts: now - 29 * MIN,
                         },
                         {
@@ -828,12 +850,12 @@ export const boardsAsk = {
 
         await run("12. B10 toasts: a briefing answered and a briefing that asks each raise their toast with Open, which lands on that board", async () => {
             const id = ctx.boards.asks.id;
-            await page(h, `fx.talks[${q(id)}].turns.unshift({ id: "a0", ts: Date.now() - 3 * 60000, briefing: ${q(BRIEFING)}, state: "answered", reply: "Drawn.", answeredts: Date.now() });
+            await page(h, `fx.talks[${q(id)}].turns.unshift({ id: "a0", ts: Date.now() - 3 * 60000, briefing: ${q(BRIEFING)}, state: "answered", route: "draw", title: "The rerun's judge", added: 2, answeredts: Date.now() });
                 await feed({ boardid: ${q(id)}, turnid: "a0", state: "answered", from: ${q(AGENT_NAME)}, what: "talk" });
                 await feed({ boardid: ${q(id)}, turnid: "a1", state: "asks", from: ${q(AGENT_NAME)}, what: "talk" });
                 return true;`);
-            await polishWaitFor(h, `!!${toastWith(`The drawer answered on ${ASKS_BOARD}`)} && !!${toastWith(`The drawer asks you on ${ASKS_BOARD}`)}`, WAIT_MS);
-            const answered = await h.ev(text(toastWith(`The drawer answered on ${ASKS_BOARD}`)));
+            await polishWaitFor(h, `!!${toastWith(`The drawer drew on ${ASKS_BOARD}`)} && !!${toastWith(`The drawer asks you on ${ASKS_BOARD}`)}`, WAIT_MS);
+            const answered = await h.ev(text(toastWith(`The drawer drew on ${ASKS_BOARD}`)));
             const asks = await h.ev(text(toastWith(`The drawer asks you on ${ASKS_BOARD}`)));
             await h.shot(SHOT("B10", "toasts"));
             await h.goto("cockpit");
@@ -842,7 +864,7 @@ export const boardsAsk = {
             const surface = await h.activeSurfaceLabel();
             const open = await h.ev(text(SWITCHER));
             const ok =
-                answered === `The drawer answered on ${ASKS_BOARD}From ${AGENT_NAME}'s briefingOpen` &&
+                answered === `The drawer drew on ${ASKS_BOARD}From ${AGENT_NAME}'s briefingOpen` &&
                 asks === `The drawer asks you on ${ASKS_BOARD}Does ${AGENT_NAME}'s briefing belong on a new board?Open` &&
                 surface === "Boards" &&
                 open === ASKS_BOARD;
@@ -873,6 +895,127 @@ export const boardsAsk = {
                 box.hint === "This board won't open, so the drawer can't answer on it" &&
                 facts === "won't open";
             return { ok, detail: q({ err, retry, talk, box, facts }) };
+        });
+
+        await run("14. A2 routed turns: a drawn card with Send to the agent and no words, the agent's copied reply with Open agent and Draw instead, a turn that needs an agent with the picker and Start an agent, one Ask, the agent chip and the facts; each action calls its stub, and Start an agent opens New agent on the board's project while Boards stays", async () => {
+            await setPageRoster(h, [
+                fixtureAgent(AGENT_ID, AGENT_NAME, "claude", ctx.cwd),
+                fixtureAgent(PI_ID, PI_NAME, "pi", ctx.cwd),
+                fixtureAgent(CODEX_ID, `codex · ${PROJECT}`, "codex", ctx.cwd),
+            ]);
+            const now = Date.now();
+            const made = await makeBoard(h, ctx, ROUTED_BOARD, {
+                drawings: [FIRST_DRAWING, SECOND_DRAWING],
+                talk: ({ ids, byLabel }) => ({
+                    agent: { tabid: AGENT_ID, title: AGENT_NAME, runtime: "claude" },
+                    turns: [
+                        {
+                            id: "r1", ts: now - 30 * MIN, briefing: { from: AGENT_NAME, text: "", ask: "how a run lands" },
+                            state: "answered", route: "draw", title: "How a run lands", added: FIRST_DRAWING.length,
+                            shapeids: ids[0], answeredts: now - 29 * MIN,
+                        },
+                        {
+                            id: "r2", ts: now - 20 * MIN, question: "Open the merge up.", on: "wavesrv", selectedids: [byLabel.wavesrv],
+                            state: "answered", route: "draw", title: "The merge queue", added: SECOND_DRAWING.length,
+                            shapeids: ids[1], answeredts: now - 19 * MIN,
+                        },
+                        {
+                            id: "r3", ts: now - 10 * MIN, question: "Why does wavesrv own the orchestrator?", state: "forwarded", route: "agent",
+                            forward: { state: "replied", tabid: AGENT_ID, title: AGENT_NAME, runtime: "claude", sentts: now - 10 * MIN, reply: AGENT_REPLY, replyts: now - 8 * MIN },
+                        },
+                        {
+                            id: "r4", ts: now - 2 * MIN, question: "Who restarts a crashed worker?", state: "forwarded", route: "agent",
+                            forward: { state: "needsagent", reason: GONE_REASON },
+                        },
+                    ],
+                }),
+            });
+            ctx.boards.routed = made.info;
+            await h.goto("boards");
+            await openBoard(h, ctx, made.info.id);
+            const turnOf = (id, kind) => `${TALK}?.querySelector('[data-board-turn="${id}"][data-board-item="${kind}"]')`;
+            const seen = await h.ev(`(() => {
+                const t = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
+                const box = ${ASK_BOX};
+                return {
+                    card: t(${TALK}?.querySelector('[data-board-card="r2"]')),
+                    drawn: t(${turnOf("r2", "reply")}),
+                    reroutes: Object.fromEntries([...(${TALK}?.querySelectorAll("[data-board-reroute]") ?? [])].map((b) => [b.getAttribute("data-board-reroute"), t(b)])),
+                    replied: {
+                        line: t(${turnOf("r3", "forward")}?.querySelector("[data-board-forward-line]")),
+                        reply: t(${turnOf("r3", "forward")}?.querySelector("[data-board-forward-reply]")),
+                        open: ${turnOf("r3", "forward")}?.querySelector("[data-board-open-agent]")?.getAttribute("data-board-open-agent") ?? null,
+                    },
+                    needs: {
+                        state: ${turnOf("r4", "forward")}?.querySelector("[data-board-forward]")?.getAttribute("data-board-forward"),
+                        text: t(${turnOf("r4", "forward")}),
+                        choices: [...(${turnOf("r4", "forward")}?.querySelectorAll("[data-board-agent-choice]") ?? [])].map((b) => b.getAttribute("data-board-agent-choice")),
+                        start: t(${turnOf("r4", "forward")}?.querySelector("[data-board-start-agent]")),
+                    },
+                    askButtons: [...(box?.querySelectorAll("button") ?? [])].map((b) => t(b)),
+                    placeholder: box?.querySelector("textarea")?.placeholder,
+                    chip: t(${HEADER}?.querySelector("[data-board-agent-chip]")),
+                    facts: t(${SURFACE}?.querySelector("[data-board-facts]")),
+                };
+            })()`);
+            await h.shot(SHOT("A2", "routed-turns"));
+
+            // send the other way: the drawn line to the agent, the forwarded one to the drawer
+            await h.ev(`${TALK}?.querySelector('[data-board-reroute="r2"]')?.click()`);
+            await h.ev(`${TALK}?.querySelector('[data-board-reroute="r3"]')?.click()`);
+            await polishWaitFor(h, `(window.__boardsAskFx?.calls.reroute?.length ?? 0) >= 2`, 5000);
+            const reroute = await calls(h, "reroute");
+
+            // the chip's picker: the pi agent becomes the board's
+            await h.ev(`${HEADER}?.querySelector("[data-board-agent-chip]")?.click()`);
+            await polishWaitFor(h, `!!${HEADER}?.querySelector("[data-board-agent-picker]")`, 5000);
+            await polishNap(300);
+            const picker = await h.ev(`[...(${HEADER}?.querySelectorAll("[data-board-agent-picker] [data-board-agent-choice]") ?? [])].map((b) => ({ id: b.getAttribute("data-board-agent-choice"), current: b.getAttribute("aria-selected") }))`);
+            await h.shot(SHOT("A2", "agent-picker"));
+            await h.ev(`${HEADER}?.querySelector('[data-board-agent-picker] [data-board-agent-choice="${PI_ID}"]')?.click()`);
+            await polishWaitFor(h, `!!window.__boardsAskFx?.calls.setagent?.length`, 5000);
+            const setagent = await calls(h, "setagent");
+            const pickerClosed = await polishWaitFor(h, `!${HEADER}?.querySelector("[data-board-agent-picker]")`, 3000);
+
+            // Start an agent: the New agent dialog over Boards, on the board's project
+            const NEW_AGENT = `[...document.querySelectorAll("h2")].find((e) => e.textContent.trim() === "New agent")`;
+            await h.ev(`${turnOf("r4", "forward")}?.querySelector("[data-board-start-agent]")?.click()`);
+            await polishWaitFor(h, `!!${NEW_AGENT}`, 5000);
+            await polishNap(400);
+            const dialog = await h.ev(`(() => {
+                const radios = [...document.querySelectorAll('[role="radiogroup"][aria-label="Project"] [role="radio"]')];
+                return { project: radios.find((r) => r.getAttribute("aria-checked") === "true")?.textContent.trim() ?? null };
+            })()`);
+            const surface = await h.activeSurfaceLabel();
+            await h.shot(SHOT("A2", "start-an-agent"));
+            await h.ev(`${NEW_AGENT}?.parentElement?.querySelector('button[aria-label="Close"]')?.click()`);
+            const dialogClosed = await polishWaitFor(h, `!${NEW_AGENT}`, 5000);
+
+            const ok =
+                new RegExp(`^The merge queueadded ${SECOND_DRAWING.length} shapes · ${HHMM}Show$`).test(seen.card) &&
+                seen.drawn === `${seen.card}Send to the agent` &&
+                q(seen.reroutes) === q({ r2: "Send to the agent", r3: "Draw instead", r4: "Draw instead" }) &&
+                new RegExp(`^${AGENT_NAME} answered · ${HHMM}$`).test(seen.replied.line) &&
+                seen.replied.reply === AGENT_REPLY &&
+                seen.replied.open === AGENT_ID &&
+                seen.needs.state === "needsagent" &&
+                seen.needs.text.startsWith("needs an agentThe agent's tab is gone") &&
+                q(seen.needs.choices) === q([AGENT_ID, PI_ID]) &&
+                seen.needs.start === "+Start an agent" &&
+                q(seen.askButtons) === q(["Ask"]) &&
+                seen.placeholder === "Ask the board" &&
+                seen.chip === `Agent${AGENT_NAME}` &&
+                new RegExp(`^2 drawings · ${START_SHAPES} shapes · drawn ${HHMM}$`).test(seen.facts) &&
+                q(reroute.map((r) => [r.boardid, r.turnid])) === q([[made.info.id, "r2"], [made.info.id, "r3"]]) &&
+                q(picker) === q([{ id: AGENT_ID, current: "true" }, { id: PI_ID, current: "false" }]) &&
+                setagent.length === 1 &&
+                setagent[0].boardid === made.info.id &&
+                setagent[0].tabid === PI_ID &&
+                pickerClosed &&
+                dialog.project === PROJECT &&
+                surface === "Boards" &&
+                dialogClosed;
+            return { ok, detail: q({ seen, reroute, picker, setagent, pickerClosed, dialog, surface, dialogClosed }) };
         });
 
         return steps;

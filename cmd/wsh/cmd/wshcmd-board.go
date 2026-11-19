@@ -21,12 +21,17 @@ var boardCmd = &cobra.Command{
 }
 
 var boardDrawCmd = &cobra.Command{
-	Use:   "draw --board <name> --context \"<briefing>\" [--ask \"<question>\"]",
-	Short: "brief the drawer of the named board in your project, created if none has that name",
+	Use:   "draw --board <name> [--context \"<briefing>\"] [--ask \"<question>\"]",
+	Short: "ask the drawer of the named board in your project; --context briefs it and makes the board when none has that name",
 	Args:  cobra.NoArgs,
-	// cobra checks required flags only after PreRunE, so a missing --board or --context is caught before the rpc setup
+	// cobra checks required flags only after PreRunE, so a missing --board, --context and --ask is caught before the rpc setup
 	PreRunE: func(cmd *cobra.Command, args []string) error {
 		if err := cmd.ValidateRequiredFlags(); err != nil {
+			return err
+		}
+		brief, _ := cmd.Flags().GetString("context")
+		ask, _ := cmd.Flags().GetString("ask")
+		if err := checkBoardDrawText(brief, ask); err != nil {
 			return err
 		}
 		return preRunSetupRpcClient(cmd, args)
@@ -36,10 +41,9 @@ var boardDrawCmd = &cobra.Command{
 
 func init() {
 	boardDrawCmd.Flags().String("board", "", "the board's name (any case); a new board when none has it")
-	boardDrawCmd.Flags().String("context", "", "the briefing: what the user asked, the facts, and the files involved")
-	boardDrawCmd.Flags().String("ask", "", "the question the drawer answers on the board")
+	boardDrawCmd.Flags().String("context", "", "the briefing: what the user asked, the facts, and the files involved; required when the board is new")
+	boardDrawCmd.Flags().String("ask", "", "the line the drawer answers on the board; alone, once the board exists")
 	boardDrawCmd.MarkFlagRequired("board")
-	boardDrawCmd.MarkFlagRequired("context")
 	boardCmd.AddCommand(boardDrawCmd)
 	rootCmd.AddCommand(boardCmd)
 }
@@ -63,6 +67,15 @@ func boardDrawRun(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// checkBoardDrawText refuses a draw with nothing to say. Whether --context is also needed depends on the board
+// existing, which only wavesrv knows.
+func checkBoardDrawText(brief, ask string) error {
+	if strings.TrimSpace(brief) == "" && strings.TrimSpace(ask) == "" {
+		return errors.New("pass --ask, or --context to brief a new board")
+	}
+	return nil
+}
+
 // boardDrawStart hands the briefing to the board's drawer and returns the line to print; it returns as soon as the
 // turn is asked or queued.
 func boardDrawStart(blockId, board, brief, ask string, send func(wshrpc.CommandBoardAgentDrawData) (*wshrpc.BoardAgentDrawRtnData, error)) (string, error) {
@@ -70,11 +83,10 @@ func boardDrawStart(blockId, board, brief, ask string, send func(wshrpc.CommandB
 	if board == "" {
 		return "", errors.New("pass the board's name with --board")
 	}
-	brief = strings.TrimSpace(brief)
-	if brief == "" {
-		return "", errors.New("pass the briefing with --context")
+	if err := checkBoardDrawText(brief, ask); err != nil {
+		return "", err
 	}
-	rtn, err := send(wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: board, Context: brief, Ask: strings.TrimSpace(ask)})
+	rtn, err := send(wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: board, Context: strings.TrimSpace(brief), Ask: strings.TrimSpace(ask)})
 	if err != nil {
 		return "", err
 	}

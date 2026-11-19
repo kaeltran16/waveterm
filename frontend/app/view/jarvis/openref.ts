@@ -31,7 +31,9 @@ import { runRoleOf } from "../agents/runlineage";
 import { setupTabAtom } from "../agents/setupstore";
 import { usageLensAtom } from "../agents/usagestore";
 import { workflowScanRunAtom } from "../agents/workflowscanstart";
+import { openWorkspaceTab, rendersNow } from "../agents/workspacestore";
 import { boardFormAtom } from "../boards/boardformrequest";
+import { boardHome } from "../boards/boardplacement";
 import { boardsChannelAtom, loadBoardList, selectBoard } from "../boards/boardstore";
 import { openInCode } from "../code/codestore";
 import { openDagLive, openDagTask } from "../orchestrate/dagmodalstate";
@@ -314,7 +316,7 @@ async function land(
         case "code":
             return landCode(model, target, current);
         case "board":
-            return select(await loadBoard(target, current), () => selectBoardTarget(model, target));
+            return select(await loadBoard(target, current), (b) => selectBoardTarget(model, target, b));
     }
 }
 
@@ -333,16 +335,24 @@ async function landCode(model: AgentsViewModel, target: CodeTarget, current: () 
     return OK;
 }
 
-// the list proves the board is there, and is what the surface renders on its first frame
-async function loadBoard(target: BoardTarget, current: () => boolean): Promise<Loaded> {
+// the list proves the board is there, is what the surface renders on its first frame, and names its agent
+async function loadBoard(target: BoardTarget, current: () => boolean): Promise<Loaded<BoardInfo>> {
     const list = await loadBoardList(target.channelId);
     if (!current()) {
         return SUPERSEDED;
     }
-    return list.boards.some((b) => b.id === target.boardId) ? loaded() : unavailable("This board is gone");
+    const board = list.boards.find((b) => b.id === target.boardId);
+    return board != null ? loaded(board) : unavailable("This board is gone");
 }
 
-function selectBoardTarget(model: AgentsViewModel, target: BoardTarget): OpenResult {
+// a tied board opens as its tab in the agent's workspace while that agent renders; else on the Boards surface
+function selectBoardTarget(model: AgentsViewModel, target: BoardTarget, board: BoardInfo): OpenResult {
+    const home = boardHome(board.agenttabid, (id) => rendersNow(model, id));
+    if (home.kind === "workspace") {
+        openWorkspaceTab(home.agentId, { kind: "board", channelId: target.channelId, boardId: target.boardId });
+        jumpToAgent(model, home.agentId);
+        return OK;
+    }
     selectBoard(target.channelId, target.boardId);
     landOn(model.surfaceAtom, "boards");
     return OK;

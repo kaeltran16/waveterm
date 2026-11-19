@@ -32,7 +32,7 @@ func TestPrompt(t *testing.T) {
 	for _, want := range []string{
 		`"Board talk"`, "claude · waveterm", "turn text [BOARD] [TURN]", // material stays literal
 		`"Data model"`, "14 shapes", "They asked how wavesrv stores boards.",
-		`{"reply":"...","title":"...","add":[],"update":[],"remove":[],"elsewhere":false}`,
+		`{"title":"...","add":[],"update":[],"remove":[]}`, `{"question":true}`,
 		"## This turn", `"id":"box"`, "The question: How does wavesrv talk to the frontend?",
 	} {
 		if !strings.Contains(first, want) {
@@ -78,6 +78,25 @@ func TestPrompt(t *testing.T) {
 	kept := turnPrompt(turnInput{Scene: scene, Kept: true, Question: brief.Ask})
 	if !strings.Contains(kept, "chose to keep it here") || !strings.Contains(kept, "Its ask: Draw the store.") || strings.Contains(kept, elsewhereMarker) {
 		t.Errorf("a kept turn must say you chose to keep it here:\n%s", kept)
+	}
+
+	// a later request from the agent is one line: the ask, with no briefing block
+	line := turnPrompt(turnInput{Scene: scene, Briefing: &wshrpc.BoardBriefing{From: "claude · waveterm", Ask: "Draw the retry loop."}, Question: "Draw the retry loop."})
+	if !strings.Contains(line, "claude · waveterm") || !strings.Contains(line, "Draw the retry loop.") || strings.Contains(line, "<briefing>") {
+		t.Errorf("a one-line request carries its sender and ask, and no briefing block:\n%s", line)
+	}
+
+	// the agent's turns since the drawer last read them: a section only when there is something to hand over
+	plain := turnInput{Scene: scene, Question: "Draw what we just discussed."}
+	withAgent := plain
+	withAgent.AgentTitle, withAgent.AgentTurns = "claude · waveterm", "Agent: the retry loop backs off twice."
+	if p := turnPrompt(withAgent); !strings.Contains(p, withAgent.AgentTurns) || !strings.Contains(p, withAgent.AgentTitle) {
+		t.Errorf("the turn lacks the agent's turns:\n%s", p)
+	}
+	silent := plain
+	silent.AgentTitle = "claude · waveterm"
+	if turnPrompt(silent) != turnPrompt(plain) {
+		t.Errorf("an agent with nothing new must add nothing:\n%s", turnPrompt(silent))
 	}
 
 	project := firstPrompt(firstInput{BoardName: "x", About: wshrpc.BoardSource{}}, turnInput{Question: "q"})

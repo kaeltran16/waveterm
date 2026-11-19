@@ -21,6 +21,7 @@ import {
     Lightbulb,
     MessageSquare,
     Scale,
+    SquarePen,
     X,
 } from "lucide-react";
 import { Fragment, useEffect, useState, type HTMLAttributes, type ReactNode } from "react";
@@ -1015,9 +1016,33 @@ function AgentMessageRow({ message, compact }: { message: Extract<ArcMessage, { 
     );
 }
 
+// where a forwarded board question came from: "from <board> · on <labels>", drawn right-aligned above the person's bubble
+// that holds the question (narrationtimeline.tsx), since the line is the person's own message with a source
+export function BoardChip({ message, compact }: { message: Extract<ArcMessage, { kind: "board" }>; compact: boolean }) {
+    return (
+        <div
+            data-board-chip
+            className={cn(
+                "inline-flex max-w-full min-w-0 items-center border border-edge-mid bg-surface font-sans text-ink-mid",
+                compact
+                    ? "gap-1.5 rounded-[8px] px-2 py-0.5 text-[11.5px]"
+                    : "gap-2 rounded-[10px] px-2.5 py-1 text-[12px]"
+            )}
+        >
+            <SquarePen size={compact ? 11 : 12} strokeWidth={2} className="shrink-0" aria-hidden />
+            <span className="shrink-0">from</span>
+            <span className="min-w-0 truncate font-semibold text-foreground">{message.board}</span>
+            {message.on ? <span className="min-w-0 truncate text-muted">· on {message.on}</span> : null}
+        </div>
+    );
+}
+
 export function ArcMessageRow(props: ArcMessageRowProps) {
     const { message } = props;
     switch (message.kind) {
+        case "board":
+            // the timeline draws it as a bubble under BoardChip, never through this row
+            return null;
         case "wake":
             return <WakeRow {...props} />;
         case "brief":

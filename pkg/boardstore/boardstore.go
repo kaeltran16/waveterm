@@ -184,9 +184,17 @@ func applyTalkFacts(info *wshrpc.BoardInfo, talk wshrpc.BoardTalk) {
 	if talk.About.Kind != "" && talk.About.Kind != "project" {
 		info.About = talk.About.Title
 	}
+	if talk.Agent != nil {
+		info.AgentTabId = talk.Agent.TabId
+	}
 	for _, t := range talk.Turns {
 		if !t.Kept && (t.Question != "" || t.Briefing != nil) {
 			info.Questions++
+		}
+		// a words-only answer from before routing changed nothing on the board
+		if t.State == "answered" && t.Added+t.Changed+t.Removed > 0 {
+			info.Drawings++
+			info.DrawnTs = max(info.DrawnTs, t.AnsweredTs)
 		}
 		info.AnsweredTs = max(info.AnsweredTs, t.AnsweredTs)
 		info.ActiveTs = max(info.ActiveTs, t.Ts, t.AnsweredTs)
@@ -195,11 +203,16 @@ func applyTalkFacts(info *wshrpc.BoardInfo, talk wshrpc.BoardTalk) {
 		return
 	}
 	switch last := talk.Turns[len(talk.Turns)-1]; {
-	case last.State == "asks" && last.Choice == "":
+	case last.State == "asks" && last.Choice == "", needsAgent(last):
 		info.State = "asks"
 	case last.State == "failed", last.State == "answering", last.State == "waiting":
 		info.State = "failed"
 	}
+}
+
+// needsAgent is a forwarded turn with no live agent to take it: the user has to pick or start one.
+func needsAgent(t wshrpc.BoardTurn) bool {
+	return t.State == "forwarded" && t.Forward != nil && t.Forward.State == "needsagent"
 }
 
 // List returns a project's boards, the most recently active first (a turn, an answer, else created), then by id.

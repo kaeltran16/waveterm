@@ -20,6 +20,7 @@ import {
     Maximize2,
     Minimize2,
     PanelRight,
+    Shapes,
     Workflow,
     X,
     type LucideIcon,
@@ -27,6 +28,7 @@ import {
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
+import { useBoardInfo } from "../boards/boardview";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { dismissWorkspaceTab } from "./autoopen";
@@ -36,6 +38,7 @@ import { canvasStateAtom } from "./canvasstore";
 import { childAsksAtom } from "./childaskstore";
 import { useRunInfo } from "./runlineagestore";
 import { useRunAsks } from "./runrailsections";
+import { WorkspaceBoardTab } from "./workspaceboardtab";
 import { WorkspaceCanvasTab } from "./workspacecanvastab";
 import { ChangesTab } from "./workspacechangestab";
 import { FileTab } from "./workspacefiletab";
@@ -68,6 +71,7 @@ const TAB_ICON: Record<WorkspaceTab["kind"], LucideIcon> = {
     file: Code,
     brainstorm: Lightbulb,
     canvas: LayoutDashboard,
+    board: Shapes,
 };
 
 const MIDDLE_BUTTON = 1;
@@ -445,11 +449,15 @@ function TabButton({
     );
 }
 
-// what a tab's label names beyond its kind: the run's title, or the brainstorm's or canvas's topic
+// what a tab's label names beyond its kind: the run's title, the brainstorm's or canvas's topic, or the board's name
 function useTabName(agentId: string, tab: WorkspaceTab): string | undefined {
     const run = useRunInfo(tab.kind === "run" ? tab.runId : null).run;
     const brainstorm = useAtomValue(brainstormAtom(agentId));
     const canvas = useAtomValue(canvasStateAtom(agentId));
+    const board = useBoardInfo(
+        tab.kind === "board" ? tab.channelId : null,
+        tab.kind === "board" ? tab.boardId : null
+    ).board;
     switch (tab.kind) {
         case "run":
             return run?.title;
@@ -457,6 +465,8 @@ function useTabName(agentId: string, tab: WorkspaceTab): string | undefined {
             return brainstorm?.topic;
         case "canvas":
             return canvas?.topic;
+        case "board":
+            return board?.name;
         default:
             return undefined;
     }
@@ -477,6 +487,8 @@ function TabBody({ model, agent, ws }: { model: AgentsViewModel; agent: AgentVM;
                 <FileTab model={model} agent={agent} tab={tab} />
             ) : tab.kind === "brainstorm" ? (
                 <BrainstormPane model={model} agent={agent} inTab />
+            ) : tab.kind === "board" ? (
+                <WorkspaceBoardTab model={model} agent={agent} tab={tab} expanded={ws.expanded} />
             ) : (
                 <WorkspaceCanvasTab model={model} agent={agent} />
             )}

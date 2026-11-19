@@ -17,7 +17,8 @@ export type WorkspaceTab =
     | { kind: "changes"; selected: string | null }
     | { kind: "file"; path: string; line: number | null }
     | { kind: "brainstorm" }
-    | { kind: "canvas" };
+    | { kind: "canvas" }
+    | { kind: "board"; channelId: string; boardId: string };
 
 // unseen: the keys of tabs that joined behind the active one and have not been shown since
 export type WorkspaceState = {
@@ -52,6 +53,8 @@ export function tabKey(tab: WorkspaceTab): string {
             return `run:${tab.runId}`;
         case "file":
             return `file:${tab.path}`;
+        case "board":
+            return `board:${tab.boardId}`;
         default:
             return tab.kind;
     }
@@ -155,7 +158,8 @@ export function paneShape(state: WorkspaceState): PaneShape {
     return state.collapsed ? "strip" : state.expanded ? "expanded" : "open";
 }
 
-// name: the run's title for a Run tab, the topic for Brainstorm and Canvas; a run not loaded yet shows its id
+// name: the run's title for a Run tab, the topic for Brainstorm and Canvas, the board's name; a run not loaded yet
+// shows its id
 export function tabLabel(tab: WorkspaceTab, name: string | undefined): string {
     switch (tab.kind) {
         case "run":
@@ -168,6 +172,8 @@ export function tabLabel(tab: WorkspaceTab, name: string | undefined): string {
             return name ? `Brainstorm · ${name}` : "Brainstorm";
         case "canvas":
             return name ? `Canvas · ${name}` : "Canvas";
+        case "board":
+            return name ? `Board · ${name}` : "Board";
     }
 }
 

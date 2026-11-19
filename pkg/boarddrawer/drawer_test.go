@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -33,12 +34,18 @@ type fake struct {
 	published []wshrpc.BoardUpdateData
 	calls     []Call
 	reads     []int64
-	active    int
-	maxActive int
-	ids       int
-	ctxTokens int // the context size every run reports
-	removed   []string
-	run       func(ctx context.Context, c Call) (string, error)
+	readSrcs  []wshrpc.BoardSource
+	// thing is what ReadThing reads; nil: the agent's turn text, with no cursor
+	thing     func(src wshrpc.BoardSource, sinceTs int64) (string, int64, error)
+	forwarded []string
+	// forwardedState is each forwarded turn's saved state when Forward was called
+	forwardedState []string
+	active         int
+	maxActive      int
+	ids            int
+	ctxTokens      int // the context size every run reports
+	removed        []string
+	run            func(ctx context.Context, c Call) (string, error)
 }
 
 func newFake(run func(ctx context.Context, c Call) (string, error)) *fake {
@@ -51,6 +58,10 @@ func newFake(run func(ctx context.Context, c Call) (string, error)) *fake {
 
 func cloneTalk(t wshrpc.BoardTalk) wshrpc.BoardTalk {
 	t.Turns = slices.Clone(t.Turns)
+	if t.Agent != nil {
+		a := *t.Agent
+		t.Agent = &a
+	}
 	if t.Handoff != nil {
 		h := *t.Handoff
 		t.Handoff = &h
@@ -87,8 +98,14 @@ func (f *fake) deps() Deps {
 		ReadThing: func(ctx context.Context, src wshrpc.BoardSource, sinceTs int64) (string, string, int64, error) {
 			f.mu.Lock()
 			f.reads = append(f.reads, sinceTs)
+			f.readSrcs = append(f.readSrcs, src)
+			thing := f.thing
 			f.mu.Unlock()
-			return "the agent's turn text", "the whole session", 0, nil
+			if thing == nil {
+				return "the agent's turn text", "the whole session", 0, nil
+			}
+			text, cursor, err := thing(src, sinceTs)
+			return text, "since the cursor", cursor, err
 		},
 		Deliver: func(a wshrpc.BoardAnswer) error {
 			f.mu.Lock()
@@ -119,6 +136,15 @@ func (f *fake) deps() Deps {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			return Reply{Text: text, ContextTokens: f.ctxTokens}, err
+		},
+		Forward: func(b Board, turnId string) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.forwarded = append(f.forwarded, turnId)
+			talk := f.talks[b.BoardId]
+			if t := findTurn(&talk, turnId); t != nil {
+				f.forwardedState = append(f.forwardedState, t.State)
+			}
 		},
 		RemoveSession: func(sessionId string) error {
 			f.mu.Lock()
@@ -152,6 +178,12 @@ func (f *fake) removedList() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.removed)
+}
+
+func (f *fake) forwardedList() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.forwarded)
 }
 
 func (f *fake) deliveredCount() int {
@@ -206,8 +238,8 @@ func TestDrawerFirstTurnThenResume(t *testing.T) {
 	}
 	talk := settled(t, f, d)
 	got := talk.Turns[0]
-	if got.State != StateAnswered || got.Reply != "Two processes." || got.Title != "wavesrv, opened up" ||
-		got.Added != 2 || got.Changed != 1 || got.Removed != 0 || got.AnsweredTs != 1000 {
+	if got.State != StateAnswered || got.Route != RouteDraw || got.Reply != "" || got.Title != "wavesrv, opened up" ||
+		got.Added != 2 || got.Changed != 1 || got.Removed != 0 || got.AnsweredTs != 1000 || got.Forward != nil {
 		t.Errorf("first turn: %+v", got)
 	}
 	calls := f.callList()
@@ -250,6 +282,9 @@ func TestDrawerFirstTurnThenResume(t *testing.T) {
 	want := []string{"talk:answering", "talk:answered", "answer:", "talk:answering", "talk:answered", "answer:"}
 	if !slices.Equal(whats, want) {
 		t.Errorf("published %v, want %v", whats, want)
+	}
+	if got := f.forwardedList(); len(got) != 0 {
+		t.Errorf("a drawn turn reaches no agent, forwarded %v", got)
 	}
 }
 
@@ -488,7 +523,7 @@ func TestDrawerLostSessionStartsNew(t *testing.T) {
 		t.Fatal(err)
 	}
 	talk := settled(t, f, d)
-	if talk.Turns[1].State != StateAnswered || talk.Turns[1].Reply != "Two processes." {
+	if talk.Turns[1].State != StateAnswered || talk.Turns[1].Title != "wavesrv, opened up" {
 		t.Errorf("the turn must be answered by a new session: %+v", talk.Turns[1])
 	}
 	calls := f.callList()
@@ -564,17 +599,17 @@ func TestDrawerElsewhereAsks(t *testing.T) {
 		t.Fatal(err)
 	}
 	settled(t, f, d)
-	f.run = reply(`{"reply":"This is about the store. Start a new board for it?","elsewhere":true}`)
+	f.run = reply(`{"elsewhere":true}`)
 	brief := &wshrpc.BoardBriefing{From: "claude · waveterm", Text: "facts", Ask: "Draw the store."}
 	if _, err := d.Ask(board, wshrpc.BoardTurn{Question: brief.Ask, Briefing: brief}); err != nil {
 		t.Fatal(err)
 	}
 	talk := settled(t, f, d)
-	if talk.Turns[1].State != StateAsks || !strings.Contains(talk.Turns[1].Reply, "new board") {
+	if talk.Turns[1].State != StateAsks {
 		t.Errorf("turn: %+v", talk.Turns[1])
 	}
-	if f.deliveredCount() != 0 {
-		t.Errorf("an asking turn delivers nothing")
+	if f.deliveredCount() != 0 || len(f.forwardedList()) != 1 {
+		t.Errorf("an asking turn delivers nothing and forwards nothing: delivered %d, forwarded %v", f.deliveredCount(), f.forwardedList())
 	}
 
 	// a briefing on a fresh board may not answer elsewhere
@@ -750,7 +785,7 @@ func TestDrawerFailedSummaryResumes(t *testing.T) {
 		if c.Fork {
 			return "", errors.New("the drawer's session exited before it replied (API Error: 529 overloaded)")
 		}
-		return wordsAnswer, nil
+		return drawAnswer, nil
 	}
 	d := New(f.deps())
 	if _, err := d.Ask(board, question("q")); err != nil {
@@ -820,7 +855,7 @@ func TestDrawerStopDuringSummary(t *testing.T) {
 }
 
 func TestDrawerTalkFailsStaleTurns(t *testing.T) {
-	f := newFake(reply(wordsAnswer))
+	f := newFake(reply(drawAnswer))
 	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", SessionId: "s1", Turns: []wshrpc.BoardTurn{
 		{ID: "t0", Question: "a", State: StateAnswered},
 		{ID: "t1", Question: "b", State: StateAnswering},
@@ -887,5 +922,181 @@ func TestDrawerAnsweredRecordsShapeIds(t *testing.T) {
 	}
 	if err := d.Answered(board, "nope", nil); err == nil {
 		t.Errorf("an ack for an unknown turn must fail")
+	}
+}
+
+// a line the drawer flags, or one it answers with nothing at all, goes to the agent: a question is never dropped
+func TestDrawerQuestionForwards(t *testing.T) {
+	for name, answer := range map[string]string{
+		"a question flag":  `{"question":true}`,
+		"words alone":      wordsAnswer,
+		"an empty drawing": `{"title":"nothing","add":[],"update":[],"remove":[]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFake(reply(answer))
+			d := New(f.deps())
+			turn, err := d.Ask(board, question("Why does the store retry twice?"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := settled(t, f, d).Turns[0]
+			if got.State != StateForwarded || got.Route != RouteAgent || got.Reply != "" || got.Title != "" || got.Reason != "" {
+				t.Errorf("turn: %+v", got)
+			}
+			if f.deliveredCount() != 0 {
+				t.Errorf("a forwarded turn delivers nothing")
+			}
+			if fw := f.forwardedList(); !slices.Equal(fw, []string{turn.ID}) {
+				t.Errorf("forwarded %v, want once with %s", fw, turn.ID)
+			}
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if !slices.Equal(f.forwardedState, []string{StateForwarded}) {
+				t.Errorf("Forward must be called once the turn is saved forwarded, saw %v", f.forwardedState)
+			}
+			if slices.ContainsFunc(f.published, func(u wshrpc.BoardUpdateData) bool { return u.What == updateAnswer }) {
+				t.Errorf("a forwarded turn publishes no answer: %+v", f.published)
+			}
+		})
+	}
+}
+
+// the agent's own request and a line sent to be drawn must draw: a flag or nothing fails the turn, which stays retryable
+func TestDrawerMustDrawTurnsFail(t *testing.T) {
+	brief := &wshrpc.BoardBriefing{From: "claude · waveterm", Text: "facts", Ask: "Draw the store."}
+	oneLine := &wshrpc.BoardBriefing{From: "claude · waveterm", Ask: "Draw the retry loop."}
+	turns := map[string]wshrpc.BoardTurn{
+		"a briefing":              {Question: brief.Ask, Briefing: brief},
+		"a one-line request":      {Question: oneLine.Ask, Briefing: oneLine},
+		"a line sent to be drawn": {Question: "Why twice?", Route: RouteDraw, From: "t0"},
+	}
+	answers := map[string]string{"a question flag": `{"question":true}`, "words alone": wordsAnswer}
+	for tname, in := range turns {
+		for aname, answer := range answers {
+			t.Run(tname+" answered with "+aname, func(t *testing.T) {
+				f := newFake(reply(answer))
+				d := New(f.deps())
+				turn, err := d.Ask(board, in)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got := settled(t, f, d).Turns[0]
+				if got.State != StateFailed || !strings.HasPrefix(got.Reason, unusableHead) {
+					t.Errorf("turn: %+v", got)
+				}
+				if f.deliveredCount() != 0 || len(f.forwardedList()) != 0 {
+					t.Errorf("a failed turn delivers and forwards nothing: delivered %d, forwarded %v", f.deliveredCount(), f.forwardedList())
+				}
+				f.run = reply(drawAnswer)
+				if err := d.Retry(board, turn.ID); err != nil {
+					t.Fatal(err)
+				}
+				if got := settled(t, f, d).Turns[0]; got.State != StateAnswered || got.Route != RouteDraw || got.From != in.From {
+					t.Errorf("retried with a drawing: %+v", got)
+				}
+			})
+		}
+	}
+}
+
+func TestDrawerReadsTheAgentSinceItsCursor(t *testing.T) {
+	f := newFake(reply(drawAnswer))
+	agent := &wshrpc.BoardAgent{TabId: "tab9", Title: "claude · waveterm", Runtime: "claude", ReadTs: 500}
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", About: wshrpc.BoardSource{Kind: KindProject}, Agent: agent}
+	cursor := int64(700)
+	f.thing = func(src wshrpc.BoardSource, since int64) (string, int64, error) {
+		if since >= cursor {
+			return "", since, nil
+		}
+		return "Agent: the retry loop backs off twice.", cursor, nil
+	}
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("Draw what we just discussed.")); err != nil {
+		t.Fatal(err)
+	}
+	talk := settled(t, f, d)
+	if talk.Agent == nil || talk.Agent.ReadTs != 700 || talk.Agent.TabId != "tab9" {
+		t.Errorf("the cursor must move to what ReadThing returned: %+v", talk.Agent)
+	}
+	f.mu.Lock()
+	srcs, reads := slices.Clone(f.readSrcs), slices.Clone(f.reads)
+	f.mu.Unlock()
+	if len(srcs) != 1 || srcs[0].Kind != "agent" || srcs[0].Ref != "tab9" || reads[0] != 500 {
+		t.Fatalf("want one read of the agent since 500: %+v %v", srcs, reads)
+	}
+	calls := f.callList()
+	if !strings.Contains(calls[0].Prompt, "Agent: the retry loop backs off twice.") || !strings.Contains(calls[0].Prompt, "Draw what we just discussed.") {
+		t.Errorf("the prompt lacks the agent's turns:\n%s", calls[0].Prompt)
+	}
+
+	// the next turn reads from the saved cursor, and nothing new adds nothing
+	cursor = 700
+	if _, err := d.Ask(board, question("And the store?")); err != nil {
+		t.Fatal(err)
+	}
+	talk = settled(t, f, d)
+	f.mu.Lock()
+	reads = slices.Clone(f.reads)
+	f.mu.Unlock()
+	calls = f.callList()
+	if len(reads) != 2 || reads[1] != 700 || talk.Agent.ReadTs != 700 {
+		t.Errorf("the second read starts at the cursor: reads %v, agent %+v", reads, talk.Agent)
+	}
+	if strings.Contains(calls[1].Prompt, "retry loop") {
+		t.Errorf("nothing new from the agent must hand over nothing:\n%s", calls[1].Prompt)
+	}
+}
+
+func TestDrawerAgentReadFailureStillDraws(t *testing.T) {
+	f := newFake(reply(drawAnswer))
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", Agent: &wshrpc.BoardAgent{TabId: "gone", Title: "claude · waveterm", ReadTs: 500}}
+	f.thing = func(wshrpc.BoardSource, int64) (string, int64, error) { return "", 0, errors.New("no agent tab gone") }
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("q")); err != nil {
+		t.Fatal(err)
+	}
+	talk := settled(t, f, d)
+	if talk.Turns[0].State != StateAnswered || talk.Agent.ReadTs != 500 {
+		t.Errorf("an unreadable agent costs the turn nothing and keeps the cursor: %+v %+v", talk.Turns[0], talk.Agent)
+	}
+}
+
+func TestDrawerWithoutAgentReadsNoTranscript(t *testing.T) {
+	f := newFake(reply(drawAnswer))
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", About: wshrpc.BoardSource{Kind: KindProject}}
+	d := New(f.deps())
+	if _, err := d.Ask(board, question("q")); err != nil {
+		t.Fatal(err)
+	}
+	if talk := settled(t, f, d); talk.Agent != nil || talk.Turns[0].State != StateAnswered {
+		t.Errorf("talk: %+v", talk)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.reads) != 0 {
+		t.Errorf("a board with no agent reads no transcript: %v", f.readSrcs)
+	}
+}
+
+// turns saved before routing carry words and no route, and read as they did
+func TestDrawerTurnsFromBeforeRouting(t *testing.T) {
+	old := wshrpc.BoardTurn{ID: "t0", Ts: 1, Question: "How does it work?", State: StateAnswered, Reply: "Two processes.",
+		Title: "wavesrv, opened up", Added: 2, ShapeIds: []string{"a", "b"}, AnsweredTs: 2}
+	f := newFake(reply(drawAnswer))
+	f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", SessionId: "s1", Turns: []wshrpc.BoardTurn{old}}
+	d := New(f.deps())
+	talk, err := d.Talk(board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(talk.Turns) != 1 || !reflect.DeepEqual(talk.Turns[0], old) {
+		t.Errorf("an old turn must read as it was: %+v", talk.Turns)
+	}
+	if _, err := d.Ask(board, question("And the store?")); err != nil {
+		t.Fatal(err)
+	}
+	talk = settled(t, f, d)
+	if !reflect.DeepEqual(talk.Turns[0], old) || talk.Turns[1].Route != RouteDraw {
+		t.Errorf("a new turn leaves the old one as it was: %+v", talk.Turns)
 	}
 }

@@ -40,13 +40,39 @@ vi.mock("./boardconvert", () => ({
     }),
 }));
 
-import type { AgentsViewModel } from "../agents/agents";
+import { globalStore } from "@/app/store/jotaiStore";
+import { atom, type PrimitiveAtom } from "jotai";
+import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
+import type { AgentVM } from "../agents/agentsviewmodel";
+import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "../agents/workspacestore";
 import { startBoardApplier } from "./boardapplier";
 import { parseBoardFile } from "./boardmodel";
 import { registerLiveBoard } from "./boardstore";
 
-const model = {} as AgentsViewModel;
 const BOARD = "0a1b2c3d";
+const BOARD_KEY = `board:${BOARD}`;
+const AGENT = "tab-applier";
+const OTHER = "tab-applier-other";
+
+const claude = (id: string): AgentVM => ({
+    id,
+    name: id,
+    task: "",
+    state: "idle",
+    agent: "claude",
+    blockId: `b-${id}`,
+});
+
+const model = {
+    surfaceAtom: atom<SurfaceKey>("cockpit"),
+    focusIdAtom: atom<string | undefined>(undefined),
+    agentsAtom: atom<AgentVM[]>([claude(AGENT), claude(OTHER)]),
+} as unknown as AgentsViewModel;
+
+function showAgent(surface: SurfaceKey, focusId: string | undefined): void {
+    globalStore.set(model.surfaceAtom as PrimitiveAtom<SurfaceKey>, surface);
+    globalStore.set(model.focusIdAtom, focusId);
+}
 
 const answer: BoardAnswer = {
     id: "a-1",
@@ -88,9 +114,16 @@ beforeEach(() => {
     });
     rpc.BoardReadCommand.mockResolvedValue(readRtn("rev-1"));
     rpc.BoardSaveCommand.mockResolvedValue({ rev: "rev-2" });
+    showAgent("cockpit", undefined);
 });
 
-afterEach(() => stop());
+afterEach(() => {
+    stop();
+    closeWorkspaceTab(AGENT, BOARD_KEY);
+    closeWorkspaceTab(OTHER, BOARD_KEY);
+    closeWorkspaceTab(AGENT, "changes");
+    closeWorkspaceTab(OTHER, "changes");
+});
 
 describe("landing answers", () => {
     it("saves an answer for a closed board under the rev read, then acks it with its shape ids", async () => {
@@ -180,7 +213,7 @@ describe("briefing toasts", () => {
         await vi.waitFor(() => expect(pushToast).toHaveBeenCalledOnce());
         const toast = pushToast.mock.calls[0][0];
         expect(toast).toMatchObject({
-            title: "The drawer answered on Escalation",
+            title: "The drawer drew on Escalation",
             message: "From claude · waveterm's briefing",
             level: "info",
             action: { label: "Open" },
@@ -207,7 +240,7 @@ describe("briefing toasts", () => {
         emit({ ...briefingTalk("failed"), reason: "the drawer ran past its 10 minutes" });
         await vi.waitFor(() => expect(pushToast).toHaveBeenCalledOnce());
         expect(pushToast.mock.calls[0][0]).toMatchObject({
-            title: "The drawer couldn't answer on Escalation",
+            title: "The drawer couldn't draw on Escalation",
             message: "the drawer ran past its 10 minutes",
             level: "error",
             action: { label: "Open" },
@@ -232,5 +265,70 @@ describe("briefing toasts", () => {
         emit(briefingTalk("waiting"));
         await new Promise((r) => setTimeout(r, 20));
         expect(pushToast).not.toHaveBeenCalled();
+    });
+});
+
+describe("toasts by placement", () => {
+    function tiedList(): void {
+        rpc.BoardListCommand.mockResolvedValue({
+            project: "waveterm",
+            boards: [{ id: BOARD, name: "Escalation", channelid: "c1", path: "", createdts: 1, agenttabid: AGENT }],
+        });
+    }
+
+    it("stays quiet while the Agent surface shows the tied agent with its board pane open", async () => {
+        tiedList();
+        openWorkspaceTab(AGENT, { kind: "board", channelId: "c1", boardId: BOARD });
+        showAgent("agent", AGENT);
+        stop = startBoardApplier(model);
+        emit(briefingTalk("answered"));
+        emit(briefingTalk("failed"));
+        await vi.waitFor(() => expect(rpc.BoardListCommand).toHaveBeenCalled());
+        await new Promise((r) => setTimeout(r, 20));
+        expect(pushToast).not.toHaveBeenCalled();
+    });
+
+    it("toasts while another surface shows, and its Open goes through the router", async () => {
+        tiedList();
+        openWorkspaceTab(AGENT, { kind: "board", channelId: "c1", boardId: BOARD });
+        showAgent("boards", AGENT);
+        stop = startBoardApplier(model);
+        emit(briefingTalk("answered"));
+        await vi.waitFor(() => expect(pushToast).toHaveBeenCalledOnce());
+        expect(pushToast.mock.calls[0][0].title).toBe("The drawer drew on Escalation");
+        openTarget.mockResolvedValue({ ok: true });
+        pushToast.mock.calls[0][0].action.run();
+        expect(openTarget).toHaveBeenCalledWith(model, { kind: "board", channelId: "c1", boardId: BOARD });
+    });
+
+    it("toasts while the Agent surface shows another agent", async () => {
+        tiedList();
+        showAgent("agent", OTHER);
+        stop = startBoardApplier(model);
+        emit(briefingTalk("answered"));
+        await vi.waitFor(() => expect(pushToast).toHaveBeenCalledOnce());
+    });
+});
+
+describe("joins", () => {
+    it("adds the board's tab behind the active one, unseen, in the joining agent's workspace", async () => {
+        openWorkspaceTab(AGENT, { kind: "changes", selected: null });
+        stop = startBoardApplier(model);
+        emit({ channelid: "c1", boardid: BOARD, what: "join", agenttabid: AGENT });
+        const ws = globalStore.get(workspaceAtom(AGENT));
+        expect(ws.tabs.map((t) => t.kind)).toEqual(["changes", "board"]);
+        expect(ws.active).toBe("changes");
+        expect(ws.unseen).toEqual([BOARD_KEY]);
+        expect(pushToast).not.toHaveBeenCalled();
+    });
+
+    it("moves the tab out of the agent it was with", async () => {
+        openWorkspaceTab(AGENT, { kind: "changes", selected: null });
+        openWorkspaceTab(OTHER, { kind: "changes", selected: null });
+        stop = startBoardApplier(model);
+        emit({ channelid: "c1", boardid: BOARD, what: "join", agenttabid: AGENT });
+        emit({ channelid: "c1", boardid: BOARD, what: "join", agenttabid: OTHER });
+        expect(globalStore.get(workspaceAtom(AGENT)).tabs.map((t) => t.kind)).toEqual(["changes"]);
+        expect(globalStore.get(workspaceAtom(OTHER)).tabs.map((t) => t.kind)).toEqual(["changes", "board"]);
     });
 });

@@ -13,6 +13,7 @@ import { focusSubagentAtom } from "./subagentsstore";
 import { EMPTY_WORKSPACE, type WorkspaceTab } from "./workspacemodel";
 import {
     closeWorkspaceTab,
+    joinWorkspaceTab,
     openBeside,
     openWorkspaceTab,
     rendersNow,
@@ -66,6 +67,56 @@ describe("workspace store", () => {
         openWorkspaceTab(a, RUN);
         expect(toggleWorkspaceCollapsed(a)).toBe(true);
         expect(globalStore.get(workspaceAtom(a)).collapsed).toBe(true);
+    });
+});
+
+describe("joinWorkspaceTab", () => {
+    const BOARD: WorkspaceTab = { kind: "board", channelId: "c1", boardId: "0a1b2c3d" };
+    const KEY = "board:0a1b2c3d";
+
+    it("adds the tab behind the active one, unseen, without changing the active tab", () => {
+        const id = freshId("c");
+        openWorkspaceTab(id, RUN);
+        joinWorkspaceTab(fakeModel([claude(id)]), id, BOARD);
+        const ws = globalStore.get(workspaceAtom(id));
+        expect(ws.tabs).toEqual([RUN, BOARD]);
+        expect(ws.active).toBe("run:r1");
+        expect(ws.unseen).toEqual([KEY]);
+    });
+
+    it("moves the tab from another agent's workspace", () => {
+        const before = freshId("a");
+        const after = freshId("b");
+        const model = fakeModel([claude(before), claude(after)]);
+        openWorkspaceTab(before, RUN);
+        joinWorkspaceTab(model, before, BOARD);
+        openWorkspaceTab(after, CHANGES);
+        joinWorkspaceTab(model, after, BOARD);
+        expect(globalStore.get(workspaceAtom(before)).tabs).toEqual([RUN]);
+        expect(globalStore.get(workspaceAtom(after)).tabs).toEqual([CHANGES, BOARD]);
+    });
+
+    it("adds the tab back after it was closed", () => {
+        const id = freshId("c");
+        const model = fakeModel([claude(id)]);
+        openWorkspaceTab(id, RUN);
+        joinWorkspaceTab(model, id, BOARD);
+        closeWorkspaceTab(id, KEY);
+        joinWorkspaceTab(model, id, BOARD);
+        expect(globalStore.get(workspaceAtom(id)).tabs).toEqual([RUN, BOARD]);
+        expect(globalStore.get(workspaceAtom(id)).unseen).toEqual([KEY]);
+    });
+
+    it("adds nothing for an agent that does not render, but still takes the tab from the others", () => {
+        const before = freshId("a");
+        const term = freshId("t");
+        globalStore.set(viewModeAtom(term), "terminal");
+        const model = fakeModel([claude(before), claude(term)]);
+        openWorkspaceTab(before, RUN);
+        joinWorkspaceTab(model, before, BOARD);
+        joinWorkspaceTab(model, term, BOARD);
+        expect(globalStore.get(workspaceAtom(before)).tabs).toEqual([RUN]);
+        expect(globalStore.get(workspaceAtom(term))).toBe(EMPTY_WORKSPACE);
     });
 });
 

@@ -234,10 +234,22 @@ export class RpcApiType {
         return client.wshRpcCall("boardread", data, opts);
     }
 
+    // command "boardreroute" [call]
+    BoardRerouteCommand(client: WshClient, data: CommandBoardTurnData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardreroute", data, opts);
+        return client.wshRpcCall("boardreroute", data, opts);
+    }
+
     // command "boardsave" [call]
     BoardSaveCommand(client: WshClient, data: CommandBoardSaveData, opts?: RpcOpts): Promise<BoardSaveRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardsave", data, opts);
         return client.wshRpcCall("boardsave", data, opts);
+    }
+
+    // command "boardsetagent" [call]
+    BoardSetAgentCommand(client: WshClient, data: CommandBoardSetAgentData, opts?: RpcOpts): Promise<void> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "boardsetagent", data, opts);
+        return client.wshRpcCall("boardsetagent", data, opts);
     }
 
     // command "boardstart" [call]

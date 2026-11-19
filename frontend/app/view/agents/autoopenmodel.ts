@@ -116,7 +116,7 @@ export function dismissed(memory: AutoOpenMemory, tab: WorkspaceTab): AutoOpenMe
 }
 
 function autoOpenKind(tab: WorkspaceTab): AutoOpenKind | null {
-    return tab.kind === "file" ? null : tab.kind;
+    return tab.kind === "file" || tab.kind === "board" ? null : tab.kind;
 }
 
 // the run a `wsh runs start` created: its --json, else the id in its "started run <id> ..." line

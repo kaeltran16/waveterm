@@ -9,7 +9,7 @@ const outDir = resolve(__dirname, "dist");
 
 // Excalidraw fetches its fonts at run time from window.EXCALIDRAW_ASSET_PATH, else from esm.sh. The CSP is
 // default-src 'self' and the app must work offline, so the app serves them itself at EXCALIDRAW_FONTS_URL
-// (boardssurface.tsx points Excalidraw there): from the package in dev, copied into the bundle on build.
+// (boardview.tsx points Excalidraw there): from the package in dev, copied into the bundle on build.
 const EXCALIDRAW_FONTS_URL = "/excalidraw/fonts/";
 const excalidrawFontsDir = resolve(fe, "../node_modules/@excalidraw/excalidraw/dist/prod/fonts");
 
