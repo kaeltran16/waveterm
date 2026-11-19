@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -17,12 +18,15 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/boarddrawer"
 	"github.com/wavetermdev/waveterm/pkg/boardstore"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
+	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
 const (
-	wordsReply = `{"reply":"Two processes."}`
-	drawReply  = `{"reply":"Two processes.","title":"wavesrv","add":[{"type":"rectangle","id":"a","x":0,"y":0,"width":10,"height":10}]}`
+	// wordsReply is the 11-12 words answer: it draws nothing, so on your own ask it goes to the agent
+	wordsReply    = `{"reply":"Two processes."}`
+	drawReply     = `{"title":"wavesrv","add":[{"type":"rectangle","id":"a","x":0,"y":0,"width":10,"height":10}]}`
+	questionReply = `{"question":true}`
 )
 
 // drawerCalls is the stubbed drawer model: the calls it got, and a gate that holds every run until it is opened.
@@ -144,13 +148,13 @@ func TestBoardStartEmptyMakesNoTurn(t *testing.T) {
 
 func TestBoardStartWithQuestionStartsTurn(t *testing.T) {
 	ctx := context.Background()
-	r := stubBoardDrawer(t, wordsReply, nil)
+	r := stubBoardDrawer(t, drawReply, nil)
 	ch, project := boardProjectChannel(t, ctx)
 	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow", Question: " How does it start? "})
 	waitIdle(t, ch.OID, info.ID)
 	talk := readTalk(t, ctx, ch.OID, info.ID)
 	if len(talk.Turns) != 1 || talk.Turns[0].Question != "How does it start?" || talk.Turns[0].State != boarddrawer.StateAnswered ||
-		talk.Turns[0].Reply != "Two processes." {
+		talk.Turns[0].Route != boarddrawer.RouteDraw || talk.Turns[0].Reply != "" || talk.Turns[0].Title != "wavesrv" {
 		t.Fatalf("turns: %+v", talk.Turns)
 	}
 	calls := r.list()
@@ -244,7 +248,7 @@ func TestBoardAskRefusesWhileBusy(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	gate := make(chan struct{})
-	r := stubBoardDrawer(t, wordsReply, gate)
+	r := stubBoardDrawer(t, drawReply, gate)
 	ch, _ := boardProjectChannel(t, ctx)
 	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow"})
 	ask := wshrpc.CommandBoardAskData{ChannelId: ch.OID, BoardId: info.ID, Question: "How?", On: "wavesrv", SelectedIds: []string{"n1"}}
@@ -349,7 +353,7 @@ func stubAgentCwd(t *testing.T, cwd string) {
 func TestBoardAgentDrawNewBoardFromBriefing(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
-	r := stubBoardDrawer(t, wordsReply, nil)
+	r := stubBoardDrawer(t, drawReply, nil)
 	ch, project := boardProjectChannel(t, ctx)
 	stubAgentCwd(t, project)
 	tabId, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "claude"})
@@ -403,7 +407,7 @@ func TestBoardAgentDrawQueuesOnExistingBoard(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	gate := make(chan struct{})
-	r := stubBoardDrawer(t, wordsReply, gate)
+	r := stubBoardDrawer(t, drawReply, gate)
 	ch, project := boardProjectChannel(t, ctx)
 	stubAgentCwd(t, project)
 	_, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionLabel: "auth agent"})
@@ -446,17 +450,17 @@ func TestBoardAgentDrawQueuesOnExistingBoard(t *testing.T) {
 	}
 }
 
-func TestBoardAgentDrawNeedsContext(t *testing.T) {
+func TestBoardAgentDrawNeedsContextOnlyToCreate(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
-	r := stubBoardDrawer(t, wordsReply, nil)
+	r := stubBoardDrawer(t, drawReply, nil)
 	ch, project := boardProjectChannel(t, ctx)
 	stubAgentCwd(t, project)
 	_, blockId := seedAgentTab(t, ctx, nil)
 	for _, brief := range []string{"", "   "} {
-		_, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "Auth flow", Context: brief})
-		if err == nil || err.Error() != "pass the briefing with --context" {
-			t.Errorf("briefing %q: %v", brief, err)
+		_, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "Auth flow", Ask: "the steps", Context: brief})
+		if err == nil || !strings.Contains(err.Error(), "--context") {
+			t.Errorf("briefing %q on a board that does not exist: %v", brief, err)
 		}
 	}
 	if _, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Context: "x"}); err == nil {
@@ -468,6 +472,216 @@ func TestBoardAgentDrawNeedsContext(t *testing.T) {
 	}
 	if n := len(r.list()); n != 0 {
 		t.Errorf("a refused draw ran the drawer %d times", n)
+	}
+
+	first, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "Auth flow", Context: "The login goes through wavesrv.", Ask: "the steps"})
+	if err != nil {
+		t.Fatalf("the first request: %v", err)
+	}
+	waitIdle(t, ch.OID, first.BoardId)
+	later, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "auth flow", Ask: " add the retry path "})
+	if err != nil {
+		t.Fatalf("a later request with --ask alone: %v", err)
+	}
+	if later.Created || later.BoardId != first.BoardId {
+		t.Errorf("later: %+v", later)
+	}
+	waitIdle(t, ch.OID, first.BoardId)
+	turns := readTalk(t, ctx, ch.OID, first.BoardId).Turns
+	if len(turns) != 2 {
+		t.Fatalf("turns: %+v", turns)
+	}
+	if b := turns[1].Briefing; b == nil || b.Text != "" || b.Ask != "add the retry path" || turns[1].Question != "add the retry path" {
+		t.Errorf("a later request is one line: %+v", turns[1])
+	}
+	if _, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "Auth flow"}); err == nil {
+		t.Error("a request with neither --context nor --ask was accepted")
+	}
+}
+
+// collectBoardJoins records the join announcements published until the test ends.
+func collectBoardJoins(t *testing.T) func() []wshrpc.BoardUpdateData {
+	t.Helper()
+	client := &boardEventClient{}
+	old := wps.Broker.GetClient()
+	wps.Broker.SetClient(client)
+	subscriber := "board-joins-" + t.Name()
+	wps.Broker.Subscribe(subscriber, wps.SubscriptionRequest{Event: wps.Event_BoardUpdate, AllScopes: true})
+	t.Cleanup(func() {
+		wps.Broker.UnsubscribeAll(subscriber)
+		wps.Broker.SetClient(old)
+	})
+	return func() []wshrpc.BoardUpdateData {
+		client.mu.Lock()
+		defer client.mu.Unlock()
+		joins := []wshrpc.BoardUpdateData{}
+		for _, e := range client.events {
+			if u, ok := e.Data.(wshrpc.BoardUpdateData); ok && u.What == boardUpdateJoin {
+				joins = append(joins, u)
+			}
+		}
+		return joins
+	}
+}
+
+func TestBoardAgentDrawTiesANewBoardAndAnnouncesTheJoin(t *testing.T) {
+	ctx := context.Background()
+	gate := make(chan struct{})
+	stubBoardDrawer(t, drawReply, gate)
+	joins := collectBoardJoins(t)
+	ch, project := boardProjectChannel(t, ctx)
+	stubAgentCwd(t, project)
+	tabId, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "pi", waveobj.MetaKey_SessionLabel: "auth agent"})
+	ws := &WshServer{}
+
+	rtn, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "Auth flow", Context: "the briefing", Ask: "the steps"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the drawer is still held: the board joins the workspace before its first turn ends
+	want := wshrpc.BoardUpdateData{ChannelId: ch.OID, BoardId: rtn.BoardId, What: "join", AgentTabId: tabId}
+	if got := joins(); len(got) != 1 || got[0] != want {
+		t.Errorf("joins while the turn runs: %+v, want [%+v]", got, want)
+	}
+	close(gate)
+	waitIdle(t, ch.OID, rtn.BoardId)
+	got := readTalk(t, ctx, ch.OID, rtn.BoardId).Agent
+	if got == nil || got.TabId != tabId || got.Title != "auth agent" || got.Runtime != "pi" {
+		t.Errorf("tie: %+v", got)
+	}
+
+	// each later draw by the tied agent announces again, so a closed tab comes back
+	if _, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "Auth flow", Ask: "more"}); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, ch.OID, rtn.BoardId)
+	if got := joins(); len(got) != 2 || got[1] != want {
+		t.Errorf("joins after a second draw: %+v", got)
+	}
+}
+
+func TestBoardAgentDrawByCodexLeavesTheBoardUntied(t *testing.T) {
+	ctx := context.Background()
+	stubBoardDrawer(t, drawReply, nil)
+	joins := collectBoardJoins(t)
+	ch, project := boardProjectChannel(t, ctx)
+	stubAgentCwd(t, project)
+	_, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "codex"})
+
+	rtn, err := (&WshServer{}).BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "Auth flow", Context: "the briefing", Ask: "the steps"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, ch.OID, rtn.BoardId)
+	if talk := readTalk(t, ctx, ch.OID, rtn.BoardId); talk.Agent != nil || len(talk.Turns) != 1 {
+		t.Errorf("a codex agent's board: agent %+v, turns %d", talk.Agent, len(talk.Turns))
+	}
+	if got := joins(); len(got) != 0 {
+		t.Errorf("joins: %+v", got)
+	}
+}
+
+func TestBoardAgentDrawKeepsAnotherAgentsTie(t *testing.T) {
+	ctx := context.Background()
+	stubBoardDrawer(t, drawReply, nil)
+	joins := collectBoardJoins(t)
+	ch, project := boardProjectChannel(t, ctx)
+	stubAgentCwd(t, project)
+	firstTab, firstBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "claude"})
+	_, secondBlock := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "claude"})
+	ws := &WshServer{}
+
+	rtn, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: firstBlock, Board: "Auth flow", Context: "first", Ask: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, ch.OID, rtn.BoardId)
+	if _, err := ws.BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: secondBlock, Board: "Auth flow", Context: "second", Ask: "b"}); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, ch.OID, rtn.BoardId)
+	talk := readTalk(t, ctx, ch.OID, rtn.BoardId)
+	if talk.Agent == nil || talk.Agent.TabId != firstTab {
+		t.Errorf("the second agent took the tie: %+v", talk.Agent)
+	}
+	if len(talk.Turns) != 2 || talk.Turns[1].Briefing == nil {
+		t.Errorf("the second agent's draw is still drawn as its request: %+v", talk.Turns)
+	}
+	if got := joins(); len(got) != 1 || got[0].AgentTabId != firstTab {
+		t.Errorf("joins: %+v, want only the first agent's", got)
+	}
+}
+
+func TestBoardAgentDrawTiesAnUntiedBoard(t *testing.T) {
+	ctx := context.Background()
+	stubBoardDrawer(t, drawReply, nil)
+	joins := collectBoardJoins(t)
+	ch, project := boardProjectChannel(t, ctx)
+	stubAgentCwd(t, project)
+	tabId, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "claude"})
+	// a board the user made, with no agent
+	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow"})
+
+	if _, err := (&WshServer{}).BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "auth flow", Context: "the briefing", Ask: "the steps"}); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, ch.OID, info.ID)
+	talk := readTalk(t, ctx, ch.OID, info.ID)
+	if talk.Agent == nil || talk.Agent.TabId != tabId {
+		t.Errorf("tie: %+v", talk.Agent)
+	}
+	if talk.About.Kind != "" {
+		t.Errorf("tying an existing board changed its about: %+v", talk.About)
+	}
+	if got := joins(); len(got) != 1 || got[0].BoardId != info.ID || got[0].AgentTabId != tabId {
+		t.Errorf("joins: %+v", got)
+	}
+}
+
+func TestBoardStartAboutAnAgentTiesIt(t *testing.T) {
+	ctx := context.Background()
+	stubBoardDrawer(t, drawReply, nil)
+	ch, _ := boardProjectChannel(t, ctx)
+	claudeTab, _ := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "claude", waveobj.MetaKey_SessionLabel: "auth agent"})
+	codexTab, _ := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "codex"})
+	cases := []struct {
+		name  string
+		about wshrpc.BoardSource
+		want  *wshrpc.BoardAgent
+	}{
+		{"claude agent", wshrpc.BoardSource{Kind: "agent", Ref: claudeTab, Title: "auth agent"}, &wshrpc.BoardAgent{TabId: claudeTab, Title: "auth agent", Runtime: "claude"}},
+		{"codex agent", wshrpc.BoardSource{Kind: "agent", Ref: codexTab, Title: "codex"}, nil},
+		{"run", wshrpc.BoardSource{Kind: "run", Ref: "run-1", Title: "a run"}, nil},
+	}
+	for _, c := range cases {
+		info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: c.name, About: c.about})
+		got := readTalk(t, ctx, ch.OID, info.ID).Agent
+		if got != nil {
+			got.ReadTs = 0
+		}
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: agent %+v, want %+v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestBoardListReportsTheAgentAndDrawings(t *testing.T) {
+	ctx := context.Background()
+	stubBoardDrawer(t, drawReply, nil)
+	ch, project := boardProjectChannel(t, ctx)
+	stubAgentCwd(t, project)
+	tabId, blockId := seedAgentTab(t, ctx, waveobj.MetaMapType{waveobj.MetaKey_SessionAgent: "claude"})
+	rtn, err := (&WshServer{}).BoardAgentDrawCommand(ctx, wshrpc.CommandBoardAgentDrawData{BlockId: blockId, Board: "Auth flow", Context: "the briefing", Ask: "the steps"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, ch.OID, rtn.BoardId)
+	list, err := (&WshServer{}).BoardListCommand(ctx, wshrpc.CommandBoardListData{ChannelId: ch.OID})
+	if err != nil || len(list.Boards) != 1 {
+		t.Fatalf("list: %+v %v", list, err)
+	}
+	if b := list.Boards[0]; b.AgentTabId != tabId || b.Drawings != 1 || b.DrawnTs == 0 {
+		t.Errorf("board: %+v", b)
 	}
 }
 
@@ -498,5 +712,79 @@ func TestBoardListShowsAnswering(t *testing.T) {
 	waitIdle(t, ch.OID, busy.ID)
 	if got := states(); got[busy.ID] != "" {
 		t.Errorf("once answered: %v", got)
+	}
+}
+
+// stubForward records the turns the drawer forwards, instead of typing them into an agent.
+func stubForward(t *testing.T) func() []string {
+	t.Helper()
+	var mu sync.Mutex
+	var got []string
+	old := forwardBoardTurn
+	forwardBoardTurn = func(b boarddrawer.Board, turnId string) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, b.BoardId+"/"+turnId)
+	}
+	t.Cleanup(func() { forwardBoardTurn = old })
+	return func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(got)
+	}
+}
+
+func TestBoardAskForwardsAQuestion(t *testing.T) {
+	ctx := context.Background()
+	stubBoardDrawer(t, questionReply, nil)
+	forwarded := stubForward(t)
+	ch, _ := boardProjectChannel(t, ctx)
+	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow"})
+	if err := (&WshServer{}).BoardAskCommand(ctx, wshrpc.CommandBoardAskData{ChannelId: ch.OID, BoardId: info.ID, Question: "Why twice?"}); err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, ch.OID, info.ID)
+	talk := readTalk(t, ctx, ch.OID, info.ID)
+	if len(talk.Turns) != 1 || talk.Turns[0].State != boarddrawer.StateForwarded || talk.Turns[0].Route != boarddrawer.RouteAgent {
+		t.Fatalf("turns: %+v", talk.Turns)
+	}
+	if got := forwarded(); !slices.Equal(got, []string{info.ID + "/" + talk.Turns[0].ID}) {
+		t.Errorf("forwarded %v", got)
+	}
+	answers, err := (&WshServer{}).BoardAnswerInboxCommand(ctx, wshrpc.CommandBoardInboxData{ChannelId: ch.OID, BoardId: info.ID})
+	if err != nil || len(answers) != 0 {
+		t.Errorf("a forwarded turn delivers nothing: %+v %v", answers, err)
+	}
+}
+
+// a talk file written before routing has words replies and no route key
+func TestBoardTalkReadsTurnsFromBeforeRouting(t *testing.T) {
+	ctx := context.Background()
+	stubBoardDrawer(t, drawReply, nil)
+	ch, _ := boardProjectChannel(t, ctx)
+	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow"})
+	files, err := filepath.Glob(filepath.Join(boardstore.ProjectDir(ch.Name), info.ID+"*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	talkFile := ""
+	for _, f := range files {
+		if filepath.Base(f) != filepath.Base(info.Path) {
+			talkFile = f
+		}
+	}
+	if talkFile == "" {
+		t.Fatalf("no talk file beside %s: %v", info.Path, files)
+	}
+	old := `{"channelid":"` + ch.OID + `","boardid":"` + info.ID + `","about":{"kind":"","ref":"","title":""},"sessionid":"s1","turns":[` +
+		`{"id":"t0","ts":1,"question":"How does it start?","state":"answered","reply":"Two processes.","title":"wavesrv","added":1,"answeredts":2}]}`
+	if err := os.WriteFile(talkFile, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	talk := readTalk(t, ctx, ch.OID, info.ID)
+	want := wshrpc.BoardTurn{ID: "t0", Ts: 1, Question: "How does it start?", State: boarddrawer.StateAnswered, Reply: "Two processes.",
+		Title: "wavesrv", Added: 1, AnsweredTs: 2}
+	if len(talk.Turns) != 1 || !reflect.DeepEqual(talk.Turns[0], want) {
+		t.Errorf("an old turn must read as it was: %+v", talk.Turns)
 	}
 }

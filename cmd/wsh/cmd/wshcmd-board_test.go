@@ -23,14 +23,29 @@ func TestBoardDrawMissingBoardSendsNothing(t *testing.T) {
 			t.Errorf("board %q: no error", board)
 		}
 	}
-	for _, brief := range []string{"", "  "} {
-		_, err := boardDrawStart(boardTestBlock, "Auth flow", brief, "the steps", send)
-		if err == nil || err.Error() != "pass the briefing with --context" {
-			t.Errorf("briefing %q: err = %v", brief, err)
+	for _, blank := range []string{"", "  "} {
+		_, err := boardDrawStart(boardTestBlock, "Auth flow", blank, blank, send)
+		if err == nil || !strings.Contains(err.Error(), "--ask") || !strings.Contains(err.Error(), "--context") {
+			t.Errorf("blank %q: err = %v", blank, err)
 		}
 	}
 	if sent != 0 {
-		t.Errorf("sent %d requests with no board name or briefing", sent)
+		t.Errorf("sent %d requests with no board name, or neither --context nor --ask", sent)
+	}
+}
+
+func TestBoardDrawAskAloneIsSent(t *testing.T) {
+	var got []wshrpc.CommandBoardAgentDrawData
+	send := func(d wshrpc.CommandBoardAgentDrawData) (*wshrpc.BoardAgentDrawRtnData, error) {
+		got = append(got, d)
+		return &wshrpc.BoardAgentDrawRtnData{BoardName: "Auth flow", Project: "waveterm"}, nil
+	}
+	if _, err := boardDrawStart(boardTestBlock, "Auth flow", " ", " add the retry path ", send); err != nil {
+		t.Fatal(err)
+	}
+	want := wshrpc.CommandBoardAgentDrawData{BlockId: boardTestBlock, Board: "Auth flow", Ask: "add the retry path"}
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("sent %+v, want %+v", got, want)
 	}
 }
 
@@ -41,15 +56,15 @@ func TestBoardDrawCmdMissingBoardFailsBeforeRpcSetup(t *testing.T) {
 	}
 }
 
-func TestBoardDrawCmdMissingContextFailsBeforeRpcSetup(t *testing.T) {
+func TestBoardDrawCmdNeitherContextNorAskFailsBeforeRpcSetup(t *testing.T) {
 	flag := boardDrawCmd.Flags().Lookup("board")
 	t.Cleanup(func() { flag.Value.Set(""); flag.Changed = false })
 	if err := boardDrawCmd.Flags().Set("board", "Auth flow"); err != nil {
 		t.Fatal(err)
 	}
 	err := boardDrawCmd.PreRunE(boardDrawCmd, nil)
-	if err == nil || !strings.Contains(err.Error(), `"context"`) || strings.Contains(err.Error(), `"board"`) {
-		t.Errorf("err = %v, want only the missing --context error", err)
+	if err == nil || !strings.Contains(err.Error(), "--context") || !strings.Contains(err.Error(), "--ask") {
+		t.Errorf("err = %v, want the neither --context nor --ask error", err)
 	}
 }
 

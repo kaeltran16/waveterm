@@ -35,12 +35,13 @@ var updateKeys = map[string]string{
 	"text": "string", "label": "string", "strokeColor": "string", "backgroundColor": "string",
 }
 
-// Answer is a checked drawer reply. Add and Update are compact JSON arrays, "" when empty.
+// Answer is a checked drawer reply: a drawing, a question flagged for the board's agent, or elsewhere. Add and
+// Update are compact JSON arrays, "" when empty.
 type Answer struct {
-	Reply, Title, Add, Update string
-	Remove                    []string
-	Added, Changed, Removed   int
-	Elsewhere                 bool
+	Title, Add, Update      string
+	Remove                  []string
+	Added, Changed, Removed int
+	Elsewhere, Question     bool
 }
 
 func (a Answer) HasDrawing() bool {
@@ -59,19 +60,20 @@ type bindingId struct {
 }
 
 // CheckAnswer checks the drawer's reply against the scene it was shown. Code, not the drawer, decides whether an
-// answer is usable: one that would not apply fails the turn with the reason.
+// answer is usable: one that would not apply fails the turn with the reason. A reply key, the 11-12 words answer,
+// is ignored.
 func CheckAnswer(reply string, scene Scene, allowElsewhere bool) (Answer, error) {
 	body := strings.TrimSpace(reply)
 	if body == "" {
 		return Answer{}, unusable("the drawer ended without a reply")
 	}
 	var raw struct {
-		Reply     *string           `json:"reply"`
 		Title     string            `json:"title"`
 		Add       []json.RawMessage `json:"add"`
 		Update    []json.RawMessage `json:"update"`
 		Remove    []string          `json:"remove"`
 		Elsewhere bool              `json:"elsewhere"`
+		Question  bool              `json:"question"`
 	}
 	obj, err := oneObject(unfence(body))
 	if err != nil {
@@ -80,12 +82,9 @@ func CheckAnswer(reply string, scene Scene, allowElsewhere bool) (Answer, error)
 	if err := json.Unmarshal(obj, &raw); err != nil {
 		return Answer{}, unusable("the reply's fields have the wrong types (%v)", err)
 	}
-	if raw.Reply == nil || strings.TrimSpace(*raw.Reply) == "" {
-		return Answer{}, unusable("the reply has no words in reply")
-	}
 	a := Answer{
-		Reply: strings.TrimSpace(*raw.Reply), Title: strings.TrimSpace(raw.Title), Remove: raw.Remove,
-		Added: len(raw.Add), Changed: len(raw.Update), Removed: len(raw.Remove), Elsewhere: raw.Elsewhere,
+		Title: strings.TrimSpace(raw.Title), Remove: raw.Remove,
+		Added: len(raw.Add), Changed: len(raw.Update), Removed: len(raw.Remove), Elsewhere: raw.Elsewhere, Question: raw.Question,
 	}
 	if n := a.Added + a.Changed + a.Removed; n > MaxShapes {
 		return Answer{}, unusable("it has %d entries across add, update and remove, more than %d", n, MaxShapes)
@@ -95,6 +94,12 @@ func CheckAnswer(reply string, scene Scene, allowElsewhere bool) (Answer, error)
 	}
 	if a.Elsewhere && a.HasDrawing() {
 		return Answer{}, unusable("it says elsewhere and also changes the drawing")
+	}
+	if a.Question && a.HasDrawing() {
+		return Answer{}, unusable("it flags a question and also changes the drawing")
+	}
+	if a.Question && a.Elsewhere {
+		return Answer{}, unusable("it flags a question and also says elsewhere")
 	}
 	if a.HasDrawing() && a.Title == "" {
 		return Answer{}, unusable("it changes the drawing but has no title")
@@ -115,6 +120,24 @@ func CheckAnswer(reply string, scene Scene, allowElsewhere bool) (Answer, error)
 	}
 	if a.Update, err = compactArray(raw.Update); err != nil {
 		return Answer{}, err
+	}
+	return a, nil
+}
+
+// routeAnswer settles what a checked answer does to its turn. On your own ask, an answer that draws nothing is a
+// question for the agent, so a question is never dropped; a turn that must draw (mustDraw names why) fails instead.
+func routeAnswer(a Answer, mustDraw string) (Answer, error) {
+	if a.Elsewhere {
+		return a, nil
+	}
+	if mustDraw != "" && a.Question {
+		return Answer{}, unusable("it flags the line as a question, but %s", mustDraw)
+	}
+	if mustDraw != "" && !a.HasDrawing() {
+		return Answer{}, unusable("it draws nothing, but %s", mustDraw)
+	}
+	if !a.HasDrawing() {
+		a.Question, a.Title = true, ""
 	}
 	return a, nil
 }

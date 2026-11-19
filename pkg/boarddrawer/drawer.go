@@ -372,18 +372,59 @@ func (d *Drawer) runTurn(b Board, turnId string) {
 		d.finish(b, turnId, func(t *wshrpc.BoardTurn) { t.State, t.Reason = StateFailed, err.Error() })
 	default:
 		answeredTs := d.d.Now()
-		d.finish(b, turnId, func(t *wshrpc.BoardTurn) {
-			t.State = StateAnswered
-			if answer.Elsewhere {
+		saved := d.finish(b, turnId, func(t *wshrpc.BoardTurn) {
+			switch {
+			case answer.Elsewhere:
 				t.State = StateAsks
+			case answer.Question:
+				t.State, t.Route = StateForwarded, RouteAgent
+			default:
+				t.State, t.Route = StateAnswered, RouteDraw
 			}
-			t.Reply, t.Title, t.AnsweredTs = answer.Reply, answer.Title, answeredTs
+			t.Title, t.AnsweredTs = answer.Title, answeredTs
 			t.Added, t.Changed, t.Removed = answer.Added, answer.Changed, answer.Removed
 		})
 		if delivered {
 			d.publish(wshrpc.BoardUpdateData{ChannelId: b.ChannelId, BoardId: b.BoardId, What: updateAnswer, TurnId: turnId})
 		}
+		if saved && answer.Question && d.d.Forward != nil {
+			d.d.Forward(b, turnId)
+		}
 	}
+}
+
+// mustDraw is why a turn may only be drawn, or "" for your own ask, which the drawer may flag as a question.
+func mustDraw(t wshrpc.BoardTurn) string {
+	switch {
+	case t.Briefing != nil, t.Kept:
+		return "the agent's own request must be drawn"
+	case t.Route == RouteDraw:
+		return "the line was sent to be drawn"
+	}
+	return ""
+}
+
+// agentRead is what a turn read of the board's agent: handed to the drawer, and saved as the cursor once it ran.
+type agentRead struct {
+	tabId, title, text string
+	cursorTs           int64
+}
+
+// readAgent reads what the board's agent said since the drawer last read it. An agent that can't be read (its tab
+// is gone) costs the turn nothing: it is drawn without it, and the cursor stays.
+func (d *Drawer) readAgent(ctx context.Context, b Board, agent *wshrpc.BoardAgent) agentRead {
+	if agent == nil {
+		return agentRead{}
+	}
+	read := agentRead{tabId: agent.TabId, title: agent.Title}
+	src := wshrpc.BoardSource{Kind: KindAgent, Ref: agent.TabId, Title: agent.Title}
+	text, _, cursorTs, err := d.d.ReadThing(ctx, src, agent.ReadTs)
+	if err != nil {
+		log.Printf("boarddrawer: reading agent %s for board %s: %v", agent.TabId, b.BoardId, err)
+		return read
+	}
+	read.text, read.cursorTs = text, cursorTs
+	return read
 }
 
 // answer runs one turn's session and delivers its drawing; delivered says an answer went to the inbox.
@@ -419,9 +460,11 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 	if err != nil {
 		return Answer{}, false, errors.New(wontOpenHead + err.Error())
 	}
+	agent := d.readAgent(ctx, b, talk.Agent)
 	ti := turnInput{
 		Scene: scene, SelectedIds: turn.SelectedIds, On: turn.On, Question: turn.Question, Briefing: turn.Briefing,
-		Kept: turn.Kept, Elsewhere: turn.Briefing != nil && hasEarlierTurns(talk, turn.ID),
+		Kept: turn.Kept, Elsewhere: turn.Briefing != nil && hasEarlierTurns(talk, turn.ID), Draw: turn.Route == RouteDraw,
+		AgentTitle: agent.title, AgentTurns: agent.text,
 	}
 	call.Prompt = turnPrompt(ti)
 	if first != nil {
@@ -440,7 +483,7 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 	out, err := d.d.Run(ctx, b.ProjectPath, call)
 	reply := out.Text
 	if err == nil {
-		d.recordContext(b, call.SessionId, out.ContextTokens)
+		d.recordRun(b, call.SessionId, out.ContextTokens, agent)
 		if retired != "" {
 			d.removeSession(b, retired)
 		}
@@ -466,6 +509,9 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 		return Answer{}, false, ctx.Err()
 	}
 	answer, err := CheckAnswer(reply, scene, ti.Elsewhere)
+	if err == nil {
+		answer, err = routeAnswer(answer, mustDraw(turn))
+	}
 	if err != nil || !answer.HasDrawing() {
 		return answer, false, err
 	}
@@ -545,11 +591,15 @@ func (d *Drawer) summarize(ctx context.Context, b Board, sessionId string) (stri
 	return s, nil
 }
 
-// recordContext keeps sessionId's context size, unless the talk moved to another session meanwhile.
-func (d *Drawer) recordContext(b Board, sessionId string, tokens int) {
+// recordRun keeps what a session that ran has seen: its context size, unless the talk moved to another session
+// meanwhile, and the agent's cursor, unless the board's agent changed or its cursor was reset past it.
+func (d *Drawer) recordRun(b Board, sessionId string, tokens int, agent agentRead) {
 	_, err := d.d.UpdateTalk(b, func(talk *wshrpc.BoardTalk) error {
 		if talk.SessionId == sessionId {
 			talk.ContextTokens = tokens
+		}
+		if a := talk.Agent; a != nil && a.TabId == agent.tabId && agent.cursorTs > a.ReadTs {
+			a.ReadTs = agent.cursorTs
 		}
 		return nil
 	})
@@ -591,8 +641,8 @@ func (d *Drawer) dropSession(b Board, sessionId string) {
 	}
 }
 
-// finish saves a turn's end state and publishes it.
-func (d *Drawer) finish(b Board, turnId string, fn func(*wshrpc.BoardTurn)) {
+// finish saves a turn's end state and publishes it; false when it could not be saved.
+func (d *Drawer) finish(b Board, turnId string, fn func(*wshrpc.BoardTurn)) bool {
 	var turn wshrpc.BoardTurn
 	_, err := d.d.UpdateTalk(b, func(talk *wshrpc.BoardTalk) error {
 		t := findTurn(talk, turnId)
@@ -605,9 +655,10 @@ func (d *Drawer) finish(b Board, turnId string, fn func(*wshrpc.BoardTurn)) {
 	})
 	if err != nil {
 		log.Printf("boarddrawer: saving turn %s of board %s: %v", turnId, b.BoardId, err)
-		return
+		return false
 	}
 	d.publishTurn(b, turn)
+	return true
 }
 
 func (d *Drawer) publishTurn(b Board, t wshrpc.BoardTurn) {

@@ -31,3 +31,9 @@ When the user asks you to put something on a board, run
 `wsh board draw --board "<name>" --context "<briefing>" --ask "<question>"`. Write the briefing yourself: what the
 user asked, the facts, and the files involved. A separate drawer answers on that board and the user carries on the
 talk on Boards; you draw nothing yourself. Never draw unasked.
+
+The board is tied to you, and opens in your workspace. Only the first request carries `--context`; once the board
+exists, a later request is one line: `wsh board draw --board "<name>" --ask "<what to change>"`.
+
+A message that starts with `[From board "<name>" ...]` is the user's own question from that board, typed to you
+by Arc: answer it in words, here. Draw again only when your answer changes the picture.

@@ -14,11 +14,14 @@ import (
 const (
 	KindProject  = "project"
 	KindBriefing = "briefing"
+	KindAgent    = "agent"
 
-	keptLine       = "You asked whether the briefing belongs on a new board, and the person chose to keep it here. Answer the briefing on this board."
+	keptLine       = "You asked whether the briefing belongs on a new board, and the person chose to keep it here. Draw the briefing on this board."
 	elsewhereLines = "This briefing arrived on a board that already has a talk. If it is about something other than this talk, " +
-		"set `elsewhere` to true, leave `add`, `update` and `remove` empty, and in `reply` ask whether to start a new board " +
-		"for it. If it belongs here, answer it as any turn."
+		"set `elsewhere` to true and leave out every other key: Arc asks the person whether to start a new board for it. " +
+		"If it belongs here, draw it as any request."
+	agentRequestLine = "This is the agent's own request: draw it. Never flag it as a question."
+	drawLine         = "The person sent this line to be drawn: draw it, even if it reads as a question. Never flag it."
 
 	// summaryPrompt goes to a forked copy of the earlier board's session, so its talk stays as it was.
 	summaryPrompt = "This board's talk is being handed over to a new board, whose drawer starts fresh. For this one reply, " +
@@ -52,6 +55,9 @@ type turnInput struct {
 	Briefing    *wshrpc.BoardBriefing
 	Kept        bool
 	Elsewhere   bool // the drawer may answer that the briefing belongs elsewhere
+	Draw        bool // the line was sent to be drawn, so it may not be flagged
+	AgentTitle  string
+	AgentTurns  string // what the board's agent said since the drawer last read it
 }
 
 // readsThing is whether a talk about src starts from a thing boardthings reads.
@@ -122,6 +128,10 @@ func turnPrompt(t turnInput) string {
 		fmt.Fprintf(&b, "\nSelected: %s (ids %s, marked \"selected\" above). The question is about these shapes.\n",
 			on, strings.Join(t.SelectedIds, ", "))
 	}
+	if turns := strings.TrimSpace(t.AgentTurns); turns != "" {
+		fmt.Fprintf(&b, "\n%s, the agent this board belongs to, said this since you last heard from it. Draw from it when "+
+			"a line asks for what was discussed:\n\n<agent-turns>\n%s\n</agent-turns>\n", t.AgentTitle, turns)
+	}
 	b.WriteString("\n")
 	switch {
 	case t.Kept:
@@ -129,17 +139,31 @@ func turnPrompt(t turnInput) string {
 		if q := strings.TrimSpace(t.Question); q != "" {
 			b.WriteString("\nIts ask: " + q + "\n")
 		}
+		b.WriteString("\n" + agentRequestLine + "\n")
 	case t.Briefing != nil:
-		ask := strings.TrimSpace(t.Briefing.Ask)
-		if ask == "" {
-			ask = "none given: draw what the briefing explains."
-		}
-		fmt.Fprintf(&b, "%s sent a briefing:\n\n<briefing>\n%s\n</briefing>\n\nIts ask: %s\n", t.Briefing.From, t.Briefing.Text, ask)
-		if t.Elsewhere {
-			b.WriteString("\n" + elsewhereLines + "\n")
-		}
+		briefingSection(&b, t)
 	default:
 		b.WriteString("The question: " + strings.TrimSpace(t.Question) + "\n")
+		if t.Draw {
+			b.WriteString("\n" + drawLine + "\n")
+		}
 	}
 	return b.String()
+}
+
+// briefingSection is the agent's request: a briefing with its ask, or, on a board it already briefed, one line.
+func briefingSection(b *strings.Builder, t turnInput) {
+	ask := strings.TrimSpace(t.Briefing.Ask)
+	if ask == "" {
+		ask = "none given: draw what the briefing explains."
+	}
+	if strings.TrimSpace(t.Briefing.Text) == "" {
+		fmt.Fprintf(b, "%s asks you to draw: %s\n", t.Briefing.From, ask)
+	} else {
+		fmt.Fprintf(b, "%s sent a briefing:\n\n<briefing>\n%s\n</briefing>\n\nIts ask: %s\n", t.Briefing.From, t.Briefing.Text, ask)
+	}
+	b.WriteString("\n" + agentRequestLine + "\n")
+	if t.Elsewhere {
+		b.WriteString("\n" + elsewhereLines + "\n")
+	}
 }

@@ -30,7 +30,7 @@ func TestCheckAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("valid answer refused: %v", err)
 	}
-	if a.Reply != "It splits in two." || a.Title != "wavesrv, opened up" || a.Added != 3 || a.Changed != 2 || a.Removed != 1 || a.Elsewhere {
+	if a.Title != "wavesrv, opened up" || a.Added != 3 || a.Changed != 2 || a.Removed != 1 || a.Elsewhere || a.Question {
 		t.Errorf("answer: %+v", a)
 	}
 	for name, s := range map[string]string{"add": a.Add, "update": a.Update} {
@@ -42,9 +42,17 @@ func TestCheckAnswer(t *testing.T) {
 		t.Errorf("remove: %v", a.Remove)
 	}
 
+	// a reply key is ignored: words alone draw nothing and flag nothing, and the turn decides what that means
 	words, err := CheckAnswer(`{"reply":"No drawing needed: it is one process."}`, checkScene, false)
-	if err != nil || words.HasDrawing() || words.Add != "" || words.Update != "" || words.Title != "" {
-		t.Errorf("words only must be valid with no drawing: %+v %v", words, err)
+	if err != nil || words.HasDrawing() || words.Question || words.Add != "" || words.Update != "" || words.Title != "" {
+		t.Errorf("words only must be valid with no drawing and no question: %+v %v", words, err)
+	}
+	q, err := CheckAnswer(`{"question":true}`, checkScene, false)
+	if err != nil || !q.Question || q.HasDrawing() || q.Elsewhere {
+		t.Errorf("a question flag must pass as a question: %+v %v", q, err)
+	}
+	if a, err := CheckAnswer(`{"title":"x","add":`+goodAdd+`}`, checkScene, false); err != nil || a.Added != 3 {
+		t.Errorf("a drawing with no reply must pass: %+v %v", a, err)
 	}
 
 	cases := []struct {
@@ -53,8 +61,9 @@ func TestCheckAnswer(t *testing.T) {
 		wantErr     string
 	}{
 		{"blank output", "  \n", false, "without a reply"},
-		{"empty reply", `{"reply":"  ","title":"x","add":` + goodAdd + `}`, false, "no words in reply"},
-		{"no reply", `{"title":"x"}`, false, "no words in reply"},
+		{"question with a drawing", `{"question":true,"title":"x","add":` + goodAdd + `}`, false, "flags a question and also changes"},
+		{"question with elsewhere", `{"question":true,"elsewhere":true}`, true, "flags a question and also says elsewhere"},
+		{"question of the wrong type", `{"question":"yes"}`, false, "wrong types"},
 		{"prose around", "Here:\n" + answerWith(""), false, "not one JSON object"},
 		{"two objects", answerWith("") + answerWith(""), false, "not one JSON object"},
 		{"an array", `[` + answerWith("") + `]`, false, "not one JSON object"},

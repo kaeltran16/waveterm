@@ -491,6 +491,54 @@ func putTalk(t *testing.T, dir, id, about string, turns ...wshrpc.BoardTurn) {
 	}
 }
 
+func TestListAgentAndDrawingFacts(t *testing.T) {
+	dir := t.TempDir()
+	tied := mustCreate(t, dir, "tied", 1)
+	waiting := mustCreate(t, dir, "waiting", 2)
+	words := mustCreate(t, dir, "words", 3)
+	bare := mustCreate(t, dir, "bare", 4)
+	put := func(id string, agent *wshrpc.BoardAgent, turns ...wshrpc.BoardTurn) {
+		t.Helper()
+		if _, err := UpdateTalk(dir, id, func(tk *wshrpc.BoardTalk) error {
+			tk.Agent, tk.Turns = agent, turns
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agent := &wshrpc.BoardAgent{TabId: "tab-1", Title: "claude · waveterm", Runtime: "claude"}
+	put(tied.ID, agent,
+		wshrpc.BoardTurn{ID: "t1", Ts: 100, Question: "a", State: "answered", Route: "draw", Added: 2, AnsweredTs: 150},
+		wshrpc.BoardTurn{ID: "t2", Ts: 200, Question: "b", State: "forwarded", Route: "agent", Forward: &wshrpc.BoardForward{State: "replied"}},
+		wshrpc.BoardTurn{ID: "t3", Ts: 300, Question: "c", State: "answered", Route: "draw", Changed: 1, Removed: 1, AnsweredTs: 350})
+	put(waiting.ID, agent,
+		wshrpc.BoardTurn{ID: "t1", Ts: 100, Question: "a", State: "forwarded", Route: "agent", Forward: &wshrpc.BoardForward{State: "needsagent"}})
+	// a turn from before routing that answered in words drew nothing
+	put(words.ID, nil, wshrpc.BoardTurn{ID: "t1", Ts: 100, Question: "a", State: "answered", Reply: "Two processes.", AnsweredTs: 150})
+
+	list, err := List(dir, testChannel, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]wshrpc.BoardInfo{}
+	for _, b := range list {
+		byID[b.ID] = b
+	}
+	if got := byID[tied.ID]; got.AgentTabId != "tab-1" || got.Drawings != 2 || got.DrawnTs != 350 || got.State != "" {
+		t.Errorf("tied: tab=%q drawings=%d drawnts=%d state=%q", got.AgentTabId, got.Drawings, got.DrawnTs, got.State)
+	}
+	// a board whose last turn waits for an agent asks the user, though no choice is open
+	if got := byID[waiting.ID]; got.State != "asks" || got.Drawings != 0 || got.DrawnTs != 0 {
+		t.Errorf("waiting: state=%q drawings=%d drawnts=%d", got.State, got.Drawings, got.DrawnTs)
+	}
+	if got := byID[words.ID]; got.AgentTabId != "" || got.Drawings != 0 || got.DrawnTs != 0 {
+		t.Errorf("words: tab=%q drawings=%d drawnts=%d", got.AgentTabId, got.Drawings, got.DrawnTs)
+	}
+	if got := byID[bare.ID]; got.AgentTabId != "" || got.Drawings != 0 || got.State != "" {
+		t.Errorf("bare: %+v", got)
+	}
+}
+
 func TestListTalkFacts(t *testing.T) {
 	dir := t.TempDir()
 	asks := mustCreate(t, dir, "asks", 1)
