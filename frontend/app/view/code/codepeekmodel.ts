@@ -89,6 +89,20 @@ export function resolvePeekPath(raw: string, cwd: string | null, home: string): 
     return base ? joinNormalized(base, base.rest, path) : null;
 }
 
+// an agent often names a file without its folder; when only one file under the cwd has that name, it is the one meant.
+// files are cwd-relative and forward-slashed, as ls-files gives them
+export function isBareName(raw: string): boolean {
+    return !/[/\\]/.test(raw);
+}
+
+export function uniqueBareNameMatch(raw: string, files: string[]): string | null {
+    if (!isBareName(raw)) {
+        return null;
+    }
+    const hits = files.filter((f) => f === raw || f.endsWith(`/${raw}`));
+    return hits.length === 1 ? hits[0] : null;
+}
+
 export function needsHome(raw: string, cwd: string | null): boolean {
     return raw.startsWith("~") || (cwd?.startsWith("~") ?? false);
 }
