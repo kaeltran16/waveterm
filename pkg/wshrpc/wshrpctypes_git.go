@@ -232,10 +232,12 @@ type CommandGitBlameRtnData struct {
 	Untracked bool                   `json:"untracked,omitempty"`
 }
 
-// Ref "" diffs against HEAD. IgnoreWs is git's -w, the Diff surface's Hide whitespace.
+// Ref "" diffs against HEAD. IgnoreWs is git's -w, the Diff surface's Hide whitespace. Path (cwd-relative,
+// forward slashes) narrows the patch to that one path, matched literally; "" is the whole change set.
 type CommandGitPatchData struct {
 	Cwd      string `json:"cwd"`
 	Ref      string `json:"ref,omitempty"`
+	Path     string `json:"path,omitempty"`
 	IgnoreWs bool   `json:"ignorews,omitempty"`
 }
 

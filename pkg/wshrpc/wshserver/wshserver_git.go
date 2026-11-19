@@ -120,7 +120,7 @@ func (ws *WshServer) GitFileAtRefCommand(ctx context.Context, data wshrpc.Comman
 }
 
 func (ws *WshServer) GitPatchCommand(ctx context.Context, data wshrpc.CommandGitPatchData) (*wshrpc.CommandGitPatchRtnData, error) {
-	p, err := gitinfo.GetPatch(ctx, data.Cwd, data.Ref, data.IgnoreWs)
+	p, err := gitinfo.GetPatch(ctx, data.Cwd, data.Ref, data.Path, data.IgnoreWs)
 	if err != nil {
 		return nil, err
 	}

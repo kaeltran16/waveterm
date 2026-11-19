@@ -1583,6 +1583,7 @@ declare global {
     type CommandGitPatchData = {
         cwd: string;
         ref?: string;
+        path?: string;
         ignorews?: boolean;
     };
 

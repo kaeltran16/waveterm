@@ -12,7 +12,12 @@ import (
 
 func getPatch(t *testing.T, cwd, ref string, ignoreWs bool) *Patch {
 	t.Helper()
-	p, err := GetPatch(context.Background(), cwd, ref, ignoreWs)
+	return getPathPatch(t, cwd, ref, "", ignoreWs)
+}
+
+func getPathPatch(t *testing.T, cwd, ref, path string, ignoreWs bool) *Patch {
+	t.Helper()
+	p, err := GetPatch(context.Background(), cwd, ref, path, ignoreWs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,6 +160,64 @@ func TestGetPatchHunkCarriesFunctionContext(t *testing.T) {
 	}
 }
 
+func TestGetPatchPathNarrowsToModifiedFile(t *testing.T) {
+	dir := initRepo(t)
+	body := "package x\n\nfunc Alpha() {\n\ta := 1\n\tb := 2\n\tc := 3\n\td := 4\n\te := 5\n\t_ = a + b + c + d + e\n}\n"
+	writeFile(t, dir, "x.go", body)
+	writeFile(t, dir, "other.txt", "o\n")
+	commitAll(t, dir)
+	writeFile(t, dir, "x.go", strings.Replace(body, "e := 5", "e := 50", 1))
+	writeFile(t, dir, "other.txt", "o2\n")
+	writeFile(t, dir, "new.txt", "n\n")
+	p := getPathPatch(t, dir, "", "x.go", false)
+	if p.Truncated || countLines(p.Patch, "diff --git ") != 1 {
+		t.Fatalf("want one entry, truncated=%v\n%s", p.Truncated, p.Patch)
+	}
+	if !strings.HasPrefix(p.Patch, "diff --git a/x.go b/x.go\n") {
+		t.Errorf("entry is not x.go:\n%s", p.Patch)
+	}
+	if !regexp.MustCompile(`(?m)^@@ -\d+(,\d+)? \+\d+(,\d+)? @@ func Alpha\(\) \{$`).MatchString(p.Patch) {
+		t.Errorf("hunk lost git's function context:\n%s", p.Patch)
+	}
+}
+
+func TestGetPatchPathNarrowsToUntrackedFile(t *testing.T) {
+	dir := repoWithEveryKind(t)
+	sub := filepath.Join(dir, "sub")
+	p := getPathPatch(t, sub, "", "new.txt", false)
+	want := "diff --git a/new.txt b/new.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+a\n+b\n"
+	if p.Patch != want {
+		t.Fatalf("patch =\n%s\nwant\n%s", p.Patch, want)
+	}
+}
+
+func TestGetPatchPathUnchangedFileIsEmpty(t *testing.T) {
+	dir := repoWithEveryKind(t)
+	writeFile(t, dir, "calm.txt", "c\n")
+	gitRun(t, dir, "add", "calm.txt")
+	gitRun(t, dir, "commit", "-q", "-m", "calm")
+	p := getPathPatch(t, dir, "", "calm.txt", false)
+	if p.Patch != "" || p.Truncated || !p.IsRepo {
+		t.Fatalf("patch=%q truncated=%v isrepo=%v, want empty repo patch", p.Patch, p.Truncated, p.IsRepo)
+	}
+}
+
+func TestGetPatchPathIsLiteralNotGlob(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "a.txt", "1\n")
+	writeFile(t, dir, "b.txt", "1\n")
+	commitAll(t, dir)
+	writeFile(t, dir, "a.txt", "2\n")
+	writeFile(t, dir, "b.txt", "2\n")
+	writeFile(t, dir, "u1.txt", "u\n")
+	writeFile(t, dir, "u2.txt", "u\n")
+	for _, glob := range []string{"*.txt", "[ab].txt", "u?.txt"} {
+		if p := getPathPatch(t, dir, "", glob, false); p.Patch != "" {
+			t.Errorf("path %q matched as a glob:\n%s", glob, p.Patch)
+		}
+	}
+}
+
 func TestGetPatchRefIncludesCommittedSince(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "1\n")
@@ -281,7 +344,7 @@ func TestUntrackedEntryVanishedFileIsSkipped(t *testing.T) {
 }
 
 func TestGetPatchNotARepo(t *testing.T) {
-	p, err := GetPatch(context.Background(), t.TempDir(), "", false)
+	p, err := GetPatch(context.Background(), t.TempDir(), "", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +369,7 @@ func TestGetPatchUnknownRefErrorsWithStderr(t *testing.T) {
 	dir := initRepo(t)
 	writeFile(t, dir, "a.txt", "a\n")
 	commitAll(t, dir)
-	_, err := GetPatch(context.Background(), dir, "no-such-ref", false)
+	_, err := GetPatch(context.Background(), dir, "no-such-ref", "", false)
 	if err == nil {
 		t.Fatal("want an error for an unknown ref")
 	}
