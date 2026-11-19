@@ -145,9 +145,71 @@ export function changesGroups(
         }));
 }
 
-// a new file starts closed, any other open; the toggled flag flips that
-export function fileOpen(f: Pick<ChangesFile, "isNew">, toggled: boolean): boolean {
-    return f.isNew === toggled;
+// a file absent from open is closed. stepOpened is the file a step opened, which the next step into another file
+// closes; a file the user opens or closes by any means is theirs, so it is never the remembered one
+export interface ChangesOpen {
+    open: Record<string, boolean>;
+    stepOpened: string | null;
+}
+
+export const NONE_OPEN: ChangesOpen = { open: {}, stepOpened: null };
+
+export function isFileOpen(s: ChangesOpen, path: string): boolean {
+    return s.open[path] ?? false;
+}
+
+export function anyFileOpen(s: ChangesOpen, paths: string[]): boolean {
+    return paths.some((p) => isFileOpen(s, p));
+}
+
+function setOpen(s: ChangesOpen, paths: string[], value: boolean, forget: boolean): ChangesOpen {
+    const open = { ...s.open };
+    for (const p of paths) {
+        open[p] = value;
+    }
+    return { open, stepOpened: forget ? null : s.stepOpened };
+}
+
+export function toggleFile(s: ChangesOpen, path: string): ChangesOpen {
+    return setOpen(s, [path], !isFileOpen(s, path), s.stepOpened === path);
+}
+
+export function openFile(s: ChangesOpen, path: string): ChangesOpen {
+    return setOpen(s, [path], true, s.stepOpened === path);
+}
+
+export function toggleFolder(s: ChangesOpen, paths: string[]): ChangesOpen {
+    return setOpen(s, paths, !anyFileOpen(s, paths), s.stepOpened != null && paths.includes(s.stepOpened));
+}
+
+export function toggleAll(s: ChangesOpen, paths: string[]): ChangesOpen {
+    return setOpen(s, paths, !anyFileOpen(s, paths), true);
+}
+
+export function stepInto(s: ChangesOpen, path: string): ChangesOpen {
+    let next = s;
+    if (s.stepOpened != null && s.stepOpened !== path) {
+        next = setOpen(s, [s.stepOpened], false, true);
+    }
+    return isFileOpen(next, path) ? next : { open: { ...next.open, [path]: true }, stepOpened: path };
+}
+
+// a group's closed files run together as one list box; an open file breaks the run as its own card
+export type ChangesSegment = { kind: "list"; files: ChangesFile[] } | { kind: "card"; file: ChangesFile };
+
+export function changesSegments(files: ChangesFile[], s: ChangesOpen): ChangesSegment[] {
+    const segs: ChangesSegment[] = [];
+    for (const file of files) {
+        const last = segs.at(-1);
+        if (isFileOpen(s, file.change.path)) {
+            segs.push({ kind: "card", file });
+        } else if (last?.kind === "list") {
+            last.files.push(file);
+        } else {
+            segs.push({ kind: "list", files: [file] });
+        }
+    }
+    return segs;
 }
 
 // every hunk of every file in display order, closed files included, so the counter's total holds as files toggle

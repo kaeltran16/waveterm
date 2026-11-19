@@ -252,6 +252,10 @@ export const workspacePane = {
         await step("the Changes tab's diff wraps a long line, its band, edge and number kept, with no sideways scroll", async () => {
             const ROW = `[...document.querySelectorAll("[data-workspace-changes] [data-diff-line]")].find((r) => r.textContent.includes("word0")) ?? null`;
             const SCROLLER = `document.querySelector("[data-workspace-changes-scroll]")`;
+            // the tab opens with every file collapsed: open the file through its header
+            const FILE = `document.querySelector('[data-workspace-changes] [data-changes-file="${REPO_FILE}"]')`;
+            await polishWaitFor(h, `(${FILE}) != null`, GIT_WAIT_MS);
+            await h.ev(`(() => { const f = ${FILE}; if (f?.dataset.changesOpen == null) f?.querySelector("[data-changes-toggle]")?.click(); return true; })()`);
             const shown = await polishWaitFor(h, `(${ROW}) != null`, GIT_WAIT_MS);
             await polishNap(SETTLE_MS);
             const measure = `(() => {

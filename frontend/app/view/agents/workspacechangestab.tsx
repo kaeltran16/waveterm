@@ -6,7 +6,18 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUpRight, ChevronDown, ChevronRight, ChevronUp, Code, FileText, Pilcrow, RotateCw } from "lucide-react";
+import {
+    ArrowUpRight,
+    ChevronDown,
+    ChevronRight,
+    ChevronsDownUp,
+    ChevronsUpDown,
+    ChevronUp,
+    Code,
+    FileText,
+    Pilcrow,
+    RotateCw,
+} from "lucide-react";
 import { useEffect, useMemo, useRef } from "react";
 import { agentDiffScope, openDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
@@ -17,18 +28,27 @@ import { lineCountsShown, statusColor } from "./gitstatus";
 import { useRailGit } from "./railgit";
 import { loadRailForAgent } from "./railstore";
 import { SurfaceEmptyState } from "./surfacescaffold";
-import { changesLine, changesView, fileOpen, hunkWalk, type ChangesFile } from "./workspacechangesmodel";
+import {
+    anyFileOpen,
+    changesLine,
+    changesSegments,
+    changesView,
+    hunkWalk,
+    type ChangesFile,
+} from "./workspacechangesmodel";
 import {
     changesAtAtom,
     changesGroupsFor,
+    changesOpenAtom,
     changesPatchAtom,
     changesScrollAtom,
-    changesToggledAtom,
     clearChangesPatch,
     loadChangesPatch,
     openChangesFile,
     stepChangesHunk,
+    toggleAllChangesFiles,
     toggleChangesFile,
+    toggleChangesFolder,
 } from "./workspacechangesstore";
 import type { WorkspaceTab } from "./workspacemodel";
 
@@ -71,7 +91,7 @@ export function ChangesTab({
     const onScreen = useAtomValue(model.surfaceAtom) === "agent";
     const ignoreWs = useAtomValue(ignoreWsAtom);
     const patch = useAtomValue(changesPatchAtom);
-    const toggled = useAtomValue(changesToggledAtom(agent.id));
+    const openState = useAtomValue(changesOpenAtom(agent.id));
     const at = useAtomValue(changesAtAtom(agent.id));
     const scroll = useAtomValue(changesScrollAtom(agent.id));
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -80,6 +100,8 @@ export function ChangesTab({
     const view = changesView(rail);
     const groups = useMemo(() => changesGroupsFor(agent.id, rail, patch), [agent.id, rail, patch]);
     const total = useMemo(() => hunkWalk(groups).length, [groups]);
+    const listed = useMemo(() => groups.flatMap((g) => g.files.map((f) => f.change.path)), [groups]);
+    const anyOpen = anyFileOpen(openState, listed);
     const cwd = rail?.cwd;
     const failure = patch?.agentId === agent.id ? patch.failure : undefined;
 
@@ -112,7 +134,7 @@ export function ChangesTab({
         if (selected == null) {
             return;
         }
-        openChangesFile(agent.id, selected.change.path, selected.isNew);
+        openChangesFile(agent.id, selected.change.path);
         revealAtTop(scrollRef.current, scrollRef.current?.querySelector(fileSelector(selected.change.path)));
     }, [tab.selected, selected != null]);
 
@@ -187,6 +209,17 @@ export function ChangesTab({
                 >
                     <Pilcrow size={13} />
                 </button>
+                {view === "files" ? (
+                    <button
+                        type="button"
+                        data-changes-toggle-all
+                        onClick={() => toggleAllChangesFiles(agent.id, listed)}
+                        className={cn(barBtn, "gap-[5px] px-[7px] text-[11px] font-semibold")}
+                    >
+                        {anyOpen ? <ChevronsDownUp size={13} aria-hidden /> : <ChevronsUpDown size={13} aria-hidden />}
+                        <span>{anyOpen ? "Collapse all" : "Expand all"}</span>
+                    </button>
+                ) : null}
                 <span className="mx-[6px] h-[16px] w-px flex-none bg-edge-mid" />
                 <button
                     type="button"
@@ -222,137 +255,172 @@ export function ChangesTab({
                         </button>
                     </div>
                 ) : null}
-                {groups.map((g) => (
-                    <div key={g.dir} data-changes-group={g.dir}>
-                        {g.dir !== "" ? (
-                            <div
-                                data-changes-folder
-                                className="sticky top-0 z-[3] flex h-[32px] items-center gap-[8px] bg-surface-code px-[18px] font-mono text-[11.5px]"
-                            >
-                                <span className="min-w-0 flex-1 truncate text-muted">{g.dir}/</span>
-                                <span className="flex-none text-ink-faint">{g.count}</span>
-                            </div>
-                        ) : null}
-                        {g.files.map((f) => (
-                            <FileBlock
-                                key={f.change.path}
-                                model={model}
-                                agentId={agent.id}
-                                f={f}
-                                open={fileOpen(f, toggled[f.change.path] ?? false)}
-                                foldered={g.dir !== ""}
-                                counted={counted}
-                                failed={failure != null}
-                                cwd={cwd}
-                            />
-                        ))}
-                    </div>
-                ))}
+                {groups.map((g) => {
+                    const paths = g.files.map((f) => f.change.path);
+                    const folderOpen = anyFileOpen(openState, paths);
+                    const folderLabel = `${folderOpen ? "Collapse" : "Expand"} every file in ${g.dir}/`;
+                    const foldered = g.dir !== "";
+                    const head = (f: ChangesFile, open: boolean) => (
+                        <FileHeader model={model} agentId={agent.id} f={f} open={open} counted={counted} cwd={cwd} />
+                    );
+                    return (
+                        <div key={g.dir} data-changes-group={g.dir}>
+                            {foldered ? (
+                                <button
+                                    type="button"
+                                    data-changes-folder
+                                    onClick={() => toggleChangesFolder(agent.id, paths)}
+                                    aria-expanded={folderOpen}
+                                    aria-label={folderLabel}
+                                    title={folderLabel}
+                                    className="sticky top-0 z-[3] flex h-[32px] w-full cursor-pointer items-center gap-[8px] bg-surface-code px-[18px] text-left font-mono text-[11.5px]"
+                                >
+                                    <ChevronRight
+                                        size={12}
+                                        aria-hidden
+                                        className={cn(
+                                            "-ml-[4px] flex-none text-ink-faint transition-transform motion-reduce:transition-none",
+                                            folderOpen && "rotate-90"
+                                        )}
+                                    />
+                                    <span className="min-w-0 flex-1 truncate text-muted">{g.dir}/</span>
+                                    <span className="flex-none text-ink-faint">{g.count}</span>
+                                </button>
+                            ) : null}
+                            {changesSegments(g.files, openState).map((seg) =>
+                                seg.kind === "list" ? (
+                                    <div
+                                        key={`list:${seg.files[0].change.path}`}
+                                        data-changes-list
+                                        className="mx-[8px] mb-[8px] overflow-clip rounded-[8px] border border-border bg-surface"
+                                    >
+                                        {seg.files.map((f, i) => (
+                                            <div
+                                                key={f.change.path}
+                                                data-changes-file={f.change.path}
+                                                // a jump lands the row under the 32px folder label that sticks over it
+                                                className={cn(
+                                                    "flex items-center gap-[4px] pr-[6px]",
+                                                    foldered && "scroll-mt-[32px]",
+                                                    i > 0 && "border-t border-edge-faint"
+                                                )}
+                                            >
+                                                {head(f, false)}
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div
+                                        key={seg.file.change.path}
+                                        data-changes-file={seg.file.change.path}
+                                        data-changes-open
+                                        // clip, not hidden: a hidden overflow would make the card the header's sticky
+                                        // container. A jump lands the card under the 32px folder label that sticks over it.
+                                        className={cn(
+                                            "mx-[8px] mb-[8px] overflow-clip rounded-[8px] border border-border",
+                                            foldered && "scroll-mt-[32px]"
+                                        )}
+                                    >
+                                        <div
+                                            className={cn(
+                                                "sticky z-[2] flex h-[34px] items-center gap-[4px] bg-surface pr-[6px]",
+                                                foldered ? "top-[32px]" : "top-0"
+                                            )}
+                                        >
+                                            {head(seg.file, true)}
+                                        </div>
+                                        <FileBody f={seg.file} foldered={foldered} failed={failure != null} />
+                                    </div>
+                                )
+                            )}
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );
 }
 
-function FileBlock({
+// a file's header row: the toggle and Open in Code, drawn in a list box row (closed) and on a card (open)
+function FileHeader({
     model,
     agentId,
     f,
     open,
-    foldered,
     counted,
-    failed,
     cwd,
 }: {
     model: AgentsViewModel;
     agentId: string;
     f: ChangesFile;
     open: boolean;
-    foldered: boolean;
     counted: boolean;
-    failed: boolean;
     cwd: string | null | undefined;
 }) {
     const { adds, dels, status, path } = f.change;
     // a deleted file has no file on disk to open
     const codable = cwd && status !== "D";
     return (
-        <div
-            data-changes-file={path}
-            data-changes-open={open || undefined}
-            // clip, not hidden: a hidden overflow would make the block the header's sticky container. A jump lands
-            // the block under the 32px folder label that sticks over it.
-            className={cn(
-                "mx-[8px] mb-[8px] overflow-clip rounded-[8px] border border-border",
-                foldered && "scroll-mt-[32px]"
-            )}
-        >
-            <div
-                className={cn(
-                    "sticky z-[2] flex h-[34px] items-center gap-[4px] bg-surface pr-[6px]",
-                    foldered ? "top-[32px]" : "top-0"
-                )}
+        <>
+            <button
+                type="button"
+                data-changes-toggle
+                onClick={() => toggleChangesFile(agentId, path)}
+                aria-expanded={open}
+                aria-label={`${open ? "Collapse" : "Expand"} ${f.name}`}
+                className="flex h-[34px] min-w-0 flex-1 cursor-pointer items-center gap-[8px] px-[10px] text-left font-mono"
             >
+                <ChevronRight
+                    size={12}
+                    aria-hidden
+                    className={cn(
+                        "flex-none text-muted transition-transform motion-reduce:transition-none",
+                        open && "rotate-90"
+                    )}
+                />
+                <span className={cn("w-[10px] flex-none text-[11px] font-bold", statusColor(f.letter))}>
+                    {f.letter}
+                </span>
+                <span className="min-w-0 truncate text-[12.5px] font-semibold text-ink-hi">{f.name}</span>
+                <span className="flex-1" />
+                {f.isNew && !open ? (
+                    <span data-changes-new className="flex-none text-[11px] text-muted">
+                        new file
+                    </span>
+                ) : null}
+                {counted ? (
+                    <>
+                        <span className={cn("flex-none text-[11px]", adds > 0 ? "text-diff-added" : "text-muted")}>
+                            +{adds}
+                        </span>
+                        <span
+                            className={cn(
+                                "min-w-[24px] flex-none text-[11px]",
+                                dels > 0 ? "text-diff-removed" : "text-muted"
+                            )}
+                        >
+                            −{dels}
+                        </span>
+                    </>
+                ) : null}
+            </button>
+            {codable ? (
                 <button
                     type="button"
-                    data-changes-toggle
-                    onClick={() => toggleChangesFile(agentId, path)}
-                    aria-expanded={open}
-                    aria-label={`${open ? "Collapse" : "Expand"} ${f.name}`}
-                    className="flex h-[34px] min-w-0 flex-1 cursor-pointer items-center gap-[8px] px-[10px] text-left font-mono"
+                    data-changes-open-code
+                    onClick={() =>
+                        fireAndForget(() =>
+                            openInCode(model, { projectPath: cwd, rel: path, line: f.hunks[0]?.newStart })
+                        )
+                    }
+                    title="Open in Code"
+                    aria-label="Open in Code"
+                    className="inline-flex h-[26px] w-[26px] flex-none cursor-pointer items-center justify-center rounded-[6px] text-muted hover:bg-surface-hover hover:text-ink-hi"
                 >
-                    <ChevronRight
-                        size={12}
-                        aria-hidden
-                        className={cn(
-                            "flex-none text-muted transition-transform motion-reduce:transition-none",
-                            open && "rotate-90"
-                        )}
-                    />
-                    <span className={cn("w-[10px] flex-none text-[11px] font-bold", statusColor(f.letter))}>
-                        {f.letter}
-                    </span>
-                    <span className="min-w-0 truncate text-[12.5px] font-semibold text-ink-hi">{f.name}</span>
-                    <span className="flex-1" />
-                    {f.isNew && !open ? (
-                        <span data-changes-new className="flex-none text-[11px] text-muted">
-                            new file
-                        </span>
-                    ) : null}
-                    {counted ? (
-                        <>
-                            <span className={cn("flex-none text-[11px]", adds > 0 ? "text-diff-added" : "text-muted")}>
-                                +{adds}
-                            </span>
-                            <span
-                                className={cn(
-                                    "min-w-[24px] flex-none text-[11px]",
-                                    dels > 0 ? "text-diff-removed" : "text-muted"
-                                )}
-                            >
-                                −{dels}
-                            </span>
-                        </>
-                    ) : null}
+                    <Code size={13} />
                 </button>
-                {codable ? (
-                    <button
-                        type="button"
-                        data-changes-open-code
-                        onClick={() =>
-                            fireAndForget(() =>
-                                openInCode(model, { projectPath: cwd, rel: path, line: f.hunks[0]?.newStart })
-                            )
-                        }
-                        title="Open in Code"
-                        aria-label="Open in Code"
-                        className="inline-flex h-[26px] w-[26px] flex-none cursor-pointer items-center justify-center rounded-[6px] text-muted hover:bg-surface-hover hover:text-ink-hi"
-                    >
-                        <Code size={13} />
-                    </button>
-                ) : null}
-            </div>
-            {open ? <FileBody f={f} foldered={foldered} failed={failed} /> : null}
-        </div>
+            ) : null}
+        </>
     );
 }
 
