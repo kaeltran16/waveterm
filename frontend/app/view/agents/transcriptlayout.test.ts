@@ -91,6 +91,23 @@ describe("layoutTranscript folds", () => {
         expect(kinds(drawn(layoutTranscript(turn.slice(0, 5), { active: true })))).toEqual(["user", "steps"]);
     });
 
+    it("keeps the last turn unfolded when it ends on an interruption, and folds it once a new prompt follows", () => {
+        const stopped: AgentEntry[] = [
+            user("go", T0),
+            read("a.ts"),
+            bash("npm test", { pending: true }),
+            { kind: "interrupted" },
+        ];
+        const items = layoutTranscript(stopped, { active: false });
+        expect(turns(items).map((t) => [t.startIndex, t.live, t.latest])).toEqual([[1, true, true]]);
+        expect(kinds(drawn(items))).toEqual(["user", "steps", "interrupted"]);
+        const next = layoutTranscript([...stopped, user("try again"), read("b.ts"), prose("ok")], { active: false });
+        expect(turns(next).map((t) => [t.startIndex, t.live])).toEqual([
+            [1, undefined],
+            [5, undefined],
+        ]);
+    });
+
     it("folds an earlier turn while the agent works on a later one", () => {
         const entries = [...turn, user("again", T0 + 50 * S), read("d.ts"), prose("looking"), read("e.ts")];
         expect(kinds(drawn(layoutTranscript(entries, { active: true })))).toEqual([

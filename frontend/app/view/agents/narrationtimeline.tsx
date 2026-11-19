@@ -111,7 +111,8 @@ function TurnFold({
             setSettled(true);
         }
     }, [live]);
-    const open = unfold || !settled || toggled;
+    // live draws open even once settled: an interrupted turn can fold for a moment before its interruption lands
+    const open = unfold || live || !settled || toggled;
     // a turn that mounts live gains rows as they arrive, and those enter as the feed's own do
     const body = <AnimatePresence initial={live}>{children}</AnimatePresence>;
     return (

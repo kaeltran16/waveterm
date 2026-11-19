@@ -75,8 +75,8 @@ export type LayoutItem =
     | { kind: "steps"; startIndex: number; steps: Step[]; thoughts?: Thought[] }
     | { kind: "card"; index: number; step: Step }
     // a turn's work, folded: its items in order. latest: part of the last finished turn while the agent is not
-    // working, whose cards draw open. live: the working turn's work, laid out the same way but drawn open, so
-    // finishing folds the rows already drawn instead of redrawing them inside a fold
+    // working, whose cards draw open. live: the working turn's work, or the last turn's when it was interrupted, laid
+    // out the same way but drawn open, so finishing folds the rows already drawn instead of redrawing them inside a fold
     | { kind: "turn"; startIndex: number; items: LayoutItem[]; fold: FoldSummary; latest: boolean; live?: boolean };
 
 // the entry's own time: a record's ts, or an action's tool_use time
@@ -398,10 +398,12 @@ function foldTurn(
 }
 
 // folds every finished turn; while active, the last turn is live: split the same way, its turn items marked live.
-// Not active, the last turn is the latest
+// Not active, the last turn is the latest, and stays live when the transcript ends on its interruption: the work the
+// person just stopped stays in view until their next prompt
 function foldTurns(entries: AgentEntry[], flat: LayoutItem[], opts: LayoutOpts): LayoutItem[] {
     const starts = flat.flatMap((item, p) => (startsTurn(entries, item) ? [p] : []));
-    const liveFrom = opts.active ? (starts[starts.length - 1] ?? 0) : flat.length;
+    const interrupted = flat[flat.length - 1]?.kind === "interrupted";
+    const liveFrom = opts.active || interrupted ? (starts[starts.length - 1] ?? 0) : flat.length;
     // a mark draws after the item holding the entry before it, so the turn splits there
     const splitAfter = new Set(placeMarks(flat, opts.marks ?? []).after.keys());
     const keepOut = lastCanvasReveal(entries);
