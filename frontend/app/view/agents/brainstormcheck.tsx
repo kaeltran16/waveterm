@@ -43,6 +43,7 @@ import {
     LINK,
     MainBody,
     QuestionAnswers,
+    questionHeadClasses,
     QuestionMain,
     SECTION_HEAD,
     SMALL_DOT,
@@ -170,6 +171,7 @@ function BuilderAsk({
 }) {
     const ask = checkAsk(f);
     const ans = useAnswer(agent, "builder-answer");
+    const head = questionHeadClasses(useBsNarrow());
     const open = ask.open!;
     // drawn with the talk question's answers, which read a question's options
     const asked: BrainstormQuestion = { n: ask.index, text: open.q, part: open.part ?? "", options: open.options };
@@ -177,11 +179,8 @@ function BuilderAsk({
         <div data-brainstorm-builder-question className="flex min-h-0 flex-1 flex-col">
             <Track segments={ask.queue.map((y) => QUEUE_TRACK[y.state])} />
             <MainBody>
-                <div className="flex flex-col gap-[14px]">
-                    <span
-                        data-brainstorm-builder-head
-                        className="flex items-center gap-[10px] text-[13px] text-warning"
-                    >
+                <div className={head.wrap}>
+                    <span data-brainstorm-builder-head className={head.label}>
                         <span className="font-mono font-semibold">
                             Builder {ask.index} of {ask.total}
                         </span>
@@ -201,11 +200,9 @@ function BuilderAsk({
                             </>
                         ) : null}
                     </span>
-                    <h1 className="m-0 whitespace-pre-line text-[30px] font-bold leading-[1.3] text-primary">
-                        {open.q}
-                    </h1>
+                    <h1 className={head.text}>{open.q}</h1>
                     {open.why ? (
-                        <p data-brainstorm-why className="m-0 text-[16px] leading-[1.6] text-ink-mid">
+                        <p data-brainstorm-why className={head.why}>
                             {open.why}
                         </p>
                     ) : null}

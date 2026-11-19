@@ -276,7 +276,7 @@ export const motionCode = {
                 }
             });
             obs.observe(host, { childList: true, subtree: true });
-            host.render({ peek: { ...peek, file: { kind: "text", text: "# Notes\\n\\nA peeked file.", git: { kind: "norepo" }, open: { projectPath: "C:/motion", rel: "notes.md" } } }, model: {}, blockId: "motion-code-peek", side: "below" });
+            host.render({ peek: { ...peek, file: { kind: "text", text: "# Notes\\n\\nA peeked file.", git: { kind: "norepo" }, open: { projectPath: "C:/motion", rel: "notes.md", inRepo: false } } }, model: {}, blockId: "motion-code-peek", side: "below" });
             await nap(600);
             obs.disconnect();
             const settled = getComputedStyle(host.querySelector("[data-view-swap]")).opacity;

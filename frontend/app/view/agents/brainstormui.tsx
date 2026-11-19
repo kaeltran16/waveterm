@@ -114,7 +114,7 @@ const OPTION_BTN =
     "flex w-full cursor-pointer items-center border-0 bg-transparent text-left outline-none disabled:cursor-default";
 // a row with one board holds it on its right; the second row takes the board's extra height, so the button keeps its own
 const ROW_BESIDE_GRID = "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_1fr]";
-const OPTION_LETTER =
+const OPTION_NUMBER =
     "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary";
 const SEGMENT = "box-border h-[6px] w-[22px] flex-none rounded-[3px]";
 const SEGMENT_STATE: Record<PartState, string> = {
@@ -520,7 +520,7 @@ function JudgeWorkLine({ work, compact, lineText }: { work: JudgeWork; compact: 
     );
 }
 
-// a letter key focuses its row (bindings.ts), so Enter, the row's own key, sends it. rowBoards draws a row's mockups on
+// a digit key focuses its row (bindings.ts), so Enter, the row's own key, sends it. rowBoards draws a row's mockups on
 // its right, beside its pros and cons and outside its button, so opening one never sends the answer
 export function Options({
     options,
@@ -587,7 +587,7 @@ export function Options({
                         >
                             <span
                                 className={cn(
-                                    OPTION_LETTER,
+                                    OPTION_NUMBER,
                                     compact ? "h-[24px] w-[24px] text-[11.5px]" : "h-[30px] w-[30px] text-[13px]"
                                 )}
                             >
@@ -651,7 +651,7 @@ export function Options({
     );
 }
 
-// indented to the label, under the letter; a narrow column stacks the two lists
+// indented to the label, under the number; a narrow column stacks the two lists
 function ProsCons({ o, compact }: { o: AnswerOption; compact: boolean }) {
     return (
         <div
@@ -1070,13 +1070,26 @@ function HiddenMockupsLink({
     );
 }
 
+// one size set for every asked question's head (the talk question and the builder's), at the pane's width
+export function questionHeadClasses(narrow: boolean) {
+    return {
+        wrap: cn("flex flex-col", narrow ? "gap-[8px]" : "gap-[14px]"),
+        label: cn("flex items-center gap-[10px] text-warning", narrow ? "text-[12.5px]" : "text-[13px]"),
+        text: cn(
+            "m-0 whitespace-pre-line text-primary",
+            narrow ? "break-words text-[20px] font-semibold leading-[1.35]" : "text-[30px] font-bold leading-[1.3]"
+        ),
+        why: cn("m-0 text-ink-mid", narrow ? "text-[13px] leading-[1.55]" : "text-[16px] leading-[1.6]"),
+    };
+}
+
 // the asked question's part link and number, its text and its why; children go under them
 function QuestionHead({ f, goTo, children }: { f: BrainstormFile; goTo: (id: string) => void; children?: ReactNode }) {
     const q = f.question!;
-    const narrow = useBsNarrow();
+    const head = questionHeadClasses(useBsNarrow());
     return (
-        <div className={cn("flex flex-col", narrow ? "gap-[8px]" : "gap-[14px]")}>
-            <span className={cn("flex items-center gap-[10px] text-warning", narrow ? "text-[12.5px]" : "text-[13px]")}>
+        <div className={head.wrap}>
+            <span className={head.label}>
                 {q.part ? (
                     <>
                         <span className="font-mono font-semibold">{q.n} →</span>
@@ -1092,24 +1105,9 @@ function QuestionHead({ f, goTo, children }: { f: BrainstormFile; goTo: (id: str
                     <span className="font-mono font-semibold">Question {q.n}</span>
                 )}
             </span>
-            <h1
-                className={cn(
-                    "m-0 whitespace-pre-line text-primary",
-                    narrow
-                        ? "break-words text-[20px] font-semibold leading-[1.35]"
-                        : "text-[30px] font-bold leading-[1.3]"
-                )}
-            >
-                {q.text}
-            </h1>
+            <h1 className={head.text}>{q.text}</h1>
             {q.why ? (
-                <p
-                    data-brainstorm-why
-                    className={cn(
-                        "m-0 text-ink-mid",
-                        narrow ? "text-[13px] leading-[1.55]" : "text-[16px] leading-[1.6]"
-                    )}
-                >
+                <p data-brainstorm-why className={head.why}>
                     {q.why}
                 </p>
             ) : null}
@@ -1205,7 +1203,7 @@ export function JudgingMain({
                                             "items-start gap-[14px] px-[12px] pb-[4px] pt-[11px]"
                                         )}
                                     >
-                                        <span className={cn(OPTION_LETTER, "h-[24px] w-[24px] text-[11.5px]")}>
+                                        <span className={cn(OPTION_NUMBER, "h-[24px] w-[24px] text-[11.5px]")}>
                                             {optionNumber(i)}
                                         </span>
                                         <span className="flex min-w-0 flex-1 flex-col gap-[3px] pt-[2px]">

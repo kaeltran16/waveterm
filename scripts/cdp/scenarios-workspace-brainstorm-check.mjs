@@ -4,7 +4,7 @@
 
 import { RBS_KIT } from "./scenarios-rendered-brainstorm.mjs";
 import { WBS_KIT } from "./scenarios-workspace-brainstorm-question.mjs";
-import { BS_BUILDER_A, BS_CHECK, BS_HANDOFF_PARTS, BS_HISTORY_Q4, bsFile, bsParts } from "./scenarios-shared.mjs";
+import { BS_BUILDER_A, BS_CHECK, BS_HANDOFF, BS_HANDOFF_PARTS, BS_HISTORY_Q4, bsFile, bsParts } from "./scenarios-shared.mjs";
 
 const NAME = "workspace-brainstorm-check";
 const { polishWaitFor, polishNap, writeFile, BS_POLL_WAIT_MS, WAIT_MS } = RBS_KIT;
@@ -54,6 +54,19 @@ const stacked = (rows, min) =>
 
 export const workspaceBrainstormCheck = wbsScenario(NAME, async (h, ctx, step) => {
     await step("the 600px Brainstorm tab shows the asking question, and the pane reads itself narrow", () => tabOpens(h, ctx));
+
+    await step("the builder's question heads at the tab's size, as the talk question does", async () => {
+        writeFile(ctx, BS_HANDOFF);
+        const shown = await polishWaitFor(h, `${BS_IN_TAB}?.querySelector("[data-brainstorm-builder-question] h1") != null`, BS_POLL_WAIT_MS);
+        await polishNap(SETTLE_MS);
+        const sizes = await h.ev(`(() => {
+            const fs = (el) => (el ? getComputedStyle(el).fontSize : null);
+            const q = ${BS_IN_TAB}?.querySelector("[data-brainstorm-builder-question]");
+            return { h1: fs(q?.querySelector("h1")), why: fs(q?.querySelector("[data-brainstorm-why]")), head: fs(q?.querySelector("[data-brainstorm-builder-head]")) };
+        })()`);
+        await h.shot("cdp-shots/workspace-brainstorm-check-builder.png");
+        return [shown && sizes.h1 === "20px" && sizes.why === "13px" && sizes.head === "12.5px", { shown, ...sizes }];
+    });
 
     await step("the review's rows stack their body under the title, and the key hints are not drawn", async () => {
         writeFile(ctx, REVIEW_FILE);

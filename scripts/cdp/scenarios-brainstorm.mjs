@@ -1686,7 +1686,7 @@ export const brainstormMainBoard = bsBoardScenario("brainstorm-main", BS_TOPIC, 
     await h.shot("cdp-shots/brainstorm-main.png");
     const optionText = (o, i) => `${i + 1} ${o.label} ${o.detail}${o.pick ? " Agent’s pick" : ""}`;
     rec(
-        "1. a question with no pros, cons or read (Main): why under it, answers A B C with the agent's pick, the answer box, Guess, Skip and The design, and no read line, toggle or reason lists",
+        "1. a question with no pros, cons or read (Main): why under it, answers 1 2 3 with the agent's pick, the answer box, Guess, Skip and The design, and no read line, toggle or reason lists",
         s.ok &&
             s.question.startsWith("4 → When it pages") &&
             s.why === BS_Q4.why &&
