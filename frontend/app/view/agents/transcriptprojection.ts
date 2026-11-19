@@ -478,8 +478,11 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                             files: [buildEditDiff(filePath, "", block.input.content)],
                         };
                     } else if (block.name === "Skill" && block.input && typeof block.input.skill === "string") {
+                        // the row already names the skill, so without args there is no body and the row stays plain
                         const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
-                        action.detail = { kind: "skill", name: block.input.skill, args: args !== "" ? args : undefined };
+                        if (args !== "") {
+                            action.detail = { kind: "skill", name: block.input.skill, args };
+                        }
                     } else if (block.name === "AskUserQuestion" && Array.isArray(block.input?.questions)) {
                         action.detail = { kind: "ask", questions: askQuestions(block.input.questions) };
                     }

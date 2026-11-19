@@ -801,7 +801,7 @@ describe("projectTranscript detail", () => {
         expect((out[0] as any).detail).toEqual({ kind: "skill", name: "brainstorming", args: "design the cache" });
     });
 
-    it("omits the args detail field when a Skill call has no args", () => {
+    it("gives a Skill call with no args no detail, so its row does not open to an empty body", () => {
         const out = projectTranscript([
             L({
                 type: "assistant",
@@ -809,7 +809,7 @@ describe("projectTranscript detail", () => {
             }),
         ]);
         expect(out[0]).toMatchObject({ kind: "action", verb: "skill", target: "commit" });
-        expect((out[0] as any).detail).toEqual({ kind: "skill", name: "commit" });
+        expect((out[0] as any).detail).toBeUndefined();
     });
 
     it("computes durationMs from record timestamps", () => {
@@ -1328,7 +1328,7 @@ describe("projectTranscript malformed and mistyped records", () => {
             pending: true,
             detail: { kind: "skill", name: "commit", args: "design the cache" },
         };
-        const noArgs = { kind: "action", verb: "skill", target: "commit", pending: true, detail: { kind: "skill", name: "commit" } };
+        const noArgs = { kind: "action", verb: "skill", target: "commit", pending: true };
         expect(out).toEqual([withArgs, noArgs, withArgs, noArgs]);
     });
 

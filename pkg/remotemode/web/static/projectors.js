@@ -797,7 +797,9 @@ function projectTranscriptRecords(records) {
             };
           } else if (block.name === "Skill" && block.input && typeof block.input.skill === "string") {
             const args = typeof block.input.args === "string" ? block.input.args.trim() : "";
-            action.detail = { kind: "skill", name: block.input.skill, args: args !== "" ? args : void 0 };
+            if (args !== "") {
+              action.detail = { kind: "skill", name: block.input.skill, args };
+            }
           } else if (block.name === "AskUserQuestion" && Array.isArray(block.input?.questions)) {
             action.detail = { kind: "ask", questions: askQuestions(block.input.questions) };
           }

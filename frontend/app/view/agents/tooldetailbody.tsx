@@ -433,9 +433,6 @@ export function ToolDetailBody({
     }
     if (detail.kind === "skill") {
         // the row and the modal's head already name the skill, so the body is its arguments alone
-        if (!detail.args) {
-            return null;
-        }
         const { text: args, hidden } = capText(detail.args, max);
         return (
             <div className={pad}>

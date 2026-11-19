@@ -39,7 +39,7 @@ export type ActionDetail =
     | { kind: "read"; snippet: string; truncated?: boolean; path?: string }
     // exit null: refused before it started, so there is no code
     | { kind: "bash"; command?: string; output: string; exit: number | null }
-    | { kind: "skill"; name: string; args?: string }
+    | { kind: "skill"; name: string; args: string }
     | { kind: "edit"; files: EditFile[] }
     | { kind: "ask"; questions: AskQuestionDetail[] };
 
