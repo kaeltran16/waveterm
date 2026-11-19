@@ -79,8 +79,19 @@ export type AgentEntry =
     // the human interrupted the agent mid-turn ([Request interrupted by user])
     | { kind: "interrupted" }
     // a `!` command the human ran in Claude Code's bash mode; streams undefined until its output record lands (running),
-    // empty strings when it ran with no output
-    | { kind: "shell"; command: string; stdout?: string; stderr?: string; ts?: number }
+    // empty strings when it ran with no output. Pi's `!`/`!!` commands also carry their exit code (null when it never
+    // produced one), cancel and truncation, and excluded for a `!!` kept out of the model's context
+    | {
+          kind: "shell";
+          command: string;
+          stdout?: string;
+          stderr?: string;
+          ts?: number;
+          exit?: number | null;
+          cancelled?: boolean;
+          truncated?: boolean;
+          excluded?: boolean;
+      }
     | {
           kind: "action";
           verb: string;

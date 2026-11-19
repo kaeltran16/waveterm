@@ -4,27 +4,43 @@
 import { cn } from "@/util/util";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { shellRunLines } from "./shellrunmodel";
+import { shellRunLines, shellRunMarks, type ShellRunMark } from "./shellrunmodel";
 
-// A `!` command the human ran in Claude Code's bash mode: the command over its output, styled as the Bash step's
-// opened panel (ToolDetailBody's bash body), with stderr in the error colour.
+// A `!` command the human ran (Claude Code's bash mode, pi's `!` and `!!`): the command over its output, styled as the
+// Bash step's opened panel (ToolDetailBody's bash body), with stderr in the error colour.
 
 const OUTPUT = "m-0 whitespace-pre-wrap font-mono text-[11.5px] leading-[1.7] [overflow-wrap:anywhere]";
+
+// an exit code reads as the step row's exit chip; a cancel as its stopped word
+const MARK_TONE: Record<ShellRunMark["kind"], string> = {
+    exit: "rounded-[4px] bg-error/15 px-1.5 py-px font-mono text-[11px] text-error",
+    cancelled: "font-sans text-[12px] text-warning",
+    truncated: "font-sans text-[12px] text-muted",
+};
 
 export function ShellRunRow({
     command,
     stdout,
     stderr,
+    exit,
+    cancelled,
+    truncated,
+    excluded,
     compact,
 }: {
     command: string;
     stdout?: string;
     stderr?: string;
+    exit?: number | null;
+    cancelled?: boolean;
+    truncated?: boolean;
+    excluded?: boolean;
     compact: boolean;
 }) {
     const [open, setOpen] = useState(false);
     const running = stdout === undefined && stderr === undefined;
     const shown = shellRunLines(stdout, stderr, open);
+    const marks = running ? [] : shellRunMarks({ exit, cancelled, truncated });
     const pad = compact ? "px-2.5 py-1.5" : "px-3 py-2";
     return (
         <div
@@ -51,6 +67,11 @@ export function ShellRunRow({
                         running
                     </span>
                 ) : null}
+                {marks.map((m) => (
+                    <span key={m.kind} data-shell-mark={m.kind} className={cn("shrink-0", MARK_TONE[m.kind])}>
+                        {m.text}
+                    </span>
+                ))}
             </div>
             {running ? null : (
                 <div className={cn("border-t border-edge-faint", pad)}>
@@ -79,6 +100,11 @@ export function ShellRunRow({
                         >
                             {shown.showLess ? "Show less" : `Show all ${shown.total} lines`}
                         </button>
+                    ) : null}
+                    {excluded ? (
+                        <div data-shell-excluded className="mt-1 text-[12px] text-muted">
+                            kept out of the model's context
+                        </div>
                     ) : null}
                 </div>
             )}

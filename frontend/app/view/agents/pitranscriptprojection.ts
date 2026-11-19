@@ -19,7 +19,8 @@
 // frontend projection must survive any file shape.
 
 import type { AgentEntry, CardTask } from "./agentsviewmodel";
-import { buildEditDiff, parseGrep, sliceRead, toolResultText } from "./tooldetail";
+import { buildEditDiff, cleanToolText, parseGrep, sliceRead, toolResultText } from "./tooldetail";
+import { readableVerb } from "./transcriptprojection";
 import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords";
 
 const READ_MODAL_MAX_LINES = 400; // bound stored Read body (modal view); inline uses the per-kind budget
@@ -43,6 +44,13 @@ interface PiMessage {
     toolName?: string;
     isError?: boolean;
     is_error?: boolean;
+    // a bashExecution message: a `!` or `!!` command the user ran
+    command?: string;
+    output?: string;
+    exitCode?: number | null;
+    cancelled?: boolean;
+    truncated?: boolean;
+    excludeFromContext?: boolean;
 }
 
 interface PiRecord {
@@ -75,7 +83,7 @@ const VERB_BY_TOOL: Record<string, string> = {
 };
 
 function verbFor(name: string): string {
-    return VERB_BY_TOOL[name] ?? name.toLowerCase();
+    return VERB_BY_TOOL[name] ?? readableVerb(name);
 }
 
 function baseName(p: string): string {
@@ -226,8 +234,28 @@ function applyToolResult(rec: PiRecord, actionById: Map<string, ActionEntry>): v
     }
     const failed = toolResultFailed(msg);
     const tool = (action as any)._tool as string | undefined;
-    const body = toolResultText(msg.content);
-    if (tool === "read" && body) {
+    const body = cleanToolText(toolResultText(msg.content));
+    // a failed edit changed nothing, so it shows no diff
+    if (failed && action.detail?.kind === "edit") {
+        delete action.detail;
+    }
+    if (tool === "bash" && body) {
+        const ran = bashRun(body, failed);
+        action.detail = {
+            kind: "bash",
+            command: (action as any)._command as string | undefined,
+            output: ran.output,
+            exit: ran.exit,
+        };
+        if (ran.error) {
+            action.error = ran.error;
+        }
+    } else if (failed) {
+        const error = toolError(body);
+        if (error !== "") {
+            action.error = error;
+        }
+    } else if (tool === "read" && body) {
         const { snippet, truncated } = sliceRead(body, READ_MODAL_MAX_LINES);
         action.detail = { kind: "read", snippet, truncated };
         const lineCount = body.split("\n").length;
@@ -236,13 +264,6 @@ function applyToolResult(rec: PiRecord, actionById: Map<string, ActionEntry>): v
         const matches = parseGrep(body);
         action.detail = { kind: "grep", matches };
         action.summary = `${matches.length} match${matches.length === 1 ? "" : "es"}`;
-    } else if (tool === "bash" && body) {
-        action.detail = {
-            kind: "bash",
-            command: (action as any)._command as string | undefined,
-            output: body,
-            exit: failed ? 1 : 0,
-        };
     }
     const resTs = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
     const useTs = (action as any)._useTs as number;
@@ -254,6 +275,32 @@ function applyToolResult(rec: PiRecord, actionById: Map<string, ActionEntry>): v
     } else if (action.verb === "ran") {
         action.outcome = "ok";
     }
+}
+
+// pi-ai's argument validation error: its message, then the call's whole arguments as JSON
+const RECEIVED_ARGS_RE = /\n\s*Received arguments:[^]*$/;
+
+// a failed call's error, trimmed before a validation failure's echoed arguments. An extension's block reason reads as
+// written: pi records it exactly like a call that threw
+function toolError(body: string): string {
+    return body.replace(RECEIVED_ARGS_RE, "").trim();
+}
+
+const EXIT_STATUS_RE = /(?:^|\n\n)Command exited with code (-?\d+)\s*$/;
+
+// a bash result's output and exit. A failed one that exited ends with pi's status line, which leaves the output; one
+// with no such line never produced an exit code (aborted, timed out, blocked, invalid), and its last paragraph says why
+function bashRun(body: string, failed: boolean): { output: string; exit: number | null; error?: string } {
+    if (!failed) {
+        return { output: body, exit: 0 };
+    }
+    const exited = EXIT_STATUS_RE.exec(body);
+    if (exited != null) {
+        return { output: body.slice(0, exited.index), exit: Number(exited[1]) };
+    }
+    const paragraphs = toolError(body).split(/\n\s*\n/);
+    const error = paragraphs.pop() ?? "";
+    return { output: paragraphs.join("\n\n"), exit: null, error: error.trim() };
 }
 
 function toolResultFailed(msg: PiMessage): boolean {
@@ -286,16 +333,36 @@ function skillLeaf(skill: string): string {
     return parts[parts.length - 1] || skill;
 }
 
-function mapUserMessage(text: string, entries: AgentEntry[]): void {
+// the record's time as a spreadable `{ ts }`; empty when absent or unparseable so the key stays off the entry
+function recTs(rec: PiRecord): { ts?: number } {
+    const ts = typeof rec.timestamp === "string" ? Date.parse(rec.timestamp) : NaN;
+    return Number.isFinite(ts) ? { ts } : {};
+}
+
+function mapUserMessage(text: string, rec: PiRecord, entries: AgentEntry[]): void {
     const skill = parseSkillBlock(text);
     if (skill != null) {
         entries.push({ kind: "command", name: skillLeaf(skill.name), isSkill: true });
         if (skill.userMessage) {
-            entries.push({ kind: "user", text: skill.userMessage });
+            entries.push({ kind: "user", text: skill.userMessage, ...recTs(rec) });
         }
         return;
     }
-    entries.push({ kind: "user", text });
+    entries.push({ kind: "user", text, ...recTs(rec) });
+}
+
+// a `!` or `!!` command the user ran, as its command row; a `!!` (excludeFromContext) kept its output from the model
+function bashExecutionEntry(rec: PiRecord, msg: PiMessage): AgentEntry {
+    return {
+        kind: "shell",
+        command: typeof msg.command === "string" ? msg.command : "",
+        stdout: cleanToolText(typeof msg.output === "string" ? msg.output : ""),
+        exit: typeof msg.exitCode === "number" ? msg.exitCode : null,
+        ...(msg.cancelled === true ? { cancelled: true } : {}),
+        ...(msg.truncated === true ? { truncated: true } : {}),
+        ...(msg.excludeFromContext === true ? { excluded: true } : {}),
+        ...recTs(rec),
+    };
 }
 
 function mapRecord(rec: PiRecord, entries: AgentEntry[], actionById: Map<string, ActionEntry>): void {
@@ -305,8 +372,12 @@ function mapRecord(rec: PiRecord, entries: AgentEntry[], actionById: Map<string,
     const msg = rec.message;
     if (msg.role === "user") {
         for (const text of textBlocks(msg.content)) {
-            mapUserMessage(text, entries);
+            mapUserMessage(text, rec, entries);
         }
+        return;
+    }
+    if (msg.role === "bashExecution") {
+        entries.push(bashExecutionEntry(rec, msg));
         return;
     }
     if (msg.role === "assistant") {
@@ -364,7 +435,8 @@ function activeBranch(records: PiRecord[]): number[] {
 /** Pure: project Pi v3 JSONL lines into ordered entries, following only the active parent branch.
  *  user -> asked (skill blocks become a skill chip + the trailing text), assistant text -> message,
  *  toolCall -> action (joined to its toolResult by toolCallId; read/grep/bash enrich with detail,
- *  edit/write carry inline diffs), compaction -> compaction. branch_summary / model_change /
+ *  edit/write carry inline diffs), bashExecution (a `!`/`!!` command) -> shell, compaction -> compaction.
+ *  branch_summary / model_change /
  *  session_info never render. */
 export function projectPiTranscript(lines: string[]): AgentEntry[] {
     return projectPiTranscriptRecords(parseTranscriptLines(lines));

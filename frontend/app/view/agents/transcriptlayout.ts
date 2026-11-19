@@ -57,7 +57,18 @@ export type LayoutItem =
           index: number;
       }
     | { kind: "interrupted"; index: number }
-    | { kind: "shell"; command: string; stdout?: string; stderr?: string; ts?: number; index: number }
+    | {
+          kind: "shell";
+          command: string;
+          stdout?: string;
+          stderr?: string;
+          ts?: number;
+          exit?: number | null;
+          cancelled?: boolean;
+          truncated?: boolean;
+          excluded?: boolean;
+          index: number;
+      }
     // latest: the feed's last wake, the only one that draws its sections open
     | { kind: "arc"; index: number; message: ArcMessage; ts?: number; idleMs?: number; latest: boolean }
     // thoughts: the stretch's own, set only when it has some
