@@ -242,6 +242,12 @@ export const toolResult = (id, text, { toolUseResult, isError, ...opts } = {}) =
         toolUseResult === undefined ? {} : { toolUseResult }
     );
 
+// a successful Edit call and its result: a claude agent's changes count only the edits its transcript makes
+export const editCall = (id, filePath, oldString, newString, opts) => [
+    toolUse(id, "Edit", { file_path: filePath, old_string: oldString, new_string: newString }, opts),
+    toolResult(id, "ok", opts),
+];
+
 // the user record Claude writes when a background task or subagent finishes
 export const taskNotification = ({ taskId, toolUseId, status = "completed", summary = "", ...opts }) =>
     userText(

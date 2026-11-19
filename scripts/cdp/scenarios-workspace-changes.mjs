@@ -1,12 +1,12 @@
 // Scenario `workspace-changes`: the workspace pane's Changes tab, every changed file in one scroll by folder (Task 3
 // of docs/superpowers/plans/2026-11-18-changes-tab-polish.md; board Main), opening collapsed with folder toggles,
 // Expand all / Collapse all and step-collapse (docs/superpowers/plans/2026-11-19-changes-collapse-all.md: boards Main,
-// Opened, Expanded), so a step that reads a file's body opens it first. The roster is a fixture of two claude
-// agents backed by real tabs with no controller, in the Rendered view: A's block names a temp repo holding every kind
-// of change the tab draws, B's a clean one. The steps open the tab through the workspace store, as the header chip
-// does. States the repo cannot produce (a slow or failing patch read) come from stubbing RpcApi.GitPatchCommand on
-// the app's own module instance. Teardown restores the stub, closes the workspace tabs, the tabs and the roster, and
-// removes the temp dir.
+// Opened, Expanded), so a step that reads a file's body opens it first. The roster is a fixture of two agents backed
+// by real tabs with no controller, in the Rendered view: A, a pi agent, whose block names a temp repo holding every
+// kind of change the tab draws, and B, a claude agent, whose block names a clean one. The steps open the tab through
+// the workspace store, as the header chip does. States the repo cannot produce (a slow or failing patch read) come
+// from stubbing RpcApi.GitPatchCommand on the app's own module instance. Teardown restores the stub, closes the
+// workspace tabs, the tabs and the roster, and removes the temp dir.
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,8 +21,6 @@ import {
     restoreDefaultView,
     restoreRoster,
     setRoster,
-    toolResult,
-    toolUse,
     userText,
     writeTranscript,
 } from "./agent-page-fixtures.mjs";
@@ -253,13 +251,13 @@ const diffSurface = (h) =>
         };`
     );
 
-const rosterAgent = (id, blockId, name, transcriptPath) => ({
+const rosterAgent = (id, blockId, name, transcriptPath, agent = "claude") => ({
     id,
     name,
     project: name,
     task: "changes tab fixture",
     state: "idle",
-    agent: "claude",
+    agent,
     model: "claude-opus-5-5",
     blockId,
     transcriptPath,
@@ -324,23 +322,24 @@ export const workspaceChanges = {
             ctx.edited = edited;
             const transcripts = join(ctx.dir, "transcripts");
             mkdirSync(transcripts);
-            const path = (n, cwd, calls = []) =>
+            const path = (n, cwd) =>
                 writeTranscript(transcripts, `changes-${n}-${tag}`, [
                     userText(`Tidy the ${n} notes.`, { cwd }),
-                    ...calls,
                     assistantText(`The ${n} notes are tidy.`, { cwd }),
                 ]);
-            // A's own Edit calls make its README and groups.go edits, so Diff's Agent's edits range (a claude agent's
-            // default) lists both files when Open on Diff lands there
-            const edit = (id, file, old_string, new_string) => [
-                toolUse(id, "Edit", { file_path: join(edited, file), old_string, new_string }, { cwd: edited }),
-                toolResult(id, "ok", { cwd: edited }),
-            ];
-            const aCalls = [
-                ...edit("tu-readme", README, "readme line 5", "readme line 5, edited"),
-                ...edit("tu-groups", GROUPS, `\tk := "${OLD_MARK}"`, `\tk := "${NEW_FIRST}"\n\tk = "${NEW_MARK}"`),
-                ...edit("tu-later", GROUPS, '\treturn "later before"', '\treturn "later after"'),
-            ];
+            // A is a pi agent: a claude agent counts only its transcript's Edit/Write calls, which cannot delete a
+            // file, while pi reads the checkout since its session started, so every kind of change reaches the tab.
+            // A pi v3 session stamped now, after the seed commit, so the session-start anchor is that commit
+            const piPath = (n, cwd) => {
+                const ts = new Date().toISOString();
+                const lines = [
+                    { type: "session", version: 3, id: `fx-${n}-${tag}`, timestamp: ts, cwd },
+                    { type: "message", id: "m0", parentId: null, timestamp: ts, message: { role: "user", content: `Tidy the ${n} notes.`, timestamp: Date.now() } },
+                ];
+                const p = join(transcripts, `changes-${n}-${tag}.jsonl`);
+                writeFileSync(p, lines.map((l) => JSON.stringify(l)).join("\n") + "\n");
+                return p;
+            };
             await h.goto("agent");
             ctx.prev = await page(
                 h,
@@ -352,7 +351,7 @@ export const workspaceChanges = {
             const b = await makeTab(h, ctx, { label: `changes-b-${tag}`, blockMeta: { view: "term", controller: null, "cmd:cwd": clean } });
             Object.assign(ctx, { aId: a.tabId, bId: b.tabId, aBlockId: a.blockId });
             ctx.roster = [
-                rosterAgent(a.tabId, a.blockId, `changes-a-${tag}`, path("edited", edited, aCalls)),
+                rosterAgent(a.tabId, a.blockId, `changes-a-${tag}`, piPath("edited", edited), "pi"),
                 rosterAgent(b.tabId, b.blockId, `changes-b-${tag}`, path("clean", clean)),
             ];
             await arrangeAgentA(h, ctx);

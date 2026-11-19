@@ -8,7 +8,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { pinDefaultView, restoreDefaultView } from "./agent-page-fixtures.mjs";
+import { pinDefaultView, restoreDefaultView, toolResult, toolUse, userText, writeTranscript } from "./agent-page-fixtures.mjs";
 import { SURFACE_LABEL } from "./attach.mjs";
 import {
     lookEval,
@@ -78,11 +78,24 @@ function makeRepo(dir) {
         "## Out of scope",
         "- Editing inside the peek.",
     ];
-    writeFileSync(join(dir, "notes", "peek.md"), md.slice(0, PEEK_MD_LINES).join("\n") + "\n");
+    const peekMd = md.slice(0, PEEK_MD_LINES).join("\n") + "\n";
+    writeFileSync(join(dir, "notes", "peek.md"), peekMd);
     git(dir, "add", "notes/peek.md");
     writeFileSync(join(dir, "bin", "blob.bin"), Buffer.from([0x41, 0, 0x42, 0, 0, 0x43]));
     writeFileSync(join(dir, "bin", "pixel.png"), Buffer.from(PIXEL_PNG_B64, "base64"));
     writeFileSync(join(dir, "big", "huge.txt"), "x".repeat(2 * 1024 * 1024 + 4096));
+    return peekMd;
+}
+
+// the agent's transcript writes notes/peek.md: a claude agent's rail lists only its own edits
+function writePeekTranscript(dir, repo, peekMd) {
+    const o = { cwd: repo };
+    const id = "toolu_peek_md";
+    return writeTranscript(dir, "peek-session", [
+        userText("Write the code peek notes.", o),
+        toolUse(id, "Write", { file_path: join(repo, "notes", "peek.md"), content: peekMd }, o),
+        toolResult(id, "ok", o),
+    ]);
 }
 
 // the rows the shell prints, each `<path> #<tag>`; tags find a row in the buffer
@@ -256,7 +269,7 @@ const publishWorking = (h, ctx) =>
         event: "agent:status",
         scopes: [`block:${ctx.blockId}`],
         persist: 1,
-        data: { oref: `block:${ctx.blockId}`, state: "working", agent: "claude", cwd: ctx.repo, ts: Date.now() },
+        data: { oref: `block:${ctx.blockId}`, state: "working", agent: "claude", cwd: ctx.repo, transcriptpath: ctx.transcript, ts: Date.now() },
     });
 
 const shotName = (n) => lookShot(`code-peek-${n}`);
@@ -271,7 +284,7 @@ export const codePeek = {
             await pinDefaultView(h, "terminal");
             ctx.repo = mkdtempSync(join(tmpdir(), "verify-peek-repo-"));
             ctx.plainDir = mkdtempSync(join(tmpdir(), "verify-peek-plain-"));
-            makeRepo(ctx.repo);
+            ctx.transcript = writePeekTranscript(ctx.plainDir, ctx.repo, makeRepo(ctx.repo));
             ctx.plainAbs = join(ctx.plainDir, "plain.ts");
             writeFileSync(ctx.plainAbs, "export const plain = true;\n");
             const bootTab = String(await h.ev("window.TabRpcClient.routeId")).replace(/^tab:/, "");

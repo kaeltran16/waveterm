@@ -17,6 +17,7 @@ import {
     agentPage,
     assistantText,
     closeTabs,
+    editCall,
     focusAgent,
     makeTab,
     pinDefaultView,
@@ -134,9 +135,10 @@ export const workspacePane = {
                 rail: localStorage.getItem(${JSON.stringify(RAIL_VISIBLE_KEY)}),
             })`);
             await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
-            const path = (n) =>
+            const path = (n, calls = []) =>
                 writeTranscript(ctx.dir, `workspace-${n}-${tag}`, [
                     userText(`Summarise the ${n} package.`),
+                    ...calls,
                     assistantText(`The ${n} package counts bookmarks per tag.`),
                 ]);
             const repo = join(ctx.dir, "repo");
@@ -155,7 +157,13 @@ export const workspacePane = {
             const b = await makeTab(h, ctx, { label: `workspace-b-${tag}`, blockMeta: { view: "term", controller: null } });
             Object.assign(ctx, { aId: a.tabId, bId: b.tabId, aBlock: a.blockId });
             ctx.roster = [
-                rosterAgent(a.tabId, a.blockId, `workspace-a-${tag}`, path("stats")),
+                // A's own Edit makes the long line, so its Changes tab lists the file
+                rosterAgent(
+                    a.tabId,
+                    a.blockId,
+                    `workspace-a-${tag}`,
+                    path("stats", editCall("tu-wp-long", join(repo, REPO_FILE), "notes\n", `notes\n${LONG_LINE}\n`, { cwd: repo }))
+                ),
                 rosterAgent(b.tabId, b.blockId, `workspace-b-${tag}`, path("dedupe")),
             ];
             // a fresh profile: no stored width, the rail closed

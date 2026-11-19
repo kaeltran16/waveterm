@@ -4,6 +4,7 @@
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { editCall } from "./agent-page-fixtures.mjs";
 import { FINAL_SHOTS_UICTX, git, lookEval, reloadApp, teardownFixtureRun, TREE_RAIL_FIXTURE, waveService } from "./scenarios-shared.mjs";
 
 // the history page is 50 rows, so more than that makes a second page
@@ -704,13 +705,16 @@ async function filterPicker(h, text) {
 }
 
 // The cockpit reads its roster from the dev fixture once at boot, and a card draws its diff chip only once its
-// transcript names a cwd with changes: a transcript whose one line names the project gives a real chip from the
-// real pipeline. The fixture file may be a developer's own, so it is kept and put back in teardown.
+// transcript names a cwd with changes: a transcript that names the project and makes the uncommitted edit (a claude
+// agent counts only its own edits) gives a real chip from the real pipeline. The fixture file may be a developer's
+// own, so it is kept and put back in teardown.
 function seedChipAgent(dir) {
     const transcriptRoot = mkdtempSync(join(tmpdir(), "verify-diff-chip-"));
     const transcriptPath = join(transcriptRoot, "session.jsonl");
-    const line = { type: "user", cwd: dir, timestamp: new Date().toISOString(), message: { role: "user", content: "settle the ledger" } };
-    writeFileSync(transcriptPath, JSON.stringify(line) + "\n");
+    const timestamp = new Date().toISOString();
+    const line = { type: "user", cwd: dir, timestamp, message: { role: "user", content: "settle the ledger" } };
+    const edit = editCall("tu-diff-chip", join(dir, SCOPE.edited), "ledger\n", "ledger\nan uncommitted line\n", { cwd: dir, ts: timestamp });
+    writeFileSync(transcriptPath, [JSON.stringify(line), ...edit].join("\n") + "\n");
     const priorFixture = existsSync(TREE_RAIL_FIXTURE) ? readFileSync(TREE_RAIL_FIXTURE, "utf8") : null;
     mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
     const agent = {

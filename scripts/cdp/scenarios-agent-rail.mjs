@@ -1,20 +1,21 @@
 // Agent review scenario `agent-rail`: the details rail's footer action (F4, F9, F18), its Session line (F10), the
-// silent Files touched reload (F5), the token headline (F17) and the shared-checkout summary (F19). The roster is a
-// fixture whose block ids are real tabs with no controller, so nothing runs; every transcript sits in a temp dir
-// beside a temp git repo it names as its cwd. Teardown closes the tabs, restores the roster and the rail toggle, and
-// removes the temp dir.
+// silent Files touched reload (F5), the token headline (F17) and the shared-checkout summary (F19: a claude agent's
+// own edits stay its own however many agents share the checkout). The roster is a fixture whose block ids are real
+// tabs with no controller, so nothing runs; every transcript sits in a temp dir beside a temp git repo it names as
+// its cwd. Teardown closes the tabs, restores the roster and the rail toggle, and removes the temp dir.
 //
 // Steps 2, 3, 6 and 7 read what the shell-owned stream fills (the focused agent's entries, its shell tasks, every
 // streamed agent's cwd), so they hold on the merged tree, where that owner runs on the Agent surface too.
 
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
     agentPage,
     assistantText,
     closeTabs,
+    editCall,
     focusAgent,
     interrupted,
     makeTab,
@@ -175,6 +176,7 @@ export default function (_kit) {
                             toolUse("toolu_railbuild", "Bash", { command: "make all" }, o),
                         ]),
                     };
+                    ctx.paths = paths;
                     ctx.ids = {};
                     const roster = [];
                     const states = { ask: "asking", done: "idle", cut: "idle", standing: "idle", working: "working" };
@@ -280,7 +282,11 @@ export default function (_kit) {
                     });
                     return true;`
                 );
-                writeFileSync(join(ctx.repo, EDITED_FILE), "# notes\n\nan edit the rail should pick up\n");
+                // a claude agent's Files touched lists its own edits, so the edit is on disk and in its transcript
+                const editedText = "# notes\n\nan edit the rail should pick up\n";
+                writeFileSync(join(ctx.repo, EDITED_FILE), editedText);
+                const editLines = editCall("toolu_railedit", join(ctx.repo, EDITED_FILE), "# notes\n", editedText, { cwd: ctx.repo });
+                appendFileSync(ctx.paths.done, editLines.join("\n") + "\n");
                 await h.rpc("setmeta", { oref: `block:${ctx.ids.done.blockId}`, meta: { "agent:lasteditts": Date.now() } });
                 const reloaded = await waitRail(`v.text.includes(${JSON.stringify(EDITED_FILE)})`, GIT_WAIT_MS);
                 const blanked = await agentPage(
@@ -305,13 +311,13 @@ export default function (_kit) {
                     JSON.stringify({ totals, tokens })
                 );
 
-                await waitRail(`(v.summary ?? "").startsWith("repo · ")`, GIT_WAIT_MS);
+                await waitRail(`(v.summary ?? "").startsWith("1 file")`, GIT_WAIT_MS);
                 const shared = await view();
                 await h.shot("cdp-shots/agent-rail-6-shared.png");
                 rec(
-                    "6. agents sharing the repo make Files touched read as the repo's, with the shared title",
-                    (shared?.summary ?? "").startsWith("repo · ") &&
-                        /^All changes in this checkout, shared by \d+ agents$/.test(shared?.summaryTitle ?? ""),
+                    "6. agents sharing the repo leave a claude agent's Files touched its own: its one edit, no repo prefix or shared title",
+                    (shared?.summary ?? "").startsWith("1 file") &&
+                        !/^All changes in this checkout/.test(shared?.summaryTitle ?? ""),
                     JSON.stringify({ summary: shared?.summary, title: shared?.summaryTitle })
                 );
 

@@ -6,7 +6,7 @@
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { assistantText, toolResult, toolUse } from "./agent-page-fixtures.mjs";
+import { assistantText, editCall, toolResult, toolUse } from "./agent-page-fixtures.mjs";
 import { RBS_KIT } from "./scenarios-rendered-brainstorm.mjs";
 import { arrangeHeldRun, git, teardownHeldRuns } from "./scenarios-shared.mjs";
 
@@ -77,12 +77,15 @@ async function realClick(h, expr) {
 }
 
 const base = RBS_KIT.scenario(NAME, { noBrainstorm: true, topic: TOPIC }, async (h, ctx, step) => {
-    // the project is a repo with a change, so the agent's edits leave a diff for Changes to open
+    // the project is a repo with a change the agent's transcript makes (a claude agent counts only its own edits), so
+    // its edits leave a diff for Changes to open
     git(ctx.cwd, "init", "-q", "--initial-branch=main");
     writeFileSync(join(ctx.cwd, "notes.md"), "notes\n");
     git(ctx.cwd, "add", "notes.md");
     git(ctx.cwd, "commit", "-q", "-m", "seed");
-    writeFileSync(join(ctx.cwd, "notes.md"), "notes\nan edit the agent made\n");
+    const edited = "notes\nan edit the agent made\n";
+    writeFileSync(join(ctx.cwd, "notes.md"), edited);
+    append(ctx, editCall("toolu_auto_open_edit", join(ctx.cwd, "notes.md"), "notes\n", edited, { cwd: ctx.cwd }));
     await h.rpc("setmeta", { oref: `block:${ctx.blockId}`, meta: { "cmd:cwd": ctx.cwd } });
     const project = join(ctx.cwd, ".superpowers", "design", TOPIC, "project");
     mkdirSync(project, { recursive: true });
