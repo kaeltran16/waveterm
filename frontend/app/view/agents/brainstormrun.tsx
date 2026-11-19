@@ -241,12 +241,17 @@ function HandedRow({ f, p }: { f: BrainstormFile; p: BrainstormPart }) {
     return (
         <div
             data-brainstorm-handed-row={p.id}
-            className="grid grid-cols-[7px_minmax(120px,230px)_minmax(0,1fr)_max-content] items-start gap-x-[12px] border-t border-edge-faint px-[14px] py-[8px]"
+            // below the pane's narrow breakpoint (BS_NARROW_PX's twin) the title, its gist and its source stack
+            className="grid grid-cols-[7px_minmax(120px,230px)_minmax(0,1fr)_max-content] items-start gap-x-[12px] border-t border-edge-faint px-[14px] py-[8px] @max-[760px]/bs:grid-cols-[7px_minmax(0,1fr)]"
         >
             <span className={cn(PART_DOT[p.state], "mt-[6px]")} />
             <span className="text-[13.5px] font-semibold leading-[1.45] text-primary">{p.title}</span>
-            <span className="min-w-0 text-[13.5px] leading-[1.45] text-secondary">{partGist(f, p)}</span>
-            <span className="mt-[2px] font-mono text-[10.5px] text-muted">{p.from ?? ""}</span>
+            <span className="min-w-0 text-[13.5px] leading-[1.45] text-secondary @max-[760px]/bs:col-[2]">
+                {partGist(f, p)}
+            </span>
+            <span className="mt-[2px] font-mono text-[10.5px] text-muted @max-[760px]/bs:col-[2] @max-[760px]/bs:mt-0">
+                {p.from ?? ""}
+            </span>
         </div>
     );
 }
