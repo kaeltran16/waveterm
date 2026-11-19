@@ -66,6 +66,50 @@ describe("arcMessageOf", () => {
         ).toBeNull();
     });
 
+    describe("a forwarded board question", () => {
+        it("reads the board, labels, turn id and question", () => {
+            const text = '[From board "Checkout flow" · on Cart, Pay button · turn 7c1e-42]\nwhy two spinners here?';
+            expect(arcMessageOf(user(text), false)).toEqual({
+                kind: "board",
+                board: "Checkout flow",
+                on: "Cart, Pay button",
+                turnId: "7c1e-42",
+                text: "why two spinners here?",
+            });
+        });
+
+        it("leaves the labels out when nothing was selected", () => {
+            const message = arcMessageOf(user('[From board "Checkout flow" · turn 7c1e-42]\nwhy?'), false);
+            expect(message).toEqual({ kind: "board", board: "Checkout flow", turnId: "7c1e-42", text: "why?" });
+            expect(message).not.toHaveProperty("on");
+        });
+
+        it("keeps a multi-line question whole and reads it after trimming", () => {
+            const text = '\n [From board "B" · turn t1]\nfirst line\n\nsecond line  \n';
+            expect(arcMessageOf(user(text), false)).toMatchObject({ board: "B", text: "first line\n\nsecond line" });
+        });
+
+        it("keeps quotes inside the board name and the labels", () => {
+            const text = '[From board "The "new" board" · on Save "x" · turn t1]\nq';
+            expect(arcMessageOf(user(text), false)).toMatchObject({ board: 'The "new" board', on: 'Save "x"' });
+        });
+
+        it("anchors on the last turn marker of the first line", () => {
+            const text = '[From board "a · turn 1] b" · turn t9]\nq';
+            expect(arcMessageOf(user(text), false)).toMatchObject({ turnId: "t9", text: "q" });
+        });
+
+        it("is an Arc message even as a run agent's first entry", () => {
+            expect(arcMessageOf(user('[From board "B" · turn t1]\nq'), true, worker)?.kind).toBe("board");
+        });
+
+        it("a user message that only mentions a board stays a plain user message", () => {
+            expect(arcMessageOf(user('see [From board "B" · turn t1] above\nq'), false)).toBeNull();
+            expect(arcMessageOf(user("From board B: why is this slow?"), false)).toBeNull();
+            expect(arcMessageOf(user('[From board "B" · turn t1]'), false)).toBeNull();
+        });
+    });
+
     it("only user entries are Arc messages", () => {
         expect(arcMessageOf({ kind: "message", text: "wake: x" }, true, lead)).toBeNull();
     });

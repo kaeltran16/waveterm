@@ -79,6 +79,7 @@ describe("prompt history", () => {
             user(
                 '[Message from agent "fixer" (tab 3f2a), sent with wsh agents send. Not typed by the user.]\nrebase first'
             ),
+            user('[From board "Checkout" · on Cart · turn t1]\nwhy two spinners?'),
             { kind: "shell", command: "git status" },
             user("b"),
         ];
