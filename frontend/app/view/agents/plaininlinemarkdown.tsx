@@ -4,6 +4,7 @@
 // One line of inline markdown whose links are not clickable. The desktop popup page bundles this file
 // and opens no wavesrv connection, so nothing here may import the cockpit store.
 
+import { memo } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -26,7 +27,9 @@ export const PLAIN_LINK_COMPONENTS: Components = {
     code: ({ children }) => <code className="font-mono text-accent-soft">{children}</code>,
 };
 
-export function PlainInlineMarkdown({
+// memoized: react-markdown re-parses on every render, and these lines sit under surfaces that re-render on the 1s
+// clock (a 90-item run report re-parsed every second). Callers pass module-constant components, so text decides.
+export const PlainInlineMarkdown = memo(function PlainInlineMarkdown({
     text,
     components = PLAIN_LINK_COMPONENTS,
 }: {
@@ -43,4 +46,4 @@ export function PlainInlineMarkdown({
             {condenseToLine(text)}
         </ReactMarkdown>
     );
-}
+});
