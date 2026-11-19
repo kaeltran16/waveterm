@@ -6,7 +6,9 @@
 // then acks it with the shape ids it added or changed. An answer that cannot land stays in the inbox for the next
 // try, so a reload or a restart loses nothing; opening a board reads its inbox again, so a board fixed and opened
 // takes its waiting answers then. One answer per board is in flight at a time, oldest first. It also toasts an
-// agent's briefing turn once it is answered, asks you, or fails (decision 14); your own asks get no toast.
+// agent's briefing turn once it is answered, asks you, or fails (decision 14), unless you are looking at the tied
+// agent's workspace (boardplacement.ts); your own asks get no toast. A join puts the board's tab in its agent's
+// workspace.
 
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -15,25 +17,39 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "../agents/agents";
+import { paneShape } from "../agents/workspacemodel";
+import { joinWorkspaceTab, rendersNow, workspaceAtom } from "../agents/workspacestore";
 import { openTarget } from "../jarvis/openref";
 import { BoardFileError, parseBoardFile, serializeBoard } from "./boardmodel";
+import { drawerToastShows } from "./boardplacement";
 import { boardListAtom, liveBoardApply, onLiveBoardRegistered } from "./boardstore";
 
 const SAVE_TRIES = 3;
 const TOASTED_STATES = new Set(["answered", "asks", "failed"]);
 
-// the name as the list has it; a toast still names something when the list can't be read
-async function boardName(channelId: string, boardId: string): Promise<string> {
-    const named = (list: BoardListRtnData | null | undefined) => list?.boards?.find((b) => b.id === boardId)?.name;
-    const cached = named(globalStore.get(boardListAtom(channelId)));
-    if (cached) {
+// the board's list entry, cached or read; undefined when the list can't be read
+async function boardEntry(channelId: string, boardId: string): Promise<BoardInfo | undefined> {
+    const find = (list: BoardListRtnData | null | undefined) => list?.boards?.find((b) => b.id === boardId);
+    const cached = find(globalStore.get(boardListAtom(channelId)));
+    if (cached != null) {
         return cached;
     }
     try {
-        return named(await RpcApi.BoardListCommand(TabRpcClient, { channelid: channelId })) || `board ${boardId}`;
+        return find(await RpcApi.BoardListCommand(TabRpcClient, { channelid: channelId }));
     } catch {
-        return `board ${boardId}`;
+        return undefined;
     }
+}
+
+// whether the cockpit shows the tied agent's workspace, where the board itself shows what the toast would say
+function toastShowsNow(model: AgentsViewModel, agentTabId: string | undefined): boolean {
+    const focusId = globalStore.get(model.focusIdAtom);
+    return drawerToastShows(agentTabId, {
+        surface: globalStore.get(model.surfaceAtom),
+        focusId,
+        renders: focusId != null && rendersNow(model, focusId),
+        pane: focusId != null ? paneShape(globalStore.get(workspaceAtom(focusId))) : "none",
+    });
 }
 
 // the event names the reason when wavesrv has one; else the talk does
@@ -137,11 +153,16 @@ export function startBoardApplier(model: AgentsViewModel): () => void {
     }
 
     async function toastBriefing(data: BoardUpdateData): Promise<void> {
-        const name = await boardName(data.channelid, data.boardid);
+        const board = await boardEntry(data.channelid, data.boardid);
+        if (!toastShowsNow(model, board?.agenttabid)) {
+            return;
+        }
+        // a toast still names something when the list can't be read
+        const name = board?.name || `board ${data.boardid}`;
         const action = openAction(data.channelid, data.boardid);
         if (data.state === "answered") {
             pushToast({
-                title: `The drawer answered on ${name}`,
+                title: `The drawer drew on ${name}`,
                 message: `From ${data.from}'s briefing`,
                 level: "info",
                 action,
@@ -155,7 +176,7 @@ export function startBoardApplier(model: AgentsViewModel): () => void {
             });
         } else {
             const reason = await failedReason(data);
-            pushToast({ title: `The drawer couldn't answer on ${name}`, message: reason, level: "error", action });
+            pushToast({ title: `The drawer couldn't draw on ${name}`, message: reason, level: "error", action });
         }
     }
 
@@ -187,6 +208,13 @@ export function startBoardApplier(model: AgentsViewModel): () => void {
                 readInbox({ channelid: data.channelid, boardid: data.boardid });
             } else if (data.what === "talk") {
                 onTalk(data);
+            } else if (data.what === "join" && data.boardid && data.agenttabid) {
+                // the join can come before the turn's list and talk updates; the tab loads its board itself
+                joinWorkspaceTab(model, data.agenttabid, {
+                    kind: "board",
+                    channelId: data.channelid,
+                    boardId: data.boardid,
+                });
             }
         },
     });

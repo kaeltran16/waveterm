@@ -84,6 +84,13 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
             setStartup(runtimeStartupCommand(chosen as Runtime));
         }
     }, [open]);
+    // an opener that named a project (a board's Start an agent) starts the dialog on it
+    useEffect(() => {
+        const preset = open ? globalStore.get(model.newAgentProjectAtom) : null;
+        if (preset != null) {
+            setProject(preset);
+        }
+    }, [open]);
     // the one project list, most recently used first so the last one is the default
     const candidates = useMemo(() => recentFirst(rows, recentProjects), [rows, recentProjects]);
     const offeredRuntimes = RUNTIMES.filter((r) => isRuntimeOffered(r.id, harnesses));
@@ -110,6 +117,7 @@ export function NewAgentModal({ model }: { model: AgentsViewModel }) {
         : currentBranch && `on ${currentBranch}`;
     const close = () => {
         globalStore.set(model.newAgentOpenAtom, false);
+        globalStore.set(model.newAgentProjectAtom, null);
         setError(null);
         reqIdRef.current++;
     };

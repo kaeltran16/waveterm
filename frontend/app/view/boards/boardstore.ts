@@ -77,6 +77,7 @@ export async function loadBoardTalk(channelId: string, boardId: string): Promise
         about: rtn?.about ?? { kind: "", ref: "", title: "" },
         sessionid: rtn?.sessionid,
         handoff: rtn?.handoff,
+        agent: rtn?.agent,
         turns: rtn?.turns ?? [],
     };
     if (latest()) {
@@ -118,23 +119,28 @@ export function subscribeBoardUpdates(): () => void {
 // lands an answer on the open canvas and returns the shape ids it added or changed
 export type LiveBoardApply = (answer: BoardAnswer) => Promise<string[]>;
 
-const liveBoards = new Map<string, LiveBoardApply>();
+// a stack per board: one board can be mounted twice (its tab in the agent's workspace, which stays mounted, and the
+// Boards surface), the newest applies answers, and when it goes the one before takes them again
+const liveBoards = new Map<string, LiveBoardApply[]>();
 const registeredListeners = new Set<(channelId: string, boardId: string) => void>();
 
 // the open canvas takes answers itself (updateScene), so a hand edit is never overwritten by a stale-rev save.
 // listeners hear every open, so a board's waiting answers land when it opens (a first open, a re-open, a Retry).
 export function registerLiveBoard(channelId: string, boardId: string, apply: LiveBoardApply): () => void {
-    liveBoards.set(boardId, apply);
+    liveBoards.set(boardId, [...(liveBoards.get(boardId) ?? []), apply]);
     registeredListeners.forEach((fn) => fn(channelId, boardId));
     return () => {
-        if (liveBoards.get(boardId) === apply) {
+        const rest = (liveBoards.get(boardId) ?? []).filter((fn) => fn !== apply);
+        if (rest.length > 0) {
+            liveBoards.set(boardId, rest);
+        } else {
             liveBoards.delete(boardId);
         }
     };
 }
 
 export function liveBoardApply(boardId: string): LiveBoardApply | undefined {
-    return liveBoards.get(boardId);
+    return liveBoards.get(boardId)?.at(-1);
 }
 
 export function onLiveBoardRegistered(fn: (channelId: string, boardId: string) => void): () => void {

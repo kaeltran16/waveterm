@@ -1,16 +1,15 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The Boards surface (boards B1-B12): a board is a conversation with a drawer. The talk column leads on the left,
-// the board (plain Excalidraw) fills the rest, and the header's board name switches between the project's boards
-// (every project's under "All projects").
+// The Boards surface (boards B1-B12, A2): a board draws what you ask, and sends a question to the board's agent. The
+// turns lead on the left, the board (plain Excalidraw) fills the rest, the header's board name switches between the
+// project's boards (every project's under "All projects"), and its agent chip picks the board's agent. The open
+// board's state and actions are boardview.tsx's.
 // An ask form (new, about a thing, a handoff, a briefing) takes the talk column's place until it asks. The project
 // is the one a router landing named, else the cockpit's current one; a switcher change made while Boards shows
 // replaces a landing's. What must outlive a surface switch lives in boardstore.ts.
 
-import { pushToast } from "@/app/cockpit/notificationstore";
 import { palettePickChannel } from "@/app/cockpit/palette-data";
-import { TickNumber } from "@/app/element/ticknumber";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -18,21 +17,20 @@ import { fireAndForget } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import { Shapes } from "lucide-react";
 import { MotionConfig } from "motion/react";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "../agents/agents";
 import { activeChannelAtom } from "../agents/channelsstore";
 import { projectListAtom, rowsWithChannel } from "../agents/projectsstore";
 import { SurfaceEmptyState, SurfaceError, SurfaceToolbar } from "../agents/surfacescaffold";
+import { openTarget } from "../jarvis/openref";
+import { BoardAgentChip } from "./boardagentpicker";
 import { BoardAskForm, NewBoardDialog, startsWithLines, type BoardAskFormProps } from "./boardaskform";
-import type { BoardCanvasControl } from "./boardcanvas";
 import { boardFormAtom, type BoardFormRequest } from "./boardformrequest";
-import { copyElements, selectionLabel, shapeCount, type BoardScene } from "./boardmodel";
+import { copyElements } from "./boardmodel";
 import {
     boardListAtom,
     boardsChannelAtom,
-    boardTalkAtom,
     loadBoardList,
-    loadBoardTalk,
     openBoardByChannelAtom,
     selectBoard,
     setBoardFormEscape,
@@ -42,27 +40,26 @@ import { BoardTalk } from "./boardtalk";
 import {
     aboutLine,
     aboutTitle,
+    agentChip,
+    agentChoices,
     askBox,
     boardFacts,
     switcherGroups,
     talkItems,
     type SwitcherList,
 } from "./boardtalkmodel";
+import {
+    act,
+    briefingForm,
+    errorText,
+    Facts,
+    LazyBoardCanvas,
+    openBoardAgent,
+    startBoardAgent,
+    useBoardView,
+} from "./boardview";
 
-// vite.config.ts (excalidrawFonts) serves Excalidraw's fonts from the app, under this path's fonts/
-const EXCALIDRAW_ASSET_PATH = "/excalidraw/";
-const TICK_MS = 1000;
 const PROJECT_ABOUT: BoardSource = { kind: "project", ref: "", title: "" };
-const COUNT_FACT = /^(\d+) (.+)$/;
-
-const BoardCanvas = lazy(() => {
-    (window as Window & { EXCALIDRAW_ASSET_PATH?: string }).EXCALIDRAW_ASSET_PATH = EXCALIDRAW_ASSET_PATH;
-    return import("./boardcanvas");
-});
-
-function errorText(e: unknown): string {
-    return e instanceof Error ? e.message : String(e);
-}
 
 // the explicit project a landing named, else the switcher's project, else the active or only one
 function useBoardsChannel(model: AgentsViewModel): Channel | null {
@@ -117,35 +114,13 @@ function useSwitcherLists(model: AgentsViewModel, channelId: string | null, proj
     return useAtomValue(listsAtom);
 }
 
-// re-renders every second while active: the answering turn's elapsed time and its 90 s switch to slow
-function useTick(active: boolean): void {
-    const [, setTick] = useState(0);
-    useEffect(() => {
-        if (!active) {
-            return;
-        }
-        const timer = setInterval(() => setTick((n) => n + 1), TICK_MS);
-        return () => clearInterval(timer);
-    }, [active]);
-}
-
 // the open board, without pinning the project as a landing does
 function setOpenBoard(channelId: string, boardId: string): void {
     globalStore.set(openBoardByChannelAtom, (prev) => ({ ...prev, [channelId]: boardId }));
 }
 
-function act(what: string, fn: () => Promise<unknown>): void {
-    fireAndForget(async () => {
-        try {
-            await fn();
-        } catch (e) {
-            pushToast({ title: `Couldn't ${what}`, message: errorText(e), level: "error" });
-        }
-    });
-}
-
-function inFlight(talk: BoardTalk | null): boolean {
-    return (talk?.turns ?? []).some((t) => t.state === "answering" || t.state === "waiting");
+function openBoardTarget(model: AgentsViewModel, channelId: string, boardId: string): void {
+    fireAndForget(() => openTarget(model, { kind: "board", channelId, boardId }));
 }
 
 interface OpenForm {
@@ -154,28 +129,15 @@ interface OpenForm {
     key: number;
 }
 
-interface Selection {
-    ids: string[];
-    label: string | null;
-}
-
-const NO_SELECTION: Selection = { ids: [], label: null };
-
 export function BoardsSurface({ model }: { model: AgentsViewModel }) {
     const channel = useBoardsChannel(model);
     const channelId = channel?.oid ?? null;
     const list = useAtomValue(boardListAtom(channelId ?? ""));
     const openMap = useAtomValue(openBoardByChannelAtom);
     const request = useAtomValue(boardFormAtom);
+    const agents = useAtomValue(model.agentsAtom);
     const [form, setForm] = useState<OpenForm | null>(null);
     const [listError, setListError] = useState<string | null>(null);
-    const [canvasError, setCanvasError] = useState<string | null>(null);
-    const [attempt, setAttempt] = useState(0);
-    const [shapes, setShapes] = useState<{ boardId: string; count: number } | null>(null);
-    const [selection, setSelection] = useState<Selection>(NO_SELECTION);
-    const [shown, setShown] = useState<{ turnId: string; ids: string[] } | null>(null);
-    const [asking, setAsking] = useState(false);
-    const controlRef = useRef<BoardCanvasControl | null>(null);
     const formKeyRef = useRef(0);
 
     const boards = list?.boards ?? [];
@@ -183,10 +145,8 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
     const openId = channelId != null ? (openMap[channelId] ?? null) : null;
     const board = boards.find((b) => b.id === openId) ?? null;
     const switcherLists = useSwitcherLists(model, channelId, project);
-    const talkValue = useAtomValue(boardTalkAtom(board?.id ?? ""));
-    const talk = talkValue != null && talkValue.boardid === board?.id ? talkValue : null;
-    useTick(inFlight(talk));
-    const now = Date.now();
+    const view = useBoardView(channelId, board?.id ?? null);
+    const { talk, now, controlRef } = view;
 
     const openForm = (req: BoardFormRequest) => setForm({ req, key: ++formKeyRef.current });
     const closeForm = () => setForm(null);
@@ -227,94 +187,24 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
         }
     }, [channelId, list, board, boards[0]?.id]);
 
-    useEffect(() => {
-        setCanvasError(null);
-        setShapes(null);
-        setSelection(NO_SELECTION);
-        setShown(null);
-        if (channelId != null && board != null) {
-            loadBoardTalk(channelId, board.id).catch((e) =>
-                console.warn("boards: reading the talk failed", board.id, e)
-            );
-        }
-    }, [channelId, board?.id]);
+    const loadError = board?.loaderror || view.canvasError;
+    const shapesNow = view.shapes;
+    const choices = agentChoices(agents, project, talk?.agent?.tabid);
 
-    const loadError = board?.loaderror || canvasError;
-    const shapesNow = shapes != null && shapes.boardId === board?.id ? shapes.count : null;
-
-    const onScene = (boardId: string, scene: BoardScene) => setShapes({ boardId, count: shapeCount(scene.elements) });
-    const onSelection = (ids: string[]) => {
-        setSelection(
-            ids.length === 0 ? NO_SELECTION : { ids, label: selectionLabel(controlRef.current?.elements() ?? [], ids) }
-        );
-        // Show is on only while the selection is what it selected
-        setShown((prev) =>
-            prev != null && (ids.length === 0 || ids.some((id) => !prev.ids.includes(id))) ? null : prev
-        );
-    };
     const onRetryBoard = () => {
-        setCanvasError(null);
-        setAttempt((n) => n + 1);
+        view.retryCanvas();
         reloadList();
     };
 
-    const ref = channelId != null && board != null ? { channelid: channelId, boardid: board.id } : null;
-    const onAsk = (question: string) => {
-        if (ref == null) {
-            return;
-        }
-        act("ask the drawer", async () => {
-            setAsking(true);
-            try {
-                await controlRef.current?.flush();
-                await RpcApi.BoardAskCommand(TabRpcClient, {
-                    ...ref,
-                    question,
-                    on: selection.label ?? undefined,
-                    selectedids: selection.ids.length > 0 ? selection.ids : undefined,
-                });
-                await loadBoardTalk(ref.channelid, ref.boardid);
-            } finally {
-                setAsking(false);
-            }
-        });
-    };
-    const onShow = (turnId: string, ids: string[]) => {
-        if (shown?.turnId === turnId) {
-            controlRef.current?.show([]);
-            setShown(null);
-            return;
-        }
-        controlRef.current?.show(ids);
-        setShown({ turnId, ids });
-    };
-    const onStop = () => {
-        if (ref != null) {
-            act("stop the answer", () => RpcApi.BoardAskStopCommand(TabRpcClient, ref));
-        }
-    };
-    const onRetry = (turnId: string) => {
-        if (ref != null) {
-            act("retry", () => RpcApi.BoardAskRetryCommand(TabRpcClient, { ...ref, turnid: turnId }));
-        }
-    };
     const onChoice = (turnId: string, choice: "keep" | "new") => {
-        if (ref == null) {
+        if (channelId == null || board == null) {
             return;
         }
         if (choice === "keep") {
-            act("keep it here", () => RpcApi.BoardAskChoiceCommand(TabRpcClient, { ...ref, turnid: turnId, choice }));
+            view.onKeep(turnId);
             return;
         }
-        const briefing = talk?.turns.find((t) => t.id === turnId)?.briefing;
-        openForm({
-            kind: "briefing",
-            channelId: ref.channelid,
-            fromBoardId: ref.boardid,
-            turnId,
-            about: { kind: "briefing", ref: "", title: briefing?.from ?? "", text: briefing?.text },
-            ask: briefing?.ask ?? "",
-        });
+        openForm(briefingForm(channelId, board.id, talk, turnId));
     };
 
     // Ask on a form makes the board (its first turn starts when there is a question), then opens it
@@ -340,7 +230,24 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
         }
         await loadBoardList(channelId).catch((e) => console.warn("boards: reloading the list failed", e));
         closeForm();
+        // a board about a claude or pi agent is tied to it, so it opens where that agent's boards do
+        if (req.kind === "about" && req.about.kind === "agent") {
+            openBoardTarget(model, channelId, info.id);
+            return;
+        }
         setOpenBoard(channelId, info.id);
+    };
+
+    // a tied board opens where its agent is (the router decides); any other stays on this surface
+    const pickBoard = (ch: string, id: string) => {
+        const picked = switcherLists.find((l) => l.channelId === ch)?.boards.find((b) => b.id === id);
+        if (picked?.agenttabid) {
+            openBoardTarget(model, ch, id);
+        } else if (ch === channelId) {
+            setOpenBoard(ch, id);
+        } else {
+            selectBoard(ch, id);
+        }
     };
 
     let header: ReactNode = <span className="text-[12px] text-muted">{channelId != null ? project : null}</span>;
@@ -384,7 +291,7 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
                         name={board.name}
                         openId={board.id}
                         groups={switcherGroups(switcherLists, channelId, now)}
-                        onPick={(ch, id) => (ch === channelId ? setOpenBoard(ch, id) : selectBoard(ch, id))}
+                        onPick={pickBoard}
                         onAskNew={() => openForm({ kind: "new", channelId })}
                     />
                     <span data-board-facts className="text-[12px] text-muted">
@@ -394,6 +301,14 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
                             <Facts text={boardFacts(board, shapesNow, now)} />
                         ) : null}
                     </span>
+                    {talk != null ? (
+                        <BoardAgentChip
+                            chip={agentChip(talk.agent)}
+                            choices={choices}
+                            project={project}
+                            onPick={view.onSetAgent}
+                        />
+                    ) : null}
                 </>
             );
             const empty = (board.questions ?? 0) === 0 && (shapesNow ?? 0) === 0;
@@ -426,14 +341,20 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
             column = (
                 <BoardTalk
                     about={aboutTitle(talk.about, project)}
-                    items={talkItems(talk, now)}
-                    ask={askBox(talk, board.name, selection.label, asking, !!loadError)}
-                    shownTurnId={shown?.turnId ?? null}
-                    onAsk={onAsk}
-                    onShow={onShow}
-                    onStop={onStop}
-                    onRetry={onRetry}
+                    items={talkItems(talk, now, "surface")}
+                    ask={askBox(talk, view.selection.label, view.asking, !!loadError)}
+                    shownTurnId={view.shownTurnId}
+                    onAsk={view.onAsk}
+                    onShow={view.onShow}
+                    onStop={view.onStop}
+                    onRetry={view.onRetry}
                     onChoice={onChoice}
+                    onReroute={view.onReroute}
+                    onOpenAgent={(tabId) => openBoardAgent(model, tabId)}
+                    agentChoices={choices}
+                    project={project}
+                    onPickAgent={view.onSetAgent}
+                    onStartAgent={() => startBoardAgent(model, project)}
                 />
             );
         } else {
@@ -458,18 +379,16 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
                     ) : loadError ? (
                         <LoadError board={board} reason={loadError} onRetry={onRetryBoard} />
                     ) : (
-                        <Suspense fallback={null}>
-                            <BoardCanvas
-                                key={`${board.id}:${attempt}`}
-                                channelId={channelId}
-                                boardId={board.id}
-                                controlRef={controlRef}
-                                onLoaded={(s) => onScene(board.id, s)}
-                                onScene={(s) => onScene(board.id, s)}
-                                onError={setCanvasError}
-                                onSelection={onSelection}
-                            />
-                        </Suspense>
+                        <LazyBoardCanvas
+                            key={`${board.id}:${view.attempt}`}
+                            channelId={channelId}
+                            boardId={board.id}
+                            controlRef={controlRef}
+                            onLoaded={view.onScene}
+                            onScene={view.onScene}
+                            onError={view.onCanvasError}
+                            onSelection={view.onSelection}
+                        />
                     )}
                     {showCanvas && !loadError && req == null && shapesNow === 0 ? <EmptyBoard /> : null}
                 </section>
@@ -540,29 +459,6 @@ function Kbd({ children }: { children: string }) {
     );
 }
 
-// "2 questions · 14 shapes · answered 15:20": each count rolls when it changes (moment 12)
-function Facts({ text }: { text: string }) {
-    return (
-        <>
-            {text.split(" · ").map((fact, i) => {
-                const m = COUNT_FACT.exec(fact);
-                return (
-                    <span key={i}>
-                        {i > 0 ? " · " : null}
-                        {m != null ? (
-                            <>
-                                <TickNumber value={Number(m[1])} /> {m[2]}
-                            </>
-                        ) : (
-                            fact
-                        )}
-                    </span>
-                );
-            })}
-        </>
-    );
-}
-
 // the shared empty state, as Cockpit's "No agents running"; New board opens the dialog
 function NoBoards({ project, onAsk }: { project: string; onAsk: (name: string, question: string) => Promise<void> }) {
     const [open, setOpen] = useState(false);
@@ -572,7 +468,7 @@ function NoBoards({ project, onAsk }: { project: string; onAsk: (name: string, q
                 data={{ "data-boards-empty": "" }}
                 glyph={<Shapes size={30} strokeWidth={1.8} aria-hidden className="mb-[18px] text-accent-soft" />}
                 title={`No boards in ${project} yet`}
-                body="A board is a conversation with a drawer. Ask about a choice, the code or the architecture, and it answers in a few words and a drawing you can keep asking about."
+                body="A board is where your agent's explanations get drawn. Ask about a choice, the code or the architecture: the drawer draws it, and a question for the agent goes to the board's agent."
                 action={{
                     label: "New board",
                     onClick: () => setOpen(true),

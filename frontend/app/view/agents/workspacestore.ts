@@ -15,12 +15,14 @@ import { isEndedWorkerId } from "./runlineage";
 import { focusSubagentAtom } from "./subagentsstore";
 import {
     activateTab,
+    addTab,
     closeTab,
     DEFAULT_PANE_PX,
     EMPTY_WORKSPACE,
     openTab,
     setCollapsed,
     setExpanded,
+    tabKey,
     toggleCollapsed,
     updateTab,
     type WorkspaceState,
@@ -61,6 +63,20 @@ export function openWorkspaceTab(agentId: string, tab: WorkspaceTab): void {
 export function addArrivals(agentId: string, arrived: Arrival[]): WorkspaceState {
     apply(agentId, (s) => applyArrivals(s, arrived));
     return globalStore.get(stateAtom(agentId));
+}
+
+// a board lives in one workspace (decision 12): a join takes its tab out of every other agent's, and adds it behind
+// the active one, unseen, when this agent renders. Nothing remembers a closed tab, so the next join adds it again
+export function joinWorkspaceTab(model: AgentsViewModel, agentId: string, tab: WorkspaceTab): void {
+    const key = tabKey(tab);
+    for (const other of workspaceAtoms.keys()) {
+        if (other !== agentId) {
+            apply(other, (s) => closeTab(s, key));
+        }
+    }
+    if (rendersNow(model, agentId)) {
+        apply(agentId, (s) => addTab(s, tab));
+    }
 }
 
 export function closeWorkspaceTab(agentId: string, key: string): void {

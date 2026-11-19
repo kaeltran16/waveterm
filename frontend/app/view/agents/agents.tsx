@@ -160,6 +160,8 @@ export class AgentsViewModel implements ViewModel {
     // New Project / New Agent / New run modal + command-palette visibility (gated overlays rendered from the cockpit root).
     newProjectOpenAtom = atom(false);
     newAgentOpenAtom = atom(false);
+    // the project the next New agent dialog starts on (a board's Start an agent), cleared when it closes
+    newAgentProjectAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
     newRunOpenAtom = atom(false);
     newInitiativeOpenAtom = atom(false);
     // the project whose Overview modal is open (projectoverview.tsx), opened from the project switcher

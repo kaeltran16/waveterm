@@ -320,3 +320,23 @@ describe("unseen", () => {
         expect(closeTab(marked(), "run:r1").unseen).toEqual([]);
     });
 });
+
+describe("the board tab", () => {
+    const board = (boardId: string): WorkspaceTab => ({ kind: "board", channelId: "ch1", boardId });
+
+    it("keys one tab per board", () => {
+        expect(tabKey(board("b1"))).toBe("board:b1");
+        expect(tabKey(board("b2"))).not.toBe(tabKey(board("b1")));
+    });
+
+    it("names the board, and the kind alone until its name loads", () => {
+        expect(tabLabel(board("b1"), "App architecture")).toBe("Board · App architecture");
+        expect(tabLabel(board("b1"), undefined)).toBe("Board");
+    });
+
+    it("keeps one tab when the board is opened twice", () => {
+        const s = openTab(withTabs(board("b1"), changes), board("b1"));
+        expect(s.tabs.map(tabKey)).toEqual(["board:b1", "changes"]);
+        expect(s.active).toBe("board:b1");
+    });
+});

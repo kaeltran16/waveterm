@@ -111,6 +111,15 @@ describe("board:update reloads", () => {
     });
 });
 
+describe("loadBoardTalk", () => {
+    it("keeps the board's agent", async () => {
+        const agent: BoardAgent = { tabid: "tab1", title: "claude · waveterm", runtime: "claude", readts: 5 };
+        rpc.BoardTalkCommand.mockResolvedValueOnce({ ...talk("b8"), agent });
+        await loadBoardTalk("c1", "b8");
+        expect(globalStore.get(boardTalkAtom("b8"))?.agent).toEqual(agent);
+    });
+});
+
 describe("the open canvas's hooks", () => {
     it("routes answers to a registered board until it unregisters", async () => {
         const apply = vi.fn(async () => ["s1"]);
@@ -138,6 +147,18 @@ describe("the open canvas's hooks", () => {
         older();
         expect(liveBoardApply("b1")).toBe(newer);
         unregisterNewer();
+    });
+
+    it("sends answers to the newer of two canvases on one board, and back to the older when the newer goes", () => {
+        const older = vi.fn(async () => ["s1"]);
+        const newer = vi.fn(async () => ["s2"]);
+        const unregisterOlder = registerLiveBoard("c1", "b1", older);
+        const unregisterNewer = registerLiveBoard("c1", "b1", newer);
+        expect(liveBoardApply("b1")).toBe(newer);
+        unregisterNewer();
+        expect(liveBoardApply("b1")).toBe(older);
+        unregisterOlder();
+        expect(liveBoardApply("b1")).toBeUndefined();
     });
 
     it("runs the canvas's Escape while one is registered", () => {

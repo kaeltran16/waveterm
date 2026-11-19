@@ -38,7 +38,7 @@ vi.mock("@/app/store/wos", async () => {
 vi.mock("@/app/cockpit/notificationstore", () => ({ pushToast: (...a: unknown[]) => pushToast(...a) }));
 
 import { globalStore } from "@/app/store/jotaiStore";
-import { atom } from "jotai";
+import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
 import { attachBrainstorm, detachBrainstorm, getBrainstorm } from "../agents/brainstormstore";
@@ -1287,6 +1287,48 @@ describe("board landings", () => {
         expect(pushToast).toHaveBeenCalledWith({ title: "This board is gone", message: "", level: "warn" });
         expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
         expect(globalStore.get(openBoardByChannelAtom)).toEqual({});
+    });
+
+    it("lands a board tied to a rendering agent on the Agent surface, that agent shown and the board tab active", async () => {
+        const agentId = `tied-${Date.now()}`;
+        const model = makeModel();
+        globalStore.set(model.agentsAtom as PrimitiveAtom<AgentVM[]>, [
+            { id: agentId, name: agentId, task: "", state: "idle", agent: "claude", blockId: `block-${agentId}` },
+        ]);
+        rpc.BoardListCommand.mockResolvedValue({
+            project: "waveterm",
+            boards: [
+                { id: "0a1b2c3d", name: "Escalation", channelid: "c1", path: "", createdts: 1, agenttabid: agentId },
+            ],
+        });
+        try {
+            expect(await openTarget(model, target)).toEqual({ ok: true });
+            expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+            expect(globalStore.get(model.focusIdAtom)).toBe(agentId);
+            expect(globalStore.get(workspaceAtom(agentId)).active).toBe("board:0a1b2c3d");
+            expect(globalStore.get(openBoardByChannelAtom)).toEqual({});
+        } finally {
+            closeWorkspaceTab(agentId, "board:0a1b2c3d");
+        }
+    });
+
+    it("lands a tied board on Boards while its agent shows the terminal", async () => {
+        const agentId = `tied-term-${Date.now()}`;
+        globalStore.set(viewModeAtom(agentId), "terminal");
+        const model = makeModel();
+        globalStore.set(model.agentsAtom as PrimitiveAtom<AgentVM[]>, [
+            { id: agentId, name: agentId, task: "", state: "idle", agent: "claude", blockId: `block-${agentId}` },
+        ]);
+        rpc.BoardListCommand.mockResolvedValue({
+            project: "waveterm",
+            boards: [
+                { id: "0a1b2c3d", name: "Escalation", channelid: "c1", path: "", createdts: 1, agenttabid: agentId },
+            ],
+        });
+        expect(await openTarget(model, target)).toEqual({ ok: true });
+        expect(globalStore.get(model.surfaceAtom)).toBe("boards");
+        expect(globalStore.get(openBoardByChannelAtom)).toEqual({ c1: "0a1b2c3d" });
+        expect(globalStore.get(workspaceAtom(agentId)).tabs).toEqual([]);
     });
 
     it("is not peekable", () => {
