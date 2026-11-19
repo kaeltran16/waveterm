@@ -19,6 +19,7 @@ import {
     boardUrl,
     CANVAS_POLL_MS,
     canvasDesignDir,
+    canvasJsonBoards,
     canvasProjectDir,
     type CanvasBoard,
 } from "./canvasmodel";
@@ -49,8 +50,11 @@ async function readServer(s: CanvasState, io: CanvasIO, base: string): Promise<S
     if (res.status === "error") {
         return null;
     }
-    const boards = boardsFromCanvasJson(res.status === HTTP_OK ? res.json : undefined);
-    const heads = await Promise.all(boards.map((b) => io.head(boardUrl(base, s.topic, b.name))));
+    const json = res.status === HTTP_OK ? res.json : undefined;
+    const listed = canvasJsonBoards(json);
+    // with nothing listed, Main is only a candidate: it is a board once its file is served
+    const candidates = listed.length > 0 ? listed : boardsFromCanvasJson(json);
+    const heads = await Promise.all(candidates.map((b) => io.head(boardUrl(base, s.topic, b.name))));
     if (heads.some((h) => h.status === "error")) {
         return null;
     }
@@ -59,9 +63,10 @@ async function readServer(s: CanvasState, io: CanvasIO, base: string): Promise<S
     const boardModifiedMs: Record<string, number> = {};
     heads.forEach((h, i) => {
         if (h.status === HTTP_OK) {
-            boardModifiedMs[boards[i].name] = h.lastModified ?? 0;
+            boardModifiedMs[candidates[i].name] = h.lastModified ?? 0;
         }
     });
+    const boards = listed.length > 0 || Object.keys(boardModifiedMs).length > 0 ? candidates : [];
     return { boards, lastModifiedMs, boardModifiedMs };
 }
 

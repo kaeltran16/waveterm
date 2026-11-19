@@ -32,3 +32,28 @@ export function shellRunLines(stdout: string | undefined, stderr: string | undef
     const errShown = err.slice(0, SHELL_LINES_SHOWN - outShown.length);
     return { stdout: outShown, stderr: errShown, total, showAll: true, showLess: false };
 }
+
+export type ShellRunMark = { kind: "exit" | "cancelled" | "truncated"; text: string };
+
+// a finished `!` command's marks beside it: a non-zero exit code, a cancel, a truncation. A Claude row carries none
+export function shellRunMarks({
+    exit,
+    cancelled,
+    truncated,
+}: {
+    exit?: number | null;
+    cancelled?: boolean;
+    truncated?: boolean;
+}): ShellRunMark[] {
+    const marks: ShellRunMark[] = [];
+    if (exit != null && exit !== 0) {
+        marks.push({ kind: "exit", text: `exit ${exit}` });
+    }
+    if (cancelled) {
+        marks.push({ kind: "cancelled", text: "cancelled" });
+    }
+    if (truncated) {
+        marks.push({ kind: "truncated", text: "truncated" });
+    }
+    return marks;
+}

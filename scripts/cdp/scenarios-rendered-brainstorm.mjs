@@ -90,9 +90,10 @@ function writeFile(ctx, file) {
 }
 
 // opts: topic, file (the first brainstorm.json, an object or raw text), transcript (record lines; a prompt and a reply
-// by default), boards (canvas board names: writes the brainstorm's canvas project), noBrainstorm (an agent with only
-// the canvas), noTab (auto-open's Brainstorm tab turned down, so the full card draws: while the tab shows, the card is
-// one row). A throw past the temp dir still returns ctx, so teardown removes whatever was made
+// by default), boards (canvas board names: writes the brainstorm's canvas project), files (path under the project ->
+// contents, written before the feed draws), noBrainstorm (an agent with only the canvas), noTab (auto-open's Brainstorm
+// tab turned down, so the full card draws: while the tab shows, the card is one row). A throw past the temp dir still
+// returns ctx, so teardown removes whatever was made
 async function arrange(h, name, opts = {}) {
     const tag = Date.now().toString(36);
     const topic = opts.topic ?? `rbs-${tag}`;
@@ -103,6 +104,11 @@ async function arrange(h, name, opts = {}) {
         mkdirSync(dirname(ctx.file), { recursive: true });
         if (!opts.noBrainstorm) writeFile(ctx, opts.file ?? bsFile({ canvas: topic }));
         if (opts.boards) ctx.project = writeCanvas(ctx.cwd, opts.canvas ?? topic, opts.boards);
+        for (const [rel, body] of Object.entries(opts.files ?? {})) {
+            const path = join(ctx.cwd, rel);
+            mkdirSync(dirname(path), { recursive: true });
+            writeFileSync(path, body);
+        }
         const transcript = writeTranscript(
             ctx.dir,
             `rbs-${tag}`,

@@ -1,11 +1,15 @@
 import { globalStore } from "@/app/store/jotaiStore";
+import { RpcApi } from "@/app/store/wshclientapi";
+import { sentPromptsAtom } from "@/app/view/agents/agentsend";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { channelsAtom } from "@/app/view/agents/channelsstore";
 import { liveEntriesByIdAtom } from "@/app/view/agents/livetranscriptatoms";
 import type { ProjectRow } from "@/app/view/agents/projectsstore";
+import { getAgentStatusAtom } from "@/app/view/agents/session-models/agentstatusstore";
 import { shellTasksByIdAtom } from "@/app/view/agents/shelltasksstore";
+import { PI_STOP_SETTLE_MS, stopAgent } from "@/app/view/agents/stopsend";
 import { openBoardAsk } from "@/app/view/jarvis/openref";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AGENT_KIND, type AgentThing } from "./agent";
 import { actionsFor } from "./types";
 
@@ -178,5 +182,68 @@ describe("agent Ask a board about this…", () => {
             expect(ask.applies(thing({ cwd: "C:/work/waveterm", blockId: undefined }))).toBe(false);
         });
         expect(ask.applies(thing({ cwd: "C:/work/waveterm" }))).toBe(false);
+    });
+});
+
+describe("agent Interrupt", () => {
+    const interrupt = AGENT_KIND.actions.find((a) => a.id === "agent:interrupt")!;
+    const status = getAgentStatusAtom("block:blk1");
+    let typed: string[];
+    const report = (state: string) => globalStore.set(status, { state } as AgentStatusData);
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        typed = [];
+        vi.spyOn(RpcApi, "ControllerInputCommand").mockImplementation(async (_client, data) => {
+            typed.push(atob(data.inputdata64));
+        });
+        report("working");
+    });
+    afterEach(() => {
+        // ends any stop still waiting, so it cannot type into the next test
+        vi.advanceTimersByTime(PI_STOP_SETTLE_MS);
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+        globalStore.set(sentPromptsAtom("blk1"), []);
+    });
+    const queueSteer = () =>
+        globalStore.set(sentPromptsAtom("blk1"), [{ text: "also the call sites", ts: Date.now() }]);
+
+    it("on a pi agent with a queued foot types Esc, then Enter once after its idle report", () => {
+        queueSteer();
+        void interrupt.run(thing({ agent: "pi" }), { model: {} as any });
+        expect(typed).toEqual(["\x1b"]);
+        report("idle");
+        expect(typed).toEqual(["\x1b", "\r"]);
+        report("working");
+        report("idle");
+        expect(typed).toEqual(["\x1b", "\r"]);
+    });
+    it("on a pi agent with an empty foot types Esc alone", () => {
+        void interrupt.run(thing({ agent: "pi" }), { model: {} as any });
+        report("idle");
+        expect(typed).toEqual(["\x1b"]);
+    });
+    it("on a pi agent no longer working types Esc alone, its sends no longer waiting", () => {
+        queueSteer();
+        void interrupt.run(thing({ agent: "pi", state: "idle" }), { model: {} as any });
+        report("idle");
+        expect(typed).toEqual(["\x1b"]);
+    });
+    it("on a Claude agent types Esc alone, whatever the box sent", () => {
+        queueSteer();
+        void interrupt.run(thing({ agent: "claude" }), { model: {} as any });
+        report("idle");
+        expect(typed).toEqual(["\x1b"]);
+    });
+    it("a second Stop while the first waits leads to one Enter, from the palette or the shared stop", () => {
+        queueSteer();
+        const pi = thing({ agent: "pi" });
+        void interrupt.run(pi, { model: {} as any });
+        stopAgent(pi.agent);
+        void interrupt.run(pi, { model: {} as any });
+        expect(typed).toEqual(["\x1b", "\x1b", "\x1b"]);
+        report("idle");
+        expect(typed).toEqual(["\x1b", "\x1b", "\x1b", "\r"]);
     });
 });

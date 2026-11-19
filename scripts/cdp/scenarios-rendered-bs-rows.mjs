@@ -4,8 +4,6 @@
 // the pane-action lines read "You ...", and the pinned bar draws the last prompt, a mark, as its row reads. kit is
 // scenarios-rendered-brainstorm.mjs's RBS_KIT.
 
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { crc32, deflateSync } from "node:zlib";
 import { assistantText, userText } from "./agent-page-fixtures.mjs";
 import { bsFile } from "./scenarios-shared.mjs";
@@ -149,12 +147,11 @@ export default (kit) => {
             return true;`
         );
 
+    // the canvas and the crop exist before the feed draws, as they do before any mark is sent
+    const files = { [`.superpowers/design/${TOPIC}/feedback/003.png`]: cropPng() };
+
     return [
-        // the canvas exists before the feed draws, as it does before any mark is sent: the crop is served from its folder
-        scenario("rendered-bs-rows", { topic: TOPIC, file: FILE, transcript: TRANSCRIPT, boards: ["Main.dc.html"] }, async (h, ctx, step) => {
-            const crop = join(ctx.cwd, ".superpowers", "design", TOPIC, "feedback", "003.png");
-            mkdirSync(dirname(crop), { recursive: true });
-            writeFileSync(crop, cropPng());
+        scenario("rendered-bs-rows", { topic: TOPIC, file: FILE, transcript: TRANSCRIPT, boards: ["Main.dc.html"], files }, async (h, ctx, step) => {
             const seeded = await seedRecords(h, ctx);
             await polishWaitFor(h, `(${FEED}?.querySelectorAll("[data-rbs-row='answer']").length ?? 0) >= 4`, WAIT_MS);
 
@@ -213,9 +210,6 @@ export default (kit) => {
             });
 
             await step("CanvasUpdated: the mark is a bubble with its crop, the note and marked on Main · the canvas; the crop opens Main in the pane", async () => {
-                // the feed drew before this scenario wrote the crop, which a sent mark never does: load it again now
-                await polishWaitFor(h, `!!${FEED}?.querySelector("[data-rbs-row='mark'] img")`, WAIT_MS);
-                await h.ev(`(() => { const img = ${FEED}?.querySelector("[data-rbs-row='mark'] img"); if (img) img.src = img.src.split("?")[0] + "?reload=" + Date.now(); return true; })()`);
                 await polishWaitFor(h, `(${FEED}?.querySelector("[data-rbs-row='mark'] img")?.naturalWidth ?? 0) > 0`, WAIT_MS);
                 const bubble = await h.ev(`(() => {
                     const el = ${FEED}?.querySelector("[data-rbs-row='mark']");

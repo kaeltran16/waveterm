@@ -9,6 +9,7 @@ import {
     boardUrl,
     buildGoal,
     canvasDir,
+    canvasJsonBoards,
     canvasLayout,
     canvasTabs,
     currentTab,
@@ -50,6 +51,24 @@ function state(over: Partial<CanvasState>): CanvasState {
         ...over,
     };
 }
+
+describe("canvasJsonBoards", () => {
+    it("reads the boards canvas.json lists, placed as boardsFromCanvasJson places them", () => {
+        const json = {
+            boards: { "Main.dc.html": { x: 0, y: 0 }, "A.dc.html": { w: 640 } },
+            order: ["Main.dc.html", "A.dc.html"],
+        };
+        expect(canvasJsonBoards(json)).toEqual(boardsFromCanvasJson(json));
+        expect(canvasJsonBoards(json).map((b) => b.name)).toEqual(["Main.dc.html", "A.dc.html"]);
+    });
+
+    it.each([undefined, null, "x", {}, { boards: {} }, { boards: { "notes.txt": {} } }])(
+        "is empty for %j, with no Main fallback",
+        (json) => {
+            expect(canvasJsonBoards(json)).toEqual([]);
+        }
+    );
+});
 
 describe("boardsFromCanvasJson", () => {
     const MAIN = { name: "Main.dc.html", x: 0, y: 0, w: 1440, h: 900 };
@@ -274,11 +293,18 @@ describe("board tabs", () => {
 });
 
 describe("removedExit", () => {
-    it("detaches a plain canvas, which closes it", () => {
-        expect(removedExit(undefined)).toEqual({ label: "Close the canvas", detach: true });
+    it("detaches a plain canvas, which closes it, and says the swap control goes with it", () => {
+        expect(removedExit(undefined)).toEqual({ label: "Close the canvas", detach: true, swapNote: true });
     });
     it("inside a brainstorm takes the brainstorm's own way back: its board view has no canvas to fall back to", () => {
-        expect(removedExit("Back to the question")).toEqual({ label: "Back to the question", detach: false });
+        expect(removedExit("Back to the question")).toEqual({
+            label: "Back to the question",
+            detach: false,
+            swapNote: false,
+        });
+    });
+    it("in the tab closes the tab, with no swap control to mention", () => {
+        expect(removedExit(undefined, true)).toEqual({ label: "Close the tab", detach: true, swapNote: false });
     });
 });
 
@@ -331,6 +357,9 @@ describe("updatedAgo", () => {
         [59, "updated 59s ago"],
         [60, "updated 1m ago"],
         [3600, "updated 1h ago"],
+        [86_399, "updated 23h ago"],
+        [86_400, "updated 1d ago"],
+        [6 * 86_400, "updated 6d ago"],
     ])("reads %ds back", (secs, want) => {
         expect(updatedAgo(now, now - secs * 1000)).toBe(want);
     });

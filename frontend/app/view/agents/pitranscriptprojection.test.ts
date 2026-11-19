@@ -133,7 +133,7 @@ describe("projectPiTranscript", () => {
             session,
             user("u", "build it"),
             toolCall("b1", "bash", { command: "make build" }),
-            toolResult("b1", "bash", "build failed", true),
+            toolResult("b1", "bash", "build failed\n\nCommand exited with code 1", true),
         ];
         expect(projectPiTranscript(lines)).toEqual([
             { kind: "user", text: "build it" },
@@ -1019,5 +1019,162 @@ describe("extractPiTitle record filtering", () => {
             L({ type: "message", id: "u", parentId: "a", message: { role: "user", content: "real prompt" } }),
         ];
         expect(extractPiTitle(lines)).toBe("real prompt");
+    });
+});
+
+describe("projectPiTranscript census fixes", () => {
+    const actionOf = (name: string, args: unknown, body: string, isError: boolean) =>
+        projectPiTranscript([
+            session,
+            user("u", "go"),
+            toolCall("c1", name, args),
+            toolResult("c1", name, body, isError),
+        ])[1] as any;
+
+    it("reads an unmapped tool name as words and keeps the mapped verbs", () => {
+        const verbOf = (name: string) => actionOf(name, {}, "ok", false).verb;
+        expect(verbOf("mcp__docs__search_pages")).toBe("search pages");
+        expect(verbOf("webFetch")).toBe("web fetch");
+        expect(verbOf("bash")).toBe("ran");
+        expect(verbOf("TaskCreate")).toBe("created task");
+    });
+
+    it("trims a validation failure before its received arguments", () => {
+        const body =
+            'Validation failed for tool "read":\n  - path: must be string\n\nReceived arguments:\n{\n  "path": 3\n}';
+        const action = actionOf("read", { path: 3 }, body, true);
+        expect(action.error).toBe('Validation failed for tool "read":\n  - path: must be string');
+        expect(action.outcome).toBe("fail");
+        expect(action.detail).toBeUndefined();
+    });
+
+    it("reads an extension's block reason as the failed call's error, as written", () => {
+        const action = actionOf("write", { path: "a.ts", content: "x" }, "Writes to a.ts are not allowed", true);
+        expect(action.error).toBe("Writes to a.ts are not allowed");
+        expect(action.outcome).toBe("fail");
+    });
+
+    it("gives a failed edit or write no diff", () => {
+        expect(
+            actionOf("edit", { path: "a.ts", edits: [{ oldText: "a", newText: "b" }] }, "not found", true).detail
+        ).toBeUndefined();
+        expect(actionOf("write", { path: "a.ts", content: "x" }, "denied", true).detail).toBeUndefined();
+    });
+
+    it("cleans ANSI escapes and carriage-return redraws out of read, grep and bash results", () => {
+        const raw = "\u001b[32mgreen\u001b[0m\n10%\r50%\r100%\r\ndone";
+        expect(actionOf("read", { path: "a.ts" }, raw, false).detail.snippet).toBe("green\n100%\ndone");
+        expect(actionOf("grep", { pattern: "x" }, "\u001b[35ma.ts:3:\u001b[0m x", false).detail.matches).toEqual([
+            { loc: "a.ts:3", code: " x" },
+        ]);
+        expect(actionOf("bash", { command: "build" }, raw, false).detail.output).toBe("green\n100%\ndone");
+    });
+
+    it("reads a non-zero bash exit off its status line, which leaves the output", () => {
+        const action = actionOf("bash", { command: "make" }, "boom\n\nCommand exited with code 2", true);
+        expect(action.detail).toEqual({ kind: "bash", command: "make", output: "boom", exit: 2 });
+        expect(action.outcome).toBe("fail");
+        expect(action.error).toBeUndefined();
+    });
+
+    it("gives a successful bash exit 0", () => {
+        expect(actionOf("bash", { command: "ls" }, "a.ts", false).detail.exit).toBe(0);
+    });
+
+    it("gives an aborted, timed-out or blocked bash a null exit and its last paragraph as the error", () => {
+        const aborted = actionOf("bash", { command: "sleep 9" }, "partial\n\nCommand aborted", true);
+        expect(aborted.detail).toEqual({ kind: "bash", command: "sleep 9", output: "partial", exit: null });
+        expect(aborted.error).toBe("Command aborted");
+        expect(aborted.outcome).toBe("fail");
+        const timedOut = actionOf("bash", { command: "sleep 9" }, "Command timed out after 5 seconds", true);
+        expect(timedOut.detail.exit).toBeNull();
+        expect(timedOut.error).toBe("Command timed out after 5 seconds");
+        const blocked = actionOf("bash", { command: "rm -rf /" }, "rm is not allowed here", true);
+        expect(blocked.detail).toEqual({ kind: "bash", command: "rm -rf /", output: "", exit: null });
+        expect(blocked.error).toBe("rm is not allowed here");
+        expect(blocked.outcome).toBe("fail");
+    });
+
+    it("carries a user entry's record time", () => {
+        const lines = [
+            session,
+            L({
+                type: "message",
+                id: "u",
+                parentId: null,
+                timestamp: "2026-08-11T03:00:05.000Z",
+                message: { role: "user", content: "hi" },
+            }),
+        ];
+        expect(projectPiTranscript(lines)).toEqual([
+            { kind: "user", text: "hi", ts: Date.parse("2026-08-11T03:00:05.000Z") },
+        ]);
+    });
+});
+
+describe("projectPiTranscript bash executions", () => {
+    const TS = "2026-08-11T03:00:05.000Z";
+    const bashExec = (id: string, parent: string | null, fields: object) =>
+        L({
+            type: "message",
+            id,
+            parentId: parent,
+            timestamp: TS,
+            message: {
+                role: "bashExecution",
+                command: "ls",
+                output: "",
+                exitCode: 0,
+                cancelled: false,
+                truncated: false,
+                timestamp: 1,
+                ...fields,
+            },
+        });
+
+    it("projects a `!` command to a shell row with its clean output and exit code, never a user bubble", () => {
+        const lines = [
+            session,
+            user("u", "go"),
+            bashExec("b", "u", { command: "npm test", output: "\u001b[31mfail\u001b[0m\n", exitCode: 1 }),
+        ];
+        expect(projectPiTranscript(lines)).toEqual([
+            { kind: "user", text: "go" },
+            { kind: "shell", command: "npm test", stdout: "fail\n", exit: 1, ts: Date.parse(TS) },
+        ]);
+    });
+
+    it("marks a cancelled, truncated or out-of-context (`!!`) command", () => {
+        const lines = [
+            session,
+            bashExec("b", null, { exitCode: undefined, cancelled: true, truncated: true, excludeFromContext: true }),
+        ];
+        expect(projectPiTranscript(lines)).toEqual([
+            {
+                kind: "shell",
+                command: "ls",
+                stdout: "",
+                exit: null,
+                cancelled: true,
+                truncated: true,
+                excluded: true,
+                ts: Date.parse(TS),
+            },
+        ]);
+    });
+
+    it("keeps a command in its place on the active branch and drops one on an abandoned branch", () => {
+        const lines = [
+            session,
+            user("u", "go"),
+            bashExec("gone", "u", { command: "abandoned" }),
+            bashExec("b", "u", { command: "kept" }),
+            L({ type: "message", id: "a", parentId: "b", message: { role: "assistant", content: "after" } }),
+        ];
+        expect(projectPiTranscript(lines).map((e) => e.kind + ":" + ((e as any).command ?? (e as any).text))).toEqual([
+            "user:go",
+            "shell:kept",
+            "message:after",
+        ]);
     });
 });

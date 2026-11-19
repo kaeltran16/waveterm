@@ -1,10 +1,11 @@
 // Scenario `workspace-file`: the workspace pane's File tab (Task 7 of docs/superpowers/plans/2026-11-17-workspace-pane.md;
-// the File board). The roster is a fixture claude agent backed by a real tab with no controller, in the Rendered view,
-// whose transcript's reply cites two files of a temp git repo by absolute path with a line. A click on a cited path
-// opens a File tab holding the Code peek, landed on that line; Esc in the card closes its tab; Open in Code lands on
-// the Code surface. The default view and the viewport are put back in teardown.
+// the File board; the Main, Diff and Image boards of docs/superpowers/plans/2026-11-19-file-tab-polish.md). The roster is a
+// fixture claude agent backed by a real tab with no controller, in the Rendered view, whose transcript's reply cites
+// files of a temp git repo by absolute path, three with a line and one image. A click on a cited path opens a File tab
+// holding the Code peek, landed on that line; Esc in the card closes its tab; Open in Code lands on the Code surface.
+// The default view and the viewport are put back in teardown.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -20,6 +21,7 @@ import {
     userText,
     writeTranscript,
 } from "./agent-page-fixtures.mjs";
+import { gradientPng } from "./scenarios-code-editor.mjs";
 import { git, polishNap, polishWaitFor } from "./scenarios-shared.mjs";
 
 const NAME = "workspace-file";
@@ -32,12 +34,59 @@ const STATS_LINES = 60;
 const STATS_LINE = 41;
 const DEDUPE_REL = "internal/dedupe/dedupe.go";
 const DEDUPE_LINE = 4;
+// committed in the seed, then changed in the working tree: one hunk well inside Normalize, so git labels it with the
+// func line, adding a line too long for the 600 px pane's one row; the reply cites that added line
+const GROUPS_REL = "internal/dedupe/groups.go";
+const GROUPS_LINE = 13;
+const GROUPS_HUNK_LABEL = "func Normalize(tags []string) []string {";
+const GROUPS_SEED = [
+    "package dedupe",
+    "",
+    'import "strings"',
+    "",
+    "// Normalize lowercases each tag and drops the blank ones.",
+    GROUPS_HUNK_LABEL,
+    "\tout := make([]string, 0, len(tags))",
+    "\tfor _, t := range tags {",
+    "\t\tt = strings.TrimSpace(t)",
+    '\t\tif t == "" {',
+    "\t\t\tcontinue",
+    "\t\t}",
+    "\t\tout = append(out, strings.ToLower(t))",
+    "\t}",
+    "\treturn out",
+    "}",
+    "",
+];
+const GROUPS_LONG =
+    '\t\t// a tag folds to lower case so "Go", "go" and "GO" share one shelf, and a leading # never makes a second shelf of its own when the shelf is listed';
+const GROUPS_CHANGED = [
+    ...GROUPS_SEED.slice(0, GROUPS_LINE - 1),
+    GROUPS_LONG,
+    '\t\tout = append(out, strings.ToLower(strings.TrimPrefix(t, "#")))',
+    ...GROUPS_SEED.slice(GROUPS_LINE),
+];
+const IMAGE_REL = "docs/shots/stats-panel.png";
+// wider than the pane, so it shows scaled down to fit
+const IMAGE_SIZE = { w: 1280, h: 800 };
+const LINKS = 4;
 const PROMPT = "Where does the tag count live?";
 const ESC = { key: "Escape", code: "Escape", keyCode: 27 };
 
 const PANE = `document.querySelector('aside[aria-label="Workspace"]')`;
 const CARD = `${PANE}?.querySelector('[data-code-peek][data-peek-variant="tab"]')`;
 const tabSel = (key) => `[data-workspace-tab=${JSON.stringify(key)}]`;
+// page code: the theme tokens resolved to the computed form an element's colour reads back in
+const TOKEN_COLORS = `const probe = document.createElement("div");
+    document.body.append(probe);
+    const token = (name) => {
+        probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+        return getComputedStyle(probe).color;
+    };
+    const accentbg = token("--color-accentbg");
+    const accentSoft = token("--color-accent-soft");
+    const muted = token("--color-muted");
+    probe.remove();`;
 
 const page = (h, body) =>
     agentPage(
@@ -50,7 +99,10 @@ const page = (h, body) =>
 function makeRepo(dir) {
     mkdirSync(join(dir, "internal", "stats"), { recursive: true });
     mkdirSync(join(dir, "internal", "dedupe"), { recursive: true });
+    mkdirSync(join(dir, "docs", "shots"), { recursive: true });
     writeFileSync(join(dir, "README.md"), "# linkshelf\n");
+    writeFileSync(join(dir, GROUPS_REL), GROUPS_SEED.join("\n"));
+    writeFileSync(join(dir, IMAGE_REL), gradientPng(IMAGE_SIZE.w, IMAGE_SIZE.h));
     writeFileSync(
         join(dir, DEDUPE_REL),
         ["package dedupe", "", "// Key folds a link to the form two duplicates share.", "func Key(url string) string {", "\treturn url", "}", ""].join("\n")
@@ -58,6 +110,7 @@ function makeRepo(dir) {
     git(dir, "init", "-q", "--initial-branch=main");
     git(dir, "-c", "core.autocrlf=false", "add", ".");
     git(dir, "-c", "core.autocrlf=false", "commit", "-q", "-m", "seed");
+    writeFileSync(join(dir, GROUPS_REL), GROUPS_CHANGED.join("\n"));
     // new since HEAD, so its stat reads "new file"
     const stats = Array.from({ length: STATS_LINES }, (_, i) => (i === 0 ? "package stats" : i === STATS_LINE - 1 ? "func CountByTag() map[string]int { return nil }" : `// line ${i + 1}`));
     writeFileSync(join(dir, STATS_REL), stats.join("\n") + "\n");
@@ -77,7 +130,13 @@ export const workspaceFile = {
             const abs = (rel) => join(ctx.repo, rel).replace(/\\/g, "/");
             ctx.stats = abs(STATS_REL);
             ctx.dedupe = abs(DEDUPE_REL);
-            const reply = `The count lives in \`${ctx.stats}:${STATS_LINE}\`, and the duplicate key in \`${ctx.dedupe}:${DEDUPE_LINE}\`.`;
+            ctx.groups = abs(GROUPS_REL);
+            ctx.image = abs(IMAGE_REL);
+            ctx.imageBytes = statSync(join(ctx.repo, IMAGE_REL)).size;
+            const reply = [
+                `The count lives in \`${ctx.stats}:${STATS_LINE}\`, and the duplicate key in \`${ctx.dedupe}:${DEDUPE_LINE}\`.`,
+                `Tags now fold their # in \`${ctx.groups}:${GROUPS_LINE}\`; the panel looks like \`${ctx.image}\`.`,
+            ].join(" ");
             const transcript = writeTranscript(join(ctx.dir, "transcripts"), `workspace-file-${tag}`, [userText(PROMPT), assistantText(reply)]);
             await h.goto("agent");
             await pinDefaultView(h, "rendered");
@@ -97,8 +156,8 @@ export const workspaceFile = {
                 },
             ]);
             await focusAgent(h, ctx.aId);
-            const linked = `[...document.querySelectorAll("[data-rendered-view] [data-file-link]")].length === 2`;
-            if (!(await polishWaitFor(h, linked, WAIT_MS))) throw new Error("the reply's two file links never rendered");
+            const linked = `[...document.querySelectorAll("[data-rendered-view] [data-file-link]")].length === ${LINKS}`;
+            if (!(await polishWaitFor(h, linked, WAIT_MS))) throw new Error(`the reply's ${LINKS} file links never rendered`);
         } catch (err) {
             ctx.arrangeError = String(err?.message ?? err);
         }
@@ -123,6 +182,8 @@ export const workspaceFile = {
         const A = JSON.stringify(ctx.aId);
         const statsKey = `file:${ctx.stats}`;
         const dedupeKey = `file:${ctx.dedupe}`;
+        const groupsKey = `file:${ctx.groups}`;
+        const imageKey = `file:${ctx.image}`;
         const samePath = (a, b) => (a ?? "").replace(/\\/g, "/").toLowerCase() === (b ?? "").toLowerCase();
         const clickLink = (path) =>
             h.ev(`(() => {
@@ -162,7 +223,7 @@ export const workspaceFile = {
                     openInHeader: card?.querySelector("[data-peek-path]")?.parentElement.querySelector("[data-peek-open]")?.textContent.trim() ?? null,
                     closeButton: card?.querySelector('button[aria-label="Close the peek"]') != null,
                     footerKeys: [...(card?.querySelectorAll("kbd") ?? [])].map((k) => k.textContent),
-                    source: card?.querySelector('[data-peek-mode="source"]')?.getAttribute("aria-pressed") ?? null,
+                    modes: card?.querySelectorAll("[data-peek-mode]").length ?? null,
                     readOnly: (card?.textContent ?? "").includes("Read-only"),
                     stat: card?.querySelector("[data-peek-stat]")?.textContent ?? null,
                     preview: card?.querySelector('[data-peek-mode="preview"]') != null,
@@ -193,7 +254,7 @@ export const workspaceFile = {
                 f.openInHeader === "Open in Code" &&
                 !f.closeButton &&
                 f.footerKeys.length === 0 &&
-                f.source === "true" &&
+                f.modes === 0 &&
                 !f.readOnly &&
                 !f.preview &&
                 f.cited &&
@@ -206,26 +267,9 @@ export const workspaceFile = {
         });
         await h.shot("cdp-shots/workspace-file-board.png");
 
-        await step("Diff on a file new since HEAD reads as the plain file, as the Diff surface draws one; Source lands back on the line", async () => {
-            const diff = await page(
-                h,
-                `const card = () => ${CARD};
-                card()?.querySelector('[data-peek-mode="diff"]')?.click();
-                const drawn = await until(() => card()?.querySelector("[data-diff-new-file] .monaco-editor .view-line") != null, ${WAIT_MS});
-                await nap(400);
-                const insert = card()?.querySelector("[data-diff-new-file] .view-overlays .line-insert");
-                return {
-                    drawn,
-                    caption: (card()?.textContent ?? "").includes("New file, not in HEAD"),
-                    pressed: card()?.querySelector('[data-peek-mode="diff"]')?.getAttribute("aria-pressed") ?? null,
-                    band: insert ? getComputedStyle(insert).backgroundColor : null,
-                };`
-            );
-            await h.shot("cdp-shots/workspace-file-newfile-diff.png");
-            await h.ev(`(${CARD})?.querySelector('[data-peek-mode="source"]')?.click()`);
-            const back = await landedOn(STATS_LINE);
-            const ok = diff.drawn && diff.caption && diff.pressed === "true" && diff.band === "rgba(0, 0, 0, 0)" && back;
-            return [ok, { ...diff, back }];
+        await step("A file new since HEAD offers no Diff mode in the File tab", async () => {
+            const f = await facts();
+            return [f.active === statsKey && (f.stat ?? "").includes("new file") && f.modes === 0, f];
         });
 
         await step("a second click on the same link keeps the one tab and its card open", async () => {
@@ -260,7 +304,221 @@ export const workspaceFile = {
             return [focused && closed && landed && f.tabs.length === 1 && f.active === dedupeKey && f.path === `${DEDUPE_REL}:${DEDUPE_LINE}`, { focused, closed, landed, ...f }];
         });
 
+        await step("Source on a changed file: no minimap, the long line wrapped, 12.5 px text on 20 px lines, the cited line in its accent band with its accent number (Main board)", async () => {
+            const clicked = await clickLink(ctx.groups);
+            const landed = await landedOn(GROUPS_LINE);
+            await polishNap(SETTLE_MS);
+            const f = await page(
+                h,
+                `const card = ${CARD};
+                const ed = card?.querySelector(".monaco-editor");
+                const num = (n) => [...(card?.querySelectorAll(".line-numbers") ?? [])].find((e) => e.textContent.trim() === String(n));
+                const top = (el) => el?.getBoundingClientRect().top ?? null;
+                const minimap = ed?.querySelector(".minimap");
+                const viewLine = ed?.querySelector(".view-lines .view-line");
+                const band = card?.querySelector(".peek-cited-line");
+                const citedNo = card?.querySelector(".peek-cited-line-number");
+                ${TOKEN_COLORS}
+                return {
+                    active: ws(${A}).active,
+                    tabs: ws(${A}).tabs.length,
+                    path: card?.querySelector("[data-peek-path]")?.textContent.trim() ?? null,
+                    minimap: minimap != null && minimap.getBoundingClientRect().width > 0 && getComputedStyle(minimap).display !== "none",
+                    longRows: (top(num(${GROUPS_LINE + 1})) - top(num(${GROUPS_LINE}))) / 20,
+                    fontSize: viewLine ? getComputedStyle(viewLine).fontSize : null,
+                    lineHeight: viewLine ? viewLine.getBoundingClientRect().height : null,
+                    citedNo: citedNo?.textContent.trim() ?? null,
+                    citedTop: top(num(${GROUPS_LINE})),
+                    bandTop: top(band),
+                    bandColor: band ? getComputedStyle(band).backgroundColor : null,
+                    accentbg,
+                    numberColor: citedNo ? getComputedStyle(citedNo).color : null,
+                    accentSoft,
+                };`
+            );
+            await h.shot("cdp-shots/workspace-file-main.png");
+            const ok =
+                clicked &&
+                landed &&
+                f.active === groupsKey &&
+                f.tabs === 2 &&
+                f.path === `${GROUPS_REL}:${GROUPS_LINE}` &&
+                !f.minimap &&
+                f.longRows > 1 &&
+                f.fontSize === "12.5px" &&
+                f.lineHeight === 20 &&
+                f.citedNo === String(GROUPS_LINE) &&
+                f.bandTop != null &&
+                Math.abs(f.bandTop - f.citedTop) < 1 &&
+                f.bandColor === f.accentbg &&
+                f.numberColor === f.accentSoft;
+            return [ok, { clicked, landed, ...f }];
+        });
+
+        await step("Diff on the changed file draws the Changes tab's hunk rows: a function label, one number column, +/- bands, the long line wrapped, the cited number bold accent-soft with no extra band (Diff board)", async () => {
+            const f = await page(
+                h,
+                `const card = () => ${CARD};
+                card()?.querySelector('[data-peek-mode="diff"]')?.click();
+                const drawn = await until(() => card()?.querySelector("[data-changes-hunk] [data-diff-line]") != null, ${WAIT_MS});
+                await nap(${SETTLE_MS});
+                const c = card();
+                const body = c?.querySelector("[data-peek-diff]")?.getBoundingClientRect();
+                const rows = [...(c?.querySelectorAll("[data-diff-line]") ?? [])];
+                const no = (r) => r.querySelector("[data-diff-no]");
+                const bg = (r) => (r ? getComputedStyle(r).backgroundColor : null);
+                const cited = [...(c?.querySelectorAll("[data-diff-cited]") ?? [])];
+                const citedRow = cited[0];
+                const citedBox = citedRow?.getBoundingClientRect();
+                const plainAdded = rows.find((r) => r.dataset.diffLine === "+" && !r.hasAttribute("data-diff-cited"));
+                const removed = rows.find((r) => r.dataset.diffLine === "-");
+                ${TOKEN_COLORS}
+                return {
+                    drawn,
+                    pressed: c?.querySelector('[data-peek-mode="diff"]')?.getAttribute("aria-pressed") ?? null,
+                    monaco: c?.querySelector(".monaco-editor") != null,
+                    labels: [...(c?.querySelectorAll("[data-changes-hunk-label]") ?? [])].map((l) => l.lastElementChild?.textContent.trim()),
+                    numberColumns: citedRow ? citedRow.querySelectorAll("[data-diff-no]").length : null,
+                    addedBand: bg(plainAdded),
+                    removedBand: bg(removed),
+                    cited: cited.length,
+                    citedNo: citedRow ? no(citedRow).textContent.trim() : null,
+                    citedWeight: citedRow ? getComputedStyle(no(citedRow)).fontWeight : null,
+                    citedColor: citedRow ? getComputedStyle(no(citedRow)).color : null,
+                    accentSoft,
+                    citedBand: bg(citedRow),
+                    citedHeight: citedBox?.height ?? null,
+                    inView: !!body && !!citedBox && citedBox.top >= body.top && citedBox.bottom <= body.bottom,
+                };`
+            );
+            await h.shot("cdp-shots/workspace-file-diff.png");
+            await h.ev(`(${CARD})?.querySelector('[data-peek-mode="source"]')?.click()`);
+            const back = await landedOn(GROUPS_LINE);
+            const clear = "rgba(0, 0, 0, 0)";
+            const ok =
+                f.drawn &&
+                f.pressed === "true" &&
+                !f.monaco &&
+                f.labels.includes(GROUPS_HUNK_LABEL) &&
+                f.numberColumns === 1 &&
+                f.addedBand != null &&
+                f.addedBand !== clear &&
+                f.removedBand != null &&
+                f.removedBand !== clear &&
+                f.removedBand !== f.addedBand &&
+                f.cited === 1 &&
+                f.citedNo === String(GROUPS_LINE) &&
+                f.citedWeight === "700" &&
+                f.citedColor === f.accentSoft &&
+                f.citedBand === f.addedBand &&
+                f.citedHeight > 20 &&
+                f.inView &&
+                back;
+            return [ok, { ...f, back }];
+        });
+
+        await step("Diff on a committed, unchanged file reads No line changes", async () => {
+            await h.ev(`document.querySelector('${tabSel(dedupeKey)} [role="tab"]')?.click()`);
+            const landed = await landedOn(DEDUPE_LINE);
+            const f = await page(
+                h,
+                `const D = await mod("app/view/agents/diffhunks.tsx");
+                const card = () => ${CARD};
+                card()?.querySelector('[data-peek-mode="diff"]')?.click();
+                const drawn = await until(() => card()?.querySelector("[data-changes-note]") != null, ${WAIT_MS});
+                await nap(${SETTLE_MS});
+                const c = card();
+                return {
+                    drawn,
+                    active: ws(${A}).active,
+                    note: c?.querySelector("[data-changes-note]")?.textContent.trim() ?? null,
+                    expected: D.DIFF_NOTES.empty,
+                    rows: c?.querySelectorAll("[data-diff-line]").length ?? null,
+                    monaco: c?.querySelector(".monaco-editor") != null,
+                };`
+            );
+            await h.shot("cdp-shots/workspace-file-diff-empty.png");
+            const ok = landed && f.drawn && f.active === dedupeKey && f.note === f.expected && f.rows === 0 && !f.monaco;
+            return [ok, { landed, ...f }];
+        });
+
+        await step("An image is drawn fit to the pane, its size and Copy path under it, no modes, Open in Code (Image board)", async () => {
+            const clicked = await clickLink(ctx.image);
+            const drawn = await polishWaitFor(
+                h,
+                `(() => { const i = (${CARD})?.querySelector("[data-code-image] img"); return !!i && i.complete && i.naturalWidth > 0; })()`,
+                WAIT_MS
+            );
+            await polishNap(SETTLE_MS);
+            const f = await page(
+                h,
+                `const card = ${CARD};
+                const img = card?.querySelector("[data-code-image] img");
+                const b = img?.getBoundingClientRect();
+                // the tab has no footer: its body is the card's last child
+                const body = card?.lastElementChild?.getBoundingClientRect();
+                const copy = [...(card?.querySelectorAll("[data-code-image] button") ?? [])].find((x) => x.textContent.trim() === "Copy path");
+                const label = copy?.previousElementSibling;
+                const under = (el) => !!b && !!el && el.getBoundingClientRect().top >= b.bottom;
+                // the clipboard is stubbed: a CDP session does not give the page the focus a real write needs
+                const clip = navigator.clipboard;
+                let wrote = null;
+                Object.defineProperty(clip, "writeText", { configurable: true, value: (t) => { wrote = t; return Promise.resolve(); } });
+                copy?.click();
+                await until(() => wrote != null, 2000);
+                delete clip.writeText;
+                const open = card?.querySelector("[data-peek-open]");
+                const header = card?.querySelector("[data-peek-path]");
+                const [dirSpan, fileSpan] = header ? [...header.querySelectorAll(":scope > span")] : [];
+                ${TOKEN_COLORS}
+                return {
+                    active: ws(${A}).active,
+                    state: card?.dataset.peekState ?? null,
+                    path: header?.textContent.trim() ?? null,
+                    title: header?.getAttribute("title") ?? null,
+                    dir: dirSpan?.textContent ?? null,
+                    dirColor: dirSpan ? getComputedStyle(dirSpan).color : null,
+                    muted,
+                    file: fileSpan?.textContent ?? null,
+                    natural: img?.naturalWidth ?? 0,
+                    shown: b ? Math.round(b.width) : null,
+                    inside: !!b && !!body && b.left >= body.left && b.right <= body.right && b.top >= body.top && b.bottom <= body.bottom,
+                    label: label?.textContent.trim() ?? null,
+                    labelUnder: under(label),
+                    copyUnder: under(copy),
+                    wrote,
+                    modes: card?.querySelectorAll("[data-peek-mode]").length ?? null,
+                    open: open != null && !open.disabled,
+                };`
+            );
+            await h.shot("cdp-shots/workspace-file-image.png");
+            const n = ctx.imageBytes;
+            const size = n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / (1024 * 1024)).toFixed(1)} MB`;
+            const ok =
+                clicked &&
+                drawn &&
+                f.active === imageKey &&
+                f.state === "binary" &&
+                f.path === IMAGE_REL &&
+                f.dir === IMAGE_REL.slice(0, IMAGE_REL.lastIndexOf("/") + 1) &&
+                f.dirColor === f.muted &&
+                f.file === IMAGE_REL.slice(IMAGE_REL.lastIndexOf("/") + 1) &&
+                samePath(f.title, ctx.image) &&
+                f.natural === IMAGE_SIZE.w &&
+                f.shown < f.natural &&
+                f.inside &&
+                f.label === size &&
+                f.labelUnder &&
+                f.copyUnder &&
+                samePath(f.wrote, ctx.image) &&
+                f.modes === 0 &&
+                f.open;
+            return [ok, { clicked, drawn, size, ...f }];
+        });
+
         await step("Open in Code lands on the Code surface at the cited line", async () => {
+            await h.ev(`document.querySelector('${tabSel(dedupeKey)} [role="tab"]')?.click()`);
+            await landedOn(DEDUPE_LINE);
             const r = await page(
                 h,
                 `const C = await mod("app/view/code/codestore.ts");

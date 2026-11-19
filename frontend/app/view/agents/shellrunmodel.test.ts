@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shellRunLines } from "./shellrunmodel";
+import { shellRunLines, shellRunMarks } from "./shellrunmodel";
 
 const numbered = (prefix: string, n: number): string[] => Array.from({ length: n }, (_, i) => `${prefix}${i + 1}`);
 
@@ -59,5 +59,20 @@ describe("shellRunLines", () => {
             showAll: false,
             showLess: false,
         });
+    });
+});
+
+describe("shellRunMarks", () => {
+    it("marks a non-zero exit, a cancel and a truncation, in that order", () => {
+        expect(shellRunMarks({ exit: 2, cancelled: true, truncated: true })).toEqual([
+            { kind: "exit", text: "exit 2" },
+            { kind: "cancelled", text: "cancelled" },
+            { kind: "truncated", text: "truncated" },
+        ]);
+    });
+    it("marks nothing for exit 0, a null exit, or a Claude row with none of the fields", () => {
+        expect(shellRunMarks({ exit: 0 })).toEqual([]);
+        expect(shellRunMarks({ exit: null })).toEqual([]);
+        expect(shellRunMarks({})).toEqual([]);
     });
 });

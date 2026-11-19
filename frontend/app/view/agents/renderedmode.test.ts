@@ -18,6 +18,7 @@ import {
     pickerFlipAtom,
     sendRoutedLine,
     shouldUnflip,
+    shouldUnflipAtBoundary,
     toggleViewMode,
     viewModeAtom,
 } from "./renderedmode";
@@ -38,8 +39,17 @@ describe("canRender", () => {
     it("is true for a claude agent with a live block", () => {
         expect(canRender(agent(), LIVE)).toBe(true);
     });
+    it("is true for a live pi agent with a block", () => {
+        expect(canRender(agent({ agent: "pi" }), LIVE)).toBe(true);
+    });
+    it("is false for a booting pi row, which has not reported its harness", () => {
+        expect(canRender(agent({ agent: "pi", booting: true, state: "working" }), LIVE)).toBe(false);
+    });
+    it("keeps a booting claude row renderable", () => {
+        expect(canRender(agent({ booting: true, state: "working" }), LIVE)).toBe(true);
+    });
     it("is false for the runtimes the rendered view does not drive", () => {
-        for (const rt of ["pi", "codex", "opencode"]) {
+        for (const rt of ["codex", "opencode"]) {
             expect(canRender(agent({ agent: rt }), LIVE)).toBe(false);
         }
     });
@@ -48,24 +58,76 @@ describe("canRender", () => {
         expect(canRender(agent({ blockId: undefined }), LIVE)).toBe(false);
     });
     it("is false for an ended worker and a final-stage row", () => {
-        expect(canRender(agent(), { ended: true, stage: false })).toBe(false);
-        expect(canRender(agent(), { ended: false, stage: true })).toBe(false);
+        for (const rt of ["claude", "pi"]) {
+            expect(canRender(agent({ agent: rt }), { ended: true, stage: false })).toBe(false);
+            expect(canRender(agent({ agent: rt }), { ended: false, stage: true })).toBe(false);
+        }
     });
 });
 
 describe("isPickerCommand", () => {
-    it("is true for a picker command and a bare /model", () => {
-        expect(isPickerCommand("/config")).toBe(true);
-        expect(isPickerCommand("/model")).toBe(true);
-        expect(isPickerCommand("  /config")).toBe(true);
-        expect(isPickerCommand("  /model  ")).toBe(true);
+    it("is true for a claude picker command and a bare /model, for claude and an unnamed harness", () => {
+        for (const harness of ["claude", undefined]) {
+            expect(isPickerCommand("/config", harness)).toBe(true);
+            expect(isPickerCommand("/model", harness)).toBe(true);
+            expect(isPickerCommand("  /config", harness)).toBe(true);
+            expect(isPickerCommand("  /model  ", harness)).toBe(true);
+        }
     });
-    it("is false for /model with an alias, other commands and plain text", () => {
-        expect(isPickerCommand("/model opus")).toBe(false);
-        expect(isPickerCommand("/compact")).toBe(false);
-        expect(isPickerCommand("/review x")).toBe(false);
-        expect(isPickerCommand("fix the config")).toBe(false);
-        expect(isPickerCommand("/configure")).toBe(false);
+    it("is false for claude's /model with an alias, other commands and plain text", () => {
+        expect(isPickerCommand("/model opus", "claude")).toBe(false);
+        expect(isPickerCommand("/compact", "claude")).toBe(false);
+        expect(isPickerCommand("/review x", "claude")).toBe(false);
+        expect(isPickerCommand("fix the config", "claude")).toBe(false);
+        expect(isPickerCommand("/configure", "claude")).toBe(false);
+        // pi's picker, not claude's
+        expect(isPickerCommand("/tree", "claude")).toBe(false);
+    });
+    it("is true for pi's always-picker commands, with or without arguments", () => {
+        for (const name of [
+            "settings",
+            "scoped-models",
+            "resume",
+            "fork",
+            "tree",
+            "trust",
+            "logout",
+            "import",
+            "bug",
+        ]) {
+            expect(isPickerCommand(`/${name}`, "pi")).toBe(true);
+            expect(isPickerCommand(` /${name} some arg `, "pi")).toBe(true);
+        }
+    });
+    it("is true for pi's bare /model, /thinking and /login, false with an argument", () => {
+        for (const name of ["model", "thinking", "login"]) {
+            expect(isPickerCommand(`/${name}`, "pi")).toBe(true);
+            expect(isPickerCommand(`  /${name}  `, "pi")).toBe(true);
+        }
+        expect(isPickerCommand("/model anthropic/claude-opus-5-5", "pi")).toBe(false);
+        expect(isPickerCommand("/thinking high", "pi")).toBe(false);
+        expect(isPickerCommand("/login anthropic", "pi")).toBe(false);
+    });
+    it("is false for pi's non-picker built-ins, claude's pickers pi lacks and plain text", () => {
+        for (const name of [
+            "export",
+            "share",
+            "copy",
+            "name",
+            "session",
+            "changelog",
+            "hotkeys",
+            "clone",
+            "new",
+            "compact",
+            "reload",
+            "quit",
+        ]) {
+            expect(isPickerCommand(`/${name}`, "pi")).toBe(false);
+        }
+        expect(isPickerCommand("/config", "pi")).toBe(false);
+        expect(isPickerCommand("open the settings", "pi")).toBe(false);
+        expect(isPickerCommand("/settingsx", "pi")).toBe(false);
     });
 });
 
@@ -93,6 +155,18 @@ describe("shouldUnflip", () => {
     it("is false with no flip or no hook yet", () => {
         expect(shouldUnflip(null, { hook: "Stop", ts: 101 })).toBe(false);
         expect(shouldUnflip(100, null)).toBe(false);
+    });
+});
+
+describe("shouldUnflipAtBoundary", () => {
+    it("unflips on a prompt boundary after the flip only", () => {
+        expect(shouldUnflipAtBoundary(100, 99)).toBe(false);
+        expect(shouldUnflipAtBoundary(100, 100)).toBe(false);
+        expect(shouldUnflipAtBoundary(100, 101)).toBe(true);
+    });
+    it("is false with no flip or no boundary yet", () => {
+        expect(shouldUnflipAtBoundary(null, 101)).toBe(false);
+        expect(shouldUnflipAtBoundary(100, null)).toBe(false);
     });
 });
 
@@ -124,6 +198,14 @@ describe("composerBox", () => {
         expect(box).toMatchObject({ askBlocks: true, live: true });
         expect(boxButton(box, false)).toBe("stop");
         expect(boxButton(box, true)).toBe("send");
+    });
+    it("while an ask blocks Send, the notice names the agent's harness", () => {
+        const claude = composerBox(agent({ state: "asking", ask: ASK }), true).notice;
+        const pi = composerBox(agent({ state: "asking", ask: ASK, agent: "pi" }), true).notice;
+        expect(claude).toContain("Claude");
+        expect(pi).toContain("Pi");
+        expect(pi).not.toContain("Claude");
+        expect(composerBox(agent(), true).notice).toBeNull();
     });
     it("an asking state with no answerable question does not block Send", () => {
         expect(composerBox(agent({ state: "asking" }), true).askBlocks).toBe(false);

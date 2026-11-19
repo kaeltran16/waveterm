@@ -1,9 +1,9 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Terminal | Rendered: two views of one claude process in the Agent surface center. Every agent opens in the view the
-// Settings default names (one canRender refuses shows the terminal); a toggle overrides it for that agent until
-// restart. A picker command sent from the rendered composer flips the agent to the terminal until its next prompt
+// Terminal | Rendered: two views of one claude or pi process in the Agent surface center. Every agent opens in the
+// view the Settings default names (one canRender refuses shows the terminal); a toggle overrides it for that agent
+// until restart. A picker command sent from the rendered composer flips the agent to the terminal until its next prompt
 // boundary, since the picker only exists in the TUI.
 
 import { globalStore } from "@/app/store/jotaiStore";
@@ -21,6 +21,8 @@ import {
 } from "./brainstormmodel";
 import { sendBrainstorm } from "./brainstormsend";
 import type { BrainstormState } from "./brainstormstore";
+import { isPiPickerCommand, PI_HARNESS } from "./picommands";
+import { runtimeMeta } from "./runtimemeta";
 
 export type ViewMode = "terminal" | "rendered";
 
@@ -102,8 +104,10 @@ export function brainstormRoute(s: BrainstormState | null, check: BuilderCheckVi
 export type ComposerBox = {
     kind: "new" | "idle" | "working";
     placeholder: string;
-    // typing into the pty while Claude's question picker is open would land in the picker, so Send waits on the answer
+    // typing into the pty while the agent's question picker is open would land in the picker, so Send waits on the answer
     askBlocks: boolean;
+    // the line above the box while askBlocks holds; null otherwise
+    notice: string | null;
     // a turn is in progress (working, or held on a question), so an empty box offers Stop
     live: boolean;
     // the Send button's aria-label and title
@@ -117,6 +121,11 @@ export type ComposerBox = {
 
 export const BASH_PLACEHOLDER = "Run a shell command; its output joins the transcript";
 const LINE_HINT = "No question open · your line reaches the brainstorm as pushback or a question back";
+
+// who asked, in the box's notice: Claude's wording stays as it was
+function askerName(agent: AgentVM): string {
+    return agent.agent === PI_HARNESS ? runtimeMeta(PI_HARNESS).label : "Claude";
+}
 
 function routePlaceholder(route: BrainstormRoute | null): string | null {
     if (route?.kind === "talk") {
@@ -159,6 +168,7 @@ export function composerBox(
         kind,
         placeholder,
         askBlocks,
+        notice: askBlocks ? `Answer ${askerName(agent)}'s question first` : null,
         live: working || askBlocks,
         sendLabel,
         route,
@@ -215,12 +225,17 @@ export function contextRing(usage: AgentUsage | undefined): {
     };
 }
 
-// only a live claude session has the control paths the rendered view drives
-export function canRender(agent: AgentVM, opts: { ended: boolean; stage: boolean }): boolean {
-    return agent.agent === "claude" && agent.blockId != null && agent.kind !== "terminal" && !opts.ended && !opts.stage;
+// only a live claude or pi session has the control paths the rendered view drives. A booting pi row has not reported
+// its harness yet, so it stays in its terminal
+function rendersHarness(agent: AgentVM): boolean {
+    return agent.agent === "claude" || (agent.agent === PI_HARNESS && !agent.booting);
 }
 
-// commands that open a full-screen picker in the TUI; /model with an alias switches without one
+export function canRender(agent: AgentVM, opts: { ended: boolean; stage: boolean }): boolean {
+    return rendersHarness(agent) && agent.blockId != null && agent.kind !== "terminal" && !opts.ended && !opts.stage;
+}
+
+// commands that open a full-screen picker in Claude's TUI; /model with an alias switches without one
 const PICKER_COMMANDS = new Set([
     "/config",
     "/settings",
@@ -249,8 +264,12 @@ const PICKER_COMMANDS = new Set([
     "/context",
 ]);
 
-export function isPickerCommand(text: string): boolean {
+// pi's set for a pi agent (picommands.ts), Claude's for any other
+export function isPickerCommand(text: string, harness: string | undefined): boolean {
     const [cmd, ...rest] = text.trim().split(/\s+/);
+    if (harness === PI_HARNESS) {
+        return cmd.startsWith("/") && isPiPickerCommand(cmd.slice(1), rest.length > 0);
+    }
     if (cmd === "/model") {
         return rest.length === 0;
     }
@@ -263,6 +282,12 @@ export const UNFLIP_HOOKS = ["UserPromptSubmit", "Stop", "SessionStart"];
 
 export function shouldUnflip(flipTs: number | null, last: { hook: string; ts: number } | null): boolean {
     return flipTs != null && last != null && UNFLIP_HOOKS.includes(last.hook) && last.ts > flipTs;
+}
+
+// pi reports no hooks, so its flip waits on the last state report that was a prompt boundary (agentstatusstore's
+// isPromptBoundary)
+export function shouldUnflipAtBoundary(flipTs: number | null, boundaryTs: number | null): boolean {
+    return flipTs != null && boundaryTs != null && boundaryTs > flipTs;
 }
 
 export function toggleViewMode(agentId: string): void {

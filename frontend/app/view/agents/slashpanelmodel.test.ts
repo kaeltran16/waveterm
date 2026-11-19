@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import { PI_BUILTIN_COMMANDS } from "./picommands";
 import {
     BUILTIN_COMMANDS,
     fromLive,
     insertSlash,
+    panelCommands,
     slashGroups,
     slashMatches,
     slashQueryAt,
@@ -76,6 +78,43 @@ describe("fromLive", () => {
             { name: "odd", source: "user" },
         ]);
         expect(slashGroups(got).map((g) => g.title)).toEqual(["Built-in", "Skills", "Plugins"]);
+    });
+});
+
+describe("fromLive, pi's sources", () => {
+    it("keeps the extension, prompt and skill sources pi publishes", () => {
+        expect(
+            fromLive([
+                { name: "mcp", description: "List MCP servers", source: "extension" },
+                { name: "review", description: "", source: "prompt" },
+                { name: "pdf", description: "Read PDFs", source: "skill" },
+            ]).map((c) => c.source)
+        ).toEqual(["extension", "prompt", "skill"]);
+    });
+});
+
+describe("panelCommands", () => {
+    const published = fromLive([
+        { name: "skill:pdf", description: "Read PDFs", source: "skill" },
+        { name: "mcp", description: "List MCP servers", source: "extension" },
+        { name: "review", description: "Review the diff", source: "prompt" },
+    ]);
+    it("lists pi's built-ins alone before its block publishes", () => {
+        expect(panelCommands("pi", [])).toEqual(PI_BUILTIN_COMMANDS);
+    });
+    it("lists pi's built-ins then the published commands, grouped Built-in, Extensions, Prompts, Skills", () => {
+        const all = panelCommands("pi", published);
+        expect(all).toEqual([...PI_BUILTIN_COMMANDS, ...published]);
+        const groups = slashGroups(all);
+        expect(groups.map((g) => g.title)).toEqual(["Built-in", "Extensions", "Prompts", "Skills"]);
+        expect(groups.map((g) => names(g.items)).slice(1)).toEqual([["mcp"], ["review"], ["skill:pdf"]]);
+        expect(names(groups[0].items)).toEqual(names(PI_BUILTIN_COMMANDS));
+    });
+    it("keeps a claude block's panel: its published list, else Claude's built-ins", () => {
+        const live = [cmd("clear"), cmd("my-skill", "user")];
+        expect(panelCommands("claude", live)).toEqual(live);
+        expect(panelCommands("claude", [])).toEqual(BUILTIN_COMMANDS);
+        expect(panelCommands(undefined, [])).toEqual(BUILTIN_COMMANDS);
     });
 });
 

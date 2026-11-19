@@ -9,6 +9,7 @@ import {
     answerAsk,
     askQuestions,
     buildEditDiff,
+    cleanToolText,
     editFromPatch,
     parseGrep,
     relativePath,
@@ -156,18 +157,10 @@ const HARNESS_LINES = [
     /^Command running in background with ID: /,
 ];
 
-// a line a carriage return rewrote (a progress bar) as it was left
-function lastState(line: string): string {
-    const states = line.split("\r").filter((s) => s !== "");
-    return states.length > 0 ? states[states.length - 1] : "";
-}
-
-// a tool result as the panel shows it: no ANSI escapes, each line at its last state, and no harness lines
+// a tool result as the panel shows it: clean text with no harness lines
 function cleanToolBody(body: string): string {
-    return stripAnsi(body)
-        .replace(/\r\n/g, "\n")
+    return cleanToolText(body)
         .split("\n")
-        .map(lastState)
         .filter((line) => !HARNESS_LINES.some((re) => re.test(line)))
         .join("\n");
 }

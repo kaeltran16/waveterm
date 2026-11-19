@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The workspace pane's Changes tab state: the change set's patch (one read, for the focused agent, as the rail's is),
-// and per agent the files toggled from their default open state and the change counter's position, so both survive
-// the tab unmounting when another tab shows and a switch to another agent.
+// and per agent the open files (with the one a step opened) and the change counter's position, so both survive the
+// tab unmounting when another tab shows and a switch to another agent.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -13,7 +13,20 @@ import type { EditFile } from "./agentsviewmodel";
 import { ignoreWsAtom } from "./diffoptions";
 import { railStateAtom, type RailGitState } from "./railstore";
 import { parseUnifiedDiff } from "./unifieddiff";
-import { changesGroups, fileOpen, hunkWalk, stepHunk, type ChangesGroup } from "./workspacechangesmodel";
+import {
+    changesGroups,
+    hunkWalk,
+    isFileOpen,
+    NONE_OPEN,
+    openFile,
+    stepHunk,
+    stepInto,
+    toggleAll,
+    toggleFile,
+    toggleFolder,
+    type ChangesGroup,
+    type ChangesOpen,
+} from "./workspacechangesmodel";
 
 // above the server's 10 s git timeout, so a slow read fails with git's message rather than the 5 s rpc default's
 export const PATCH_RPC_TIMEOUT_MS = 15_000;
@@ -49,8 +62,7 @@ function perAgent<T>(init: T): (agentId: string) => PrimitiveAtom<T> {
     };
 }
 
-// a file's flag flips its default open state (fileOpen)
-export const changesToggledAtom = perAgent<Record<string, boolean>>({});
+export const changesOpenAtom = perAgent<ChangesOpen>(NONE_OPEN);
 // 1-based, 0 = no step yet
 export const changesAtAtom = perAgent<number>(0);
 export const changesScrollAtom = perAgent<ChangesScroll | null>(null);
@@ -60,7 +72,7 @@ let readSeq = 0;
 let scrollSeq = 0;
 
 // the same agent's re-read keeps its rows until the new ones land; another agent's blanks them
-export async function loadChangesPatch(agentId: string, cwd: string, ref: string): Promise<void> {
+export async function loadChangesPatch(agentId: string, cwd: string, ref: string, end = ""): Promise<void> {
     const seq = ++readSeq;
     const ignoreWs = globalStore.get(ignoreWsAtom);
     if (globalStore.get(changesPatchAtom)?.agentId !== agentId) {
@@ -69,7 +81,7 @@ export async function loadChangesPatch(agentId: string, cwd: string, ref: string
     try {
         const rtn = await RpcApi.GitPatchCommand(
             TabRpcClient,
-            { cwd, ref, ignorews: ignoreWs },
+            { cwd, ref, end: end || undefined, ignorews: ignoreWs },
             { timeout: PATCH_RPC_TIMEOUT_MS }
         );
         if (seq !== readSeq) {
@@ -113,20 +125,31 @@ export function changesGroupsFor(
     });
 }
 
-export function isChangesFileOpen(agentId: string, path: string, isNew: boolean): boolean {
-    return fileOpen({ isNew }, globalStore.get(changesToggledAtom(agentId))[path] ?? false);
+function updateOpen(agentId: string, f: (s: ChangesOpen) => ChangesOpen): void {
+    const a = changesOpenAtom(agentId);
+    globalStore.set(a, f(globalStore.get(a)));
+}
+
+export function isChangesFileOpen(agentId: string, path: string): boolean {
+    return isFileOpen(globalStore.get(changesOpenAtom(agentId)), path);
 }
 
 export function toggleChangesFile(agentId: string, path: string): void {
-    const a = changesToggledAtom(agentId);
-    const toggled = globalStore.get(a);
-    globalStore.set(a, { ...toggled, [path]: !(toggled[path] ?? false) });
+    updateOpen(agentId, (s) => toggleFile(s, path));
 }
 
-export function openChangesFile(agentId: string, path: string, isNew: boolean): void {
-    if (!isChangesFileOpen(agentId, path, isNew)) {
-        toggleChangesFile(agentId, path);
-    }
+export function openChangesFile(agentId: string, path: string): void {
+    updateOpen(agentId, (s) => openFile(s, path));
+}
+
+// paths: the folder's listed files
+export function toggleChangesFolder(agentId: string, paths: string[]): void {
+    updateOpen(agentId, (s) => toggleFolder(s, paths));
+}
+
+// paths: every listed file
+export function toggleAllChangesFiles(agentId: string, paths: string[]): void {
+    updateOpen(agentId, (s) => toggleAll(s, paths));
 }
 
 // one step of the change counter over every hunk in display order; false, and no change, with none to walk
@@ -138,8 +161,7 @@ export function stepChangesHunk(agentId: string, dir: "next" | "previous"): bool
     }
     const at = stepHunk(Math.min(globalStore.get(changesAtAtom(agentId)), walk.length), walk.length, dir);
     const target = walk[at - 1];
-    const file = groups.flatMap((g) => g.files).find((f) => f.change.path === target.path);
-    openChangesFile(agentId, target.path, file?.isNew ?? false);
+    updateOpen(agentId, (s) => stepInto(s, target.path));
     globalStore.set(changesAtAtom(agentId), at);
     globalStore.set(changesScrollAtom(agentId), { ...target, n: ++scrollSeq });
     return true;

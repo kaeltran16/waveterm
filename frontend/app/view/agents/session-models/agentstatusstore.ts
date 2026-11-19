@@ -130,6 +130,27 @@ export function getLastHookAtom(oref: string): PrimitiveAtom<{ hook: string; ts:
     return hookAtom;
 }
 
+/** Pure: whether a state report lands on a prompt boundary, for a harness that reports no hooks (pi): an idle report
+ *  (a turn settled, a picker's choice applied, a new session), or a working one after a state that was not (a new
+ *  prompt). A working report mid-turn (a tool start, a message end) is none, as Claude's tool hooks are not. */
+export function isPromptBoundary(prev: string | undefined, next: string): boolean {
+    return next === "idle" || (next === "working" && prev !== "working");
+}
+
+// per-block time of the last state report that was a prompt boundary; the rendered view's picker flip waits on it for
+// pi, whose reports carry no hook. Kept here, not derived in a component, so a boundary followed at once by a working
+// report is not lost to a batched render
+const promptBoundaryAtoms = new Map<string, PrimitiveAtom<number | null>>();
+
+export function getPromptBoundaryAtom(oref: string): PrimitiveAtom<number | null> {
+    let boundaryAtom = promptBoundaryAtoms.get(oref);
+    if (!boundaryAtom) {
+        boundaryAtom = atom(null) as PrimitiveAtom<number | null>;
+        promptBoundaryAtoms.set(oref, boundaryAtom);
+    }
+    return boundaryAtom;
+}
+
 // per-block last non-empty permission mode the agent reported; a status without one leaves it, as the TUI keeps its mode
 const permissionModeAtoms = new Map<string, PrimitiveAtom<string | null>>();
 
@@ -233,6 +254,9 @@ export function setupAgentStatusSubscription() {
             // a delta-only event carries an empty state; only a real state update should touch the parent atom
             if (data.state) {
                 const prev = globalStore.get(getAgentStatusAtom(data.oref));
+                if (isPromptBoundary(prev?.state, data.state)) {
+                    globalStore.set(getPromptBoundaryAtom(data.oref), data.ts);
+                }
                 globalStore.set(getAgentStatusAtom(data.oref), mergeAgentStatusData(prev, data));
                 // resume-on-reopen: bake this session's resume key into the block's launch command
                 void persistResume(data.oref, data.agent, data.transcriptpath);

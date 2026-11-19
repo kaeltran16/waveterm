@@ -17,9 +17,11 @@ import { lineCountsShown, parseGitChanges } from "../agents/gitstatus";
 import { classifyFile, hasNulByte, HEAD_BINARY, HEAD_TOOLARGE, MAX_VIEW_BYTES } from "./codeclassify";
 import {
     initialPeekMode,
+    isBareName,
     needsHome,
     peekModes,
     resolvePeekPath,
+    uniqueBareNameMatch,
     type PeekChange,
     type PeekFile,
     type PeekGit,
@@ -134,7 +136,7 @@ async function loadFile(abs: string, current: () => boolean): Promise<PeekFile |
     }
     const inRepo = at?.isrepo === true && !!at.root;
     const rel = inRepo ? (at.prefix ?? "") + base : base;
-    const open: PeekOpen = inRepo ? { projectPath: at.root, rel } : { projectPath: dir, rel: base };
+    const open: PeekOpen = inRepo ? { projectPath: at.root, rel, inRepo } : { projectPath: dir, rel: base, inRepo };
     if (info.isdir) {
         return { kind: "folder", open };
     }
@@ -160,6 +162,22 @@ async function loadFile(abs: string, current: () => boolean): Promise<PeekFile |
         git = { kind: "repo", root: at.root, rel, head: headOf(at), change };
     }
     return { kind: "text", text, git, open };
+}
+
+// the file a bare name means when it is missing at the cwd. A failed listing is a nicety lost: the card stays on the
+// honest missing state
+async function findBareName(raw: string, abs: string, current: () => boolean): Promise<string | null> {
+    if (!isBareName(raw)) {
+        return null;
+    }
+    const { dir } = splitAbs(abs);
+    try {
+        const list = await RpcApi.GitListFilesCommand(TabRpcClient, { cwd: dir });
+        const rel = current() ? uniqueBareNameMatch(raw, list?.files ?? []) : null;
+        return rel == null ? null : resolvePeekPath(rel, dir, "");
+    } catch {
+        return null;
+    }
 }
 
 export async function togglePeek(req: PeekRequest): Promise<void> {
@@ -189,7 +207,7 @@ async function loadPeek(req: PeekRequest): Promise<void> {
     }
     const abs = resolvePeekPath(req.raw, req.cwd, home);
     const { cwd: _cwd, ...anchor } = req;
-    const peek: CodePeek = {
+    let peek: CodePeek = {
         ...anchor,
         abs,
         mode: initialPeekMode(abs ?? req.raw),
@@ -202,6 +220,11 @@ async function loadPeek(req: PeekRequest): Promise<void> {
     let file: PeekFile | null;
     try {
         file = await loadFile(abs, current);
+        const found = file?.kind === "missing" ? await findBareName(req.raw, abs, current) : null;
+        if (found != null) {
+            peek = { ...peek, abs: found };
+            file = await loadFile(found, current);
+        }
     } catch (e) {
         file = current() ? { kind: "error", message: e instanceof Error ? e.message : String(e) } : null;
     }

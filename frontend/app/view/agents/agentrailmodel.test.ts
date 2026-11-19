@@ -282,6 +282,13 @@ describe("checkoutFacts", () => {
         });
     });
 
+    it("reads an agent's own edits as its own, however many agents share the checkout", () => {
+        expect(checkoutFacts({ git: git({ edits: true }), sharedBy: 3 }).chip).toEqual({
+            count: "2 files",
+            lines: { adds: 37, dels: 2 },
+        });
+    });
+
     it("has no chip for a clean checkout, outside a repo, or before the read lands", () => {
         expect(checkoutFacts({ git: git({ changes: { files: [], adds: 0, dels: 0 } }), sharedBy: 1 }).chip).toBeNull();
         expect(checkoutFacts({ git: git({ isRepo: false, branch: "", changes: null }), sharedBy: 1 }).chip).toBeNull();

@@ -1,23 +1,27 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import type { EditFile } from "@/app/view/agents/agentsviewmodel";
 import { describe, expect, it } from "vitest";
 import { NOT_TRACKED } from "./codeclassify";
 import {
     binaryPeekMessage,
     initialPeekMode,
     PEEK_PREFERRED_PX,
+    peekHeaderPath,
     peekModes,
     peekPlacement,
     peekRow,
     peekStat,
     resolvePeekPath,
+    tabDiffBody,
+    uniqueBareNameMatch,
     type PeekFile,
     type PeekGit,
     type PeekHead,
 } from "./codepeekmodel";
 
-const open = { projectPath: "C:\\repo", rel: "a.ts" };
+const open = { projectPath: "C:\\repo", rel: "a.ts", inRepo: true };
 
 function textFile(git: PeekGit, text = "x\n"): PeekFile {
     return { kind: "text", text, git, open };
@@ -83,6 +87,22 @@ describe("resolvePeekPath", () => {
     });
 });
 
+describe("uniqueBareNameMatch", () => {
+    const files = ["frontend/app/a.tsx", "pkg/b.go", "pkg/x/b.go", "c.md", "docs/xc.md"];
+    it("finds the one file with that name at any depth", () => {
+        expect(uniqueBareNameMatch("a.tsx", files)).toBe("frontend/app/a.tsx");
+        expect(uniqueBareNameMatch("c.md", files)).toBe("c.md");
+    });
+    it("gives null when several files share the name, or none has it", () => {
+        expect(uniqueBareNameMatch("b.go", files)).toBeNull();
+        expect(uniqueBareNameMatch("z.ts", files)).toBeNull();
+    });
+    it("gives null for a path with a folder in it", () => {
+        expect(uniqueBareNameMatch("app/a.tsx", files)).toBeNull();
+        expect(uniqueBareNameMatch("app\\a.tsx", files)).toBeNull();
+    });
+});
+
 describe("initialPeekMode", () => {
     it("opens markdown on preview and anything else on source", () => {
         expect(initialPeekMode("x.md")).toBe("preview");
@@ -106,6 +126,19 @@ describe("peekModes", () => {
         const m = peekModes("C:\\plain\\a.md", textFile({ kind: "norepo" }));
         expect(m.diff).toEqual({ enabled: false, reason: NOT_TRACKED });
         expect(m.preview.enabled).toBe(true);
+    });
+    // the tab's Source already shows a new file's every line; the card keeps its inserted-text Diff
+    it("disables diff in the tab for a file new since HEAD, and keeps it on the card", () => {
+        const fresh = textFile(repo({ kind: "absent" }, { adds: 1, dels: 0 }));
+        expect(peekModes("C:\\repo\\a.ts", fresh, "tab").diff.enabled).toBe(false);
+        expect(peekModes("C:\\repo\\a.ts", fresh, "card").diff.enabled).toBe(true);
+        expect(peekModes("C:\\repo\\a.ts", fresh).diff.enabled).toBe(true);
+    });
+    it("enables diff in the tab and on the card for a changed tracked file", () => {
+        const changed = textFile(repo(head, { adds: 1, dels: 1 }));
+        expect(peekModes("C:\\repo\\a.ts", changed, "tab").diff.enabled).toBe(true);
+        expect(peekModes("C:\\repo\\a.ts", changed, "card").diff.enabled).toBe(true);
+        expect(peekModes("C:\\repo\\a.ts", changed).diff.enabled).toBe(true);
     });
     it("disables all three in every non-text state", () => {
         const states: PeekFile[] = [
@@ -210,5 +243,107 @@ describe("binaryPeekMessage", () => {
     it("binaryPeekMessage names an image and a plain binary", () => {
         expect(binaryPeekMessage("assets/logo.PNG")).toBe("Image — open it in Code");
         expect(binaryPeekMessage("bin/blob.bin")).toBe("Binary file");
+    });
+});
+
+describe("tabDiffBody", () => {
+    const head: PeekHead = { kind: "text", text: "x\n" };
+    // two hunks: the first adds line 13 and changes 14, the second adds line 40
+    const entry: EditFile = {
+        path: "internal/a.go",
+        badge: "M",
+        adds: 3,
+        dels: 1,
+        lines: [
+            { sign: "", text: "@@ -12,3 +12,4 @@ func Normalize() {", hunk: true },
+            { sign: "", text: "\tfor {", oldNo: 12, newNo: 12 },
+            { sign: "+", text: "\t\t// long", newNo: 13 },
+            { sign: "-", text: "\t\told()", oldNo: 13 },
+            { sign: "+", text: "\t\tnew()", newNo: 14 },
+            { sign: "", text: "@@ -38,1 +39,2 @@", hunk: true },
+            { sign: "", text: "}", oldNo: 38, newNo: 39 },
+            { sign: "+", text: "// end", newNo: 40 },
+        ],
+    };
+    const read = (files: EditFile[], truncated = false) => ({ kind: "read" as const, files, truncated });
+
+    it("gives the HEAD side's own message when HEAD cannot be read", () => {
+        const body = tabDiffBody({ kind: "error", message: "binary at HEAD" }, read([entry]), "internal/a.go", 13);
+        expect(body).toEqual({ kind: "head", message: "binary at HEAD" });
+    });
+    it("passes a failed read's own text through", () => {
+        const body = tabDiffBody(head, { kind: "failed", message: "git: exit 128" }, "internal/a.go", 13);
+        expect(body).toEqual({ kind: "error", message: "git: exit 128" });
+    });
+    it("stays loading while the read is in flight", () => {
+        expect(tabDiffBody(head, { kind: "loading" }, "internal/a.go", 13)).toEqual({ kind: "loading" });
+    });
+    it("gives the file's hunks, landing on the cited added row", () => {
+        const body = tabDiffBody(head, read([entry]), "internal/a.go", 13);
+        expect(body.kind).toBe("hunks");
+        if (body.kind !== "hunks") return;
+        expect(body.hunks.map((h) => h.label)).toEqual(["func Normalize() {", "line 39"]);
+        expect(body.hunks.map((h) => h.rows.length)).toEqual([4, 2]);
+        expect(body.landOn).toBe(1);
+    });
+    it("counts the landing row across hunks", () => {
+        const body = tabDiffBody(head, read([entry]), "internal/a.go", 40);
+        expect(body.kind === "hunks" && body.landOn).toBe(5);
+    });
+    // 13 is also the removed row's old number: only a new-side number can be the cited line
+    it("lands on no row for a line outside every hunk", () => {
+        const body = tabDiffBody(head, read([entry]), "internal/a.go", 30);
+        expect(body.kind === "hunks" && body.landOn).toBeNull();
+        const none = tabDiffBody(head, read([entry]), "internal/a.go", null);
+        expect(none.kind === "hunks" && none.landOn).toBeNull();
+    });
+    it("reads No line changes when the patch has no entry for the file", () => {
+        expect(tabDiffBody(head, read([]), "internal/a.go", 13)).toEqual({ kind: "note", note: "empty" });
+        expect(tabDiffBody(head, read([entry]), "internal/b.go", 13)).toEqual({ kind: "note", note: "empty" });
+    });
+    it("reads Too large when a truncated patch left the file out", () => {
+        expect(tabDiffBody(head, read([], true), "internal/a.go", 13)).toEqual({ kind: "note", note: "toolarge" });
+    });
+    it("reads No line changes when the file's entry has no hunks", () => {
+        const bare: EditFile = { ...entry, lines: [] };
+        expect(tabDiffBody(head, read([bare]), "internal/a.go", 13)).toEqual({ kind: "note", note: "empty" });
+    });
+    it("reads Binary file when git says the file's patch is binary", () => {
+        const bin: EditFile = { ...entry, lines: [], binary: true };
+        expect(tabDiffBody(head, read([bin]), "internal/a.go", 13)).toEqual({ kind: "note", note: "binary" });
+    });
+});
+
+describe("peekHeaderPath", () => {
+    const abs = "C:\\repo\\docs\\shots\\stats-panel.png";
+    const raw = "shots/stats-panel.png";
+    function kinds(inRepo: boolean): PeekFile[] {
+        const o = {
+            projectPath: inRepo ? "C:\\repo" : "C:\\repo\\docs\\shots",
+            rel: inRepo ? "docs/shots/stats-panel.png" : "stats-panel.png",
+            inRepo,
+        };
+        return [
+            { kind: "text", text: "x\n", git: { kind: "norepo" }, open: o },
+            { kind: "binary", size: 10, open: o },
+            { kind: "toolarge", size: 10, open: o },
+            { kind: "folder", open: o },
+        ];
+    }
+    it("is repo-relative for every kind of file inside a repository", () => {
+        for (const file of kinds(true)) {
+            expect(peekHeaderPath({ abs, raw, file })).toBe("docs/shots/stats-panel.png");
+        }
+    });
+    it("is the absolute path for the same kinds outside a repository", () => {
+        for (const file of kinds(false)) {
+            expect(peekHeaderPath({ abs, raw, file })).toBe(abs);
+        }
+    });
+    it("is the raw path when nothing resolved", () => {
+        expect(peekHeaderPath({ abs: null, raw, file: { kind: "nocwd" } })).toBe(raw);
+    });
+    it("is the absolute path for a file with nothing to open", () => {
+        expect(peekHeaderPath({ abs, raw, file: { kind: "missing" } })).toBe(abs);
     });
 });

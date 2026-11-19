@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The messages waiting on an agent, drawn at the foot of the Rendered transcript: Claude Code's own queue, read from
-// the transcript's queue-operation records. A box message sent mid-turn is typed into the terminal, so it waits there.
+// the transcript's queue-operation records, or for pi, the box's sends it has not taken. A box message sent mid-turn
+// is typed into the terminal, so it waits there.
 
+import type { AgentEntry } from "./agentsviewmodel";
 import type { TranscriptRecord } from "./transcriptrecords";
 
 // a prompt waiting in Claude Code's own queue; no text when claude recorded none (one typed during a compaction)
@@ -120,6 +122,34 @@ export function footList(waiting: readonly WaitingPrompt[], sent: readonly SentP
         }
         const command = parseSlash(text);
         items.push(command != null ? { key: w.key, text, command } : { key: w.key, text });
+    }
+    return items;
+}
+
+// A pi agent's foot: pi writes no queue to its transcript, so it is the box's own sends while the agent works, each
+// until a pi user entry containing its text lands at or after it. A send from before the agent's last prompt boundary
+// (`since`) is gone, answered or not: the turn it waited on has ended.
+export function piFootList(
+    sent: readonly SentPrompt[],
+    entries: readonly AgentEntry[],
+    working: boolean,
+    since: number | null
+): FootItem[] {
+    if (!working) {
+        return [];
+    }
+    const users = entries.filter((e): e is Extract<AgentEntry, { kind: "user" }> => e.kind === "user" && e.ts != null);
+    const atTime = new Map<number, number>();
+    const items: FootItem[] = [];
+    for (const s of sent) {
+        const n = atTime.get(s.ts) ?? 0;
+        atTime.set(s.ts, n + 1);
+        if ((since != null && s.ts < since) || users.some((u) => u.ts! >= s.ts && u.text.includes(s.text))) {
+            continue;
+        }
+        const key = `pi:${s.ts}:${n}`;
+        const command = parseSlash(s.text);
+        items.push(command != null ? { key, text: s.text, command } : { key, text: s.text });
     }
     return items;
 }

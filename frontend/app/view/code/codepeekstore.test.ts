@@ -8,6 +8,7 @@ const rpc = vi.hoisted(() => ({
     FileReadCommand: vi.fn(),
     GitFileAtRefCommand: vi.fn(),
     GitChangesCommand: vi.fn(),
+    GitListFilesCommand: vi.fn(),
 }));
 const openTarget = vi.hoisted(() => vi.fn());
 
@@ -61,6 +62,7 @@ beforeEach(() => {
     rpc.FileReadCommand.mockResolvedValue(read("hello\n"));
     rpc.GitFileAtRefCommand.mockResolvedValue(atRef());
     rpc.GitChangesCommand.mockResolvedValue({ statusz: "", numstat: "", isrepo: true, branch: "main" });
+    rpc.GitListFilesCommand.mockResolvedValue({ files: [], isrepo: true });
 });
 
 describe("togglePeek", () => {
@@ -95,7 +97,7 @@ describe("togglePeek", () => {
                 head: { kind: "absent" },
                 change: { adds: 0, dels: 0 },
             },
-            open: { projectPath: "C:/repo", rel: "docs/notes.md" },
+            open: { projectPath: "C:/repo", rel: "docs/notes.md", inRepo: true },
         });
     });
 
@@ -144,6 +146,41 @@ describe("togglePeek", () => {
         expect(rpc.FileReadCommand).not.toHaveBeenCalled();
     });
 
+    it("opens a bare name missing at the cwd from the one file of that name under it", async () => {
+        rpc.FileInfoCommand.mockImplementation(async (_client: unknown, { info }: { info: { path: string } }) =>
+            info.path === "C:\\repo\\docs\\tab.tsx" ? { notfound: true } : fileInfo()
+        );
+        rpc.GitListFilesCommand.mockResolvedValue({ files: ["app/view/tab.tsx", "app/other.ts"], isrepo: true });
+
+        await togglePeek({ ...anchor, raw: "tab.tsx" });
+
+        expect(rpc.GitListFilesCommand).toHaveBeenCalledWith(expect.anything(), { cwd: CWD });
+        const peek = globalStore.get(codePeekAtom);
+        expect(peek?.abs).toBe("C:\\repo\\docs\\app\\view\\tab.tsx");
+        expect(peek?.file).toMatchObject({ kind: "text", text: "hello\n" });
+    });
+
+    it("keeps a bare name missing when several files under the cwd share it", async () => {
+        rpc.FileInfoCommand.mockResolvedValue({ notfound: true });
+        rpc.GitListFilesCommand.mockResolvedValue({ files: ["a/tab.tsx", "b/tab.tsx"], isrepo: true });
+
+        await togglePeek({ ...anchor, raw: "tab.tsx" });
+
+        expect(globalStore.get(codePeekAtom)).toMatchObject({
+            abs: "C:\\repo\\docs\\tab.tsx",
+            file: { kind: "missing" },
+        });
+    });
+
+    it("keeps a missing path with a folder in it missing, without listing files", async () => {
+        rpc.FileInfoCommand.mockResolvedValue({ notfound: true });
+
+        await togglePeek({ ...anchor, raw: "src/tab.tsx" });
+
+        expect(globalStore.get(codePeekAtom)?.file).toEqual({ kind: "missing" });
+        expect(rpc.GitListFilesCommand).not.toHaveBeenCalled();
+    });
+
     it("gives a folder the folder state, opened in Code at its repo-relative path, without reading it", async () => {
         rpc.FileInfoCommand.mockResolvedValue({ isdir: true, size: 4096, mimetype: "directory" });
 
@@ -151,7 +188,7 @@ describe("togglePeek", () => {
 
         expect(globalStore.get(codePeekAtom)?.file).toEqual({
             kind: "folder",
-            open: { projectPath: "C:/repo", rel: "docs/src" },
+            open: { projectPath: "C:/repo", rel: "docs/src", inRepo: true },
         });
         expect(rpc.FileReadCommand).not.toHaveBeenCalled();
     });
@@ -164,7 +201,7 @@ describe("togglePeek", () => {
         expect(globalStore.get(codePeekAtom)?.file).toEqual({
             kind: "toolarge",
             size: MAX_VIEW_BYTES + 1,
-            open: { projectPath: "C:/repo", rel: "docs/big.log" },
+            open: { projectPath: "C:/repo", rel: "docs/big.log", inRepo: true },
         });
         expect(rpc.FileReadCommand).not.toHaveBeenCalled();
     });
@@ -186,7 +223,7 @@ describe("togglePeek", () => {
             kind: "text",
             text: "hello\n",
             git: { kind: "norepo" },
-            open: { projectPath: "C:\\repo\\docs", rel: "a.ts" },
+            open: { projectPath: "C:\\repo\\docs", rel: "a.ts", inRepo: false },
         });
         expect(rpc.GitChangesCommand).not.toHaveBeenCalled();
     });

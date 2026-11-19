@@ -21,7 +21,7 @@ const MENU_ITEM = `(() => {
 })()`;
 
 // a w x h RGB gradient as a PNG, so the shot shows the image filling a visible area
-function gradientPng(w, h) {
+export function gradientPng(w, h) {
     const chunk = (type, data) => {
         const len = Buffer.alloc(4);
         len.writeUInt32BE(data.length);

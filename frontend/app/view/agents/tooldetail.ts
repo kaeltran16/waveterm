@@ -7,6 +7,18 @@
 
 import type { AskQuestionDetail, DiffLine, EditFile, GrepMatch, ToolImage } from "./agentsviewmodel";
 import { fmtDuration } from "./runcompletion";
+import { stripAnsi } from "./testoutput";
+
+// a line a carriage return rewrote (a progress bar) as it was left
+function lastState(line: string): string {
+    const states = line.split("\r").filter((s) => s !== "");
+    return states.length > 0 ? states[states.length - 1] : "";
+}
+
+// a tool result's text as the panel shows it: no ANSI escapes, each line at its last state
+export function cleanToolText(body: string): string {
+    return stripAnsi(body).replace(/\r\n/g, "\n").split("\n").map(lastState).join("\n");
+}
 
 // A Claude tool_result `content` is either a string or an array of { type:"text", text }.
 export function toolResultText(content: unknown): string {
