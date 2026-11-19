@@ -1092,13 +1092,16 @@ export const diffSourceRow = {
             (b.querySelector("span.truncate")?.textContent ?? "").startsWith(${JSON.stringify(DSR_AGENT_TOPIC)}))`;
         // a claude agent opens on its own edits, which list nothing here; these steps are about the session range
         const sessionChip = `[data-range-chip="session"]`;
+        // each wait reported on its own, so a failure names the one that timed out
         const pickAgent = async () => {
             await click("[data-files-source-picker]");
             const listed = await until(`!!(${agentRow})`, 10000);
             await h.ev(`${agentRow}?.click()`);
             const onEdits = await until(`${q('[data-range-chip="edits"]')}?.getAttribute("aria-pressed") === "true"`, 15000);
             await click(sessionChip);
-            return listed && onEdits && (await until(`${q(sessionChip)}?.getAttribute("aria-pressed") === "true" && !!${q(README)}`, 15000));
+            const onSession = await until(`${q(sessionChip)}?.getAttribute("aria-pressed") === "true"`, 15000);
+            const readme = await until(`!!${q(README)}`, 15000);
+            return { ok: listed && onEdits && onSession && readme, listed, onEdits, onSession, readme };
         };
         try {
             await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
@@ -1122,23 +1125,23 @@ export const diffSourceRow = {
                 persist: 1,
                 data: { oref: `block:${ctx.blockId}`, state: "working", agent: "claude", cwd: ctx.dir, transcriptpath: ctx.transcript.path, ts: Date.now() },
             });
-            const agentListed = await pickAgent();
+            const agentPicked = await pickAgent();
             const onAgent = await settledRow();
             rec(
                 "2. switching to an agent source in the same folder opens on its session range's own row, Since session start",
-                agentListed && /Since session start/.test(onAgent ?? ""),
-                JSON.stringify({ agentListed, selected: onAgent })
+                agentPicked.ok && /Since session start/.test(onAgent ?? ""),
+                JSON.stringify({ ...agentPicked, selected: onAgent })
             );
             await h.shot("cdp-shots/diff-source-row-agent.png");
 
             await reloadApp(h);
             await h.goto("files");
-            const reloadListed = await pickAgent();
+            const reloadPicked = await pickAgent();
             const afterReload = await settledRow();
             rec(
                 "3. after a reload, picking the agent source first opens on its session range's own row, Since session start",
-                reloadListed && /Since session start/.test(afterReload ?? ""),
-                JSON.stringify({ reloadListed, selected: afterReload })
+                reloadPicked.ok && /Since session start/.test(afterReload ?? ""),
+                JSON.stringify({ ...reloadPicked, selected: afterReload })
             );
         } catch (e) {
             rec("scenario aborted", false, String(e?.message ?? e));
