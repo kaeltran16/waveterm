@@ -1,43 +1,43 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The workspace pane's Canvas tab, its pure half: every board stacked in one column at the pane's width, and how
-// [ and ] move the selection among them.
+// The workspace pane's Canvas tab, its pure half: one row per board with a fixed-size preview, which view the tab
+// shows, and how [ and ] move the selection among the rows.
 
-import { fitScale, shownBoard, stepTab, type BoardFrame, type CanvasBoard } from "./canvasmodel";
+import { boardLabel, paneState, shownBoard, stepTab, type CanvasBoard } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
 
-// the label row above each frame, and the space between one item and the next
-export const LIST_LABEL_H = 22;
-const LIST_GAP = 18;
+// a row's preview box is 112×70 with a 3px inset: the board fits the space inside it
+const PREVIEW_INNER_W = 106;
+const PREVIEW_INNER_H = 64;
 
-// scale is per frame: each board fits the width on its own. labelTop is the item's top, its label row's
-export type ListFrame = BoardFrame & { scale: number; labelTop: number };
-export type ListLayout = { width: number; height: number; frames: ListFrame[] };
+export type TabView = "boards" | "no-boards" | "removed" | "server-down";
 
-// screen px; a board narrower than the pane keeps its size
-export function canvasListLayout(boards: CanvasBoard[], paneWidth: number): ListLayout {
-    const frames: ListFrame[] = [];
-    let y = 0;
-    for (const board of boards) {
-        const scale = fitScale(paneWidth, board.w);
-        const frame = {
-            board,
-            scale,
-            labelTop: y,
-            left: 0,
-            top: y + LIST_LABEL_H,
-            width: board.w * scale,
-            height: board.h * scale,
-        };
-        frames.push(frame);
-        y = frame.top + frame.height + LIST_GAP;
+export type TabRow = { board: CanvasBoard; label: string; size: string; selected: boolean };
+
+// probing keeps the (empty) list, so attaching a canvas never flashes "No boards yet" before the first poll
+export function tabView(s: CanvasState): TabView {
+    const pane = paneState(s);
+    if (pane === "removed" || pane === "server-down") {
+        return pane;
     }
-    return {
-        width: Math.max(0, ...frames.map((f) => f.width)),
-        height: frames.length > 0 ? y - LIST_GAP : 0,
-        frames,
-    };
+    return s.status === "ready" && s.boards.length === 0 ? "no-boards" : "boards";
+}
+
+export function tabRows(s: CanvasState): TabRow[] {
+    const selected = s.boards.length > 0 ? shownBoard(s).name : null;
+    return s.boards.map((board) => ({
+        board,
+        label: boardLabel(board.name),
+        size: `${board.w}×${board.h}`,
+        selected: board.name === selected,
+    }));
+}
+
+// the whole board, centred on the axis it leaves free
+export function previewFit(w: number, h: number): { scale: number; left: number; top: number } {
+    const scale = Math.min(PREVIEW_INNER_W / w, PREVIEW_INNER_H / h);
+    return { scale, left: (PREVIEW_INNER_W - w * scale) / 2, top: (PREVIEW_INNER_H - h * scale) / 2 };
 }
 
 // the list has no All: [ and ] walk the boards from the one it shows selected

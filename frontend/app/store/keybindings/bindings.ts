@@ -1046,7 +1046,9 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     const boardReady = (ctx: KeyContext) =>
         inCanvasCenter(ctx) && !canvas()!.marking && paneState(canvas()!) === "board";
     // agentNav stands down under the open window, whose own keys take over there
-    const listReady = (ctx: KeyContext) => inCanvas(ctx) && rendered() && paneState(canvas()!) === "board";
+    // with no boards listed, m would open the window on a board that is not there
+    const listReady = (ctx: KeyContext) =>
+        inCanvas(ctx) && rendered() && paneState(canvas()!) === "board" && canvas()!.boards.length > 0;
     // a brainstorm's board opened full size steps with [ and ] as the canvas does
     const stepReady = (ctx: KeyContext) => {
         const c = agentNav(ctx) ? brainstormBoard(model) : null;

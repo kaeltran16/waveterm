@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasBoard } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
-import { canvasListLayout, stepListBoard } from "./workspacecanvastabmodel";
+import { previewFit, stepListBoard, tabRows, tabView } from "./workspacecanvastabmodel";
 
 const board = (name: string, w = 1440, h = 900): CanvasBoard => ({ name, x: 0, y: 0, w, h });
 const boards = (n: number): CanvasBoard[] => Array.from({ length: n }, (_, i) => board(`B${i}.dc.html`));
@@ -29,40 +29,108 @@ function state(over: Partial<CanvasState>): CanvasState {
     };
 }
 
-describe("canvasListLayout", () => {
-    it("stacks every board top to bottom at the pane's width, a label row above each and 18px between items", () => {
-        const l = canvasListLayout(boards(3), 720);
-        // 1440x900 at 720px wide: half size, 450px tall; each item is a 22px label row then the frame
-        expect(l.frames.map((f) => [f.left, f.labelTop, f.top, f.width, f.height, f.scale])).toEqual([
-            [0, 0, 22, 720, 450, 0.5],
-            [0, 490, 512, 720, 450, 0.5],
-            [0, 980, 1002, 720, 450, 0.5],
+describe("tabRows", () => {
+    const listed = [
+        board("Talk.dc.html", 1280, 800),
+        board("Main.dc.html", 400, 800),
+        board("Wide.dc.html", 1440, 2500),
+    ];
+
+    it("keeps canvas order, labels each board without .dc.html and sizes it with ×", () => {
+        const rows = tabRows(state({ boards: listed, board: "Main.dc.html" }));
+        expect(rows.map((r) => [r.board.name, r.label, r.size])).toEqual([
+            ["Talk.dc.html", "Talk", "1280×800"],
+            ["Main.dc.html", "Main", "400×800"],
+            ["Wide.dc.html", "Wide", "1440×2500"],
         ]);
-        expect(l.width).toBe(720);
-        expect(l.height).toBe(3 * (22 + 450) + 2 * 18);
-        expect(l.frames.map((f) => f.board.name)).toEqual(["B0.dc.html", "B1.dc.html", "B2.dc.html"]);
     });
 
-    it("never grows a board narrower than the pane", () => {
-        const l = canvasListLayout([board("Small.dc.html", 400, 300)], 900);
-        expect(l.frames[0]).toMatchObject({ width: 400, height: 300, scale: 1 });
-        expect(l.width).toBe(400);
-        expect(l.height).toBe(22 + 300);
+    it("selects exactly the row of the board shown", () => {
+        const rows = tabRows(state({ boards: listed, board: "Wide.dc.html" }));
+        expect(rows.map((r) => r.selected)).toEqual([false, false, true]);
     });
 
-    it("fits each board on its own: a wide one shrinks, a narrow one keeps its size", () => {
-        const l = canvasListLayout([board("Wide.dc.html", 1200, 600), board("Narrow.dc.html", 300, 200)], 600);
-        expect(l.frames.map((f) => [f.width, f.height, f.scale])).toEqual([
-            [600, 300, 0.5],
-            [300, 200, 1],
-        ]);
-        expect(l.frames[1].labelTop).toBe(22 + 300 + 18);
-        expect(l.width).toBe(600);
-        expect(l.height).toBe(22 + 300 + 18 + 22 + 200);
+    it("selects the first row for a stale pick", () => {
+        const rows = tabRows(state({ boards: listed, board: "Gone.dc.html" }));
+        expect(rows.map((r) => r.selected)).toEqual([true, false, false]);
     });
 
-    it("lays out nothing for no boards", () => {
-        expect(canvasListLayout([], 600)).toMatchObject({ width: 0, height: 0, frames: [] });
+    it("has no rows, so none selected, with no boards", () => {
+        expect(tabRows(state({ boards: [] }))).toEqual([]);
+    });
+});
+
+describe("previewFit", () => {
+    const BOX_W = 106;
+    const BOX_H = 64;
+    const inside = (w: number, h: number) => {
+        const f = previewFit(w, h);
+        return {
+            ...f,
+            right: f.left + w * f.scale,
+            bottom: f.top + h * f.scale,
+        };
+    };
+
+    it("fits a 1280×800 board to the box's height, centred side to side", () => {
+        const f = inside(1280, 800);
+        // 106 / 1280 shrinks it to 106×66.25, too tall: the height binds at 64 / 800, so it is 102.4 wide
+        expect(f.scale).toBeCloseTo(0.08);
+        expect(f.top).toBeCloseTo(0);
+        expect(f.bottom).toBeCloseTo(BOX_H);
+        expect(f.left).toBeCloseTo((BOX_W - 102.4) / 2);
+        expect(f.right).toBeCloseTo(BOX_W - (BOX_W - 102.4) / 2);
+    });
+
+    it("fits a tall 400×800 board to the box's height, centred side to side", () => {
+        const f = inside(400, 800);
+        expect(f.scale).toBeCloseTo(0.08);
+        expect(f.top).toBeCloseTo(0);
+        expect(f.bottom).toBeCloseTo(BOX_H);
+        // 32 wide
+        expect(f.left).toBeCloseTo(37);
+        expect(f.right).toBeCloseTo(69);
+    });
+
+    it("fits a 1440×2500 board wholly inside, centred side to side", () => {
+        const f = inside(1440, 2500);
+        expect(f.scale).toBeCloseTo(64 / 2500);
+        expect(f.top).toBeCloseTo(0);
+        expect(f.bottom).toBeCloseTo(BOX_H);
+        // 36.864 wide
+        expect(f.left).toBeCloseTo((BOX_W - 36.864) / 2);
+        expect(f.right).toBeLessThanOrEqual(BOX_W);
+    });
+
+    it("fits a wide board to the box's width, centred top to bottom", () => {
+        const f = inside(2120, 640);
+        expect(f.scale).toBeCloseTo(0.05);
+        expect(f.left).toBeCloseTo(0);
+        expect(f.right).toBeCloseTo(BOX_W);
+        // 32 tall
+        expect(f.top).toBeCloseTo(16);
+        expect(f.bottom).toBeCloseTo(48);
+    });
+});
+
+describe("tabView", () => {
+    it("maps each status to its view", () => {
+        expect(tabView(state({ status: "ready", boards: boards(2) }))).toBe("boards");
+        expect(tabView(state({ status: "removed", boards: boards(2) }))).toBe("removed");
+        expect(tabView(state({ status: "server-down", boards: boards(2) }))).toBe("server-down");
+    });
+
+    it("reads a ready canvas with no boards as no-boards", () => {
+        expect(tabView(state({ status: "ready", boards: [] }))).toBe("no-boards");
+    });
+
+    it("keeps probing with no boards on the (empty) list, so attaching never flashes no-boards", () => {
+        expect(tabView(state({ status: "probing", boards: [] }))).toBe("boards");
+    });
+
+    it("keeps removed and server-down when there are no boards", () => {
+        expect(tabView(state({ status: "removed", boards: [] }))).toBe("removed");
+        expect(tabView(state({ status: "server-down", boards: [] }))).toBe("server-down");
     });
 });
 

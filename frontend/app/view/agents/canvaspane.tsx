@@ -682,19 +682,21 @@ export function Removed({
     topic,
     onBack,
     backLabel,
+    inTab = false,
 }: {
     agent: AgentVM;
     topic: string;
     onBack?: () => void;
     backLabel?: string;
+    inTab?: boolean;
 }) {
-    const exit = removedExit(onBack != null ? (backLabel ?? "Back") : undefined);
+    const exit = removedExit(onBack != null ? (backLabel ?? "Back") : undefined, inTab);
     return (
         <EdgeState>
             <span className="text-[14px] font-semibold text-primary">{topic} was removed</span>
             <span className={EXPLAINER}>
                 Its folder under .superpowers/design is gone, usually because the feature shipped.
-                {exit.detach ? " The swap control disappears once you close it." : ""}
+                {exit.swapNote ? " The swap control disappears once you close it." : ""}
             </span>
             <button
                 type="button"

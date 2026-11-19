@@ -6,7 +6,7 @@
 // back in teardown; the run tab's ask is injected into the page's ask map and removed with it. A's block names a temp
 // repo with one uncommitted long line, for the Changes tab's wrap.
 //
-// Scenario `workspace-pane-canvas` (end of file): the Canvas tab's stacked list, the canvas window and the transcript's
+// Scenario `workspace-pane-canvas` (end of file): the Canvas tab's board rows and edge states, the canvas window and the transcript's
 // one-row Mockup card (docs/superpowers/plans/2026-11-18-workspace-pane-polish.md), on RBS_KIT's fixture agent with a
 // canvas and no brainstorm.
 
@@ -655,16 +655,34 @@ export const workspacePane = {
 
 // --- workspace-pane-canvas ------------------------------------------------------------------------------------------
 // The fixture agent's canvas is written under its project and attached in the page, as rendered-bs-mockup does; the
-// attached canvas draws the Mockup card on the transcript's reveal row. Six boards, then canvas.json rewritten to the
-// first two.
+// attached canvas draws the Mockup card on the transcript's reveal row. Six boards of mixed sizes, one with no title;
+// then canvas.json rewritten (one board added, one removed), to the first two, to twelve, to none, and last the
+// project folder deleted.
 
 const CANVAS_NAME = "workspace-pane-canvas";
-const CANVAS_BOARDS = ["Main.dc.html", "States.dc.html", "Empty.dc.html", "Error.dc.html", "Narrow.dc.html", "Wide.dc.html"];
+const CANVAS_BOARDS = ["Main.dc.html", "States.dc.html", "Empty.dc.html", "Error.dc.html", "Phone.dc.html", "Long.dc.html"];
 const TWO_BOARDS = CANVAS_BOARDS.slice(0, 2);
-// enough tabs that the window's head cannot fit them beside its controls
+// enough tabs that the window's head cannot fit them beside its controls, and more rows than the tab's list shows
 const MANY_BOARDS = Array.from({ length: 12 }, (_, i) => `Board${String(i + 1).padStart(2, "0")}.dc.html`);
+// the rewrite that adds one board and removes another
+const ADDED_BOARD = "Added.dc.html";
+const REMOVED_BOARD = CANVAS_BOARDS[2];
+const REFLOWED_BOARDS = [CANVAS_BOARDS[0], ADDED_BOARD, ...CANVAS_BOARDS.filter((b, i) => i > 0 && b !== REMOVED_BOARD)];
 const BOARD_W = 1440;
 const BOARD_H = 900;
+// canvas.json's entries: a tall phone board and a long page beside the default size, and Error with no title
+const BOARD_SPEC = {
+    "Main.dc.html": { w: 1280, h: 800, title: "The run graph's Final node, as it is today" },
+    "States.dc.html": { w: BOARD_W, h: BOARD_H, title: "All six states side by side: queued, running, passed, failed, skipped and cancelled, each with its own badge" },
+    "Empty.dc.html": { w: BOARD_W, h: BOARD_H, title: "No run yet" },
+    "Error.dc.html": { w: BOARD_W, h: BOARD_H },
+    "Phone.dc.html": { w: 400, h: 800, title: "The node on a phone" },
+    "Long.dc.html": { w: 1440, h: 2500, title: "The full run page, scrolled" },
+    [ADDED_BOARD]: { w: BOARD_W, h: BOARD_H, title: "A board the agent added" },
+};
+// the row's preview box (workspacecanvastab.tsx)
+const PREVIEW_BOX = { w: 112, h: 70 };
+const KEY_M = { key: "m", code: "KeyM", keyCode: 77 };
 // ModalShell's p-10 around the window
 const WINDOW_INSET_PX = 40;
 const MARK_HINT = "Click the part of the board that should change";
@@ -690,7 +708,7 @@ const canvasProject = (ctx) => join(ctx.cwd, ".superpowers", "design", ctx.topic
 function writeCanvasJson(ctx, names) {
     writeFileSync(
         join(canvasProject(ctx), "canvas.json"),
-        JSON.stringify({ boards: Object.fromEntries(names.map((b) => [b, { w: BOARD_W, h: BOARD_H }])), order: names })
+        JSON.stringify({ boards: Object.fromEntries(names.map((b) => [b, BOARD_SPEC[b] ?? { w: BOARD_W, h: BOARD_H }])), order: names })
     );
 }
 
@@ -715,7 +733,7 @@ const canvasFacts = (h, ctx) =>
         h,
         ctx,
         `const c = C.getCanvas(id);
-        return { window: globalStore.get(C.canvasWindowAtom), board: c?.board ?? null, all: c?.all ?? null, marking: c?.marking ?? null, mark: c?.mark != null, boards: c?.boards.length ?? 0, reloadKey: c?.reloadKey ?? null };`
+        return { canvas: c != null, window: globalStore.get(C.canvasWindowAtom), board: c?.board ?? null, all: c?.all ?? null, marking: c?.marking ?? null, mark: c?.mark != null, boards: c?.boards.length ?? 0, reloadKey: c?.reloadKey ?? null };`
     );
 
 // the poller has listed n boards in the canvas state
@@ -724,42 +742,71 @@ async function waitBoardCount(h, ctx, n) {
     while ((await canvasFacts(h, ctx)).boards !== n && Date.now() < deadline) await polishNap(500);
 }
 
-// the Canvas tab's previews as drawn, against the list's inner width and the scroller's box
-const listFacts = (h) =>
+// the Canvas tab's head and rows as drawn, colors compared through the theme's tokens
+const rowFacts = (h) =>
     h.ev(`(() => {
         const tab = ${C_TAB};
         const scroll = tab?.querySelector("[data-canvas-tab-scroll]");
-        const cs = scroll ? getComputedStyle(scroll) : null;
-        const inner = scroll ? scroll.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) : 0;
         const sv = scroll?.getBoundingClientRect();
-        const probe = document.createElement("span");
-        probe.style.color = "var(--color-accent)";
-        document.body.appendChild(probe);
-        const accent = getComputedStyle(probe).color;
-        probe.remove();
-        const previews = [...(tab?.querySelectorAll("[data-canvas-tab-preview]") ?? [])].map((el) => {
+        const token = (name, prop) => {
+            const probe = document.createElement("span");
+            probe.style[prop] = "var(--color-" + name + ")";
+            document.body.appendChild(probe);
+            const v = getComputedStyle(probe)[prop];
+            probe.remove();
+            return v;
+        };
+        const t = {
+            accent: token("accent", "color"),
+            accentSoft: token("accent-soft", "color"),
+            accentbg: token("accentbg", "backgroundColor"),
+            edgeMid: token("edge-mid", "color"),
+            edgeStrong: token("edge-strong", "color"),
+            hover: token("surface-hover", "backgroundColor"),
+        };
+        const head = tab?.firstElementChild;
+        const rows = [...(tab?.querySelectorAll("[data-canvas-tab-preview]") ?? [])].map((el) => {
             const r = el.getBoundingClientRect();
+            const box = el.querySelector("[data-canvas-tab-box]");
+            const b = box?.getBoundingClientRect();
+            const f = box?.querySelector("iframe")?.getBoundingClientRect();
+            const name = el.querySelector("[data-canvas-tab-name]");
+            const title = el.querySelector("[data-canvas-tab-title]");
+            const tinted = [...el.children].some((c) => getComputedStyle(c).backgroundColor === t.accentbg);
             return {
                 name: el.getAttribute("data-canvas-tab-preview"),
-                left: Math.round(r.left),
                 top: Math.round(r.top),
                 bottom: Math.round(r.bottom),
-                width: Math.round(r.width),
+                label: name?.textContent ?? null,
+                size: name?.nextElementSibling?.textContent ?? null,
+                title: title?.textContent ?? null,
+                titleTip: title?.getAttribute("title") ?? null,
+                aria: el.getAttribute("aria-label"),
+                tip: el.getAttribute("title"),
                 selected: el.hasAttribute("data-selected"),
-                accent: getComputedStyle(el).borderTopColor === accent,
+                tinted,
+                nameAccent: name != null && getComputedStyle(name).color === t.accentSoft,
+                hoverBg: getComputedStyle(el).backgroundColor === t.hover,
+                box: b ? { w: Math.round(b.width), h: Math.round(b.height) } : null,
+                border: box == null ? null : getComputedStyle(box).borderTopColor === t.accent ? "accent" : getComputedStyle(box).borderTopColor === t.edgeStrong ? "edge-strong" : getComputedStyle(box).borderTopColor === t.edgeMid ? "edge-mid" : getComputedStyle(box).borderTopColor,
+                // the whole board drawn inside the box
+                fitted: b != null && f != null && f.left >= b.left - 0.5 && f.top >= b.top - 0.5 && f.right <= b.right + 0.5 && f.bottom <= b.bottom + 0.5,
+                open: Number(getComputedStyle(el.querySelector("[data-canvas-tab-open]")).opacity),
                 inView: sv != null && r.top >= sv.top - 1 && r.bottom <= sv.bottom + 1,
-                iframe: el.querySelector("iframe") != null,
-                pill: Number(getComputedStyle(el.querySelector("[data-canvas-tab-open]")).opacity),
             };
         });
-        return { inner: Math.round(inner), previews };
+        return {
+            head: (head?.innerText ?? "").replace(/\\s+/g, " ").trim(),
+            headButtons: [...(head?.querySelectorAll("button") ?? [])].map((b) => b.textContent.trim() || b.getAttribute("aria-label")),
+            headH: Math.round(head?.getBoundingClientRect().height ?? 0),
+            body: (tab?.innerText ?? "").replace(/\\s+/g, " ").trim(),
+            scrollTop: scroll?.scrollTop ?? null,
+            rows,
+        };
     })()`);
 
-// one column in canvas order, each preview at the list's width
-const stackedAt = (list, names) =>
-    JSON.stringify(list.previews.map((p) => p.name)) === JSON.stringify(names) &&
-    list.previews.every((p, i) => i === 0 || (p.left === list.previews[0].left && p.top > list.previews[i - 1].bottom)) &&
-    list.previews.every((p) => Math.abs(p.width - list.inner) <= 2);
+const rowNames = (facts) => JSON.stringify(facts.rows.map((r) => r.name));
+const sizeOf = (name) => `${BOARD_SPEC[name].w}×${BOARD_SPEC[name].h}`;
 
 // the window's frames grouped into rows by their top, in canvas order
 const windowRows = (h) =>
@@ -855,7 +902,7 @@ const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true, topic: CA
         ];
     });
 
-    await step("the Canvas tab lists every board stacked at the pane's width; the selected board wears the accent border, a hover shows Open in a window", async () => {
+    await step("the Canvas tab lists one row per board in canvas order: a same-size preview, name, size and title; the selected row tinted; a hover shows the open icon (Main board)", async () => {
         await h.ev(`${C_CARD}?.querySelector("[data-rendered-mockup-open]")?.click()`);
         const loaded = await polishWaitFor(
             h,
@@ -863,80 +910,101 @@ const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true, topic: CA
             WAIT_MS
         );
         await polishNap(SETTLE_MS);
-        const list = await listFacts(h);
+        const list = await rowFacts(h);
         const paneW = await h.ev(`Math.round(document.querySelector('aside[aria-label="Workspace"]')?.getBoundingClientRect().width ?? 0)`);
-        // a real hover over the first preview, which is in view at the top of the list
-        const at = await centreOf(h, previewSel(CANVAS_BOARDS[0]));
+        // a real hover over a row other than the selected one
+        const hoveredName = CANVAS_BOARDS[1];
+        const at = await centreOf(h, previewSel(hoveredName));
         if (at != null) await mouse(h, "mouseMoved", at.x, at.y);
         await polishNap(400);
-        const hovered = await listFacts(h);
-        await h.shot(CANVAS_SHOT(2, "list-hover"));
-        const selected = list.previews.filter((p) => p.selected);
-        const accented = list.previews.filter((p) => p.accent);
-        const pills = hovered.previews.map((p) => p.pill);
+        const hovered = await rowFacts(h);
+        await h.shot(CANVAS_SHOT(2, "rows-hover"));
+        await mouse(h, "mouseMoved", 0, 0);
+        ctx.rowsHeadH = list.headH;
+        const rowsOk = list.rows.every((r) => {
+            const spec = BOARD_SPEC[r.name];
+            const label = boardLabel(r.name);
+            const named =
+                r.label === label && r.size === sizeOf(r.name) && r.aria === `Open ${label} in a window` && r.tip === r.aria;
+            const titled = spec.title != null ? r.title === spec.title && r.titleTip === spec.title : r.title == null;
+            return named && titled && r.box?.w === PREVIEW_BOX.w && r.box?.h === PREVIEW_BOX.h && r.fitted;
+        });
+        const selected = list.rows.filter((r) => r.selected);
+        const others = hovered.rows.filter((r) => r.name !== hoveredName);
+        const hov = hovered.rows.find((r) => r.name === hoveredName);
         const ok =
             loaded &&
             paneW === DEFAULT_PX &&
-            stackedAt(list, CANVAS_BOARDS) &&
+            rowNames(list) === JSON.stringify(CANVAS_BOARDS) &&
+            list.rows.every((r, i) => i === 0 || r.top >= list.rows[i - 1].bottom) &&
+            rowsOk &&
             selected.length === 1 &&
             selected[0].name === CANVAS_BOARDS[0] &&
-            accented.length === 1 &&
-            accented[0].name === CANVAS_BOARDS[0] &&
-            pills[0] === 1 &&
-            pills.slice(1).every((o) => o === 0);
-        return [ok, { loaded, paneW, inner: list.inner, previews: list.previews, pills }];
+            selected[0].tinted &&
+            selected[0].nameAccent &&
+            list.rows.filter((r) => r.tinted || r.nameAccent).length === 1 &&
+            list.rows.every((r) => r.border === "edge-mid") &&
+            list.head.startsWith(`${CANVAS_BOARDS.length} boards · updated `) &&
+            !list.head.includes("%") &&
+            hov?.open === 1 &&
+            hov.border === "edge-strong" &&
+            hov.hoverBg &&
+            others.every((r) => r.open === 0 && r.border === "edge-mid");
+        return [ok, { loaded, paneW, head: list.head, rows: list.rows, hovered: hov, others }];
     });
 
-    // t-5's interactions: a label click only selects, and ] brings the selection into view
-    await step("a board's label click only selects it, and ] moves the selection down the list into view", async () => {
-        const third = CANVAS_BOARDS[2];
-        const clicked = await h.ev(`(() => {
-            const b = [...(${C_TAB}?.querySelectorAll("button") ?? [])].find((x) => x.textContent.trim().startsWith(${JSON.stringify(boardLabel(third))}));
-            b?.click();
-            return b != null;
-        })()`);
-        await polishNap(SETTLE_MS);
-        const afterLabel = await listFacts(h);
-        const labelFacts = await canvasFacts(h, ctx);
-        await focusSurfaceWrap(h);
-        for (let i = 3; i < CANVAS_BOARDS.length; i++) await pressKey(h, NEXT);
-        await polishNap(SETTLE_MS);
-        const afterKeys = await listFacts(h);
-        const keyFacts = await canvasFacts(h, ctx);
-        await h.shot(CANVAS_SHOT(3, "list-next"));
-        const last = afterKeys.previews.at(-1);
-        const ok =
-            clicked &&
-            afterLabel.previews.filter((p) => p.selected).map((p) => p.name).join() === third &&
-            labelFacts.window == null &&
-            keyFacts.window == null &&
-            last?.selected === true &&
-            last.inView &&
-            afterKeys.previews.filter((p) => p.selected).length === 1;
-        // back to the first board at the top, for the steps after
-        await canvasStore(h, ctx, `C.selectCanvasBoard(id, ${JSON.stringify(CANVAS_BOARDS[0])}); return true;`);
+    // twelve boards, so the list scrolls: ] picks the row just below the fold
+    await step("] moves the tinted selection down a row and scrolls only the list to keep it in view; the window stays closed", async () => {
+        writeCanvasJson(ctx, MANY_BOARDS);
+        await waitBoardCount(h, ctx, MANY_BOARDS.length);
+        await polishWaitFor(h, `(${C_TAB}?.querySelectorAll("[data-canvas-tab-preview]").length ?? 0) === ${MANY_BOARDS.length}`, WAIT_MS);
+        await canvasStore(h, ctx, `C.selectCanvasBoard(id, ${JSON.stringify(MANY_BOARDS[0])}); return true;`);
         await h.ev(`(() => { const s = ${C_TAB}?.querySelector("[data-canvas-tab-scroll]"); if (s) s.scrollTop = 0; return true; })()`);
         await polishNap(SETTLE_MS);
-        return [ok, { clicked, label: labelFacts, keys: keyFacts, last }];
-    });
-
-    await step("expanded, the list's boards grow to the pane's width", async () => {
-        const before = await listFacts(h);
-        await h.ev(`document.querySelector("[data-workspace-expand]")?.click()`);
+        // the last row wholly in view, picked, so ] goes to the first one past the fold
+        const top = await rowFacts(h);
+        const fold = top.rows.findIndex((r) => !r.inView);
+        const from = MANY_BOARDS[fold - 1];
+        const to = MANY_BOARDS[fold];
+        await canvasStore(h, ctx, `C.selectCanvasBoard(id, ${JSON.stringify(from)}); return true;`);
         await polishNap(SETTLE_MS);
-        const expanded = await listFacts(h);
-        await h.shot(CANVAS_SHOT(4, "expanded"));
-        await h.ev(`document.querySelector("[data-workspace-expand]")?.click()`);
+        const before = await rowFacts(h);
+        const outer = () =>
+            h.ev(`({ pane: ${PANE}?.scrollTop ?? null, body: ${PANE}?.querySelector("[data-canvas-tab]")?.parentElement?.scrollTop ?? null, doc: document.scrollingElement?.scrollTop ?? null })`);
+        const outerBefore = await outer();
+        await focusSurfaceWrap(h);
+        await pressKey(h, NEXT);
         await polishNap(SETTLE_MS);
-        const restored = await listFacts(h);
+        const after = await rowFacts(h);
+        const outerAfter = await outer();
+        const facts = await canvasFacts(h, ctx);
+        await h.shot(CANVAS_SHOT(3, "rows-next"));
+        const was = before.rows.find((r) => r.selected);
+        const now = after.rows.filter((r) => r.selected);
         const ok =
-            stackedAt(expanded, CANVAS_BOARDS) &&
-            expanded.previews.every((p, i) => p.width > before.previews[i].width) &&
-            restored.previews.every((p, i) => p.width === before.previews[i].width);
-        return [ok, { before: before.inner, expanded: expanded.inner, widths: expanded.previews.map((p) => p.width), restored: restored.inner }];
+            fold > 0 &&
+            was?.name === from &&
+            was.inView &&
+            now.length === 1 &&
+            now[0].name === to &&
+            now[0].tinted &&
+            after.rows.filter((r) => r.tinted).length === 1 &&
+            now[0].inView &&
+            after.scrollTop > before.scrollTop &&
+            JSON.stringify(outerAfter) === JSON.stringify(outerBefore) &&
+            facts.board === to &&
+            facts.window == null;
+        // back to the six boards, the first selected at the top, for the steps after
+        writeCanvasJson(ctx, CANVAS_BOARDS);
+        await waitBoardCount(h, ctx, CANVAS_BOARDS.length);
+        await canvasStore(h, ctx, `C.selectCanvasBoard(id, ${JSON.stringify(CANVAS_BOARDS[0])}); return true;`);
+        await polishWaitFor(h, `(${C_TAB}?.querySelectorAll("[data-canvas-tab-preview] iframe").length ?? 0) === ${CANVAS_BOARDS.length}`, WAIT_MS);
+        await h.ev(`(() => { const s = ${C_TAB}?.querySelector("[data-canvas-tab-scroll]"); if (s) s.scrollTop = 0; return true; })()`);
+        await polishNap(SETTLE_MS);
+        return [ok, { fold, from, to, was, now, scroll: [before.scrollTop, after.scrollTop], outerBefore, outerAfter, facts }];
     });
 
-    await step("a click on a board opens the canvas window: board tabs with All in rows of 3, Mark, Open in browser, Build this; a redraw keeps it open; Esc drops a drawn mark, then closes it", async () => {
+    await step("a row click opens the canvas window on its board: board tabs with All in rows of 3, Mark, Open in browser, Build this; a redraw keeps it open; Esc drops a drawn mark, then closes it", async () => {
         const target = CANVAS_BOARDS[1];
         await h.ev(`${previewSel(target)}?.scrollIntoView({ block: "center" })`);
         await polishNap(SETTLE_MS);
@@ -957,12 +1025,12 @@ const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true, topic: CA
                 close: ${C_WIN}?.querySelector('button[aria-label="Close"]')?.title ?? null,
             };
         })()`);
-        await h.shot(CANVAS_SHOT(5, "window"));
+        await h.shot(CANVAS_SHOT(4, "window"));
         const allTab = await clickByText(h, `${C_WIN}?.querySelector('[role="tablist"]')`, "All");
         await polishWaitFor(h, `(${C_WIN}?.querySelectorAll("[data-canvas-frame] iframe").length ?? 0) === ${CANVAS_BOARDS.length}`, WAIT_MS);
         await polishNap(SETTLE_MS);
         const rows = await windowRows(h);
-        await h.shot(CANVAS_SHOT(6, "window-all"));
+        await h.shot(CANVAS_SHOT(5, "window-all"));
 
         // a redraw: one board file rewritten; the frames remount on the new reloadKey, the window stays
         await h.ev(`(() => { for (const f of ${C_WIN}?.querySelectorAll("iframe") ?? []) f.__beforeRedraw = true; return true; })()`);
@@ -981,7 +1049,7 @@ const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true, topic: CA
         await polishNap(SETTLE_MS);
         await dragMarkBox(h);
         const drawn = await canvasFacts(h, ctx);
-        await h.shot(CANVAS_SHOT(7, "window-mark"));
+        await h.shot(CANVAS_SHOT(6, "window-mark"));
         await pressKey(h, ESC);
         const firstEsc = await canvasFacts(h, ctx);
         const stillOpen = (await h.ev(`${C_WIN} != null`)) === true;
@@ -1015,6 +1083,49 @@ const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true, topic: CA
             secondEsc.window == null &&
             !secondEsc.marking;
         return [ok, { clicked, opened, onOpen, frame, rows, reloaded, afterRedraw, drawn, firstEsc, stillOpen, closed, secondEsc }];
+    });
+
+    await step("canvas.json rewritten with one board added and one removed: the added row enters, the removed one leaves, the list ends in the new order", async () => {
+        // sampled every frame from before the rewrite: an animated entrance and exit are caught partway
+        await h.ev(`(() => {
+            const seen = { addedMin: 1, removedMin: 1, together: false, done: false };
+            window.__canvasTabReflow = seen;
+            const opacity = (name) => {
+                const row = ${C_TAB}?.querySelector('[data-canvas-tab-preview="' + name + '"]');
+                return row ? Number(getComputedStyle(row.parentElement).opacity) : null;
+            };
+            const tick = () => {
+                const added = opacity(${JSON.stringify(ADDED_BOARD)});
+                const removed = opacity(${JSON.stringify(REMOVED_BOARD)});
+                if (added != null) seen.addedMin = Math.min(seen.addedMin, added);
+                if (added != null && removed != null) {
+                    seen.together = true;
+                    seen.removedMin = Math.min(seen.removedMin, removed);
+                }
+                if (!seen.done) requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+            return true;
+        })()`);
+        writeCanvasBoard(ctx, ADDED_BOARD);
+        writeCanvasJson(ctx, REFLOWED_BOARDS);
+        const settled = await polishWaitFor(
+            h,
+            `JSON.stringify([...(${C_TAB}?.querySelectorAll("[data-canvas-tab-preview]") ?? [])].map((el) => el.getAttribute("data-canvas-tab-preview"))) === ${JSON.stringify(JSON.stringify(REFLOWED_BOARDS))}`,
+            RBS_KIT.BS_POLL_WAIT_MS
+        );
+        await polishNap(SETTLE_MS);
+        const seen = await h.ev(`(() => { const s = window.__canvasTabReflow; s.done = true; delete window.__canvasTabReflow; return s; })()`);
+        const list = await rowFacts(h);
+        await h.shot(CANVAS_SHOT(7, "rows-reflow"));
+        const ok =
+            settled &&
+            rowNames(list) === JSON.stringify(REFLOWED_BOARDS) &&
+            list.rows.every((r, i) => i === 0 || r.top >= list.rows[i - 1].bottom) &&
+            seen.addedMin < 1 &&
+            seen.together &&
+            seen.removedMin < 1;
+        return [ok, { settled, seen, rows: list.rows.map((r) => r.name) }];
     });
 
     await step("with 2 boards the window's All is one row of 2", async () => {
@@ -1106,6 +1217,61 @@ const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true, topic: CA
         await h.shot(CANVAS_SHOT(10, "pane-mark"));
         await canvasStore(h, ctx, `C.closeCanvasWindow(); return true;`);
         return [clicked && opened && at.window === ctx.agentId && at.marking && !at.mark, { clicked, opened, ...at }];
+    });
+
+    // the States board's two edge states run last: no boards, then the folder gone, which ends the canvas
+    await step("canvas.json listing no boards and no Main board shows No boards yet, a head with no actions, and m and ] stand down (States board, left)", async () => {
+        // the control: ] reaches the list while boards are listed, so the keys below are not dead
+        await focusSurfaceWrap(h);
+        await pressKey(h, NEXT);
+        const control = await canvasFacts(h, ctx);
+        writeFileSync(join(canvasProject(ctx), "canvas.json"), JSON.stringify({ boards: {} }));
+        rmSync(join(canvasProject(ctx), CANVAS_BOARDS[0]), { force: true });
+        const shown = await polishWaitFor(h, `(${C_TAB}?.innerText ?? "").includes("No boards yet")`, RBS_KIT.BS_POLL_WAIT_MS);
+        await polishNap(SETTLE_MS);
+        const list = await rowFacts(h);
+        await h.shot(CANVAS_SHOT(11, "no-boards"));
+        await focusSurfaceWrap(h);
+        await pressKey(h, KEY_M);
+        await pressKey(h, NEXT);
+        await polishNap(SETTLE_MS);
+        const after = await canvasFacts(h, ctx);
+        const ok =
+            control.board === TWO_BOARDS[1] &&
+            shown &&
+            list.body.includes("No boards yet canvas.json lists no boards. They show here as the agent writes them.") &&
+            list.head.startsWith("No boards") &&
+            list.headButtons.length === 0 &&
+            list.headH === ctx.rowsHeadH &&
+            list.rows.length === 0 &&
+            after.boards === 0 &&
+            after.window == null &&
+            after.board === control.board;
+        return [ok, { control, shown, head: list.head, headButtons: list.headButtons, headH: [list.headH, ctx.rowsHeadH], after }];
+    });
+
+    await step("the canvas's folder deleted shows it removed with Close the tab and an empty head; Close the tab detaches the canvas and closes the tab (States board, right)", async () => {
+        rmSync(canvasProject(ctx), { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+        const shown = await polishWaitFor(h, `(${C_TAB}?.innerText ?? "").includes("was removed")`, RBS_KIT.BS_POLL_WAIT_MS);
+        await polishNap(SETTLE_MS);
+        const list = await rowFacts(h);
+        await h.shot(CANVAS_SHOT(12, "removed"));
+        const closeBtn = await h.ev(`[...(${C_TAB}?.querySelectorAll("button") ?? [])].map((b) => b.textContent.trim())`);
+        const clicked = await clickByText(h, C_TAB, "Close the tab");
+        const closed = await polishWaitFor(h, `${C_TAB} == null && document.querySelector('${tabSel("canvas")}') == null`, WAIT_MS);
+        const after = await canvasFacts(h, ctx);
+        const ok =
+            shown &&
+            list.body.includes(`${ctx.topic} was removed`) &&
+            !list.body.includes("swap control") &&
+            JSON.stringify(closeBtn) === JSON.stringify(["Close the tab"]) &&
+            list.head === "" &&
+            list.headButtons.length === 0 &&
+            list.headH === ctx.rowsHeadH &&
+            clicked &&
+            closed &&
+            !after.canvas;
+        return [ok, { shown, body: list.body, head: list.head, headH: [list.headH, ctx.rowsHeadH], closeBtn, clicked, closed, after }];
     });
 });
 
