@@ -13,7 +13,8 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { ArrowUpRight } from "lucide-react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import { usePaneShown } from "./agentpanes";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { builderCheckView, type BrainstormFile } from "./brainstormmodel";
@@ -53,19 +54,69 @@ export function NeedsInputPill() {
     );
 }
 
+// true while the Brainstorm tab is on screen (agentpanes.ts's shownPane, the rule its digit keys use): the tab already
+// shows what the card would, so each card draws only CardFrame's one row
+const CardRowContext = createContext(false);
+
+export function useCardRow(): boolean {
+    return useContext(CardRowContext);
+}
+
 export function CardFrame(p: {
     agent: AgentVM;
     s: BrainstormState;
     f: BrainstormFile | null;
     asking: boolean;
-    head: ReactNode;
+    head?: ReactNode;
+    // the one row's title, and its step after "Brainstorm ·" when the card has one (the question's number)
+    title: string;
+    step?: string;
     // the "Brainstorm ·" lead; the builder question's board heads with the question alone
     lead?: boolean;
     status?: string;
     compact: boolean;
     attr: string;
-    children: ReactNode;
+    children?: ReactNode;
 }) {
+    const row = useCardRow();
+    const open = (
+        <button
+            type="button"
+            data-rendered-bs-open
+            onClick={() => openBrainstormAt(p.agent.id, {})}
+            className="inline-flex flex-none cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline"
+        >
+            Open brainstorm
+            <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
+        </button>
+    );
+    if (row) {
+        return (
+            <div className="flex flex-col" {...{ [p.attr]: "" }}>
+                <div
+                    data-rendered-bs-frame
+                    data-rendered-bs-row
+                    className={cn(
+                        "flex min-w-0 items-center gap-[10px] rounded-[10px] border bg-surface px-[14px] py-2 text-[12.5px]",
+                        p.asking ? "border-warning/45" : "border-edge-mid"
+                    )}
+                >
+                    <span
+                        className={cn(
+                            "flex-none whitespace-nowrap font-mono font-semibold",
+                            p.asking ? "text-warning" : "text-ink-mid"
+                        )}
+                    >
+                        {p.step ? `Brainstorm · ${p.step}` : "Brainstorm ·"}
+                    </span>
+                    <span data-rendered-bs-row-title className="min-w-0 flex-1 truncate text-primary">
+                        {p.title}
+                    </span>
+                    {open}
+                </div>
+            </div>
+        );
+    }
     const status = p.status ?? (p.f != null ? cardStatus(p.f) : "");
     return (
         <div className="flex flex-col" {...{ [p.attr]: "" }}>
@@ -96,15 +147,7 @@ export function CardFrame(p: {
                             {status}
                         </span>
                     ) : null}
-                    <button
-                        type="button"
-                        data-rendered-bs-open
-                        onClick={() => openBrainstormAt(p.agent.id, {})}
-                        className="inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline"
-                    >
-                        Open brainstorm
-                        <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-                    </button>
+                    {open}
                 </div>
                 {p.children}
             </div>
@@ -155,6 +198,7 @@ export function RenderedBrainstorm({ model, agent }: { model: AgentsViewModel; a
     const s = useAtomValue(brainstormAtom(agent.id));
     const [measure, , rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
     const compact = rect != null && rect.width < COMPACT_CARD_PX;
+    const row = usePaneShown(model, agent.id) === "brainstorm";
     const check =
         s != null
             ? builderCheckView(
@@ -188,8 +232,10 @@ export function RenderedBrainstorm({ model, agent }: { model: AgentsViewModel; a
                         exit="exit"
                         className="mt-1 pb-2"
                     >
-                        <ViewSwap swapKey={cardKey(card, f)}>
-                            <CardBody card={card} p={props} agent={agent} s={s} compact={compact} />
+                        <ViewSwap swapKey={`${cardKey(card, f)}${row ? ":row" : ""}`}>
+                            <CardRowContext.Provider value={row}>
+                                <CardBody card={card} p={props} agent={agent} s={s} compact={compact} />
+                            </CardRowContext.Provider>
                         </ViewSwap>
                     </motion.div>
                 ) : null}

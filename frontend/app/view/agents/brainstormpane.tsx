@@ -8,11 +8,13 @@
 import { cardVariants, turnTransition, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { StepSwap } from "@/app/element/stepswap";
+import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { cn } from "@/util/util";
 import { atom, useAtomValue, type Atom } from "jotai";
+import { History } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { AgentsViewModel } from "./agents";
@@ -32,6 +34,7 @@ import {
     drawnDecisionParts,
     droppedQuestion,
     editLock,
+    foldedHistory,
     historyRows,
     isNote,
     judgeWait,
@@ -39,7 +42,7 @@ import {
     lineBox,
     mainView,
     noteParts,
-    optionLetter,
+    optionNumber,
     paneView,
     partAnswer,
     partGist,
@@ -70,15 +73,18 @@ import {
     markBrainstormSeen,
     openBrainstormBoard,
     openBrainstormDesign,
+    openBrainstormHistory,
     shownBrainstormFile,
     shownPicks,
     type BrainstormState,
 } from "./brainstormstore";
 import {
-    ChangeDiff,
-    CheckMark,
+    BS_NARROW_PX,
     BS_RAIL_STACK,
     BS_SPLIT,
+    BsNarrowContext,
+    ChangeDiff,
+    CheckMark,
     CHIP,
     DesignHead,
     DOT,
@@ -104,6 +110,7 @@ import {
     Toolbar,
     useAction,
     useAnswer,
+    useBsNarrow,
     useWorkingTurn,
     WorkingMain,
     WorkingStepLine,
@@ -159,7 +166,7 @@ function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
                     onClick={() => void pick(p)}
                     className={cn(CANVAS_PRIMARY_BTN, "min-w-0 max-w-[480px]")}
                 >
-                    <span className="flex-none">Pick {optionLetter(p.index)}</span>
+                    <span className="flex-none">Pick {optionNumber(p.index)}</span>
                     <span className="min-w-0 truncate font-normal">· {p.label}</span>
                 </button>
             ))}
@@ -168,8 +175,19 @@ function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
     );
 }
 
-export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
+// inTab: the pane is the workspace's Brainstorm tab, not the Terminal center, so its copy names the tab
+export function BrainstormPane({ model, agent, inTab }: { model: AgentsViewModel; agent: AgentVM; inTab?: boolean }) {
     const s = useAtomValue(brainstormAtom(agent.id));
+    const [measure, , rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
+    const narrow = rect != null && rect.width < BS_NARROW_PX;
+    // only the narrow pane draws the history over the question, so a wide one must not leave it open for Esc to take
+    const wide = rect != null && !narrow;
+    const historyOpen = s?.historyOpen === true;
+    useEffect(() => {
+        if (wide && historyOpen) {
+            openBrainstormHistory(agent.id, false);
+        }
+    }, [wide, historyOpen, agent.id]);
     if (s == null) {
         return null;
     }
@@ -185,49 +203,55 @@ export function BrainstormPane({ model, agent }: { model: AgentsViewModel; agent
         // replaying every row's entrance
         <motion.div
             key={`${agent.id}:${view}`}
+            ref={measure}
             variants={viewFade}
             initial="initial"
             animate="animate"
             data-brainstorm-pane
             data-brainstorm-view={view}
+            data-brainstorm-narrow={narrow ? "" : undefined}
             className="@container/bs flex min-h-0 flex-1 flex-col"
         >
-            {view === "removed" ? (
-                <Removed agent={agent} topic={s.topic} path={s.path} />
-            ) : view === "error" ? (
-                <Unreadable s={s} />
-            ) : view === "board" ? (
-                <CanvasPane
-                    model={model}
-                    agent={agent}
-                    onBack={() => openBrainstormBoard(agent.id, null)}
-                    backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
-                    tabLabels={f != null ? (boardTabLabels(f, judgeWait(f, s.sent != null)) ?? undefined) : undefined}
-                    boardActions={
-                        f != null
-                            ? (board) => (
-                                  <BoardPicks
-                                      agent={agent}
-                                      picks={boardPicks(f, board, judgeWait(f, s.sent != null))}
-                                  />
-                              )
-                            : undefined
-                    }
-                />
-            ) : view === "run" ? (
-                <RunStep model={model} agent={agent} s={s} f={f!} />
-            ) : view === "check" ? (
-                <Check model={model} agent={agent} s={s} f={f!} />
-            ) : f == null ? (
-                <>
-                    <Toolbar topic={s.topic} />
-                    <EdgeState>
-                        <span className={EXPLAINER}>Reading {s.path}…</span>
-                    </EdgeState>
-                </>
-            ) : (
-                <Design agent={agent} s={s} f={f} nowAtom={model.nowAtom} />
-            )}
+            <BsNarrowContext.Provider value={narrow}>
+                {view === "removed" ? (
+                    <Removed agent={agent} topic={s.topic} path={s.path} inTab={inTab === true} />
+                ) : view === "error" ? (
+                    <Unreadable s={s} />
+                ) : view === "board" ? (
+                    <CanvasPane
+                        model={model}
+                        agent={agent}
+                        onBack={() => openBrainstormBoard(agent.id, null)}
+                        backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
+                        tabLabels={
+                            f != null ? (boardTabLabels(f, judgeWait(f, s.sent != null)) ?? undefined) : undefined
+                        }
+                        boardActions={
+                            f != null
+                                ? (board) => (
+                                      <BoardPicks
+                                          agent={agent}
+                                          picks={boardPicks(f, board, judgeWait(f, s.sent != null))}
+                                      />
+                                  )
+                                : undefined
+                        }
+                    />
+                ) : view === "run" ? (
+                    <RunStep model={model} agent={agent} s={s} f={f!} />
+                ) : view === "check" ? (
+                    <Check model={model} agent={agent} s={s} f={f!} />
+                ) : f == null ? (
+                    <>
+                        <Toolbar topic={s.topic} />
+                        <EdgeState>
+                            <span className={EXPLAINER}>Reading {s.path}…</span>
+                        </EdgeState>
+                    </>
+                ) : (
+                    <Design agent={agent} s={s} f={f} nowAtom={model.nowAtom} />
+                )}
+            </BsNarrowContext.Provider>
         </motion.div>
     );
 }
@@ -263,6 +287,21 @@ function Design({
     const dir = useTalkDir(talkKey, view === "question" ? f.question!.n : null);
     const seen = useAtomValue(brainstormSeenAtom)[s.path] ?? null;
     const unseen = unseenSince(f, seen);
+    const narrow = useBsNarrow();
+    const rows = historyRows(f, unseen).reverse();
+    // what the main area shows with the design closed: the history covers only a question or the judge's wait, and
+    // sits under the working line on its own
+    const talk = mainView(f, false, s.sent != null);
+    const coverable = talk === "question" || talk === "judging";
+    const historyShown = narrow && s.historyOpen && coverable;
+    const historyUnderWorking = narrow && view === "working" && rows.length > 0;
+    const decided = decidedCount(f);
+    // the history opened over a question ends with it, so the next question is not hidden behind it
+    useEffect(() => {
+        if (s.historyOpen && !coverable) {
+            openBrainstormHistory(agent.id, false);
+        }
+    }, [s.historyOpen, coverable, agent.id]);
     // opens the parts' rows in the design and scrolls to the first
     const openParts = (ids: string[]) => {
         setOpened((o) => ({ ...o, ...Object.fromEntries(ids.map((id) => [id, true])) }));
@@ -287,14 +326,35 @@ function Design({
 
     return (
         <>
-            <Toolbar topic={s.topic} f={f} />
+            <Toolbar
+                topic={s.topic}
+                f={f}
+                trailing={
+                    narrow && (coverable || talk === "working") && decided > 0 ? (
+                        <DecidedToggle
+                            n={decided}
+                            pressed={historyShown || view === "working"}
+                            // the history under the working line has nothing to cover, so the toggle rests pressed
+                            onClick={
+                                view === "working"
+                                    ? undefined
+                                    : historyShown
+                                      ? () => openBrainstormHistory(agent.id, false)
+                                      : coverable
+                                        ? () => openBrainstormHistory(agent.id, true)
+                                        : () => openBrainstormDesign(agent.id, false)
+                            }
+                        />
+                    ) : undefined
+                }
+            />
             <StaleBanner s={s} />
             <div className={BS_SPLIT}>
                 <div className="flex min-w-0 flex-1 flex-col bg-background">
                     {/* opening or closing the design fades; the talk itself (a question, the agent writing, the next
                         question) slides forward, keyed per question so each one starts over */}
                     <motion.div
-                        key={view === "design" ? "design" : "talk"}
+                        key={view === "design" ? "design" : historyShown ? "history" : "talk"}
                         variants={viewFade}
                         initial="initial"
                         animate="animate"
@@ -313,6 +373,10 @@ function Design({
                                 opened={opened}
                                 setOpen={(id, open) => setOpened((o) => ({ ...o, [id]: open }))}
                             />
+                        ) : historyShown ? (
+                            <HistoryMain n={f.question!.n} onBack={() => openBrainstormHistory(agent.id, false)}>
+                                <DecidedHistory f={f} rows={rows} goTo={goTo} fold />
+                            </HistoryMain>
                         ) : (
                             <StepSwap stepKey={talkKey} dir={dir} className="flex min-h-0 flex-1 flex-col">
                                 {view === "question" ? (
@@ -339,7 +403,13 @@ function Design({
                                         openParts={openParts}
                                     />
                                 ) : (
-                                    <WorkingMain agent={agent} s={s} f={f} nowAtom={nowAtom} openDesign={openDesign} />
+                                    <WorkingMain agent={agent} s={s} f={f} nowAtom={nowAtom} openDesign={openDesign}>
+                                        {historyUnderWorking ? (
+                                            <div className="border-t border-border pt-[14px]">
+                                                <DecidedHistory f={f} rows={rows} goTo={goTo} fold />
+                                            </div>
+                                        ) : null}
+                                    </WorkingMain>
                                 )}
                             </StepSwap>
                         )}
@@ -353,7 +423,7 @@ function Design({
                         />
                     ) : null}
                 </div>
-                <DecidedRail f={f} unseen={unseen} goTo={goTo} />
+                {narrow ? null : <DecidedRail f={f} rows={rows} goTo={goTo} />}
             </div>
         </>
     );
@@ -1004,11 +1074,8 @@ function IntoLinks({
     );
 }
 
-// every question answered with all it offered, newest at the top, then the recon it all stood on
-function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; goTo: (id: string) => void }) {
-    const rows = historyRows(f, unseen).reverse();
-    const decided = decidedCount(f);
-    const working = f.working != null;
+// the wide pane's history, beside the main column
+function DecidedRail({ f, rows, goTo }: { f: BrainstormFile; rows: HistoryRow[]; goTo: (id: string) => void }) {
     const railRef = useRef<HTMLElement>(null);
     const shown = useRef(0);
     // a new entry lands at the top, so follow it
@@ -1029,6 +1096,28 @@ function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; g
                 BS_RAIL_STACK
             )}
         >
+            <DecidedHistory f={f} rows={rows} goTo={goTo} />
+        </aside>
+    );
+}
+
+// every question answered with all it offered, newest at the top, then the recon it all stood on: the wide rail's list,
+// and the narrow pane's history over the question or under the working line, where fold shortens long questions
+function DecidedHistory({
+    f,
+    rows,
+    goTo,
+    fold = false,
+}: {
+    f: BrainstormFile;
+    rows: HistoryRow[];
+    goTo: (id: string) => void;
+    fold?: boolean;
+}) {
+    const decided = decidedCount(f);
+    const working = f.working != null;
+    return (
+        <>
             <div className="flex items-baseline gap-[8px] pb-[8px]">
                 <h2 className="m-0 text-[13px] font-semibold text-secondary">Decided so far · {decided}</h2>
                 <span className="text-[12px] text-muted">newest first</span>
@@ -1062,19 +1151,74 @@ function DecidedRail({ f, unseen, goTo }: { f: BrainstormFile; unseen: Unseen; g
                                     <IntoLinks into={h.into} goTo={goTo} />
                                 </div>
                             ) : (
-                                <RailQuestion h={h} justNow={i === 0 && working} goTo={goTo} />
+                                <RailQuestion h={h} justNow={i === 0 && working} goTo={goTo} fold={fold} />
                             )}
                         </motion.div>
                     ))}
                 </AnimatePresence>
             </div>
-        </aside>
+        </>
     );
 }
 
-// the picked answer keeps what it is; the toggle opens why it was asked and what the others were, when there is any
-function RailQuestion({ h, justNow, goTo }: { h: HistoryRow; justNow: boolean; goTo: (id: string) => void }) {
+// the narrow pane's header toggle between the question and the history; inert (no onClick) while the agent writes
+function DecidedToggle({ n, pressed, onClick }: { n: number; pressed: boolean; onClick?: () => void }) {
+    return (
+        <button
+            type="button"
+            data-brainstorm-decided
+            aria-pressed={pressed}
+            onClick={onClick}
+            className={cn(
+                CHIP,
+                "flex flex-none items-center gap-[6px] whitespace-nowrap px-[10px] py-[3px]",
+                pressed && "border-accent/45 bg-accent/12 text-accent-soft hover:bg-accent/12",
+                onClick == null && "cursor-default"
+            )}
+        >
+            <History size={13} aria-hidden="true" />
+            Decided · {n}
+        </button>
+    );
+}
+
+// the narrow pane's history in the question's place, under the way back to it, in one scroll
+function HistoryMain({ n, onBack, children }: { n: number; onBack: () => void; children: ReactNode }) {
+    return (
+        <div data-brainstorm-history-main className="flex min-h-0 flex-1 flex-col">
+            <div className="flex flex-none items-center border-b border-border px-[22px] py-[8px]">
+                <button
+                    type="button"
+                    data-brainstorm-history-back
+                    onClick={onBack}
+                    className={cn(CHIP, "flex items-center gap-[8px] border-warning/45 bg-warning/12")}
+                >
+                    <span className={cn(SMALL_DOT, "bg-warning")} />
+                    Back to question {n}
+                </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-[28px] py-[16px]">{children}</div>
+        </div>
+    );
+}
+
+// the picked answer keeps what it is; the toggle opens why it was asked and what the others were, when there is any.
+// fold (the narrow history) hides a long question's other options behind one link; the reasoning opens them too,
+// since it is about them
+function RailQuestion({
+    h,
+    justNow,
+    goTo,
+    fold,
+}: {
+    h: HistoryRow;
+    justNow: boolean;
+    goTo: (id: string) => void;
+    fold: boolean;
+}) {
     const [open, setOpen] = useState(false);
+    const [unfolded, setUnfolded] = useState(false);
+    const { options, folded } = fold ? foldedHistory(h, unfolded || open) : { options: h.options, folded: 0 };
     return (
         <div
             data-brainstorm-rail-entry
@@ -1101,7 +1245,7 @@ function RailQuestion({ h, justNow, goTo }: { h: HistoryRow; justNow: boolean; g
                 </div>
             ) : null}
             <ul aria-label={`${h.label} answers`} className="m-0 flex list-none flex-col gap-[6px] p-0 pl-[2px]">
-                {h.options.map((o, j) => (
+                {options.map((o, j) => (
                     <li key={j} data-picked={o.picked ? "" : undefined} className="flex items-start gap-[8px]">
                         {o.picked ? <CheckMark /> : <EmptyMark />}
                         <span className="flex min-w-0 flex-col gap-[2px]">
@@ -1144,6 +1288,18 @@ function RailQuestion({ h, justNow, goTo }: { h: HistoryRow; justNow: boolean; g
                         </span>
                     </li>
                 ) : null}
+                {folded > 0 ? (
+                    <li className="pl-[21px]">
+                        <button
+                            type="button"
+                            data-brainstorm-unfold
+                            onClick={() => setUnfolded(true)}
+                            className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline"
+                        >
+                            {folded} other {folded === 1 ? "option" : "options"}
+                        </button>
+                    </li>
+                ) : null}
             </ul>
             {h.reasons || h.into.length > 0 ? (
                 <div className="flex items-baseline gap-[14px] pl-[23px]">
@@ -1178,12 +1334,15 @@ function Unreadable({ s }: { s: BrainstormState }) {
     );
 }
 
-function Removed({ agent, topic, path }: { agent: AgentVM; topic: string; path: string }) {
+function Removed({ agent, topic, path, inTab }: { agent: AgentVM; topic: string; path: string; inTab: boolean }) {
     return (
         <EdgeState>
             <span className="text-[14px] font-semibold text-primary">{topic}'s brainstorm file is gone</span>
             <span data-brainstorm-gone className={cn(EXPLAINER, "break-words")}>
-                {brainstormGoneText(path)} The switch disappears once you close it.
+                {brainstormGoneText(path)}{" "}
+                {inTab
+                    ? "The Brainstorm tab disappears once you close it."
+                    : "The switch disappears once you close it."}
             </span>
             <button
                 type="button"

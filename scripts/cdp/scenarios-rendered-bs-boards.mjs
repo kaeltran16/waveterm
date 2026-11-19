@@ -77,7 +77,7 @@ export default (kit) => {
             };
         })()`);
 
-    const boardsScenario = scenario(NAME, { file: FILE, topic: TOPIC, boards: [MAIN, STATES], transcript: TRANSCRIPT }, async (h, ctx, step) => {
+    const boardsScenario = scenario(NAME, { noTab: true, file: FILE, topic: TOPIC, boards: [MAIN, STATES], transcript: TRANSCRIPT }, async (h, ctx, step) => {
         await step("Main: the question card draws no board, and its options carry chips: Main on 1, none on 2, States on 3", async () => {
             const card = await kit.waitCard(h, "question");
             const s = await readBoards(h);

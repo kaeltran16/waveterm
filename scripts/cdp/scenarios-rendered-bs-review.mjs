@@ -80,7 +80,7 @@ export default (kit) => {
     const keepOnQueue = `[...(${ROW("queue")}?.querySelectorAll("button") ?? [])].find((b) => b.innerText.trim() === "Keep the change")`;
 
     return [
-        scenario(NAME, { file: FILE }, async (h, ctx, step) => {
+        scenario(NAME, { noTab: true, file: FILE }, async (h, ctx, step) => {
             await step("CheckReview: the summary, Changed since you confirmed with Keep all, New since the check, the links, and each agent's call under its decision", async () => {
                 const shown = await waitCard(h, "review");
                 const s = await readReview(h);

@@ -70,6 +70,13 @@ const STACK_ROW = "@max-[820px]:grid-cols-[7px_minmax(0,1fr)_12px]";
 const STACK_GIST = "@max-[820px]:col-[2] @max-[820px]:row-start-2";
 const STACK_ACTIONS = "@max-[820px]:col-[2] @max-[820px]:row-start-3 @max-[820px]:mt-0 @max-[820px]:justify-start";
 const STACK_UNDER = "@max-[820px]:col-[2/-1]";
+// the workspace's 600px tab stacks every row, the ones with no action to take too: the same three placements below the
+// pane's narrow breakpoint (BS_NARROW_PX's twin, as BS_SPLIT's)
+const NARROW_ROW = "@max-[760px]/bs:grid-cols-[7px_minmax(0,1fr)_12px]";
+const NARROW_GIST = "@max-[760px]/bs:col-[2] @max-[760px]/bs:row-start-2";
+const NARROW_ACTIONS =
+    "@max-[760px]/bs:col-[2] @max-[760px]/bs:row-start-3 @max-[760px]/bs:mt-0 @max-[760px]/bs:justify-start @max-[760px]/bs:text-left";
+const NARROW_UNDER = "@max-[760px]/bs:col-[2/-1]";
 const ROW_CURSOR = "rounded-[8px] bg-surface-selected outline outline-1 -outline-offset-1 outline-accent";
 // a decision the check rewrote waits on keep or put back: an accent ring until it is yours again
 const REVIEW_DOT: Record<PartView, string> = {
@@ -264,7 +271,7 @@ function ReviewRowView({
         setEditing(true);
     };
     const stacks = row.action === "keep-restore" || row.action === "confirm";
-    const under = stacks && STACK_UNDER;
+    const under = cn(stacks && STACK_UNDER, NARROW_UNDER);
     const picked = shownPicks(s)[row.id];
     const pickBtn = (label: string, pick: PartPick, className: string) => (
         <PickButton
@@ -280,7 +287,7 @@ function ReviewRowView({
     let right = null;
     if (row.action === "keep-restore") {
         right = (
-            <span className={cn("-mt-[3px] flex items-center justify-end gap-[12px]", STACK_ACTIONS)}>
+            <span className={cn("-mt-[3px] flex items-center justify-end gap-[12px]", STACK_ACTIONS, NARROW_ACTIONS)}>
                 {pickBtn("Keep the change", "keep", cn(PART_BTN, "whitespace-nowrap"))}
                 {pickBtn("Put mine back", "restore", QUIET_BTN)}
             </span>
@@ -290,7 +297,11 @@ function ReviewRowView({
         right = (
             <ViewSwap
                 swapKey={editing ? "editing" : "actions"}
-                className={cn(!editing && "-mt-[3px] flex items-center justify-end gap-[12px]", STACK_ACTIONS)}
+                className={cn(
+                    !editing && "-mt-[3px] flex items-center justify-end gap-[12px]",
+                    STACK_ACTIONS,
+                    NARROW_ACTIONS
+                )}
             >
                 {editing ? null : (
                     <>
@@ -310,7 +321,7 @@ function ReviewRowView({
         );
     } else if (row.action === "answer") {
         right = (
-            <span className="-mt-[3px] flex justify-end">
+            <span className={cn("-mt-[3px] flex justify-end", NARROW_ACTIONS)}>
                 <button
                     type="button"
                     onClick={() => openBrainstormDesign(agent.id, false)}
@@ -321,9 +332,10 @@ function ReviewRowView({
             </span>
         );
     } else if (row.view === "yours") {
-        right = <span className="mt-[2px] text-right text-[11.5px] text-success">Yours</span>;
+        right = <span className={cn("mt-[2px] text-right text-[11.5px] text-success", NARROW_ACTIONS)}>Yours</span>;
     } else {
-        right = <span />;
+        // a placeholder for the grid's column; stacked, it would only add a row gap
+        right = <span className="@max-[760px]/bs:hidden" />;
     }
     return (
         <div
@@ -331,7 +343,7 @@ function ReviewRowView({
             data-cursor={cursor ? "" : undefined}
             data-state={row.view}
             onClick={() => setReviewCursor(agent.id, row.id)}
-            className={cn(ROW_GRID, "scroll-mt-[20px]", stacks && STACK_ROW, cursor && ROW_CURSOR)}
+            className={cn(ROW_GRID, "scroll-mt-[20px]", stacks && STACK_ROW, NARROW_ROW, cursor && ROW_CURSOR)}
         >
             <span className={cn(REVIEW_DOT[row.view], "mt-[6px]")} />
             {expandable ? (
@@ -346,7 +358,7 @@ function ReviewRowView({
             ) : (
                 <span className="text-[13.5px] font-semibold leading-[1.45] text-primary">{row.title}</span>
             )}
-            <span className={cn("flex min-w-0 flex-col gap-[2px]", stacks && STACK_GIST)}>
+            <span className={cn("flex min-w-0 flex-col gap-[2px]", stacks && STACK_GIST, NARROW_GIST)}>
                 <span
                     data-brainstorm-gist
                     className={cn(

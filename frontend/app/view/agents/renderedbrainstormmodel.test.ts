@@ -54,6 +54,7 @@ const state = (f: BrainstormFile | null, over: Partial<BrainstormState> = {}): B
     lastViewedMs: 0,
     board: null,
     designOpen: false,
+    historyOpen: false,
     boards: [],
     base: null,
     turn: { read: [], canvases: {} },

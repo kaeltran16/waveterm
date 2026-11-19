@@ -326,6 +326,8 @@ function PicksBar({
     );
 }
 
+const REVIEW_TITLE = "Review what the check changed";
+
 export function ReviewCard({ agent, s, f, compact }: CardProps): JSX.Element | null {
     const v = reviewCardView(f, shownPicks(s));
     const working = f.working != null;
@@ -342,10 +344,19 @@ export function ReviewCard({ agent, s, f, compact }: CardProps): JSX.Element | n
     );
     const head = <span className="min-w-0 truncate font-mono text-[12px] text-ink-mid">{s.topic}</span>;
     return (
-        <CardFrame agent={agent} s={s} f={f} asking={true} head={head} compact={compact} attr="data-rendered-bs-review">
+        <CardFrame
+            agent={agent}
+            s={s}
+            f={f}
+            asking={true}
+            head={head}
+            title={REVIEW_TITLE}
+            compact={compact}
+            attr="data-rendered-bs-review"
+        >
             <div className="flex flex-col gap-1">
                 <span className={cn("font-bold leading-[1.4] text-primary", compact ? "text-[15px]" : "text-[17px]")}>
-                    Review what the check changed
+                    {REVIEW_TITLE}
                 </span>
                 {v.summary ? (
                     <span

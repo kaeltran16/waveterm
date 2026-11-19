@@ -3,7 +3,17 @@
 
 import { describe, expect, it } from "vitest";
 import type { BrainstormFile, BuilderCheckView, BuilderQuestion } from "./brainstormmodel";
-import { builderHead, cardClock, cardTime, checkCardState, clockBar, settledLine } from "./renderedbscheckmodel";
+import {
+    builderHead,
+    cardClock,
+    cardTime,
+    CHECK_FAILED_LINE,
+    CHECK_SETTLED_LINE,
+    checkCardState,
+    checkRowTitle,
+    clockBar,
+    settledLine,
+} from "./renderedbscheckmodel";
 
 const READING: BuilderCheckView = { kind: "pending", stage: "reading", text: "A builder is reading the design." };
 const TAKING_IN: BuilderCheckView = {
@@ -71,6 +81,18 @@ describe("builderHead", () => {
     it("has no part to link when the question names none", () => {
         const f = file([{ q: "Anything else?" }]);
         expect(builderHead(f)).toEqual({ lead: "Builder question · 1 of 1", part: null });
+    });
+});
+
+describe("checkRowTitle", () => {
+    it.each([
+        ["a builder reading names its stage", file([]), READING, READING.text],
+        ["the agent taking in its questions names that stage", file([]), TAKING_IN, TAKING_IN.text],
+        ["a check that did not finish says so", file([]), FAILED, CHECK_FAILED_LINE],
+        ["an open builder question names which one", file([ANSWERED, OPEN]), NONE, "Builder question · 2 of 2"],
+        ["every builder question answered reads as the approve bar's line", file([ANSWERED]), NONE, CHECK_SETTLED_LINE],
+    ] as const)("%s", (_what, f, check, want) => {
+        expect(checkRowTitle(f, check, false)).toBe(want);
     });
 });
 

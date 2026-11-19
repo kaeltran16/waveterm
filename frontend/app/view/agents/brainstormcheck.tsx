@@ -51,6 +51,7 @@ import {
     Track,
     useAction,
     useAnswer,
+    useBsNarrow,
     WORKING_TITLE,
     WorkingMain,
 } from "./brainstormui";
@@ -82,6 +83,8 @@ export function Check({
     s: BrainstormState;
     f: BrainstormFile;
 }) {
+    // the hints bar would take a row of the tab's 600px; the keys work without it
+    const narrow = useBsNarrow();
     const linePending = s.sent != null;
     const main = checkMain(f, s.designOpen, linePending);
     // the review opened over a question or the working note: the way back to it
@@ -148,7 +151,7 @@ export function Check({
                 </div>
                 {main === "review" ? <AnsweredRail f={f} agent={agent} /> : <AskRail f={f} goTo={goTo} />}
             </div>
-            {main === "review" ? <ReviewHints /> : null}
+            {main === "review" && !narrow ? <ReviewHints /> : null}
         </>
     );
 }
@@ -366,18 +369,20 @@ function ApproveBar({
             live = false;
         };
     }, [agent.blockId]);
-    // the buttons own row one and never wrap; the blocker, which can be long, takes a row of its own below them
+    // the two buttons stay together: beside the text while they fit, else on a row of their own under it. The text
+    // wraps rather than truncating, since the run line names where the run starts. The blocker, which can be long, takes
+    // a row of its own below
     return (
         <div
             data-brainstorm-approve-bar
             className="flex flex-none flex-col gap-[8px] border-t border-border bg-surface px-[22px] py-[12px]"
         >
-            <div className="flex items-center gap-[14px]">
-                <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                    <span className="truncate text-[13px] font-semibold text-primary">
+            <div className="flex flex-wrap items-center gap-x-[14px] gap-y-[8px]">
+                <div className="flex min-w-0 flex-1 basis-[260px] flex-col gap-[3px]">
+                    <span data-brainstorm-approve-title className="text-[13px] font-semibold text-primary">
                         Approve and start an orchestrator run
                     </span>
-                    <span className="truncate font-mono text-[11px] text-muted">
+                    <span data-brainstorm-approve-line className="break-words font-mono text-[11px] text-muted">
                         {runLine(projectOf(agent))}
                         {showChange ? (
                             <>
@@ -397,28 +402,27 @@ function ApproveBar({
                     </span>
                     <ErrorLine error={act.error} />
                 </div>
-                <button
-                    type="button"
-                    disabled={working || act.busy}
-                    title={working ? WORKING_TITLE : undefined}
-                    onClick={() => void act.run(() => sendBrainstorm(agent, { kind: "keep-talking" }))}
-                    className={cn(
-                        CANVAS_BTN,
-                        "flex-none whitespace-nowrap disabled:cursor-default disabled:opacity-50"
-                    )}
-                >
-                    Keep talking
-                </button>
-                <button
-                    type="button"
-                    data-brainstorm-approve
-                    disabled={blocker != null || act.busy}
-                    title={blocker ?? undefined}
-                    onClick={() => void act.run(() => approveAndOpenRun(model, agent, s))}
-                    className={cn(CANVAS_PRIMARY_BTN, "flex-none whitespace-nowrap")}
-                >
-                    Approve and start run
-                </button>
+                <div className="ml-auto flex flex-none items-center gap-[14px]">
+                    <button
+                        type="button"
+                        disabled={working || act.busy}
+                        title={working ? WORKING_TITLE : undefined}
+                        onClick={() => void act.run(() => sendBrainstorm(agent, { kind: "keep-talking" }))}
+                        className={cn(CANVAS_BTN, "whitespace-nowrap disabled:cursor-default disabled:opacity-50")}
+                    >
+                        Keep talking
+                    </button>
+                    <button
+                        type="button"
+                        data-brainstorm-approve
+                        disabled={blocker != null || act.busy}
+                        title={blocker ?? undefined}
+                        onClick={() => void act.run(() => approveAndOpenRun(model, agent, s))}
+                        className={cn(CANVAS_PRIMARY_BTN, "whitespace-nowrap")}
+                    >
+                        Approve and start run
+                    </button>
+                </div>
             </div>
             <PaneReveal open={blocker != null} variants={composerReveal}>
                 <span data-brainstorm-approve-reason className="block text-[12px] leading-[1.45] text-warning">

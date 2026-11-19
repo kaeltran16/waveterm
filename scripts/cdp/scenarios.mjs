@@ -64,6 +64,10 @@ import { workspaceRunGraph } from "./scenarios-workspace-run-graph.mjs";
 import { workspaceChanges } from "./scenarios-workspace-changes.mjs";
 import { workspaceFile } from "./scenarios-workspace-file.mjs";
 import { workspaceBrainstormCanvas } from "./scenarios-workspace-brainstorm-canvas.mjs";
+import { workspaceBrainstormQuestion } from "./scenarios-workspace-brainstorm-question.mjs";
+import { workspaceBrainstormHistory } from "./scenarios-workspace-brainstorm-history.mjs";
+import { workspaceBrainstormCards } from "./scenarios-workspace-brainstorm-cards.mjs";
+import { workspaceBrainstormCheck } from "./scenarios-workspace-brainstorm-check.mjs";
 import { workspaceAutoOpen } from "./scenarios-workspace-auto-open.mjs";
 import { RENDERED_BS_SCENARIOS } from "./scenarios-rendered-brainstorm.mjs";
 import {
@@ -388,6 +392,10 @@ export const SCENARIOS = [
     workspaceChanges,
     workspaceFile,
     workspaceBrainstormCanvas,
+    workspaceBrainstormQuestion,
+    workspaceBrainstormHistory,
+    workspaceBrainstormCards,
+    workspaceBrainstormCheck,
     workspaceAutoOpen,
     ...RENDERED_BS_SCENARIOS,
     canvasMark,

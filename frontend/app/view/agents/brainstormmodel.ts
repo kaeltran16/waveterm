@@ -932,15 +932,15 @@ export function boardTabLabels(f: BrainstormFile, judging = false): Record<strin
     if (options.length === 0) {
         return null;
     }
-    const letters: Record<string, string[]> = {};
+    const numbers: Record<string, string[]> = {};
     options.forEach((o, i) => {
         for (const b of o.boards ?? []) {
-            (letters[b] ??= []).push(optionLetter(i));
+            (numbers[b] ??= []).push(optionNumber(i));
         }
     });
     const labels: Record<string, string> = {};
-    for (const [b, ls] of Object.entries(letters)) {
-        labels[b] = `${[...new Set(ls)].join(", ")} · ${boardLabel(b)}`;
+    for (const [b, ns] of Object.entries(numbers)) {
+        labels[b] = `${[...new Set(ns)].join(", ")} · ${boardLabel(b)}`;
     }
     for (const b of askedPartBoards(f)) {
         labels[b] ??= `${SHARED_TAB} · ${boardLabel(b)}`;
@@ -1031,15 +1031,27 @@ export function historyRows(f: BrainstormFile, unseen: Unseen = NOTHING_UNSEEN):
     return [...rows.filter((r) => r.kind === "recon"), ...rows.filter((r) => r.kind === "question")];
 }
 
-export const OPTION_KEYS = ["a", "b", "c", "d"] as const;
+// the narrow history shows a question's options whole up to this many; past it, only the pick, the rest folded
+export const HISTORY_FOLD_AT = 3;
+
+// folded is how many options hide behind "N other options"; an own-words answer folds them all and stays whole itself
+export function foldedHistory(h: HistoryRow, unfolded: boolean): { options: HistoryRow["options"]; folded: number } {
+    if (unfolded || h.options.length <= HISTORY_FOLD_AT) {
+        return { options: h.options, folded: 0 };
+    }
+    const options = h.options.filter((o) => o.picked);
+    return { options, folded: h.options.length - options.length };
+}
+
+export const OPTION_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
 
 // the question carries the agent's reasons, which the pane draws under each answer behind one toggle
 export function hasProsCons(q: BrainstormQuestion): boolean {
     return (q.options ?? []).some((o) => o.pros != null || o.cons != null);
 }
 
-export function optionLetter(i: number): string {
-    return String.fromCharCode("A".charCodeAt(0) + i);
+export function optionNumber(i: number): string {
+    return String(i + 1);
 }
 
 export type JudgeWork = { line: string; judged: boolean; dropped: { name: string; reason: string }[] };
@@ -1240,7 +1252,7 @@ export function checkClock(
     };
 }
 
-// how many of the asked question's options a letter key picks: as many as the pane draws, up to the keys there are.
+// how many of the asked question's options a digit key picks: as many as the pane draws, up to the keys there are.
 // During the judge's wait the pane draws the approaches as the rows, so a key picks one of them
 export function pickableOptions(
     f: BrainstormFile | null,
@@ -1948,12 +1960,13 @@ export function brainstormGoneText(path: string): string {
 }
 
 // The one level the pane's back control steps up, or null where it draws none: a full-size board goes back to where
-// it was opened, and the design opened over the question or the working note goes back to it. Esc takes the same
-// step (agent:brainstorm-back), so the key and the controls cannot disagree on when there is one
-export type PaneBack = "board" | "design";
+// it was opened, the narrow history opened over the question or the judge's wait goes back to it, and the design
+// opened over the question or the working note goes back to it. Esc takes the same step (agent:brainstorm-back), so
+// the key and the controls cannot disagree on when there is one
+export type PaneBack = "board" | "history" | "design";
 
 export function paneBack(
-    s: Parameters<typeof paneView>[0] & { designOpen: boolean },
+    s: Parameters<typeof paneView>[0] & { designOpen: boolean; historyOpen?: boolean; sent?: SentLine | null },
     f: BrainstormFile | null
 ): PaneBack | null {
     const view = paneView(s);
@@ -1967,6 +1980,10 @@ export function paneBack(
         return checkUnder(f, s.designOpen) !== "review" ? "design" : null;
     }
     if (view === "design") {
+        const main = mainView(f, s.designOpen, s.sent != null);
+        if (s.historyOpen && (main === "question" || main === "judging")) {
+            return "history";
+        }
         return designUnder(f, s.designOpen) !== "design" ? "design" : null;
     }
     return null;

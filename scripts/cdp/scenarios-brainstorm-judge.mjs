@@ -203,7 +203,7 @@ const WAIT_STOP_RESTORE = `(() => {
 })()`;
 const WAIT_PROMPT = /[>$#%]$/;
 const WAIT_PROMPT_WAIT_MS = 20000;
-const WAIT_KEY_C = { key: "c", code: "KeyC", windowsVirtualKeyCode: 67, text: "c" };
+const WAIT_KEY_3 = { key: "3", code: "Digit3", windowsVirtualKeyCode: 51, text: "3" };
 
 export default function (kit) {
     const { bsBoardScenario, bsWrite, bsUntil, bsBrief, bsClick, polishNap, BS_PANE } = kit;
@@ -336,7 +336,7 @@ function judgeWaitScenario(kit) {
                 treeLine: flat(${BS_TREE_LINE}),
             };
         })()`);
-    const rowText = (a, i) => `${String.fromCharCode(65 + i)} ${a.name} ${a.description}`;
+    const rowText = (a, i) => `${i + 1} ${a.name} ${a.description}`;
     const wantRows = WAIT_APPROACHES.map((a, i) => ({ option: String(i), text: rowText(a, i), facts: a.facts }));
     const drawn = (w) => w.judging && w.status === WAIT_WORKING && eqJson(w.rows, wantRows);
     const ROW = (i) => `${BS_PANE}?.querySelector('[data-brainstorm-approach][data-brainstorm-option="${i}"]')`;
@@ -394,7 +394,7 @@ function judgeWaitScenario(kit) {
             const w1 = await waitFor(h, drawn);
             await h.shot("cdp-shots/brainstorm-judge-wait-1.png");
             rec(
-                "1. the wait: the question and its why, the status line, What the judge is weighing · 7, the 7 approaches in file order with their facts listed under each and a letter on each, a fact's paths set as code and its prose not, the box open with its placeholder, no Guess for me, and the agent's tree line names the judge",
+                "1. the wait: the question and its why, the status line, What the judge is weighing · 7, the 7 approaches in file order with their facts listed under each and a number on each, a fact's paths set as code and its prose not, the box open with its placeholder, no Guess for me, and the agent's tree line names the judge",
                 s1.ok &&
                     w1.ok &&
                     eqJson(w1.codes, ["frontend/app/view/agents/brainstormpane.tsx", "cmd/wsh/cmd/wshcmd-transcript.go", "~/.claude/projects"]) &&
@@ -450,22 +450,22 @@ function judgeWaitScenario(kit) {
             );
             await bsAgentTook(h, ctx);
 
-            // 4. the letter c focuses the third row and Enter sends it
+            // 4. the digit 3 focuses the third row and Enter sends it
             const armed4 = await rearm(h, ctx);
             const focusClick = await bsMouseClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-judging] h1")`);
             if (!(focusClick && (await bsKeysArrive(h)))) {
-                skip("4. the letter c focuses the third row and Enter sends its name", `could not verify: CDP keys do not reach the page (armed ${armed4}, clicked ${focusClick})`);
+                skip("4. the digit 3 focuses the third row and Enter sends its name", `could not verify: CDP keys do not reach the page (armed ${armed4}, clicked ${focusClick})`);
             } else {
                 const third = WAIT_APPROACHES[2].name;
                 mark = await bsMark(h, ctx, third);
-                await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...WAIT_KEY_C });
-                await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...WAIT_KEY_C });
+                await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", ...WAIT_KEY_3 });
+                await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...WAIT_KEY_3 });
                 await polishNap(300);
                 const w4 = await readWait(h);
                 await h.shot("cdp-shots/brainstorm-judge-wait-4-key.png");
                 await bsKey(h, null, "Enter", "keys");
                 const typed4 = await bsTyped(h, ctx, mark, third);
-                rec("4. the letter c focuses the third row and Enter sends its name", armed4 && w4.focused === "2" && typed4.ok, {
+                rec("4. the digit 3 focuses the third row and Enter sends its name", armed4 && w4.focused === "2" && typed4.ok, {
                     armed: armed4,
                     focused: w4.focused,
                     ...typed4.detail,
