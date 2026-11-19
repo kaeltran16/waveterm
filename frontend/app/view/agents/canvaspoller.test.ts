@@ -145,6 +145,34 @@ describe("pollCanvasOnce", () => {
         });
     });
 
+    it.each<[string, Served]>([
+        ["empty", { files: { "canvas.json": 500 }, json: { boards: {} } }],
+        ["not served", { files: {} }],
+    ])("has no boards when canvas.json is %s and Main.dc.html is not there", async (_, served) => {
+        const patch = await pollCanvasOnce(state({ base: BASE }), fakeIO(served), NOW);
+        expect(patch).toMatchObject({ base: BASE, status: "ready", boards: [], boardModifiedMs: {} });
+    });
+
+    it("is server-down when canvas.json lists nothing and the Main.dc.html HEAD does not answer", async () => {
+        const io = fakeIO({ files: { "Main.dc.html": 1000 } });
+        const headFails: CanvasIO = {
+            ...io,
+            head: async (url) =>
+                url.endsWith("Main.dc.html") ? { status: "error", lastModified: null } : io.head(url),
+        };
+        expect(await pollCanvasOnce(state({ base: BASE }), headFails, NOW)).toEqual({
+            base: null,
+            status: "server-down",
+        });
+    });
+
+    it("keeps the boards canvas.json lists though their files are not written yet", async () => {
+        const io = fakeIO({ files: { "canvas.json": 500 }, json: JSON_TWO });
+        const patch = await pollCanvasOnce(state({ base: BASE }), io, NOW);
+        expect(patch.boards).toEqual(BOARDS_TWO);
+        expect(patch.boardModifiedMs).toEqual({});
+    });
+
     it("is server-down when any one board file does not answer", async () => {
         const io = fakeIO({
             files: { "Main.dc.html": 1000, "States.dc.html": 3000, "canvas.json": 2000 },

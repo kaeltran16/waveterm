@@ -15,6 +15,7 @@ const BOARD_EXT = ".dc.html";
 // the All tab's key: never a board name, which always ends in .dc.html
 export const ALL_TAB = "all";
 const MAIN_BOARD = "Main.dc.html";
+const SECS_PER_DAY = 86_400;
 
 // x/y/w/h are the board's frame on the canvas, in CSS px, as canvas.json lays it out
 export type CanvasBoard = { name: string; x: number; y: number; w: number; h: number; title?: string };
@@ -55,12 +56,10 @@ function placeBoards(entries: { name: string; entry: unknown }[]): CanvasBoard[]
     return boards;
 }
 
-// canvas.json is written by the design skill, not by Arc, so anything malformed reads as the one board
-// every canvas has rather than as an error
-export function boardsFromCanvasJson(json: unknown): CanvasBoard[] {
-    const fallback = [MAIN_FALLBACK];
+// the boards canvas.json lists, none when it lists none (absent, malformed or empty)
+export function canvasJsonBoards(json: unknown): CanvasBoard[] {
     if (!isRecord(json) || !isRecord(json.boards)) {
-        return fallback;
+        return [];
     }
     const boards = json.boards;
     const known = (n: unknown): n is string => typeof n === "string" && n.endsWith(BOARD_EXT) && n in boards;
@@ -69,10 +68,14 @@ export function boardsFromCanvasJson(json: unknown): CanvasBoard[] {
         names = Object.keys(boards).filter(known);
         names.sort((a, b) => Number(b === MAIN_BOARD) - Number(a === MAIN_BOARD));
     }
-    if (names.length === 0) {
-        return fallback;
-    }
     return placeBoards(names.map((name) => ({ name, entry: boards[name] })));
+}
+
+// canvas.json is written by the design skill, not by Arc, so anything malformed reads as the one board
+// every canvas has rather than as an error
+export function boardsFromCanvasJson(json: unknown): CanvasBoard[] {
+    const boards = canvasJsonBoards(json);
+    return boards.length > 0 ? boards : [MAIN_FALLBACK];
 }
 
 // the selected board: the one marks, Open in browser and the tabs act on. A name that isn't in the list (a
@@ -136,9 +139,15 @@ export function stepTab(tabs: string[], current: string | null, delta: number): 
 }
 
 // the Removed state's way out. A plain canvas detaches, which closes it; inside a brainstorm (backLabel
-// set) the brainstorm owns the way back, since detaching there leaves its board view with no canvas to draw
-export function removedExit(backLabel: string | undefined): { label: string; detach: boolean } {
-    return backLabel != null ? { label: backLabel, detach: false } : { label: "Close the canvas", detach: true };
+// set) the brainstorm owns the way back, since detaching there leaves its board view with no canvas to draw.
+// swapNote: the Terminal view's canvas has a swap control that goes when the canvas closes; the tab has none
+export function removedExit(backLabel?: string, inTab = false): { label: string; detach: boolean; swapNote: boolean } {
+    if (backLabel != null) {
+        return { label: backLabel, detach: false, swapNote: false };
+    }
+    return inTab
+        ? { label: "Close the tab", detach: true, swapNote: false }
+        : { label: "Close the canvas", detach: true, swapNote: true };
 }
 
 export function paneState(s: CanvasState): "board" | "probing" | "server-down" | "removed" {
@@ -175,7 +184,10 @@ export function updatedAgo(nowMs: number, ms: number | null): string {
     if (secs < 3600) {
         return `updated ${Math.floor(secs / 60)}m ago`;
     }
-    return `updated ${Math.floor(secs / 3600)}h ago`;
+    if (secs < SECS_PER_DAY) {
+        return `updated ${Math.floor(secs / 3600)}h ago`;
+    }
+    return `updated ${Math.floor(secs / SECS_PER_DAY)}d ago`;
 }
 
 export function fitScale(paneWidth: number, boardWidth: number): number {
