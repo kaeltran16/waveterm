@@ -42,6 +42,8 @@ interface CodeEditorProps {
     onChange?: (text: string) => void;
     onMount?: (monacoPtr: MonacoTypes.editor.IStandaloneCodeEditor, monaco: typeof MonacoModule) => () => void;
     keepModel?: boolean;
+    // applied over the settings-derived options, for a host that fixes them whatever the settings say
+    options?: MonacoTypes.editor.IEditorOptions;
 }
 
 export function CodeEditor({
@@ -53,6 +55,7 @@ export function CodeEditor({
     onChange,
     onMount,
     keepModel,
+    options,
 }: CodeEditorProps) {
     const divRef = useRef<HTMLDivElement>(null);
     const unmountRef = useRef<() => void>(null);
@@ -103,8 +106,8 @@ export function CodeEditor({
         opts.wordWrap = wordWrap ? "on" : "off";
         opts.fontSize = fontSize;
         opts.copyWithSyntaxHighlighting = false;
-        return opts;
-    }, [minimapEnabled, stickyScrollEnabled, wordWrap, fontSize, readonly]);
+        return { ...opts, ...options };
+    }, [minimapEnabled, stickyScrollEnabled, wordWrap, fontSize, readonly, options]);
 
     return (
         <div className="flex flex-col w-full h-full items-center justify-center">

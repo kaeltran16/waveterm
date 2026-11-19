@@ -136,7 +136,7 @@ async function loadFile(abs: string, current: () => boolean): Promise<PeekFile |
     }
     const inRepo = at?.isrepo === true && !!at.root;
     const rel = inRepo ? (at.prefix ?? "") + base : base;
-    const open: PeekOpen = inRepo ? { projectPath: at.root, rel } : { projectPath: dir, rel: base };
+    const open: PeekOpen = inRepo ? { projectPath: at.root, rel, inRepo } : { projectPath: dir, rel: base, inRepo };
     if (info.isdir) {
         return { kind: "folder", open };
     }

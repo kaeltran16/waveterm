@@ -29,21 +29,23 @@ type Patch struct {
 
 // GetPatch returns the unified patch of the working tree against ref (HEAD when ""), cwd-relative like
 // GetChanges, with untracked files appended in git's own new-file form: git diff never shows them.
-// With end set it is the patch of ref..end alone, so nothing else in the working tree shows.
-func GetPatch(ctx context.Context, cwd, ref, end string, ignoreWs bool) (*Patch, error) {
+// With end set it is the patch of ref..end alone, so nothing else in the working tree shows. A non-empty path
+// (cwd-relative, forward slashes) narrows it to that one path, matched literally.
+func GetPatch(ctx context.Context, cwd, ref, end, path string, ignoreWs bool) (*Patch, error) {
 	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
 	defer cancel()
 	facts := readRepoFacts(ctx, cwd)
 	if !facts.isRepo {
 		return &Patch{}, nil
 	}
-	tracked, err := trackedPatch(ctx, cwd, ref, end, facts.head, ignoreWs)
+	pathspec := patchPathspec(path)
+	tracked, err := trackedPatch(ctx, cwd, ref, end, facts.head, pathspec, ignoreWs)
 	if err != nil {
 		return nil, err
 	}
 	untrackedZ := ""
 	if end == "" {
-		statusArgs := []string{"--no-optional-locks", "status", "--porcelain=v1", "-z", "-uall", "--", "."}
+		statusArgs := []string{"--no-optional-locks", "status", "--porcelain=v1", "-z", "-uall", "--", pathspec}
 		statusZ, err := run(ctx, cwd, statusArgs...)
 		if err != nil {
 			return nil, describeGitError(statusArgs, err)
@@ -63,12 +65,12 @@ func GetPatch(ctx context.Context, cwd, ref, end string, ignoreWs bool) (*Patch,
 		if len(entry) < 3 {
 			continue
 		}
-		path := entry[3:]
+		entryPath := entry[3:]
 		// an untracked nested repo lists as one "dir/" entry that git never descends into; git diff shows nothing for it
-		if strings.HasSuffix(path, "/") {
+		if strings.HasSuffix(entryPath, "/") {
 			continue
 		}
-		next, tooBig, err := untrackedEntry(filepath.Join(cwd, filepath.FromSlash(path)), path, maxPatchBytes-b.Len())
+		next, tooBig, err := untrackedEntry(filepath.Join(cwd, filepath.FromSlash(entryPath)), entryPath, maxPatchBytes-b.Len())
 		if err != nil {
 			return nil, err
 		}
@@ -122,7 +124,7 @@ func isBinary(content []byte) bool {
 
 // trackedPatch is git's own diff of the tracked files. With no commits and no ref there is nothing to
 // diff against, so only the untracked entries answer, as GetChanges does for numstat.
-func trackedPatch(ctx context.Context, cwd, ref, end, head string, ignoreWs bool) (string, error) {
+func trackedPatch(ctx context.Context, cwd, ref, end, head, pathspec string, ignoreWs bool) (string, error) {
 	if ref == "" && head == "" {
 		return "", nil
 	}
@@ -141,11 +143,23 @@ func trackedPatch(ctx context.Context, cwd, ref, end, head string, ignoreWs bool
 		args = append(args, end)
 	}
 	args = append(args, "--")
+	if pathspec != "." {
+		args = append(args, pathspec)
+	}
 	out, err := run(ctx, cwd, args...)
 	if err != nil {
 		return "", describeGitError(args, err)
 	}
 	return out, nil
+}
+
+// patchPathspec is the pathspec both git calls take: the whole cwd for "", else the one path as a literal,
+// so a "*" or "[" in a file name is never a glob.
+func patchPathspec(path string) string {
+	if path == "" {
+		return "."
+	}
+	return ":(literal)" + path
 }
 
 // splitPatchFiles cuts git diff output into one string per file. A hunk line always starts with a
