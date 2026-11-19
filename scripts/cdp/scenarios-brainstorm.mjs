@@ -4,6 +4,7 @@ import { pinDefaultView, restoreDefaultView } from "./agent-page-fixtures.mjs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
+    APP_MOD,
     BS_ANSWER_LINES,
     BS_BOARDS,
     BS_BUILDER_A,
@@ -456,10 +457,30 @@ const BS_NOT_WRITING = `(() => {
         !(pane.querySelector("[data-brainstorm-approve-reason]")?.textContent ?? "").includes("writing");
 })()`;
 
-// the agent took the last sent line and ended its turn without a write: idle since now, which settles the line
+// the pending line the store holds for ctx's brainstorm, and whether the pane reads as the agent writing
+const bsSentState = (ctx) => `(async () => {
+    ${APP_MOD}
+    const [S, B] = await Promise.all([mod("app/store/jotaiStore.ts"), mod("app/view/agents/brainstormstore.ts")]);
+    const want = ${JSON.stringify(ctx.file.replace(/\\/g, "/").toLowerCase())};
+    const s = Object.values(S.globalStore.get(B.brainstormsAtom)).find((x) => x.path.replace(/\\\\/g, "/").toLowerCase() === want);
+    return { attached: s != null, sent: s?.sent ?? null, notWriting: ${BS_NOT_WRITING} };
+})()`;
+
+// the agent took the last sent line and ended its turn without a write: idle since now, which settles the line.
+// The pane draws a sent line a render after the store holds it, so a pane that does not read as writing yet says
+// nothing: the wait reads the store, the line held before the idle and gone after it, the pane drawn to match. A
+// send that never reached the store has nothing to settle, and its own step already failed on it.
 async function bsAgentTook(h, ctx) {
+    const read = () => h.ev(bsSentState(ctx)).catch((e) => ({ error: String(e?.message ?? e) }));
+    const registered = await polishWaitFor(h, `${bsSentState(ctx)}.then((s) => s.sent != null)`, BS_TYPED_WAIT_MS);
+    if (!registered) {
+        const state = await read();
+        if (state?.attached !== true) throw new Error(`could not read the brainstorm's sent line: ${JSON.stringify(state)}`);
+    }
     await bsPublishStatus(h, ctx);
-    return polishWaitFor(h, BS_NOT_WRITING, BS_POLL_WAIT_MS);
+    if (!registered) return false;
+    if (await polishWaitFor(h, `${bsSentState(ctx)}.then((s) => s.sent == null && s.notWriting)`, BS_POLL_WAIT_MS)) return true;
+    throw new Error(`the agent went idle but the sent line never settled: ${JSON.stringify(await read())}`);
 }
 
 const bsTabMeta = async (h, ctx) =>
@@ -1431,6 +1452,8 @@ async function bsArrangeAgent(h, topic, file) {
         mkdirSync(dirname(ctx.file), { recursive: true });
         bsWrite(ctx, file);
         await openCanvasTerminal(h, ctx, topic);
+        // cmd, as brainstorm-mode's: pwsh echoes a sent line only after failing the one before, seconds under load
+        await h.rpc("setmeta", { oref: `block:${ctx.blockId}`, meta: { "term:localshellpath": "cmd.exe" } });
         await bsPublishStatus(h, ctx);
     } catch (e) {
         ctx.launchError = String(e?.message ?? e);
