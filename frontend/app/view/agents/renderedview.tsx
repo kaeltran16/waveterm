@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The Agent surface center's Rendered mode: the focused claude agent's live transcript as a readable timeline,
+// The Agent surface center's Rendered mode: the focused claude or pi agent's live transcript as a readable timeline,
 // with a message box that drives the same pty the terminal shows. The terminal block stays mounted beside it.
 // The working line is the timeline's tail, under the messages still waiting on the agent; once your last prompt has
 // scrolled out of view, a bar pinned at the top holds it. A file path in a reply opens in a File tab of the workspace
@@ -32,14 +32,15 @@ import { useWorkingTail } from "./nowlineview";
 import { PermissionBand } from "./permissionband";
 import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
+import { PI_HARNESS } from "./picommands";
 import { lastPrompt, pinnedPrompt, samePin, type PinnedPrompt, type RowOf } from "./pinnedprompt";
 import { footList, type FootItem } from "./queuedprompts";
 import { NeedsInputPill, RenderedBrainstorm } from "./renderedbrainstorm";
 import { PinnedRow, useEntryRowView, useRenderedEntryRow } from "./renderedbsrows";
 import { RenderedComposer } from "./renderedcomposer";
-import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip } from "./renderedmode";
+import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip, shouldUnflipAtBoundary } from "./renderedmode";
 import type { ReplyFileLink } from "./replyfilelinks";
-import { getLastHookAtom } from "./session-models/agentstatusstore";
+import { getLastHookAtom, getPromptBoundaryAtom } from "./session-models/agentstatusstore";
 import { ShowEarlier } from "./showearlier";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { useTranscriptContext, type TranscriptContext } from "./transcriptcontext";
@@ -64,17 +65,21 @@ function useReplyFileLink(model: AgentsViewModel, agent: AgentVM) {
     );
 }
 
-// A picker the composer flipped to the terminal has closed once the agent's next prompt-boundary hook lands. Called
-// by the surface, not the view, because the view is unmounted while the flip holds the terminal.
+// A picker the composer flipped to the terminal has closed once the agent's next prompt boundary lands: Claude's
+// prompt-boundary hook, or pi's boundary state report. Called by the surface, not the view, because the view is
+// unmounted while the flip holds the terminal.
 export function useUnflipOnPrompt(agent: AgentVM | undefined) {
     const flipAtom = pickerFlipAtom(agent?.id ?? "");
     const flipTs = useAtomValue(flipAtom);
-    const last = useAtomValue(getLastHookAtom(agent?.blockId ? `block:${agent.blockId}` : ""));
+    const oref = agent?.blockId ? `block:${agent.blockId}` : "";
+    const last = useAtomValue(getLastHookAtom(oref));
+    const boundary = useAtomValue(getPromptBoundaryAtom(oref));
+    const pi = agent?.agent === PI_HARNESS;
     useEffect(() => {
-        if (agent != null && shouldUnflip(flipTs, last)) {
+        if (agent != null && (pi ? shouldUnflipAtBoundary(flipTs, boundary) : shouldUnflip(flipTs, last))) {
             globalStore.set(flipAtom, null);
         }
-    }, [agent?.id, flipTs, last]);
+    }, [agent?.id, pi, flipTs, last, boundary]);
 }
 
 // the agent's question, after the last item in the column: the Needs your input label, then the ask card
@@ -287,7 +292,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     // scrolled up into its history, so the message and its answer come into view
     const onSubmitText = (text: string) => {
         jumpToBottom();
-        if (isPickerCommand(text)) {
+        if (isPickerCommand(text, agent.agent)) {
             globalStore.set(pickerFlipAtom(agent.id), Date.now());
         }
     };

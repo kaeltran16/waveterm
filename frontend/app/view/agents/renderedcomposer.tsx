@@ -5,7 +5,7 @@
 // model and permission-mode chips, the
 // context ring and one button, Send or (while a turn is live and the box is empty) Stop. Attachments sit above
 // the text and reach the agent as paths appended to the prompt, as an agent picked with @ (filemention.tsx) does.
-// While Claude's question is shown Send is held, since typing into the pty would land in its picker. In ! bash mode the text runs in the agent's shell instead, and the
+// While the agent's question is shown Send is held, since typing into the pty would land in its picker. In ! bash mode the text runs in the agent's shell instead, and the
 // tray's attachments wait for the next message. ↑ in the empty box takes back what the arc mod holds, or with nothing
 // held steps through the session's typed prompts (boxrecallmodel.ts); a message the mod lost comes back into the box.
 // With the agent's brainstorm asking (or open to pushback) the line goes to it as the pane's own answer
@@ -303,7 +303,7 @@ export const RenderedComposer = forwardRef<
     useComposerHandle(ref, setText, taRef);
     const recall = useBoxRecall(agent.id, text, setText);
     // before the mention hook: its pick moves the caret in a layout effect the mention hook then reads
-    const slash = useSlashPanel({ text, setText, taRef, blockId, off: bash });
+    const slash = useSlashPanel({ text, setText, taRef, blockId, harness: agent.agent, off: bash });
     const cwd = useAgentCwd(agent.transcriptPath, blockId);
     const mention = useFileMention({ agent, text, setText, taRef, cwd, off: bash });
     const canSend = !box.askBlocks && canSendComposer(text, blockId, bash ? [] : attachments);
@@ -366,7 +366,7 @@ export const RenderedComposer = forwardRef<
             {box.askBlocks ? (
                 <div data-composer-notice className="flex items-center gap-[7px] pb-2 text-[12px] text-muted">
                     <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-warning" />
-                    Answer Claude's question first
+                    {box.notice}
                 </div>
             ) : null}
             {attachments.length > 0 ? (

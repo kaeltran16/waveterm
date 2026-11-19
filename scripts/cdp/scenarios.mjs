@@ -24,6 +24,7 @@ import { transcriptCensusMarkdown } from "./scenarios-transcript-census-markdown
 import { transcriptCensusRows } from "./scenarios-transcript-census-rows.mjs";
 import { transcriptCensusWsh } from "./scenarios-transcript-census-wsh.mjs";
 import { renderedShell } from "./scenarios-rendered-shell.mjs";
+import { renderedPi } from "./scenarios-rendered-pi.mjs";
 import { codeImageZoom } from "./scenarios-code-imagezoom.mjs";
 import { codePeek } from "./scenarios-codepeek.mjs";
 import { jiraSettings } from "./scenarios-jira-settings.mjs";
@@ -374,6 +375,7 @@ export const SCENARIOS = [
     ...agentTree(SESSIONS_KIT),
     ...agentRendered(SESSIONS_KIT),
     ...agentQueued(SESSIONS_KIT),
+    renderedPi,
     workspacePane,
     workspacePaneCanvas,
     workspaceHeader,

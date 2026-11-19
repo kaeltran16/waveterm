@@ -5,9 +5,13 @@
 // them, and the text once one is picked. The list is the one Claude Code's own typeahead shows, which the arc mod
 // publishes per agent block (pkg/claudecmds/live.go) and `fromLive` reads. With none published (a mod that predates
 // it, a wavesrv restart before the next publish) the panel lists `BUILTIN_COMMANDS`, copied from the 2.1.319
-// binary's command definitions: `/cost` is that version's alias of `/usage`, so it carries `/usage`'s text.
+// binary's command definitions: `/cost` is that version's alias of `/usage`, so it carries `/usage`'s text. A pi
+// agent's panel is pi's built-ins (picommands.ts) then the list the arc pi extension publishes for the block, whose
+// sources are pi's own (`extension`, `prompt`, `skill`).
 
-export type SlashSource = "builtin" | "user" | "plugin" | "mcp";
+import { PI_BUILTIN_COMMANDS, PI_HARNESS } from "./picommands";
+
+export type SlashSource = "builtin" | "user" | "plugin" | "mcp" | "extension" | "prompt" | "skill";
 
 export interface SlashCommand {
     // without the slash; a plugin's is namespaced (`superpowers:brainstorming`)
@@ -48,7 +52,15 @@ export const BUILTIN_COMMANDS: SlashCommand[] = [
     b("usage", "Show session cost, plan usage, and activity stats"),
 ];
 
-const LIVE_SOURCES: ReadonlySet<string> = new Set<SlashSource>(["builtin", "user", "plugin", "mcp"]);
+const LIVE_SOURCES: ReadonlySet<string> = new Set<SlashSource>([
+    "builtin",
+    "user",
+    "plugin",
+    "mcp",
+    "extension",
+    "prompt",
+    "skill",
+]);
 
 // the live list's entries, in the typeahead's order; a source the panel does not know reads as a skill (`user`)
 export function fromLive(
@@ -62,15 +74,28 @@ export function fromLive(
     }));
 }
 
-export type SlashGroup = "Built-in" | "Skills" | "Plugins" | "MCP";
+export type SlashGroup = "Built-in" | "Extensions" | "Prompts" | "Skills" | "Plugins" | "MCP";
 
 const GROUP_OF: Record<SlashSource, SlashGroup> = {
     builtin: "Built-in",
     user: "Skills",
     plugin: "Plugins",
     mcp: "MCP",
+    extension: "Extensions",
+    prompt: "Prompts",
+    skill: "Skills",
 };
-const GROUP_ORDER: SlashGroup[] = ["Built-in", "Skills", "Plugins", "MCP"];
+// Claude publishes no extension or prompt and pi no plugin or mcp, so each harness reads its own order out of this one
+const GROUP_ORDER: SlashGroup[] = ["Built-in", "Extensions", "Prompts", "Skills", "Plugins", "MCP"];
+
+// the commands the panel lists for a harness, given its block's published list (empty before any publish): pi's
+// built-ins then the published ones; for Claude the published list, else its built-ins
+export function panelCommands(harness: string | undefined, published: SlashCommand[]): SlashCommand[] {
+    if (harness === PI_HARNESS) {
+        return [...PI_BUILTIN_COMMANDS, ...published];
+    }
+    return published.length > 0 ? published : BUILTIN_COMMANDS;
+}
 
 // `items` split into the panel's groups in GROUP_ORDER, each in the input's order, the empty ones dropped; a name
 // seen before keeps its first entry
