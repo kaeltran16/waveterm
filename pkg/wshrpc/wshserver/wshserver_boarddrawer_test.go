@@ -689,7 +689,7 @@ func TestBoardListShowsAnswering(t *testing.T) {
 	ctx := context.Background()
 	ws := &WshServer{}
 	gate := make(chan struct{})
-	stubBoardDrawer(t, wordsReply, gate)
+	stubBoardDrawer(t, drawReply, gate)
 	ch, _ := boardProjectChannel(t, ctx)
 	busy := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Busy", Question: "q"})
 	idle := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Idle"})
