@@ -171,14 +171,14 @@ function PinnedPromptBar({
             origin="top"
             className="pointer-events-none absolute inset-x-0 top-0 z-20 px-6 pt-2.5"
         >
+            {/* the tint layers over an opaque fill, so the feed scrolling underneath never shows through */}
             <button
                 type="button"
                 data-pinned-prompt
                 aria-label="Jump to your last message"
                 onClick={onJump}
-                className={`${COLUMN} group pointer-events-auto flex cursor-pointer items-center gap-2.5 rounded-[10px] border border-edge-strong bg-surface-raised px-3 py-[7px] text-left text-[13px] text-ink-hi shadow-popover-sm hover:border-accent`}
+                className={`${COLUMN} group pointer-events-auto flex cursor-pointer items-center gap-2.5 rounded-[10px] border border-accent-800 bg-surface-raised bg-[linear-gradient(var(--color-accentbg),var(--color-accentbg))] px-3 py-[7px] text-left text-[13px] text-ink-hi shadow-popover-sm hover:border-accent`}
             >
-                <span aria-hidden className="h-3.5 w-[2px] shrink-0 rounded-full bg-accent" />
                 {shown?.row != null ? (
                     <span data-pinned-row={shown.row.kind} className="flex min-w-0 flex-1 items-center gap-2">
                         <PinnedRow view={shown.row} agent={agent} />
@@ -190,7 +190,7 @@ function PinnedPromptBar({
                     size={13}
                     strokeWidth={2.2}
                     aria-hidden
-                    className="shrink-0 text-muted group-hover:text-accent"
+                    className="shrink-0 text-accent-soft group-hover:text-accent"
                 />
             </button>
         </PopoverReveal>
