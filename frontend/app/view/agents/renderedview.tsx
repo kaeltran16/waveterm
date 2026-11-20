@@ -46,7 +46,7 @@ import { stopAgent } from "./stopsend";
 import { useTranscriptContext, type TranscriptContext } from "./transcriptcontext";
 import { lastCanvasReveal } from "./transcriptlayout";
 import { TranscriptSkeleton } from "./transcriptskeleton";
-import { openBeside } from "./workspacestore";
+import { openFileBeside } from "./workspacedocsstore";
 
 // the transcript column's measure, and the pinned bar's (the Working board)
 const COLUMN = "mx-auto w-full max-w-[736px]";
@@ -54,12 +54,13 @@ const COLUMN = "mx-auto w-full max-w-[736px]";
 // a reading measure; cards, code and diffs use the width
 export const TRANSCRIPT_COLUMN = `${COLUMN} flex min-h-full flex-col [&_.agent-md>:is(p,ul,ol,h1,h2,h3,h4,h5,h6,blockquote)]:max-w-[75ch]`;
 
-// a reply's file link opens the file in a File tab of the workspace pane, landed on the cited line. openBeside
-// declines only off the Agent surface or outside Rendered, where this view is not on screen to be clicked
+// a reply's file link opens beside the transcript: a doc the agent wrote in the Docs tab, any other file in a File tab
+// landed on the cited line. openFileBeside declines only off the Agent surface or outside Rendered, where this view is
+// not on screen to be clicked
 function useReplyFileLink(model: AgentsViewModel, agent: AgentVM) {
     return useCallback(
         (link: ReplyFileLink) => {
-            openBeside(model, agent.id, { kind: "file", path: link.path, line: link.line });
+            openFileBeside(model, agent.id, { path: link.path, line: link.line });
         },
         [model, agent.id]
     );
