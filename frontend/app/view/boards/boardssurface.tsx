@@ -34,6 +34,7 @@ import {
     openBoardByChannelAtom,
     selectBoard,
     setBoardFormEscape,
+    setOpenBoard,
 } from "./boardstore";
 import { BoardSwitcher } from "./boardswitcher";
 import { BoardTalk } from "./boardtalk";
@@ -112,11 +113,6 @@ function useSwitcherLists(model: AgentsViewModel, channelId: string | null, proj
         [channelId, project, key]
     );
     return useAtomValue(listsAtom);
-}
-
-// the open board, without pinning the project as a landing does
-function setOpenBoard(channelId: string, boardId: string): void {
-    globalStore.set(openBoardByChannelAtom, (prev) => ({ ...prev, [channelId]: boardId }));
 }
 
 function openBoardTarget(model: AgentsViewModel, channelId: string, boardId: string): void {
