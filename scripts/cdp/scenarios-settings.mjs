@@ -977,6 +977,8 @@ export const remoteSwitchScenario = {
         await h.ev(`(() => {
             const input = ${REMOTE_PANE}?.querySelector('[data-setting-row="remote.team"] input');
             if (!input) return false;
+            // Enter commits through the blur it causes (1c5483194), and only a focused field blurs
+            input.focus();
             Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, ${JSON.stringify(REMOTE_BAD_TEAM)});
             input.dispatchEvent(new Event("input", { bubbles: true }));
             input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));

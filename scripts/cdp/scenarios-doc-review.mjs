@@ -2,7 +2,7 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TREE_RAIL_FIXTURE, arrangeFixtureRun, teardownFixtureRun } from "./scenarios-shared.mjs";
+import { APP_MOD, TREE_RAIL_FIXTURE, arrangeFixtureRun, teardownFixtureRun } from "./scenarios-shared.mjs";
 import { DOC_REVIEW_LEAD_ID, DOC_REVIEW_PANEL } from "./scenarios-cockpit.mjs";
 
 // A lead's Plan review ask opens as the review dialog over whatever agent is focused (git show a4b5bd4f:
@@ -534,6 +534,16 @@ const docNotesBrief = (s, out) =>
         ...out,
     });
 
+// the fixture ask has no live block, and an answer that does not reach its agent unlocks the ask again (8051926e0),
+// so the page's AnswerAgentCommand takes the answer; the reload in teardown puts the real one back
+const docNotesTakeAnswers = (h) =>
+    h.ev(`(async () => {
+        ${APP_MOD}
+        const { RpcApi } = await mod("app/store/wshclientapi.ts");
+        RpcApi.AnswerAgentCommand = async () => null;
+        return true;
+    })()`);
+
 // the fixture roster is read once at boot
 async function docNotesReload(h, ctx, decisions) {
     writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(docReviewRoster(ctx.runId, ctx.specPath, decisions), null, 2));
@@ -544,6 +554,7 @@ async function docNotesReload(h, ctx, decisions) {
         }
     })()`);
     await h.goto("cockpit");
+    await docNotesTakeAnswers(h);
     return docReviewWait(
         h,
         `document.querySelector('[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"]')`,
