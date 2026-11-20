@@ -54,6 +54,12 @@ export class RpcApiType {
         return client.wshRpcStream("agentcontrol", data, opts);
     }
 
+    // command "agentdocs" [call]
+    AgentDocsCommand(client: WshClient, data: CommandAgentDocsData, opts?: RpcOpts): Promise<CommandAgentDocsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentdocs", data, opts);
+        return client.wshRpcCall("agentdocs", data, opts);
+    }
+
     // command "agentpermission" [call]
     AgentPermissionCommand(client: WshClient, data: CommandAgentPermissionData, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentpermission", data, opts);

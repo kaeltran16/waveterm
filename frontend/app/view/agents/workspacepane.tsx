@@ -15,6 +15,8 @@ import {
     ChevronRight,
     Code,
     File,
+    FileText,
+    Flag,
     LayoutDashboard,
     Lightbulb,
     Maximize2,
@@ -29,6 +31,7 @@ import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useBoardInfo } from "../boards/boardview";
+import { effortDetailAtom } from "../jarvis/effortstore";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { dismissWorkspaceTab } from "./autoopen";
@@ -41,7 +44,9 @@ import { useRunAsks } from "./runrailsections";
 import { WorkspaceBoardTab } from "./workspaceboardtab";
 import { WorkspaceCanvasTab } from "./workspacecanvastab";
 import { ChangesTab } from "./workspacechangestab";
+import { DocsTab } from "./workspacedocstab";
 import { FileTab } from "./workspacefiletab";
+import { InitiativeTab } from "./workspaceinitiativetab";
 import {
     DEFAULT_PANE_PX,
     iconOnlyTabs,
@@ -69,6 +74,8 @@ const TAB_ICON: Record<WorkspaceTab["kind"], LucideIcon> = {
     run: Workflow,
     changes: File,
     file: Code,
+    docs: FileText,
+    initiative: Flag,
     brainstorm: Lightbulb,
     canvas: LayoutDashboard,
     board: Shapes,
@@ -451,7 +458,8 @@ function TabButton({
     );
 }
 
-// what a tab's label names beyond its kind: the run's title, the brainstorm's or canvas's topic, or the board's name
+// what a tab's label names beyond its kind: the run's title, the brainstorm's or canvas's topic, the board's name or the
+// initiative's title
 function useTabName(agentId: string, tab: WorkspaceTab): string | undefined {
     const run = useRunInfo(tab.kind === "run" ? tab.runId : null).run;
     const brainstorm = useAtomValue(brainstormAtom(agentId));
@@ -460,7 +468,10 @@ function useTabName(agentId: string, tab: WorkspaceTab): string | undefined {
         tab.kind === "board" ? tab.channelId : null,
         tab.kind === "board" ? tab.boardId : null
     ).board;
+    const effort = useAtomValue(effortDetailAtom).get(tab.kind === "initiative" ? `effort:${tab.effortId}` : "");
     switch (tab.kind) {
+        case "initiative":
+            return effort?.title;
         case "run":
             return run?.title;
         case "brainstorm":
@@ -487,6 +498,10 @@ function TabBody({ model, agent, ws }: { model: AgentsViewModel; agent: AgentVM;
                 <ChangesTab model={model} agent={agent} tab={tab} />
             ) : tab.kind === "file" ? (
                 <FileTab model={model} agent={agent} tab={tab} />
+            ) : tab.kind === "docs" ? (
+                <DocsTab model={model} agent={agent} tab={tab} />
+            ) : tab.kind === "initiative" ? (
+                <InitiativeTab model={model} agent={agent} tab={tab} />
             ) : tab.kind === "brainstorm" ? (
                 <BrainstormPane model={model} agent={agent} inTab />
             ) : tab.kind === "board" ? (

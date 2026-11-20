@@ -94,6 +94,7 @@ const (
 	MetaKey_AgentLastCommitTs                = "agent:lastcommitts"
 	MetaKey_AgentLastEditTs                  = "agent:lasteditts"
 	MetaKey_AgentTurnStartTs                 = "agent:turnstartts"
+	MetaKey_AgentTranscripts                 = "agent:transcripts"
 
 	MetaKey_Count                            = "count"
 )

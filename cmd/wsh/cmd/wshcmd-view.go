@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc/wshclient"
@@ -19,7 +20,7 @@ import (
 var viewCmd = &cobra.Command{
 	Use:     "view {file|directory}",
 	Aliases: []string{"preview", "open"},
-	Short:   "preview/edit a file or directory in the cockpit code surface",
+	Short:   "open a file or directory in the cockpit, beside the calling agent when there is one",
 	RunE:    viewRun,
 	PreRunE: preRunSetupRpcClient,
 }
@@ -67,10 +68,7 @@ func viewRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return fmt.Errorf("getting file info: %w", err)
 	}
-	eventData := wshrpc.OpenFileData{Path: absFile}
-	if cmdName == "edit" {
-		eventData.Edit = true
-	}
+	eventData := viewDataFromArgs(absFile, cmdName == "edit", RpcContext.BlockId)
 	err = wshclient.EventPublishCommand(RpcClient, wps.WaveEvent{
 		Event: wps.Event_OpenFile,
 		Data:  eventData,
@@ -79,6 +77,15 @@ func viewRun(cmd *cobra.Command, args []string) (rtnErr error) {
 		return fmt.Errorf("running view command: %w", err)
 	}
 	// the open-file event has no acknowledgement, so this says what was sent, not that it opened
-	fmt.Printf("sent %s to the cockpit's code surface\n", absFile)
+	fmt.Printf("sent %s to the cockpit\n", absFile)
 	return nil
+}
+
+// viewDataFromArgs names the calling block, so the cockpit can open the file beside that agent.
+func viewDataFromArgs(absPath string, edit bool, blockId string) wshrpc.OpenFileData {
+	data := wshrpc.OpenFileData{Path: absPath, Edit: edit}
+	if blockId != "" {
+		data.ORef = waveobj.MakeORef(waveobj.OType_Block, blockId).String()
+	}
+	return data
 }

@@ -62,6 +62,7 @@ import { shellReadAtByIdAtom, shellReadPending, shellTasksByIdAtom } from "./she
 import { StatusDot } from "./statusdot";
 import { stopAgent } from "./stopsend";
 import { subagentsByIdAtom } from "./subagentsstore";
+import { agentDocsAtom, useAgentDocsRefresh } from "./workspacedocsstore";
 import { openBeside } from "./workspacestore";
 
 // header context chip color by context level (mirrors the rail gauge, as text not fill)
@@ -116,8 +117,14 @@ function InitiativeLink({ model, agent }: { model: AgentsViewModel; agent: Agent
         <button
             type="button"
             data-peek
-            onClick={(e) => fireAndForget(() => openOrPeek(model, { kind: "effort", effortId: agent.effortId! }, e))}
-            title={`Open ${effort?.title ?? "this initiative"} in Hub`}
+            data-header-initiative-link
+            onClick={(e) => {
+                // in Rendered a plain click opens the initiative beside the transcript; elsewhere it opens Hub
+                if (!openBeside(model, agent.id, { kind: "initiative", effortId: agent.effortId! }, e)) {
+                    fireAndForget(() => openOrPeek(model, { kind: "effort", effortId: agent.effortId! }, e));
+                }
+            }}
+            title={`Open ${effort?.title ?? "this initiative"}`}
             className="cursor-pointer text-accent-soft hover:underline"
         >
             {initiativeLinkText(agent.name, effort)}
@@ -138,6 +145,12 @@ function sublineParts(parts: React.ReactNode[], from: number) {
 // the git read behind the Rendered header's facts, mounted only there: in Terminal the rail reads its own
 function RailGitHold({ agent }: { agent: AgentVM }) {
     useRailGit(agent);
+    return null;
+}
+
+// the Docs list read behind the "N docs" link, mounted only in Rendered, where the link and the tab are
+function DocsHold({ agent }: { agent: AgentVM }) {
+    useAgentDocsRefresh(agent);
     return null;
 }
 
@@ -217,6 +230,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     const viewToggleTitle = `${rendered ? "Show the terminal" : "Show rendered"} (${viewToggleKeys})`;
     // in Rendered the rail is gone, so its checkout facts and the run's asks waiting on you read here
     const { facts, yours } = useHeaderFacts(model, agent, rendered);
+    const docCount = useAtomValue(agentDocsAtom(agent.id)).length;
     // only the facts this session has: a background terminal often has none, and then the line goes
     const subline: React.ReactNode[] = [];
     if (project) {
@@ -246,6 +260,19 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
     }
     if (agent.effortId != null) {
         subline.push(<InitiativeLink model={model} agent={agent} />);
+    }
+    if (rendered && docCount > 0) {
+        subline.push(
+            <button
+                type="button"
+                data-header-docs-link
+                onClick={(e) => openBeside(model, agent.id, { kind: "docs", selected: null }, e)}
+                title="Open the Docs tab"
+                className="shrink-0 cursor-pointer text-accent-soft hover:underline"
+            >
+                {docCount === 1 ? "1 doc" : `${docCount} docs`}
+            </button>
+        );
     }
     // in Rendered the facts before the links clip on a narrow header; the links after them stay whole
     const linksFrom = subline.length;
@@ -448,6 +475,7 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                 ) : null}
             </div>
             {rendered ? <RailGitHold agent={agent} /> : null}
+            {rendered ? <DocsHold agent={agent} /> : null}
             <div data-agent-actions className="flex shrink-0 items-center gap-[7px]">
                 {review && !reviewOpen ? (
                     <button

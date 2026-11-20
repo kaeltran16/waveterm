@@ -1,33 +1,20 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { barFillClass } from "@/app/element/motiontokens";
 import { ViewSwap } from "@/app/element/viewswap";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { ChunkTone } from "../effortmodel";
 import { effortDetailAtom, loadEffortDetail } from "../effortstore";
 import { TONE_FG } from "../inlinetrackerview";
 import { reportPeekFacts, type PeekTarget } from "../peekstore";
+import { ChunkSegments } from "./chunksegments";
 import { effortPeekFacts, effortPeekModel } from "./peekeffortmodel";
 
-const SEGMENT_FILL: Record<ChunkTone, string> = {
-    done: "bg-success",
-    active: "bg-accent",
-    blocked: "bg-warning",
-    deferred: "bg-ink-faint",
-    skipped: "bg-edge-mid",
-    pending: "bg-edge-mid",
-};
-
-// tones drawn as the bare track: a chunk leaving one fills its segment instead of changing color in place
-const UNFILLED: ReadonlySet<ChunkTone> = new Set(["pending", "skipped"]);
-
 // a fetch no cached entry can be fresh against
-const ALWAYS_REFETCH = Number.MAX_SAFE_INTEGER;
+export const ALWAYS_REFETCH = Number.MAX_SAFE_INTEGER;
 
 export function PeekEffortBody({ target }: { model: AgentsViewModel; target: PeekTarget }) {
     const oref = target.kind === "effort" ? "effort:" + target.effortId : "";
@@ -70,22 +57,7 @@ export function PeekEffortBody({ target }: { model: AgentsViewModel; target: Pee
                         <span className="flex-1" />
                         {m.project ? <span className="font-mono text-[10.5px] text-muted">{m.project}</span> : null}
                     </div>
-                    {m.segments.length > 0 ? (
-                        <div
-                            aria-hidden="true"
-                            className="grid gap-[3px]"
-                            style={{ gridTemplateColumns: `repeat(${m.segments.length}, minmax(0, 1fr))` }}
-                        >
-                            {m.segments.map((tone, i) => (
-                                <span key={i} className="h-1 overflow-hidden rounded-[2px] bg-edge-mid">
-                                    <span
-                                        className={cn("block h-full origin-left", SEGMENT_FILL[tone], barFillClass)}
-                                        style={{ transform: `scaleX(${UNFILLED.has(tone) ? 0 : 1})` }}
-                                    />
-                                </span>
-                            ))}
-                        </div>
-                    ) : null}
+                    <ChunkSegments segments={m.segments} />
                 </div>
                 {m.doneLine || m.remaining.length > 0 ? (
                     <div className="flex flex-col overflow-hidden rounded-[9px] border border-border bg-surface-code">

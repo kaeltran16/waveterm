@@ -20,6 +20,7 @@ import {
     type GutterLine,
 } from "./tooldetailmodel";
 import type { TranscriptContext } from "./transcriptcontext";
+import { openFileBeside } from "./workspacedocsstore";
 import { openBeside } from "./workspacestore";
 
 // one size for code across the transcript (tool panels, prose code blocks), sized to sit just under the 14px prose
@@ -40,13 +41,18 @@ export const BODY_BUTTON =
 // the strip along a body's box that holds "Open full view", inside the box
 export const BODY_FOOTER = "flex items-center justify-end border-t border-edge-faint px-2 py-1";
 
-// a read or write/edit of one file opens in the workspace pane's File tab where the Rendered view has one beside it;
-// anything else, or any other host, opens the modal
+// a read or write/edit of one file opens in the workspace pane where the Rendered view has one beside it: a write/edit
+// of a doc the agent wrote in the Docs tab, anything else in the File tab (a read keeps its cited line there); anything
+// else, or any other host, opens the modal
 export function OpenFullView({ action, ctx }: { action: AgentActionEntry; ctx?: TranscriptContext }) {
     const open = (e: MouseEvent) => {
         const file = fullViewFile(action.detail);
         if (file != null && ctx?.model != null && ctx.agentId != null) {
-            if (openBeside(ctx.model, ctx.agentId, { kind: "file", ...file }, e)) {
+            const beside =
+                action.detail?.kind === "edit"
+                    ? openFileBeside(ctx.model, ctx.agentId, file, e)
+                    : openBeside(ctx.model, ctx.agentId, { kind: "file", ...file }, e);
+            if (beside) {
                 return;
             }
         }

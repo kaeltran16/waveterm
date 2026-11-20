@@ -16,10 +16,11 @@ type NotifyCommandData struct {
 	Transient bool `json:"transient,omitempty"`
 }
 
-// OpenFileData is the payload for wsh open/view/edit: route a path into the cockpit's code surface.
+// OpenFileData is the payload for wsh open/view/edit: route a path into the cockpit.
 type OpenFileData struct {
 	Path string `json:"path"`
 	Edit bool   `json:"edit,omitempty"`
+	ORef string `json:"oref,omitempty"` // block:<id> of the caller, so the cockpit can open it beside that agent
 }
 
 // NotifyCommands is the wshrpc domain for cockpit notifications.
