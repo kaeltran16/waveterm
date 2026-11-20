@@ -378,6 +378,9 @@ func main() {
 	go tempAttachmentCleanupLoop()
 	orchestrate.SealRunEvidenceHook = wshserver.SealDoneRunEvidenceAsync // a run the engine closed itself gets the same evidence snapshot `wsh jarvis complete` produces; before StartWatchdog, whose first tick is immediate and can be the tick that closes one
 	orchestrate.LaunchLeadHook = wshserver.LaunchPlanLead                // a run submitted with no lead gets one at its first judgment event; before StartWatchdog, whose first tick can deliver one
+	// before any block resync, which would replay an armed worker's first prompt; a snapshot app too, whose copied
+	// workers outside its scratch dir must not start
+	agentworker.ResumeWorkersAtBoot(context.Background())
 	if !snapshot {
 		orchestrate.MarkInterruptedRuns(context.Background())    // no worker survives a restart; the previous wavesrv's non-dag runs would otherwise read executing forever
 		orchestrate.ResumeInterruptedLeads(context.Background()) // nor does a dag run's lead, and unlike its workers nothing else restarts it
