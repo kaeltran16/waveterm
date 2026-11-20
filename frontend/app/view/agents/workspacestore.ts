@@ -50,6 +50,11 @@ export const workspaceWidthAtom = atomWithStorage<number>("agent.workspace.width
     getOnInit: true,
 });
 
+// a dragged board width, kept apart so narrowing a board does not shrink the other tabs; null is the widest
+export const workspaceBoardWidthAtom = atomWithStorage<number | null>("agent.workspace.boardwidth", null, undefined, {
+    getOnInit: true,
+});
+
 function apply(agentId: string, step: (s: WorkspaceState) => WorkspaceState): void {
     const a = stateAtom(agentId);
     globalStore.set(a, step(globalStore.get(a)));

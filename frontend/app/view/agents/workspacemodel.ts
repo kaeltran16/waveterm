@@ -72,6 +72,15 @@ export function paneWidth(stored: number, availablePx: number): number {
     return Math.max(MIN_PANE_PX, Math.min(want, availablePx - MIN_TRANSCRIPT_PX));
 }
 
+// a board tab's pane is as wide as the row leaves the transcript's minimum, unless a drag stored a width (null is the
+// widest). An unmeasured row (Infinity) has no widest to reach, so null reads as the default there
+export function boardPaneWidth(stored: number | null, availablePx: number): number {
+    if (stored != null) {
+        return paneWidth(stored, availablePx);
+    }
+    return Number.isFinite(availablePx) ? paneWidth(availablePx, availablePx) : DEFAULT_PANE_PX;
+}
+
 // reopening a key keeps the tab's sub-state (a Run tab's view, the Changes selection), except a File tab's line,
 // which is what the new link cites, and a Docs tab's selection when the new open names a doc
 export function openTab(state: WorkspaceState, tab: WorkspaceTab): WorkspaceState {

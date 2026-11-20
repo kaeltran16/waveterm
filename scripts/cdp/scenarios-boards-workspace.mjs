@@ -144,7 +144,7 @@ async function installStubs(h, ctx) {
 }
 
 // a throwaway project, and the channel wavesrv gives it
-async function createProject(h, name, path) {
+export async function createProject(h, name, path) {
     await h.rpc("createproject", { name, path });
     await waitForProjectInConfig(h, name);
     for (let waited = 0; waited < 10_000; waited += 250) {
