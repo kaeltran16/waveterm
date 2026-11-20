@@ -13,13 +13,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentmsg"
+	"github.com/wavetermdev/waveterm/pkg/agentworker"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
+	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 const (
@@ -64,7 +67,11 @@ func scriptAgents(t *testing.T, facts *agentRosterFacts) *[]agentsDelivery {
 	readPromptBlock = func(_ context.Context, blockId string) (promptBlock, error) {
 		for _, tf := range facts.Tabs {
 			if tf.BlockId == blockId {
-				return promptBlock{Stored: true, ShellRunning: tf.ShellRunning, HasStream: tf.HasStream}, nil
+				pb := promptBlock{Stored: true, ShellRunning: tf.ShellRunning, HasStream: tf.HasStream}
+				if tf.ParentTab != "" {
+					pb.WorkerTab = tf.Tab.OID
+				}
+				return pb, nil
 			}
 		}
 		return promptBlock{}, nil
@@ -76,6 +83,40 @@ func scriptAgents(t *testing.T, facts *agentRosterFacts) *[]agentsDelivery {
 		}
 	})
 	return sent
+}
+
+// workerCalls is what the worker seams were handed: each resume as a tab id and its prompt, and each block whose
+// notice was set owed.
+type workerCalls struct {
+	resumed []agentsDelivery
+	owed    []string
+}
+
+// scriptWorkers records resumes and owed notices in place of a process and the store; a resume fails with resumeErr.
+func scriptWorkers(t *testing.T, resumeErr error) *workerCalls {
+	t.Helper()
+	oldResume, oldOwed := resumeWorker, setNoticeOwed
+	calls := &workerCalls{}
+	resumeWorker = func(_ context.Context, tabId, prompt string) error {
+		calls.resumed = append(calls.resumed, agentsDelivery{tabId, prompt})
+		return resumeErr
+	}
+	setNoticeOwed = func(_ context.Context, blockId string, owed bool) error {
+		if owed {
+			calls.owed = append(calls.owed, blockId)
+		}
+		return nil
+	}
+	t.Cleanup(func() { resumeWorker, setNoticeOwed = oldResume, oldOwed })
+	return calls
+}
+
+// workerOfA makes design a worker review lead started, stopped unless running.
+func workerOfA(running bool) *agentRosterFacts {
+	facts := threeAgents()
+	facts.Tabs[1].ParentTab = agentsTabA
+	facts.Tabs[1].ShellRunning = running
+	return facts
 }
 
 func threeAgents() *agentRosterFacts {
@@ -99,8 +140,11 @@ func TestAgentsRosterRows(t *testing.T) {
 	codex := agentFacts("cccc-tab", "codex", agentsBlockC, "codex", baseds.AgentState_Idle)
 	exited := agentFacts("dddd-tab", "exited", "d0000000-0000-4000-8000-000000000004", "claude", baseds.AgentState_Idle)
 	exited.ShellRunning = false
+	// a worker's process reported its end as it stopped, and a message resumes it
+	stopped := agentFacts("eeee-tab", "helper", "e0000000-0000-4000-8000-000000000005", "claude", baseds.AgentState_Idle)
+	stopped.ShellRunning, stopped.Status.Ended, stopped.ParentTab = false, true, agentsTabA
 	scriptAgents(t, &agentRosterFacts{
-		Tabs: []agentTabFacts{loose, codex, exited, owned},
+		Tabs: []agentTabFacts{loose, codex, exited, owned, stopped},
 		Runs: []*waveobj.Run{
 			{OID: "run-other", ProjectPath: `C:\elsewhere`, Phases: []waveobj.RunPhase{{WorkerOrefs: []string{"tab:someone-else"}}}},
 			{OID: "run-1", ProjectPath: `C:\proj\arc`, Phases: []waveobj.RunPhase{{WorkerOrefs: []string{"tab:" + agentsTabA}}}},
@@ -114,6 +158,7 @@ func TestAgentsRosterRows(t *testing.T) {
 	want := []wshrpc.AgentInfo{
 		{TabId: agentsTabA, Name: "worker", ProjectPath: `C:\proj\arc`, Project: "Arc", RunId: "run-1", Harness: "claude", State: wshrpc.AgentsState_Working, Cwd: "/work/worker", Title: "Build the shaper"},
 		{TabId: agentsTabB, Name: "scout", ProjectPath: `C:\src\widgets\`, Project: "widgets", Harness: "pi", State: wshrpc.AgentsState_Idle, Cwd: "/work/scout"},
+		{TabId: "eeee-tab", Name: "helper", ProjectPath: "/work/helper", Project: "helper", Harness: "claude", State: wshrpc.AgentsState_Stopped, Cwd: "/work/helper"},
 	}
 	if len(rtn.Agents) != len(want) {
 		t.Fatalf("rows = %+v, want %+v", rtn.Agents, want)
@@ -721,5 +766,135 @@ func TestAgentBashReturnsTheWriteFailure(t *testing.T) {
 	err := (&WshServer{}).AgentBashCommand(context.Background(), wshrpc.CommandAgentBashData{BlockId: agentsBlockB, Command: "ls"})
 	if err == nil || !strings.Contains(err.Error(), "pty closed") || !strings.Contains(err.Error(), agentsBlockB) {
 		t.Fatalf("err = %v, want one naming the block and the cause", err)
+	}
+}
+
+// a stopped worker's status events are gone after a restart, so the roster and a read go by its tab and block
+func TestAgentsStoppedWorkerReadFromItsMeta(t *testing.T) {
+	ctx := context.Background()
+	tpath := filepath.Join(t.TempDir(), "session.jsonl")
+	answer := `{"type":"assistant","timestamp":"2026-11-20T10:00:00.000Z","message":{"content":[{"type":"text","text":"the fix is in"}]}}` + "\n"
+	if err := os.WriteFile(tpath, []byte(answer), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd := t.TempDir()
+	tab := &waveobj.Tab{OID: uuid.NewString(), Name: "helper", Meta: waveobj.MetaMapType{agentworker.MetaParentTab: uuid.NewString(), waveobj.MetaKey_SessionAgent: "claude"}}
+	block := &waveobj.Block{OID: uuid.NewString(), ParentORef: waveobj.MakeORef(waveobj.OType_Tab, tab.OID).String(),
+		Meta: waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: cwd, waveobj.MetaKey_AgentTranscriptPath: tpath}}
+	tab.BlockIds = []string{block.OID}
+	for _, obj := range []waveobj.WaveObj{block, tab} {
+		if err := wstore.DBInsert(ctx, obj); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ws := &WshServer{}
+
+	list, err := ws.AgentsListCommand(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(list.Agents, func(a wshrpc.AgentInfo) bool { return a.TabId == tab.OID })
+	if i < 0 {
+		t.Fatalf("the stopped worker is not in the roster: %+v", list.Agents)
+	}
+	if got := list.Agents[i]; got.State != wshrpc.AgentsState_Stopped || got.Harness != "claude" || got.Cwd != cwd || got.ProjectPath == "" {
+		t.Errorf("row = %+v, want a stopped claude worker in %s with its project", got, cwd)
+	}
+	read, err := ws.AgentsReadCommand(ctx, wshrpc.CommandAgentsReadData{Tab: tab.OID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if read.State != wshrpc.AgentsState_Stopped || read.Answer != "the fix is in" {
+		t.Errorf("read = %+v, want the stopped worker's last answer", read)
+	}
+}
+
+func TestAgentsSendToAWorker(t *testing.T) {
+	cases := []struct {
+		name       string
+		running    bool
+		from       string
+		wantResume bool
+		wantOwed   bool
+	}{
+		{name: "parent to a stopped worker", from: agentsBlockA, wantResume: true, wantOwed: true},
+		{name: "another agent to a stopped worker", from: agentsBlockC, wantResume: true},
+		{name: "parent to a running worker", running: true, from: agentsBlockA, wantOwed: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sent := scriptAgents(t, workerOfA(c.running))
+			calls := scriptWorkers(t, nil)
+			rtn, err := (&WshServer{}).AgentsSendCommand(context.Background(), wshrpc.CommandAgentsSendData{Tab: agentsTabB, Text: "check the tests", FromORef: blockORef(c.from)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var text string
+			if c.wantResume {
+				if len(calls.resumed) != 1 || calls.resumed[0].blockId != agentsTabB || len(*sent) != 0 {
+					t.Fatalf("resumed %+v and delivered %+v, want one resume of %s", calls.resumed, *sent, agentsTabB)
+				}
+				text = calls.resumed[0].text
+				if rtn.MidTurn {
+					t.Error("a resume starts a turn, so the send reports midturn false")
+				}
+			} else {
+				if len(calls.resumed) != 0 || len(*sent) != 1 || (*sent)[0].blockId != agentsBlockB {
+					t.Fatalf("resumed %+v and delivered %+v, want one delivery to %s", calls.resumed, *sent, agentsBlockB)
+				}
+				text = (*sent)[0].text
+			}
+			if !agentmsg.IsAgentMessage(text) || !strings.Contains(text, "check the tests") {
+				t.Errorf("message %q is not the enveloped text", text)
+			}
+			wantOwed := []string(nil)
+			if c.wantOwed {
+				wantOwed = []string{agentsBlockB}
+			}
+			if !slices.Equal(calls.owed, wantOwed) {
+				t.Errorf("owed set on %v, want %v", calls.owed, wantOwed)
+			}
+		})
+	}
+}
+
+func TestAgentsSendFailsWithTheResumeRefusal(t *testing.T) {
+	sent := scriptAgents(t, workerOfA(false))
+	calls := scriptWorkers(t, errors.New("memory is short: 1.0 GB free, the worker needs 3.5 GB"))
+	_, err := (&WshServer{}).AgentsSendCommand(context.Background(), wshrpc.CommandAgentsSendData{Tab: agentsTabB, Text: "go on", FromORef: blockORef(agentsBlockA)})
+	if err == nil || !strings.Contains(err.Error(), "memory is short: 1.0 GB free") {
+		t.Fatalf("err = %v, want the gate's shortfall", err)
+	}
+	if len(calls.owed) != 0 || len(*sent) != 0 {
+		t.Errorf("a refused resume set owed %v and delivered %+v", calls.owed, *sent)
+	}
+	if agentmsg.SendBackLocked(agentsBlockB, agentsBlockA) {
+		t.Error("a refused send locked the worker's send-back")
+	}
+}
+
+// the person's text resumes the stopped worker as is, where a live session would have it typed
+func TestAgentPromptResumesAStoppedWorker(t *testing.T) {
+	sent := scriptAgents(t, workerOfA(false))
+	calls := scriptWorkers(t, nil)
+	oldType := typeAgentMessage
+	typed := 0
+	typeAgentMessage = func(string, string) { typed++ }
+	t.Cleanup(func() { typeAgentMessage = oldType })
+	ws := &WshServer{}
+
+	if err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: agentsBlockB, Text: " and the docs\n", Person: true}); err != nil {
+		t.Fatal(err)
+	}
+	if want := (agentsDelivery{agentsTabB, "and the docs"}); len(calls.resumed) != 1 || calls.resumed[0] != want || typed != 0 || len(*sent) != 0 {
+		t.Fatalf("resumed %+v, typed %d, delivered %+v; want only %+v resumed", calls.resumed, typed, *sent, want)
+	}
+	if len(calls.owed) != 0 {
+		t.Errorf("the person's prompt set owed on %v", calls.owed)
+	}
+
+	scriptWorkers(t, errors.New("memory is short"))
+	if err := ws.AgentPromptCommand(context.Background(), wshrpc.CommandAgentPromptData{BlockId: agentsBlockB, Text: "go"}); err == nil || !strings.Contains(err.Error(), "memory is short") {
+		t.Errorf("err = %v, want the resume's refusal", err)
 	}
 }
