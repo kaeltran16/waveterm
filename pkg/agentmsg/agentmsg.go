@@ -23,6 +23,14 @@ func Envelope(senderName, senderTabId, text string) string {
 		envelopePrefix, senderName, senderTabId, text)
 }
 
+// WorkerNotice is the one line a parent receives when a worker it started finishes a turn the parent gave it. It
+// carries the envelope's prefix, so a transcript does not count it as the user's words, and names the worker's tab
+// so the parent reads the answer itself rather than having it pasted into its context.
+func WorkerNotice(workerName, workerTabId string) string {
+	return fmt.Sprintf("%s%s\" (tab %s), your worker from wsh agents start. Not typed by the user.] It finished the turn you gave it; read its answer with wsh agents read %s",
+		envelopePrefix, workerName, workerTabId, workerTabId)
+}
+
 // IsAgentMessage reports whether text is an enveloped agent message rather than something a person typed.
 func IsAgentMessage(text string) bool {
 	return strings.HasPrefix(strings.TrimSpace(text), envelopePrefix)

@@ -16,6 +16,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
+	"github.com/wavetermdev/waveterm/pkg/agentworker"
 	"github.com/wavetermdev/waveterm/pkg/authkey"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/blocklogger"
@@ -390,6 +391,7 @@ func main() {
 	agentask.AnswerHook = wshserver.RecordAskAnswered // one ask lifecycle row per delivered answer, whichever surface delivered it
 	blocklogger.InitBlockLogger()
 	blockcontroller.InitBlockController()
+	agentworker.StartIdleSweep(context.Background()) // a snapshot app's workers in its scratch dir stop the same way
 	if !snapshot {
 		jarvisvolunteer.StartLooseEndSweep(context.Background())
 		memhygiene.StartSweep(context.Background())
