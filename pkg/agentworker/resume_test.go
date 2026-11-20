@@ -16,7 +16,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wavebase"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
-	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
 type startCall struct{ tabId, blockId string }
@@ -46,15 +45,6 @@ func seedStoppedWorker(t *testing.T, cwd string) (tabId, blockId string) {
 			MetaSessionId:              "sess-1",
 			"agent:baseargs":           []string{"--model", "opus"},
 		})
-}
-
-func blockMeta(t *testing.T, blockId string) waveobj.MetaMapType {
-	t.Helper()
-	b, err := wstore.DBMustGet[*waveobj.Block](context.Background(), blockId)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b.Meta
 }
 
 func TestResumeWorkerStartsItsSessionWithTheMessage(t *testing.T) {
