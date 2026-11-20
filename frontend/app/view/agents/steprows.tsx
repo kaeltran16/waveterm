@@ -1,11 +1,13 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { CrossFade } from "@/app/element/crossfade";
+import { DrawCheck } from "@/app/element/drawcheck";
 import { MOTION, composerReveal, microFade, turnTransition } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { atoms } from "@/app/store/global";
 import { cn } from "@/util/util";
-import { Check, ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useAtomValue } from "jotai";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
@@ -72,6 +74,10 @@ export function AddsDels({ adds, dels, compact }: { adds: number; dels: number; 
     );
 }
 
+function isAsk(action: AgentActionEntry): boolean {
+    return action.detail?.kind === "ask";
+}
+
 // the picked option(s) or the typed answer of an asked question, shown under its title
 function askAnswer(action: AgentActionEntry): string | undefined {
     if (action.detail?.kind !== "ask") {
@@ -133,17 +139,25 @@ function StepTitle({ step, compact, open, gap }: { step: Step; compact: boolean;
             ) : null}
         </>
     );
-    if (answer == null) {
+    if (!isAsk(step.action)) {
         return line;
     }
-    // the answer takes the row's width under the title line, not a share of it beside the facts
+    // the answer takes the row's width under the title line, not a share of it beside the facts. Its line is mounted
+    // collapsed while the question waits, so an answer landing grows it open and draws its check
     return (
         <span className="flex min-w-0 flex-1 flex-col">
             <span className={cn("flex min-w-0 items-center", gap)}>{line}</span>
-            <span data-step-answer className="mt-1 flex min-w-0 items-start gap-1.5 break-words text-foreground">
-                <Check size={12} strokeWidth={3} className="mt-[3px] shrink-0 text-accent-soft" aria-hidden />
-                <span className="min-w-0">{answer}</span>
-            </span>
+            <motion.span
+                variants={composerReveal}
+                initial={false}
+                animate={answer != null ? "animate" : "initial"}
+                className="block overflow-hidden"
+            >
+                <span data-step-answer className="mt-1 flex min-w-0 items-start gap-1.5 break-words text-foreground">
+                    <DrawCheck done={answer != null} className="mt-[3px] shrink-0 text-accent-soft" />
+                    <span className="min-w-0">{answer}</span>
+                </span>
+            </motion.span>
         </span>
     );
 }
@@ -151,17 +165,40 @@ function StepTitle({ step, compact, open, gap }: { step: Step; compact: boolean;
 // a quicker step's time is noise on the row; the full view still shows it
 const STEP_DURATION_MIN_MS = 1000;
 
+// a call that did not finish, which the row names in one word
+function isUnfinished(status: Step["status"]): boolean {
+    return status === "stopped" || status === "blocked" || status === "declined";
+}
+
 // a status word's tone, the same in every step row: a stop warns, a call passed over (blocked, declined) is muted
 function statusWordTone(status: Step["status"]): string {
     return status === "stopped" ? "text-warning" : "text-muted";
 }
 
 // the row's right side: a failed call's exit chip, then its time (a running one's live elapsed), or the one word for a
-// call that did not finish (stopped, blocked, declined)
-function StepFacts({ step, compact }: { step: Step; compact: boolean }) {
+// call that did not finish (stopped, blocked, declined). A running step's elapsed cross-fades to its outcome, so a
+// failure arriving reads as a change rather than a chip popping in
+function StepFacts({ step, compact, gap }: { step: Step; compact: boolean; gap: string }) {
+    const facts = stepFacts(step, compact);
+    // a quick step that ends with nothing to show drops its slot, so the row keeps no empty gap
+    if (facts == null) {
+        return null;
+    }
+    return (
+        <CrossFade swapKey={step.status} className={cn("shrink-0", gap)}>
+            {facts}
+        </CrossFade>
+    );
+}
+
+function stepFacts(step: Step, compact: boolean): ReactNode {
     const { action, status } = step;
     const chip = compact ? "px-[5px] text-[10.5px]" : "px-1.5 py-px text-[11px]";
     const time = cn("shrink-0 font-mono text-muted", compact ? "text-[10.5px]" : "text-[11px]");
+    const duration = (action.durationMs ?? 0) >= STEP_DURATION_MIN_MS;
+    if (status !== "fail" && status !== "running" && !isUnfinished(status) && !duration) {
+        return null;
+    }
     return (
         <>
             {status === "fail" ? (
@@ -174,14 +211,14 @@ function StepFacts({ step, compact }: { step: Step; compact: boolean }) {
                 <span className={time}>
                     <Elapsed since={action.startedTs ?? action.ts} />
                 </span>
-            ) : status === "stopped" || status === "blocked" || status === "declined" ? (
+            ) : isUnfinished(status) ? (
                 <span
                     data-step-word
                     className={cn("shrink-0", statusWordTone(status), compact ? "text-[11px]" : "text-[12px]")}
                 >
                     {status}
                 </span>
-            ) : (action.durationMs ?? 0) >= STEP_DURATION_MIN_MS ? (
+            ) : duration ? (
                 <span data-step-duration className={time}>
                     {formatDuration(action.durationMs)}
                 </span>
@@ -380,8 +417,8 @@ function StepRow({
     const content = (
         <>
             <StepTitle step={step} compact={compact} open={open} gap={gap} />
-            {/* an answered ask's title column fills the row itself */}
-            {answered ? null : <span className="min-w-[6px] flex-1" />}
+            {/* an ask's title column fills the row itself */}
+            {isAsk(action) ? null : <span className="min-w-[6px] flex-1" />}
             <AnimatePresence initial={false}>
                 {summary ? (
                     <motion.span
@@ -400,7 +437,7 @@ function StepRow({
                     </motion.span>
                 ) : null}
             </AnimatePresence>
-            <StepFacts step={step} compact={compact} />
+            <StepFacts step={step} compact={compact} gap={gap} />
             {clickable && !compact ? <Affordance open={open} /> : null}
         </>
     );

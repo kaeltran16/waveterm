@@ -726,8 +726,13 @@ export const NarrationTimeline = memo(function NarrationTimeline({
         );
 
     const placed = placeMarks(visibleItems, marks ?? []);
+    // a mark arrives when the reader answers a permission prompt, so it enters as the feed's other rows do
     const markRows = (list: TimelineMark[] | undefined) =>
-        (list ?? []).map((m, k) => <PermissionMarkRow key={`pm${m.afterEntry}-${k}`} text={m.text} compact={isCompact} />);
+        (list ?? []).map((m, k) => (
+            <motion.div key={`pm${m.afterEntry}-${k}`} variants={viewFade} initial="initial" animate="animate">
+                <PermissionMarkRow text={m.text} compact={isCompact} />
+            </motion.div>
+        ));
     const withMarks = (rows: React.ReactNode[]) => [
         ...markRows(placed.lead),
         ...rows.flatMap((row, idx) => [row, ...markRows(placed.after.get(idx))]),
