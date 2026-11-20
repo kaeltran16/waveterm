@@ -29,12 +29,19 @@ export function checkCardState(f: BrainstormFile, check: BuilderCheckView, lineP
     return checkMain(f, false, linePending) === "builder" ? "asking" : "settled";
 }
 
-// "Builder question · i of n", and the part the question is for, which the head links to
-export function builderHead(f: BrainstormFile): { lead: string; part: { id: string; title: string } | null } {
+// "Builder question · i of n" (the one-row title), i and n for the header, and the part the meta line links to
+export function builderHead(f: BrainstormFile): {
+    lead: string;
+    index: number;
+    total: number;
+    part: { id: string; title: string } | null;
+} {
     const ask = checkAsk(f);
     const part = ask.open?.part;
     return {
         lead: `Builder question · ${ask.index} of ${ask.total}`,
+        index: ask.index,
+        total: ask.total,
         part: part ? { id: part, title: partTitle(f, part) } : null,
     };
 }
@@ -73,6 +80,15 @@ const SEC_MS = 1000;
 const MIN_SEC = 60;
 // the check locks the design's edits (editLock), so the card says so where the pane says to read meanwhile
 const EDITS_WAIT = "Edits to the design wait until it is back.";
+// the past-usual note's lead, the only words the card draws in the warning tone
+export const TAKING_LONGER = "Taking longer than usual:";
+
+// a note split at its warning lead; "" when it has none
+export function noteLead(note: string): { lead: string; rest: string } {
+    return note.startsWith(TAKING_LONGER)
+        ? { lead: TAKING_LONGER, rest: note.slice(TAKING_LONGER.length) }
+        : { lead: "", rest: note };
+}
 
 // "5m 02s", the board's reading of a duration; under a minute, "42s"
 export function cardTime(ms: number): string {
@@ -117,7 +133,7 @@ export function cardClock(
         elapsed,
         times: timesText,
         note: clock.over
-            ? `Taking longer than usual: most checks here finish in ${about}. ${EDITS_WAIT}`
+            ? `${TAKING_LONGER} most checks here finish in ${about}. ${EDITS_WAIT}`
             : `Checks here usually take ${about}. ${EDITS_WAIT}`,
     };
 }

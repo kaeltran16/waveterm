@@ -36,6 +36,13 @@ export default (kit) => {
     const CARD = `${RV}?.querySelector("[data-rendered-feed] [data-rendered-mockup]")`;
     const kindIs = (kind) => `${CARD}?.getAttribute("data-rendered-mockup") === ${JSON.stringify(kind)}`;
 
+    // true when the header's icon, topic, status and actions all sit on one line
+    const LINE_OF = `const lineOf = (card) => {
+            const tops = ["[data-rendered-bs-subject]", "[data-rendered-mockup-status]", "[data-rendered-mockup-open]", "[data-rendered-mockup-mark]"]
+                .map((sel) => card?.querySelector(sel)?.getBoundingClientRect());
+            return tops.every((r) => r != null) && tops.every((r) => Math.abs(r.top + r.height / 2 - (tops[0].top + tops[0].height / 2)) < 8);
+        };`;
+
     const canvasDir = (ctx) => join(ctx.cwd, ".superpowers", "design", ctx.topic);
     const projectDir = (ctx) => join(canvasDir(ctx), "project");
     const writeCanvasJson = (ctx) =>
@@ -118,6 +125,7 @@ export default (kit) => {
             const boards = await polishWaitFor(h, kindIs("boards"), BS_POLL_WAIT_MS);
             const s = await h.ev(`(() => {
                 const card = ${CARD};
+                ${LINE_OF}
                 const label = (sel) => (card?.querySelector(sel)?.textContent ?? "").trim();
                 return {
                     text: (card?.innerText ?? "").replace(/\\s+/g, " ").trim(),
@@ -126,12 +134,15 @@ export default (kit) => {
                     open: label("[data-rendered-mockup-open]"),
                     mark: label("[data-rendered-mockup-mark]"),
                     ago: label("[data-rendered-mockup-ago]"),
+                    oneLine: lineOf(card),
                 };
             })()`);
             await h.shot(SHOT(2, "row"));
             return [
                 boards &&
-                    s.text.startsWith(`Mockup ${ctx.topic} 2 boards updated`) &&
+                    s.text.startsWith(`Mockup ${ctx.topic} 2 boards · updated`) &&
+                    s.text.endsWith("Open canvas Mark") &&
+                    s.oneLine &&
                     /^updated \d+s ago$/.test(s.ago) &&
                     s.open === "Open canvas" &&
                     s.mark === "Mark" &&
@@ -238,15 +249,21 @@ export default (kit) => {
             ];
         });
 
-        await step("the narrow column stacks the row's label and its actions", async () => {
+        await step("the narrow column keeps the status beside the topic and wraps Open canvas and Mark to a second line", async () => {
             const narrowed = await kit.narrow(h);
             const s = await h.ev(`(() => {
                 const card = ${CARD};
                 const r = (sel) => card?.querySelector(sel)?.getBoundingClientRect();
-                const label = r("[data-rendered-mockup-head] > span");
+                const topic = r("[data-rendered-bs-subject]");
+                const status = r("[data-rendered-mockup-status]");
                 const actions = r("[data-rendered-mockup-actions]");
                 return {
-                    headStacked: label != null && actions != null && actions.top >= label.bottom - 1,
+                    headStacked:
+                        topic != null &&
+                        status != null &&
+                        actions != null &&
+                        Math.abs(status.top - topic.top) < 8 &&
+                        actions.top >= Math.max(topic.bottom, status.bottom) - 1,
                     compact: ${RV}?.querySelector("[data-rendered-mockup-card]")?.hasAttribute("data-compact") ?? false,
                 };
             })()`);

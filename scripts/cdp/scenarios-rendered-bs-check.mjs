@@ -53,6 +53,19 @@ const BACK = file({ check: { yours: [OPEN], calls: [{ text: "Reuse the median." 
 const SETTLED = file({
     check: { yours: [{ ...OPEN, a: "No, show the wait apart" }], calls: BACK.check.calls, answered: BACK.check.answered },
 });
+// HardCases: three builder questions for you, the first answered, the second asked, one still to come
+const HARD = file({
+    check: {
+        yours: [
+            { q: "Which runs?", part: "what", a: "Every run" },
+            { ...OPEN, part: "approach" },
+            { q: "Does the banner show on every surface?", part: "banner" },
+        ],
+        calls: BACK.check.calls,
+        answered: BACK.check.answered,
+    },
+});
+const HINT_2 = "press 1–2 to pick · or type your own answer below";
 
 export default (kit) => {
     const { scenario, writeFile, waitCard, narrow, widen, recordSends, waitSent, answerRecords, agentPage, polishWaitFor, HOST } =
@@ -101,15 +114,42 @@ export default (kit) => {
             const btn = (sel) => { const b = q(sel); return b ? { disabled: b.disabled, title: b.title } : null; };
             const keep = rect("[data-rendered-bs-keep-talking]");
             const approve = rect("[data-rendered-bs-approve-btn]");
-            const reason = rect("[data-rendered-bs-check-reason]");
-            const retry = rect("[data-rendered-bs-check-retry]");
             const rows = [...(host?.querySelectorAll("[data-rendered-bs-option-row]") ?? [])].map((r) => ({
                 label: flat(r.querySelector("[data-rendered-bs-option-label]")),
                 detail: flat(r.querySelector("[data-rendered-bs-option-detail]")),
                 enabled: !r.querySelector("[data-rendered-bs-option]")?.disabled,
             }));
             const fill = q("[data-rendered-bs-check-fill]");
+            const head = (sel) => flat(q(sel + " [data-rendered-bs-head]"));
+            const body = (sel) => flat(q(sel + " [data-rendered-bs-body]"));
+            const note = q("[data-rendered-bs-check-note]");
+            // the note's words drawn in the warning tone, itself included
+            const warned = note
+                ? [note, ...note.querySelectorAll("*")].filter((el) => (el.getAttribute("class") ?? "").includes("text-warning")).map(flat)
+                : [];
+            // the pending card at full strength: its frame and every ancestor up to the host
+            const faded = [];
+            for (let el = q("[data-rendered-bs-check-pending] [data-rendered-bs-frame]"); el && el !== host?.parentElement; el = el.parentElement) {
+                const o = getComputedStyle(el).opacity;
+                if (o !== "1") faded.push({ tag: el.tagName, cls: String(el.className).slice(0, 60), opacity: o });
+            }
+            const subject = q("[data-rendered-bs-check-pending] [data-rendered-bs-subject]");
+            const summaryRect = rect("[data-rendered-bs-check-summary]");
+            const approveRect = rect("[data-rendered-bs-approve]");
+            const retryInHead = q("[data-rendered-bs-check-failed] [data-rendered-bs-head] [data-rendered-bs-check-retry]") != null;
             return {
+                pendingHead: head("[data-rendered-bs-check-pending]"),
+                warned,
+                faded,
+                subjectMuted: subject ? subject.className.includes("text-muted") || !subject.className.includes("text-primary") : null,
+                summaryHead: head("[data-rendered-bs-check-summary]"),
+                meta: flat(q("[data-rendered-bs-q-meta]")),
+                partLink: flat(q("[data-rendered-bs-builder-question] [data-rendered-bs-q-meta] [data-rendered-bs-part-link]")),
+                approveHead: head("[data-rendered-bs-approve]"),
+                approveBody: body("[data-rendered-bs-approve]"),
+                summaryAbove: summaryRect && approveRect ? summaryRect.bottom <= approveRect.top : null,
+                failedHead: head("[data-rendered-bs-check-failed]"),
+                retryInHead,
                 kind: host?.getAttribute("data-rendered-bs-card") ?? null,
                 compact: host?.hasAttribute("data-compact") ?? null,
                 text: flat(host),
@@ -120,7 +160,8 @@ export default (kit) => {
                 running: q("[data-rendered-bs-check-clock]")?.getAttribute("data-rendered-bs-check-clock") ?? null,
                 times: flat(q("[data-rendered-bs-check-times]")),
                 note: flat(q("[data-rendered-bs-check-note]")),
-                noteWarns: q("[data-rendered-bs-check-note]")?.className.includes("text-warning") ?? null,
+                // the past-usual lead, the one part of the note in the warning tone
+                noteWarns: q("[data-rendered-bs-check-note-lead]")?.className.includes("text-warning") ?? false,
                 bar: q("[data-rendered-bs-check-bar]") != null,
                 fillAt: fill?.style.width ?? null,
                 fillTone: fill?.getAttribute("data-rendered-bs-check-fill") ?? null,
@@ -146,7 +187,7 @@ export default (kit) => {
                 buttonsStacked: keep && approve ? approve.top >= keep.bottom - 1 : null,
                 failed: flat(q("[data-rendered-bs-check-failed]")),
                 retry: btn("[data-rendered-bs-check-retry]"),
-                retryStacked: reason && retry ? retry.top >= reason.bottom - 1 : null,
+                reason: flat(q("[data-rendered-bs-check-reason]")),
             };
         })()`);
 
@@ -162,7 +203,7 @@ export default (kit) => {
             const ok =
                 r.kind === "check" &&
                 r.stage === "reading" &&
-                r.pending.startsWith("Builder check A builder is reading the design.") &&
+                /^Builder check A builder is reading the design\. usual 5m 02s · longest 6m 10s 2m \d\ds$/.test(r.pendingHead) &&
                 r.times === "usual 5m 02s · longest 6m 10s" &&
                 /^2m \d\ds$/.test(r.clock) &&
                 r.running === "running" &&
@@ -172,11 +213,12 @@ export default (kit) => {
                 fill > 30 &&
                 fill < 81.6 &&
                 r.note === "Checks here usually take about 5m. Edits to the design wait until it is back." &&
-                r.noteWarns === false;
+                r.noteWarns === false &&
+                r.warned.length === 0;
             return [ok, r];
         });
 
-        await step("CheckStates past the usual time: the bar full in the warning tone and the note says Taking longer than usual", async () => {
+        await step("CheckStates past the usual time: the bar full in the warning tone and only the note's lead, Taking longer than usual:, in the warning tone", async () => {
             await setRecord(h, ctx, { state: "reading", ts: Date.now() - OVER_AGO_MS });
             await drawn(h, `host?.querySelector('[data-rendered-bs-check-fill="over"]') != null`);
             const r = await readCheck(h);
@@ -189,18 +231,33 @@ export default (kit) => {
                 r.note ===
                     "Taking longer than usual: most checks here finish in about 5m. Edits to the design wait until it is back." &&
                 r.noteWarns === true &&
+                r.warned.length === 1 &&
+                r.warned[0] === "Taking longer than usual:" &&
                 r.failed === "";
             return [ok, r];
         });
 
-        await step("CheckStates taking in: the agent sorting the builder's questions, the clock gone and the note saying the builder finished", async () => {
+        await step("CheckStates taking in: the agent sorting the builder's questions at full strength, the clock gone and the note saying the builder finished", async () => {
             await setRecord(h, ctx, { state: "answered", ts: Date.now() });
             await drawn(h, `host?.querySelector('[data-rendered-bs-check-pending="taking-in"]') != null`);
+            // read once the reading card's swap to this one has settled: a card stuck faded times out here and fails below
+            await drawn(h, `host?.querySelector('[data-view-swap="reading"]') == null`);
+            await drawn(
+                h,
+                `(() => {
+                    for (let el = host?.querySelector("[data-rendered-bs-check-pending] [data-rendered-bs-frame]"); el && el !== host.parentElement; el = el.parentElement) {
+                        if (getComputedStyle(el).opacity !== "1") return false;
+                    }
+                    return true;
+                })()`
+            );
             const r = await readCheck(h);
             await h.shot(SHOT(3, "taking-in"));
             const ok =
                 r.stage === "taking-in" &&
-                r.pending.startsWith("Builder check Taking in the builder's questions.") &&
+                r.pendingHead === "Builder check Taking in the builder's questions. usual 5m 02s · longest 6m 10s" &&
+                r.faded.length === 0 &&
+                r.subjectMuted === false &&
                 r.running === null &&
                 r.note ===
                     "The builder finished. The agent is sorting its questions into yours, its calls and what the design already answers." &&
@@ -221,18 +278,21 @@ export default (kit) => {
                 replaced &&
                 r.pending === "" &&
                 r.back === "3 questions back" &&
+                r.summaryHead === "Builder check 3 questions back Spec" &&
                 r.specPath === SPEC &&
                 r.specLink?.disabled === false &&
                 r.counts === "1 already in the design 1 the agent decided 1 for you" &&
-                r.needsInput &&
-                r.askHead === "Builder question · 1 of 1 → Final queue Open brainstorm" &&
+                !r.needsInput &&
+                r.askHead === "Builder question 1 of 1 Needs your input Open brainstorm" &&
+                r.meta === "Builder question 1 → Final queue" &&
+                r.partLink === "Final queue" &&
                 r.qText === OPEN.q &&
                 r.qWhy === OPEN.why &&
                 r.rows.length === 2 &&
                 r.rows.every((x) => x.enabled) &&
                 r.rows[0].label === "Yes" &&
                 r.rows[1].detail === "a queued line beside wall time" &&
-                r.hint === "1–2 picks · or type your own answer below" &&
+                r.hint === HINT_2 &&
                 r.decide?.disabled === false &&
                 r.approveText === "";
             return [ok, { replaced, ...r }];
@@ -258,15 +318,31 @@ export default (kit) => {
             return [ok, { clicked, line, last }];
         });
 
-        await step("BuilderCheck approve bar: once the questions are settled, A builder read the design with Keep talking and Approve and start run, both enabled", async () => {
+        await step("HardCases: the second of three builder questions reads 2 of 3 in its header and names its own part", async () => {
+            writeFile(ctx, HARD);
+            await drawn(h, `host?.querySelector('[data-view-swap="asking:2"]') != null`);
+            const r = await readCheck(h);
+            await h.shot(SHOT(5, "builder-2-of-3"));
+            const ok =
+                r.askHead === "Builder question 2 of 3 Needs your input Open brainstorm" &&
+                r.meta === "Builder question 2 → Approach" &&
+                r.qText === OPEN.q &&
+                r.hint === HINT_2;
+            return [ok, r];
+        });
+
+        await step("Main approve card: once the questions are settled, the summary card above a Brainstorm card Ready to approve, A builder read the design with Keep talking and Approve and start run, both enabled", async () => {
             writeFile(ctx, SETTLED);
             await drawn(h, `host?.querySelector("[data-rendered-bs-approve]") != null`);
             const r = await readCheck(h);
-            await h.shot(SHOT(5, "approve"));
+            await h.shot(SHOT(6, "approve"));
             const ok =
                 r.kind === "check" &&
-                r.summary.startsWith("Builder check 3 questions back") &&
-                r.approveText.startsWith(
+                r.summaryHead === "Builder check 3 questions back Spec" &&
+                r.specPath === SPEC &&
+                r.summaryAbove === true &&
+                r.approveHead === `Brainstorm ${ctx.topic} Ready to approve Builder check Open brainstorm` &&
+                r.approveBody.startsWith(
                     "A builder read the design Its 3 questions are settled. Approving starts an orchestrator run from the spec."
                 ) &&
                 r.reasonText === "" &&
@@ -279,7 +355,7 @@ export default (kit) => {
         await step("the narrow column renders the card compact with the approve bar's buttons stacked", async () => {
             const narrowed = await narrow(h);
             const r = await readCheck(h);
-            await h.shot(SHOT(6, "narrow-approve"));
+            await h.shot(SHOT(7, "narrow-approve"));
             const widened = await widen(h);
             const ok = narrowed && r.compact === true && r.buttonsStacked === true && widened;
             return [ok, { narrowed, widened, compact: r.compact, buttonsStacked: r.buttonsStacked }];
@@ -296,17 +372,17 @@ export default (kit) => {
             return [clicked && line === "brainstorm: keep talking", { clicked, line }];
         });
 
-        await step("CheckStates failed: The builder check did not finish with its reason, narrow stacks Try again under it, and Try again sends brainstorm: check", async () => {
+        await step("CheckStates failed: the header says The builder check did not finish with Try again, the body its reason, narrow keeps Try again in the header, and Try again sends brainstorm: check", async () => {
             // the cleared check and a failed record, as the pane's own failed step has them; the file's rewrite settles the
             // keep talking line the agent was sent
             await setRecord(h, ctx, { state: "failed", ts: Date.now(), reason: FAILED_REASON });
             writeFile(ctx, READY);
             await drawn(h, `host?.querySelector("[data-rendered-bs-check-failed]") != null`);
             const r = await readCheck(h);
-            await h.shot(SHOT(7, "failed"));
+            await h.shot(SHOT(8, "failed"));
             const narrowed = await narrow(h);
             const n = await readCheck(h);
-            await h.shot(SHOT(8, "narrow-failed"));
+            await h.shot(SHOT(9, "narrow-failed"));
             const widened = await widen(h);
             const clicked = await h.ev(`(() => {
                 const b = ${HOST}?.querySelector("[data-rendered-bs-check-retry]");
@@ -316,15 +392,18 @@ export default (kit) => {
             })()`);
             const line = await waitSent(h, 2);
             const ok =
-                r.failed === `The builder check did not finish ${FAILED_REASON} Try again` &&
+                r.failedHead === "Builder check The builder check did not finish Try again" &&
+                r.reason === FAILED_REASON &&
+                r.retryInHead &&
                 r.retry?.disabled === false &&
                 r.pending === "" &&
                 narrowed &&
-                n.retryStacked === true &&
+                n.compact === true &&
+                n.retryInHead &&
                 widened &&
                 clicked &&
                 line === "brainstorm: check";
-            return [ok, { failed: r.failed, retry: r.retry, narrowed, retryStacked: n.retryStacked, widened, clicked, line }];
+            return [ok, { failedHead: r.failedHead, reason: r.reason, retry: r.retry, narrowed, narrowHead: n.failedHead, widened, clicked, line }];
         });
     });
 

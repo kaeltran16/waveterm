@@ -1092,7 +1092,7 @@ const canvasBase = RBS_KIT.scenario(CANVAS_NAME, { noBrainstorm: true, topic: CA
         await h.shot(CANVAS_SHOT(1, "mockup-row"));
         return [
             boards &&
-                s.text.startsWith(`Mockup ${ctx.topic} ${CANVAS_BOARDS.length} boards updated`) &&
+                s.text.startsWith(`Mockup ${ctx.topic} ${CANVAS_BOARDS.length} boards · updated`) &&
                 s.text.endsWith("Open canvas Mark") &&
                 s.open === "Open canvas" &&
                 s.mark === "Mark" &&

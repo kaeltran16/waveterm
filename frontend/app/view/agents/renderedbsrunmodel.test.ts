@@ -33,6 +33,18 @@ describe("goneView", () => {
         expect(v.kind === "removed" && v.text).toContain("The answers above stay in the transcript.");
     });
 
+    it.each([
+        ["a line that names the path draws no path of its own", PATH, null],
+        [
+            "a run worktree's line does not name the path, so the path is drawn under it",
+            "C:\\Users\\k\\arc-wt\\9ce70819\\.superpowers\\brainstorm\\t\\brainstorm.json",
+            "C:\\Users\\k\\arc-wt\\9ce70819\\.superpowers\\brainstorm\\t\\brainstorm.json",
+        ],
+    ])("a removed brainstorm: %s", (_why, path, expected) => {
+        const v = goneView("removed", { topic: "t", path, error: null }, {});
+        expect(v.kind === "removed" && v.path).toBe(expected);
+    });
+
     it("a removed brainstorm with a close record is the closed row, naming the canvas deleted", () => {
         recordClose(PATH, { topic: "run-memory-pressure", canvas: "final-queue" });
         const v = goneView(
