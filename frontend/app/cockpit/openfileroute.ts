@@ -70,3 +70,22 @@ export function routeOpenFile(
     const dir = dirnameOf(absPath);
     return { project: { name: repoBasename(dir), path: dir }, rel: repoBasename(absPath) };
 }
+
+export type OpenFileDestination = { to: "code" } | { to: "workspace"; agentId: string };
+
+const BLOCK_OREF_PREFIX = "block:";
+
+// a file the CLI opened from inside an agent's terminal belongs to that agent's workspace while it shows Rendered, on
+// whatever surface the user is. `wsh edit` and a directory need the Code surface: the pane has no editor or folder view
+export function openFileDestination(
+    req: { oref?: string; edit: boolean; isDir: boolean },
+    agents: readonly { id: string; blockId?: string }[],
+    renders: (agentId: string) => boolean
+): OpenFileDestination {
+    if (req.edit || req.isDir || !req.oref?.startsWith(BLOCK_OREF_PREFIX)) {
+        return { to: "code" };
+    }
+    const blockId = req.oref.slice(BLOCK_OREF_PREFIX.length);
+    const agent = agents.find((a) => a.blockId === blockId);
+    return agent != null && renders(agent.id) ? { to: "workspace", agentId: agent.id } : { to: "code" };
+}

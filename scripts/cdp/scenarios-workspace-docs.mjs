@@ -101,12 +101,14 @@ export const workspaceDocs = {
             makeRepo(ctx.repo);
             ctx.spec = join(ctx.repo, SPEC_REL);
             ctx.plan = join(ctx.repo, PLAN_REL);
+            ctx.go = join(ctx.repo, GO_REL);
             const transcript = writeTranscript(join(ctx.dir, "transcripts"), `workspace-docs-${tag}`, fixtureLines(ctx.repo));
             ctx.width = await page(h, `return globalStore.get(W.workspaceWidthAtom);`);
             await h.goto("agent");
             await pinDefaultView(h, "rendered");
             const a = await makeTab(h, ctx, { label: `workspace-docs-${tag}`, blockMeta: { view: "term", controller: null } });
             ctx.aId = a.tabId;
+            ctx.blockId = a.blockId;
             await setRoster(h, [
                 {
                     id: a.tabId,
@@ -352,6 +354,99 @@ export const workspaceDocs = {
             );
             await h.shot("cdp-shots/workspace-docs-gone.png");
             return [f.when === "gone" && (f.text ?? "").includes("No such file") && f.path === PLAN_REL, f];
+        });
+
+        // wsh view from the agent's terminal: the openfile event the CLI publishes, carrying the caller's block; sent
+        // from the Code surface, where the push must leave the user
+        const SPEC_PATH = JSON.stringify(ctx.spec);
+        const GO_PATH = JSON.stringify(ctx.go);
+        const CODE_SURFACE = `globalStore.set(agentsModel().surfaceAtom, "code");`;
+        const wshView = (path) =>
+            page(
+                h,
+                `const E = await mod("app/store/wps.ts");
+                E.handleWaveEvent({ event: "openfile", data: { path: ${path}, oref: "block:" + ${JSON.stringify(ctx.blockId)} } });
+                return true;`
+            );
+        const pushed = () =>
+            page(
+                h,
+                `const docs = ${PANE}?.querySelector('[data-workspace-tab="docs"]');
+                const file = ${PANE}?.querySelector('[data-workspace-tab^="file:"]');
+                const t = ws(${A}).tabs;
+                return {
+                    surface: globalStore.get(agentsModel().surfaceAtom),
+                    tabs: t.map((x) => M.tabKey(x)),
+                    active: ws(${A}).active,
+                    collapsed: ws(${A}).collapsed,
+                    unseen: ws(${A}).unseen,
+                    docsDot: docs?.querySelector("[data-workspace-tab-unseen]") != null,
+                    fileDot: file?.querySelector("[data-workspace-tab-unseen]") != null,
+                    selected: t.find((x) => x.kind === "docs")?.selected ?? null,
+                    filePath: t.find((x) => x.kind === "file")?.path ?? null,
+                    stripDot: ${PANE}?.querySelector("[data-workspace-strip-unseen]") != null,
+                    strip: ${PANE}?.querySelector("[data-workspace-strip-count]") != null,
+                };`
+            );
+        const arm = async (collapsed) => {
+            await closeAll();
+            await page(h, `W.openWorkspaceTab(${A}, { kind: "changes", selected: null }); ${collapsed ? `W.setWorkspaceCollapsed(${A}, true);` : ""} return true;`);
+        };
+
+        await step("wsh view pushes a doc: with Changes active and Code showing, the doc joins the Docs tab behind Changes, unseen and selected, and the surface stays on Code", async () => {
+            await arm(false);
+            await page(h, CODE_SURFACE + " return true;");
+            await wshView(SPEC_PATH);
+            const landed = await page(h, `return await until(() => ws(${A}).tabs.some((t) => t.kind === "docs"), 8000);`);
+            const onCode = await pushed();
+            await focusAgent(h, ctx.aId);
+            await polishWaitFor(h, `${PANE}?.querySelector('[data-workspace-tab="docs"] [data-workspace-tab-unseen]') != null`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const f = await pushed();
+            const same = await page(h, `return P.sameRepoPath(${JSON.stringify(f.selected ?? "")}, ${SPEC_PATH});`);
+            await h.shot("cdp-shots/workspace-docs-wsh-view.png");
+            const ok =
+                landed &&
+                onCode.surface === "code" &&
+                f.tabs.join() === "changes,docs" &&
+                f.active === "changes" &&
+                f.docsDot &&
+                same;
+            return [ok, { landed, onCode: onCode.surface, ...f, same }];
+        });
+
+        await step("wsh view pushes a file: the .go file joins a File tab behind Changes, unseen, and the surface stays on Code", async () => {
+            await arm(false);
+            await page(h, CODE_SURFACE + " return true;");
+            await wshView(GO_PATH);
+            const landed = await page(h, `return await until(() => ws(${A}).tabs.some((t) => t.kind === "file"), 8000);`);
+            const onCode = await pushed();
+            await focusAgent(h, ctx.aId);
+            await polishWaitFor(h, `${PANE}?.querySelector('[data-workspace-tab^="file:"] [data-workspace-tab-unseen]') != null`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const f = await pushed();
+            const same = await page(h, `return P.sameRepoPath(${JSON.stringify(f.filePath ?? "")}, ${GO_PATH});`);
+            const ok =
+                landed &&
+                onCode.surface === "code" &&
+                f.tabs.length === 2 &&
+                f.tabs[0] === "changes" &&
+                f.tabs[1].startsWith("file:") &&
+                f.active === "changes" &&
+                f.fileDot &&
+                same;
+            return [ok, { landed, onCode: onCode.surface, ...f, same }];
+        });
+
+        await step("wsh view, collapsed: on a collapsed pane the pane stays a strip and its unseen dot shows", async () => {
+            await arm(true);
+            await wshView(SPEC_PATH);
+            await page(h, `return await until(() => ws(${A}).tabs.some((t) => t.kind === "docs"), 8000);`);
+            await polishWaitFor(h, `${PANE}?.querySelector("[data-workspace-strip-unseen]") != null`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const f = await pushed();
+            await h.shot("cdp-shots/workspace-docs-wsh-view-collapsed.png");
+            return [f.collapsed && f.strip && f.stripDot && f.tabs.join() === "changes,docs", f];
         });
 
         return steps;
