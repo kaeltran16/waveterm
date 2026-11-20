@@ -56,6 +56,14 @@ declare global {
         midturn?: boolean;
     };
 
+    // wshrpc.AgentDoc
+    type AgentDoc = {
+        path: string;
+        ts: number;
+        verb: string;
+        gone?: boolean;
+    };
+
     // wshrpc.AgentInfo
     type AgentInfo = {
         tabid: string;
@@ -589,6 +597,17 @@ declare global {
     // wshrpc.CommandAgentControlData
     type CommandAgentControlData = {
         oref: string;
+    };
+
+    // wshrpc.CommandAgentDocsData
+    type CommandAgentDocsData = {
+        blockid?: string;
+        transcriptpath?: string;
+    };
+
+    // wshrpc.CommandAgentDocsRtnData
+    type CommandAgentDocsRtnData = {
+        docs: AgentDoc[];
     };
 
     // wshrpc.CommandAgentPermissionData
@@ -3139,6 +3158,7 @@ declare global {
         "agent:lastcommitts"?: number;
         "agent:lasteditts"?: number;
         "agent:turnstartts"?: number;
+        "agent:transcripts"?: string[];
         count?: number;
     };
 
@@ -3180,6 +3200,7 @@ declare global {
     type OpenFileData = {
         path: string;
         edit?: boolean;
+        oref?: string;
     };
 
     // wshrpc.PathCommandData

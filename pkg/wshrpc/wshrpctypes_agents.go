@@ -37,6 +37,24 @@ type AgentCommands interface {
 	BrainstormJudgeCommand(ctx context.Context, data CommandBrainstormJudgeData) error                                                    // weigh a brainstorm.json's approach question with a one-shot blind judge
 	BrainstormJudgeStopCommand(ctx context.Context, data CommandBrainstormJudgeStopData) error                                            // stop a reading judge: its run, and its record turns stopped
 	BrainstormCheckTimesCommand(ctx context.Context) (*BrainstormCheckTimes, error)                                                       // how long this machine's past builder checks took, for the pane's clock
+	AgentDocsCommand(ctx context.Context, data CommandAgentDocsData) (*CommandAgentDocsRtnData, error)                                    // the Markdown files a block's agent wrote or edited, across its transcripts
+}
+
+type CommandAgentDocsData struct {
+	BlockId        string `json:"blockid,omitempty"`        // its agent:transcripts are read
+	TranscriptPath string `json:"transcriptpath,omitempty"` // the current transcript, read even when unrecorded
+}
+
+// AgentDoc is one Markdown file an agent wrote or edited.
+type AgentDoc struct {
+	Path string `json:"path"`           // absolute
+	Ts   int64  `json:"ts"`             // ms, the latest touching call
+	Verb string `json:"verb"`           // "written" | "edited", of the latest touching call
+	Gone bool   `json:"gone,omitempty"` // no file at Path now
+}
+
+type CommandAgentDocsRtnData struct {
+	Docs []AgentDoc `json:"docs"` // newest first; [] when none
 }
 
 // what a live agent session is doing, as AgentInfo.State and CommandAgentsReadRtnData.State carry it.
