@@ -21,7 +21,6 @@ import type { AgentsViewModel } from "./agents";
 import { type AgentVM } from "./agentsviewmodel";
 import { Check } from "./brainstormcheck";
 import {
-    boardBackLabel,
     boardPicks,
     boardTabLabels,
     bodyBeyondGist,
@@ -71,7 +70,6 @@ import {
     clearPartTarget,
     dismissBrainstorm,
     markBrainstormSeen,
-    openBrainstormBoard,
     openBrainstormDesign,
     openBrainstormHistory,
     shownBrainstormFile,
@@ -116,7 +114,8 @@ import {
     WorkingStepLine,
 } from "./brainstormui";
 import type { WorkingTurn } from "./brainstormworking";
-import { CANVAS_BTN, CANVAS_PRIMARY_BTN, CanvasPane, EdgeState, EXPLAINER } from "./canvaspane";
+import { CANVAS_BTN, CANVAS_PRIMARY_BTN, EdgeState, EXPLAINER } from "./canvaspane";
+import { closeCanvasWindow } from "./canvasstore";
 
 export const NO_RUN: Atom<Run | undefined> = atom(undefined as Run | undefined);
 
@@ -136,8 +135,8 @@ function scrollToPart(root: RefObject<HTMLElement>, id: string): void {
         ?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
-// a board an answer names picks that answer from full size; once it is sent the pane leaves the board for the agent
-// writing it up. A send that fails stays on the board with its reason
+// a board an answer names picks that answer from full size; once it is sent the window closes on the agent writing
+// it up. A send that fails stays on the board with its reason
 function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
     const ans = useAnswer(agent);
     if (picks.length === 0) {
@@ -145,7 +144,7 @@ function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
     }
     const pick = async (p: BoardPick) => {
         if (await ans.sendText(p.label)) {
-            openBrainstormBoard(agent.id, null);
+            closeCanvasWindow();
         }
     };
     return (
@@ -175,6 +174,24 @@ function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
     );
 }
 
+// what the canvas window adds while it shows the agent's brainstorm's own canvas: the answers' numbers on their boards'
+// tabs and a row to pick an answer from its board. null for any other canvas
+export function useBrainstormBoards(
+    agent: AgentVM | undefined,
+    topic: string | undefined
+): { tabLabels?: Record<string, string>; boardActions: (board: string) => ReactNode } | null {
+    const s = useAtomValue(brainstormAtom(agent?.id ?? ""));
+    const f = s != null ? shownBrainstormFile(s) : null;
+    if (agent == null || f?.canvas == null || f.canvas !== topic) {
+        return null;
+    }
+    const wait = judgeWait(f, s.sent != null);
+    return {
+        tabLabels: boardTabLabels(f, wait) ?? undefined,
+        boardActions: (board) => <BoardPicks agent={agent} picks={boardPicks(f, board, wait)} />,
+    };
+}
+
 // inTab: the pane is the workspace's Brainstorm tab, not the Terminal center, so its copy names the tab
 export function BrainstormPane({ model, agent, inTab }: { model: AgentsViewModel; agent: AgentVM; inTab?: boolean }) {
     const s = useAtomValue(brainstormAtom(agent.id));
@@ -192,12 +209,7 @@ export function BrainstormPane({ model, agent, inTab }: { model: AgentsViewModel
         return null;
     }
     const f = shownBrainstormFile(s);
-    const view = paneView({
-        file: s.file,
-        error: s.error,
-        removed: s.removed,
-        board: s.board,
-    });
+    const view = paneView(s);
     return (
         // keyed so a step change or another agent's brainstorm fades in, and the lists inside start over without
         // replaying every row's entrance
@@ -217,26 +229,6 @@ export function BrainstormPane({ model, agent, inTab }: { model: AgentsViewModel
                     <Removed agent={agent} topic={s.topic} path={s.path} inTab={inTab === true} />
                 ) : view === "error" ? (
                     <Unreadable s={s} />
-                ) : view === "board" ? (
-                    <CanvasPane
-                        model={model}
-                        agent={agent}
-                        onBack={() => openBrainstormBoard(agent.id, null)}
-                        backLabel={boardBackLabel(f, s.designOpen, s.sent != null)}
-                        tabLabels={
-                            f != null ? (boardTabLabels(f, judgeWait(f, s.sent != null)) ?? undefined) : undefined
-                        }
-                        boardActions={
-                            f != null
-                                ? (board) => (
-                                      <BoardPicks
-                                          agent={agent}
-                                          picks={boardPicks(f, board, judgeWait(f, s.sent != null))}
-                                      />
-                                  )
-                                : undefined
-                        }
-                    />
                 ) : view === "run" ? (
                     <RunStep model={model} agent={agent} s={s} f={f!} />
                 ) : view === "check" ? (

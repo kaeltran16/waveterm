@@ -138,16 +138,10 @@ export function stepTab(tabs: string[], current: string | null, delta: number): 
     return tabs[(((at + delta) % n) + n) % n];
 }
 
-// the Removed state's way out. A plain canvas detaches, which closes it; inside a brainstorm (backLabel
-// set) the brainstorm owns the way back, since detaching there leaves its board view with no canvas to draw.
-// swapNote: the Terminal view's canvas has a swap control that goes when the canvas closes; the tab has none
-export function removedExit(backLabel?: string, inTab = false): { label: string; detach: boolean; swapNote: boolean } {
-    if (backLabel != null) {
-        return { label: backLabel, detach: false, swapNote: false };
-    }
-    return inTab
-        ? { label: "Close the tab", detach: true, swapNote: false }
-        : { label: "Close the canvas", detach: true, swapNote: true };
+// the Removed state's way out, which detaches the canvas and so closes it. swapNote: the Terminal view's canvas has a
+// swap control that goes when the canvas closes; the tab has none
+export function removedExit(inTab = false): { label: string; swapNote: boolean } {
+    return inTab ? { label: "Close the tab", swapNote: false } : { label: "Close the canvas", swapNote: true };
 }
 
 export function paneState(s: CanvasState): "board" | "probing" | "server-down" | "removed" {

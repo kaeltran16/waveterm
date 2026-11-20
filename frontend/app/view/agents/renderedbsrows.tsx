@@ -181,8 +181,8 @@ function projectDirOf(agent: AgentVM, canvas: string, canvasTopic: string | null
     return getBrainstorm(agent.id)?.cwd ?? agent.cwd ?? null;
 }
 
-// the board the mark was made on, as a tab beside the transcript: the brainstorm's board view when the canvas is the
-// brainstorm's, else the canvas pane
+// the board the mark was made on: the canvas window on it when the canvas is the brainstorm's, else the Canvas tab
+// beside the transcript
 function openMarkedBoard(agent: AgentVM, view: MarkView, projectDir: string) {
     if (getBrainstorm(agent.id)?.file?.canvas === view.canvas) {
         openBrainstormAt(agent.id, { board: view.board });

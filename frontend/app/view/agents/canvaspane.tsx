@@ -118,23 +118,19 @@ export async function openBuildRun(
     }
 }
 
-// onBack: shown inside a brainstorm, which owns the way back (backLabel says where to) and the run launch. tabLabels
-// names a board's tab in place of its plain label, as a brainstorm's open question letters its answers' boards;
-// boardActions draws a row under the toolbar for the one board shown, never under All or while marking. onClose makes it
-// the canvas window (canvaswindow.tsx): a Close button, the marking hint in the header, and All in rows of 3
+// tabLabels names a board's tab in place of its plain label, as a brainstorm's open question numbers its answers'
+// boards; boardActions draws a row under the toolbar for the one board shown, never under All or while marking. Either
+// marks a brainstorm's canvas, whose brainstorm owns the run launch, so it has no Build this. onClose makes it the
+// canvas window (canvaswindow.tsx): a Close button, the marking hint in the header, and All in rows of 3
 export function CanvasPane({
     model,
     agent,
-    onBack,
-    backLabel,
     tabLabels,
     boardActions,
     onClose,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
-    onBack?: () => void;
-    backLabel?: string;
     tabLabels?: Record<string, string>;
     boardActions?: (board: string) => ReactNode;
     onClose?: () => void;
@@ -184,20 +180,15 @@ export function CanvasPane({
 
     return (
         <div data-canvas-pane className="flex min-h-0 flex-1 flex-col">
-            {/* wraps in a narrow pane (a board in the workspace's Brainstorm tab): unwrapped, the board tabs shrank to nothing and
-                keeping the picked one in view scrolled the whole pane sideways. The window is wide enough to keep one row:
-                its tabs take the rest of the width and scroll */}
+            {/* wraps in a narrow pane: unwrapped, the board tabs shrank to nothing and keeping the picked one in view scrolled
+                the whole pane sideways. The window is wide enough to keep one row: its tabs take the rest of the width and
+                scroll */}
             <div
                 className={cn(
                     "flex flex-none items-center gap-x-[10px] gap-y-[8px] border-b border-edge-faint bg-surface py-[8px] pl-[22px]",
                     inWindow ? "pr-[10px]" : "flex-wrap pr-[22px]"
                 )}
             >
-                {onBack != null ? (
-                    <button type="button" onClick={onBack} className={CANVAS_BTN}>
-                        {backLabel}
-                    </button>
-                ) : null}
                 <span className="flex-none whitespace-nowrap font-mono text-[12px] font-semibold text-secondary">
                     {s.topic}
                 </span>
@@ -260,7 +251,7 @@ export function CanvasPane({
                                 Open in browser
                             </button>
                         ) : null}
-                        {s.boards.length > 0 && onBack == null ? (
+                        {s.boards.length > 0 && boardActions == null ? (
                             <button
                                 type="button"
                                 onClick={() => {
@@ -298,7 +289,7 @@ export function CanvasPane({
                 {pane === "server-down" ? (
                     <ServerDown />
                 ) : pane === "removed" ? (
-                    <Removed agent={agent} topic={s.topic} onBack={onBack} backLabel={backLabel} />
+                    <Removed agent={agent} topic={s.topic} />
                 ) : (
                     // the shown boards (every one under All) at their canvas.json frames, each iframe at the board's full size, so the canvas
                     // scrolls here, in Arc, instead of showing the board pages' own scrollbars. The gutter is
@@ -677,20 +668,8 @@ export function ServerDown() {
     );
 }
 
-export function Removed({
-    agent,
-    topic,
-    onBack,
-    backLabel,
-    inTab = false,
-}: {
-    agent: AgentVM;
-    topic: string;
-    onBack?: () => void;
-    backLabel?: string;
-    inTab?: boolean;
-}) {
-    const exit = removedExit(onBack != null ? (backLabel ?? "Back") : undefined, inTab);
+export function Removed({ agent, topic, inTab = false }: { agent: AgentVM; topic: string; inTab?: boolean }) {
+    const exit = removedExit(inTab);
     return (
         <EdgeState>
             <span className="text-[14px] font-semibold text-primary">{topic} was removed</span>
@@ -698,11 +677,7 @@ export function Removed({
                 Its folder under .superpowers/design is gone, usually because the feature shipped.
                 {exit.swapNote ? " The swap control disappears once you close it." : ""}
             </span>
-            <button
-                type="button"
-                onClick={() => (exit.detach ? detachCanvas(agent.id) : onBack?.())}
-                className={cn("mt-[4px]", CANVAS_BTN)}
-            >
+            <button type="button" onClick={() => detachCanvas(agent.id)} className={cn("mt-[4px]", CANVAS_BTN)}>
                 {exit.label}
             </button>
         </EdgeState>

@@ -39,7 +39,7 @@ function BoardChip({ board, onOpen }: { board: string; onOpen: (board: string) =
     return (
         <button
             type="button"
-            title={`Open ${label} in the Brainstorm tab`}
+            title={`Open ${label} in a window`}
             data-rendered-bs-board-chip={board}
             onClick={() => onOpen(board)}
             className="inline-flex cursor-pointer items-center gap-[5px] whitespace-nowrap rounded-[6px] border border-edge-strong bg-transparent px-2 py-[3px] text-[11.5px] text-ink-mid transition-colors hover:text-secondary"
@@ -50,7 +50,7 @@ function BoardChip({ board, onOpen }: { board: string; onOpen: (board: string) =
     );
 }
 
-// a chip on each option naming a board, which opens the Brainstorm tab at that board. Laid out as the pane's question
+// a chip on each option naming a board, which opens the canvas window on that board. Laid out as the pane's question
 // (questionChips)
 export function useQuestionBoards(
     agent: AgentVM,

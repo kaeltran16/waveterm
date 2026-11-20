@@ -25,7 +25,7 @@ import {
     type SentLine,
 } from "./brainstormmodel";
 import { canvasDir, type CanvasBoard } from "./canvasmodel";
-import { attachCanvas, setMarking } from "./canvasstore";
+import { attachCanvas, openCanvasWindow } from "./canvasstore";
 import { closeWorkspaceTab, openWorkspaceTab } from "./workspacestore";
 
 export type BrainstormState = {
@@ -44,8 +44,7 @@ export type BrainstormState = {
     modifiedMs: number | null;
     // when brainstorm mode was last shown: the compaction banner and the unseen mark compare against it
     lastViewedMs: number;
-    board: string | null;
-    // the design opened over the question or the working note; kept here so a board's Back returns to it
+    // the design opened over the question or the working note
     designOpen: boolean;
     // the narrow pane's "Decided so far" history over its main area; here, beside designOpen, because Esc reads it.
     // Never set with designOpen: opening either closes the other
@@ -160,7 +159,6 @@ export function attachBrainstorm(
         missedStats: 0,
         modifiedMs: null,
         lastViewedMs: now,
-        board: null,
         designOpen: false,
         historyOpen: false,
         boards: [],
@@ -209,8 +207,14 @@ export function stampBrainstormViewed(agentId: string, now: number): void {
     updateBrainstorm(agentId, (s) => ({ ...s, lastViewedMs: now }));
 }
 
-export function openBrainstormBoard(agentId: string, board: string | null): void {
-    updateBrainstorm(agentId, (s) => ({ ...s, board }));
+// a board of the brainstorm's canvas full size: the canvas window, as every canvas opens a board in full
+export function openBrainstormBoard(agentId: string, canvas: string, board: string, now: number = Date.now()): void {
+    const s = getBrainstorm(agentId);
+    if (s == null) {
+        return;
+    }
+    attachCanvas(agentId, { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board }, now);
+    openCanvasWindow(agentId, { board });
 }
 
 export function openBrainstormDesign(agentId: string, open: boolean): void {
@@ -222,39 +226,35 @@ export function openBrainstormHistory(agentId: string, open: boolean): void {
 }
 
 // The pane at a place, for a control outside it (the Rendered transcript's cards): a part opens the design at that
-// part's row (in the check phase, the review's cursor on it), a board the pane's board view on that board of the
-// brainstorm's canvas, marking on for mark; neither, the pane as it was. Its callers are Rendered cards, so the pane
-// opens as the workspace's Brainstorm tab, beside the transcript
+// part's row (in the check phase, the review's cursor on it); neither, the pane as it was. Its callers are Rendered
+// cards, so the pane opens as the workspace's Brainstorm tab, beside the transcript. A board opens in the canvas
+// window instead, over the transcript
 export function openBrainstormAt(
     agentId: string,
-    at: { part?: string; board?: string; mark?: boolean },
+    at: { part?: string; board?: string },
     now: number = Date.now()
 ): void {
     const s = getBrainstorm(agentId);
     if (s == null) {
         return;
     }
+    if (at.board != null) {
+        if (s.file?.canvas != null) {
+            openBrainstormBoard(agentId, s.file.canvas, at.board, now);
+        }
+        return;
+    }
     stampBrainstormViewed(agentId, now);
     openWorkspaceTab(agentId, { kind: "brainstorm" });
-    const canvas = s.file?.canvas;
     if (at.part != null) {
         const part = at.part;
         updateBrainstorm(agentId, (x) => ({
             ...x,
-            board: null,
             designOpen: true,
             historyOpen: false,
             partTarget: part,
             review: x.file?.check != null ? { ...x.review, cursor: part } : x.review,
         }));
-    } else if (at.board != null && canvas != null) {
-        attachCanvas(
-            agentId,
-            { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board: at.board },
-            now
-        );
-        setMarking(agentId, at.mark === true);
-        openBrainstormBoard(agentId, at.board);
     }
 }
 

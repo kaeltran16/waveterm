@@ -1119,12 +1119,6 @@ export function designUnder(f: BrainstormFile, designOpen: boolean, linePending 
     return designOpen ? mainView(f, false, linePending) : "design";
 }
 
-// a board opened from the question goes back to it; one opened from the design, to the design
-export function boardBackLabel(f: BrainstormFile | null, designOpen: boolean, linePending = false): string {
-    const view = f != null ? mainView(f, designOpen, linePending) : "design";
-    return view === "question" || view === "judging" ? "Back to the question" : "Back to the design";
-}
-
 // what the builder check's main area holds. The talk question comes first: the agent waits on it in the terminal, and
 // its answer may settle the builder's questions. The design opened over a question is the review
 export type CheckMain = "working" | "judging" | "question" | "builder" | "review";
@@ -1256,9 +1250,9 @@ export function checkClock(
 // During the judge's wait the pane draws the approaches as the rows, so a key picks one of them
 export function pickableOptions(
     f: BrainstormFile | null,
-    s: { designOpen: boolean; board: string | null; removed: boolean; sent?: SentLine | null }
+    s: { designOpen: boolean; removed: boolean; sent?: SentLine | null }
 ): number {
-    if (f == null || s.board != null || s.removed) {
+    if (f == null || s.removed) {
         return 0;
     }
     const linePending = s.sent != null;
@@ -1924,22 +1918,14 @@ export function brainstormAttention(
     };
 }
 
-export type PaneView = "error" | "removed" | "run" | "check" | "board" | "design";
+export type PaneView = "error" | "removed" | "run" | "check" | "design";
 
-export function paneView(s: {
-    file: BrainstormFile | null;
-    error: string | null;
-    removed: boolean;
-    board: string | null;
-}): PaneView {
+export function paneView(s: { file: BrainstormFile | null; error: string | null; removed: boolean }): PaneView {
     if (s.removed) {
         return "removed";
     }
     if (s.error != null && s.file == null) {
         return "error";
-    }
-    if (s.board != null) {
-        return "board";
     }
     if (s.file?.run != null) {
         return "run";
@@ -1959,20 +1945,17 @@ export function brainstormGoneText(path: string): string {
     return `It is no longer at ${path}.`;
 }
 
-// The one level the pane's back control steps up, or null where it draws none: a full-size board goes back to where
-// it was opened, the narrow history opened over the question or the judge's wait goes back to it, and the design
-// opened over the question or the working note goes back to it. Esc takes the same step (agent:brainstorm-back), so
-// the key and the controls cannot disagree on when there is one
-export type PaneBack = "board" | "history" | "design";
+// The one level the pane's back control steps up, or null where it draws none: the narrow history opened over the
+// question or the judge's wait goes back to it, and the design opened over the question or the working note goes back
+// to it. Esc takes the same step (agent:brainstorm-back), so the key and the controls cannot disagree on when there is
+// one
+export type PaneBack = "history" | "design";
 
 export function paneBack(
     s: Parameters<typeof paneView>[0] & { designOpen: boolean; historyOpen?: boolean; sent?: SentLine | null },
     f: BrainstormFile | null
 ): PaneBack | null {
     const view = paneView(s);
-    if (view === "board") {
-        return "board";
-    }
     if (f == null) {
         return null;
     }

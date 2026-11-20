@@ -50,8 +50,7 @@ import {
 import { sendBrainstorm } from "./brainstormsend";
 import { openBrainstormBoard, type BrainstormState } from "./brainstormstore";
 import { workingTurn, type WorkingStep, type WorkingTurn } from "./brainstormworking";
-import { boardLabel, boardUrl, canvasDir, DEFAULT_BOARD_H, DEFAULT_BOARD_W, type CanvasBoard } from "./canvasmodel";
-import { attachCanvas } from "./canvasstore";
+import { boardLabel, boardUrl, DEFAULT_BOARD_H, DEFAULT_BOARD_W, type CanvasBoard } from "./canvasmodel";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { VERB } from "./narrationtimeline";
 
@@ -978,7 +977,11 @@ function questionBoards(
             boards.length === 0 ? null : (
                 <div className="flex flex-col items-end gap-[4px]">
                     {boards.map((name) => (
-                        <BoardChip key={name} name={name} onOpen={() => openBoard(agentId, s, f.canvas!, name)} />
+                        <BoardChip
+                            key={name}
+                            name={name}
+                            onOpen={() => openBrainstormBoard(agentId, f.canvas!, name)}
+                        />
                     ))}
                 </div>
             );
@@ -1330,12 +1333,6 @@ function Spikes({ base, canvas, spikes }: { base: string; canvas: string; spikes
     );
 }
 
-// a board full size in the pane, on its canvas
-function openBoard(agentId: string, s: BrainstormState, canvas: string, board: string): void {
-    attachCanvas(agentId, { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board }, Date.now());
-    openBrainstormBoard(agentId, board);
-}
-
 // a board an answer row names, at the tab's width: its icon and name, opening it full size
 function BoardChip({ name, onOpen }: { name: string; onOpen: () => void }) {
     return (
@@ -1390,7 +1387,7 @@ export function Thumbnails({
     sizes?: CanvasBoard[];
     latest?: string;
 }) {
-    const open = (board: string) => openBoard(agentId, s, canvas, board);
+    const open = (board: string) => openBrainstormBoard(agentId, canvas, board);
     return (
         <div className={cn("flex flex-none", compact ? "flex-wrap items-start gap-[14px]" : "flex-col gap-[10px]")}>
             {boards.map((name) => {

@@ -99,7 +99,8 @@ export default function (kit) {
             const working = pane?.querySelector("[data-brainstorm-working]");
             const boards = working?.querySelector("[data-brainstorm-turn-boards]");
             const note = pane?.querySelector("[data-brainstorm-working-note]");
-            const canvas = pane?.querySelector("[data-canvas-pane]");
+            // a board opened full size draws in the canvas window, over the pane
+            const canvas = document.querySelector("[data-canvas-window] [data-canvas-pane]");
             return {
                 view: pane?.getAttribute("data-brainstorm-view") ?? null,
                 working: working ? flat(working) : null,
@@ -132,7 +133,6 @@ export default function (kit) {
                     ? {
                           topic: text(canvas.querySelector("span.font-mono")),
                           board: canvas.querySelector("[data-canvas-board]")?.getAttribute("data-canvas-frame") ?? null,
-                          back: text(canvas.querySelector("button")),
                       }
                     : null,
             };
@@ -213,16 +213,16 @@ export default function (kit) {
             r3
         );
 
-        // 4. Open full size opens the canvas on that board; Back returns to the Working view. The design's note
+        // 4. Open full size opens the canvas window on that board; Close returns to the Working view. The design's note
         await h.ev(
             `${BS_PANE}?.querySelector('[data-brainstorm-turn-boards] [data-brainstorm-thumb="${PAGE}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
         );
-        const r4 = await until(h, (r) => r.view === "board" && r.canvas?.board === PAGE);
+        const r4 = await until(h, (r) => r.canvas?.board === PAGE);
         await h.shot("cdp-shots/brainstorm-working-4-full-size.png");
-        await h.ev(`${BS_PANE}?.querySelector("[data-canvas-pane] button")?.click()`);
-        const r4b = await until(h, (r) => r.view !== "board" && r.working != null && r.boards != null);
+        await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
+        const r4b = await until(h, (r) => r.canvas == null && r.working != null && r.boards != null);
         rec(
-            "4. Open full size on Page.dc.html opens the canvas pane on it, and its back control returns to the Working view",
+            "4. Open full size on Page.dc.html opens the canvas window on it, and its Close returns to the Working view",
             r4.ok && r4.canvas.topic === CANVAS && r4b.ok,
             { canvas: r4.canvas, view: r4.view, back: r4b.view }
         );

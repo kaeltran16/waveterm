@@ -10,10 +10,9 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { getWebServerEndpoint } from "@/util/endpoints";
 import { useAtomValue } from "jotai";
 import { useEffect } from "react";
-import { paneShown, type PaneKind } from "./agentpanes";
+import { paneShown } from "./agentpanes";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { getBrainstorm, type BrainstormState } from "./brainstormstore";
 import {
     boardsFromCanvasJson,
     boardUrl,
@@ -68,12 +67,6 @@ async function readServer(s: CanvasState, io: CanvasIO, base: string): Promise<S
     });
     const boards = listed.length > 0 || Object.keys(boardModifiedMs).length > 0 ? candidates : [];
     return { boards, lastModifiedMs, boardModifiedMs };
-}
-
-// whether the agent surface is drawing the canvas's boards: its own pane or tab, or a brainstorm's full-size board,
-// which draws the same pane while the canvas itself is not the one shown. shown is agentpanes.ts's paneShown
-export function canvasOnScreen(shown: PaneKind | null, brainstorm: Pick<BrainstormState, "board"> | null): boolean {
-    return shown === "canvas" || (shown === "brainstorm" && brainstorm?.board != null);
 }
 
 export async function pollCanvasOnce(
@@ -166,9 +159,7 @@ export async function pollAndMerge(
     if (s == null) {
         return;
     }
-    const onScreen =
-        globalStore.get(canvasWindowAtom) === agentId ||
-        canvasOnScreen(paneShown(model, agentId), getBrainstorm(agentId));
+    const onScreen = globalStore.get(canvasWindowAtom) === agentId || paneShown(model, agentId) === "canvas";
     const patch = await pollCanvasOnce(s, io, Date.now(), onScreen);
     updateCanvas(agentId, (cur) => (cur.topic === s.topic && cur.dir === s.dir ? mergePoll(cur, patch) : cur));
 }
