@@ -46,6 +46,8 @@ const WAIT_MS = 10_000;
 // longer than the pane's macro reveal (360ms), so a read after it sees the settled pane
 const SETTLE_MS = 700;
 const DEFAULT_PX = 600;
+// the pane's sheet entrance and exit offset (SHEET_SLIDE_PX in motiontokens.ts)
+const SHEET_SLIDE_PX = 24;
 const STRIP_PX = 44;
 const DRAG_PX = 120;
 // the run is not in the store, so its tab shows the id as its title: a long one, so four tabs overflow the strip
@@ -86,6 +88,13 @@ const LIB = `
         };
         requestAnimationFrame(tick);
         return { values, stop: () => (on = false) };
+    };
+    // the pane's width, opacity and x translate as one string, so sampleFrames keeps every frame that changes any of them
+    const paneFrame = () => {
+        const el = pane();
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return JSON.stringify({ w: width(el), o: Number(Number(cs.opacity).toFixed(2)), x: Math.round(new DOMMatrixReadOnly(cs.transform).m41) });
     };
 `;
 const page = (h, body) => agentPage(h, `${LIB} ${body}`);
@@ -259,18 +268,22 @@ export const workspacePane = {
         });
         await h.shot("cdp-shots/workspace-pane-main.png");
 
-        // 6b: the pane opens from nothing to the stored width, through the frames between
-        await step("opening a tab reveals the pane (6b) at 600px on a fresh profile", async () => {
+        // 6b: the pane slides in like a sheet at the stored width from its first frame, fading up and moving left into
+        // place, so the transcript beside it never rewraps through a growing width
+        await step("opening a tab slides the pane in (6b) at 600px on a fresh profile", async () => {
             const r = await page(
                 h,
-                `const s = sampleFrames(() => width(pane()));
+                `const s = sampleFrames(paneFrame);
                 W.openWorkspaceTab(${A}, { kind: "changes", selected: null });
                 await nap(${SETTLE_MS});
                 s.stop();
-                return { widths: s.values, final: width(pane()) };`
+                return { frames: s.values.map((v) => JSON.parse(v)) };`
             );
-            const between = r.widths.filter((w) => w > 0 && w < DEFAULT_PX);
-            return [r.final === DEFAULT_PX && between.length > 0, r];
+            const fullWidth = r.frames.length > 0 && r.frames.every((f) => f.w === DEFAULT_PX);
+            const sliding = r.frames.some((f) => (f.o > 0 && f.o < 1) || (f.x > 0 && f.x < SHEET_SLIDE_PX));
+            const last = r.frames.at(-1);
+            const settled = last?.w === DEFAULT_PX && last.o === 1 && last.x === 0;
+            return [fullWidth && sliding && settled, r];
         });
 
         await step("the d binding follows the tabs with no key event: the footer offers d for the pane", async () => {
@@ -756,19 +769,22 @@ export const workspacePane = {
         );
         await polishNap(SETTLE_MS);
 
-        // closing the last tab removes the pane, which leaves rather than vanishing
-        await step("closing the last tab removes the pane", async () => {
+        // closing the last tab removes the pane, which slides out at its full width, fading, rather than vanishing
+        await step("closing the last tab slides the pane out at its full width", async () => {
             const r = await page(
                 h,
-                `const s = sampleFrames(() => width(pane()) ?? "gone");
+                `const s = sampleFrames(() => paneFrame() ?? "gone");
                 document.querySelector('[data-workspace-tab] [data-workspace-tab-close]').click();
                 await nap(${SETTLE_MS});
                 s.stop();
-                return { widths: s.values, state: ws(${A}) };`
+                return { frames: s.values.map((v) => (v === "gone" ? v : JSON.parse(v))), state: ws(${A}) };`
             );
             const f = await facts();
-            const leaving = r.widths.some((w) => w !== "gone" && w > 0 && w < DEFAULT_PX);
-            return [f.pane == null && !f.rail && r.state.tabs.length === 0 && leaving && !f.footer.includes("d pane"), { widths: r.widths, pane: f.pane, footer: f.footer }];
+            const goneAt = r.frames.indexOf("gone");
+            const before = r.frames.slice(0, goneAt);
+            const leaving = goneAt > 0 && before.every((p) => p.w === DEFAULT_PX) && before.some((p) => p.o > 0 && p.o < 1);
+            const ok = f.pane == null && !f.rail && r.state.tabs.length === 0 && leaving && r.frames.at(-1) === "gone" && !f.footer.includes("d pane");
+            return [ok, { frames: r.frames, pane: f.pane, footer: f.footer }];
         });
 
         return steps;
