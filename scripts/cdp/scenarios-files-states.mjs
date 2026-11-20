@@ -6,7 +6,8 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { git, lookEval, reloadApp, setInputExpr, waveService } from "./scenarios-shared.mjs";
+import { closeTabs, editCall, makeTab, userText, writeTranscript } from "./agent-page-fixtures.mjs";
+import { git, lookEval, reloadApp } from "./scenarios-shared.mjs";
 import {
     DIFF_EDITOR,
     fileRowSel,
@@ -65,23 +66,10 @@ async function pressKey(h, key, code, vk, modifiers = 0) {
 const SHIFT = 8; // CDP modifier bitmask
 const CTRL = 2;
 const COMMENT_STORAGE_KEY = "diff.comments.pending";
-const FLAGS_KEY = "agent.launch.flags";
-// a real Claude Code session on haiku, which keeps it cheap. The prompt is typed into its terminal rather than passed
-// on the command line: the launch splits a quoted argument at its first space.
-const ASK_COMMAND = "claude --model haiku";
-const ASK_PROMPT = "Use the AskUserQuestion tool to ask me one question: should the retry budget be 3 or 8? Ask only that and do nothing else.";
-// the folder-trust prompt a new temp folder gets; its default is "No, exit", so it is answered with Down then Enter
-const TRUST_TEXT = "trust this folder";
-const DOWN = "\x1b[B";
-// Claude Code's input box: a rule line, then its prompt glyph (a shell prompt draws no rule)
-const INPUT_BOX = /─{20,}\s*❯/;
-const AGENT_READY_MS = 60_000;
 const PROJECT_LISTED_MS = 30_000;
-const CONTROLLER_STARTED_MS = 60_000;
 const READY_POLL_MS = 250;
-const AGENT_ASKING_MS = 120_000;
-const AGENT_POLL_MS = 1000;
-const KEY_GAP_MS = 800;
+const ASKING_MS = 10_000;
+const ASKER = "verify-diff-states-asker";
 const ASK_NOTE = "Keep the old helper until the caller moves.";
 
 // the cockpit's model, found the way the other scenarios find it: on the nav rail's props
@@ -93,46 +81,31 @@ const MODEL = `(() => {
     }
     return null;
 })()`;
-const NEW_AGENT = `[...document.querySelectorAll('[role="dialog"]')].find((d) => /New agent/.test(flat(d.querySelector("h2"))))`;
-
-// launches a Claude Code agent in the project through New agent; returns its tab, block and roster name
-async function launchAskingAgent(h, project) {
-    await lookEval(h, `
-        const { globalStore } = await mod("app/store/jotaiStore.ts");
-        const { naFlagsAtom } = await mod("app/view/agents/naflagsstore.ts");
-        const model = ${MODEL};
-        // a remembered flag would be appended to the command
-        globalStore.set(naFlagsAtom, {});
-        globalStore.set(model.newAgentOpenAtom, true);
-        await until(() => ${NEW_AGENT} != null, 5000);
-        button(${NEW_AGENT}?.querySelector('[role="radiogroup"][aria-label="Project"]'), new RegExp("^" + ${JSON.stringify(project)} + "$"))?.click();
-        button(${NEW_AGENT}?.querySelector('[role="radiogroup"][aria-label="Runtime"]'), /Claude Code/)?.click();
-        await nap(200);
-    `);
-    await h.ev(setInputExpr(`document.getElementById("na-cmd")`, ASK_COMMAND));
-    return lookEval(h, `
-        const { globalStore } = await mod("app/store/jotaiStore.ts");
-        const { atoms } = await mod("app/store/global-atoms.ts");
-        const model = ${MODEL};
-        const before = new Set(globalStore.get(model.pendingLaunchesAtom).map((p) => p.tabId));
-        const project = flat(${NEW_AGENT}?.querySelector('[role="radiogroup"][aria-label="Project"] [aria-checked="true"]'));
-        await nap(200);
-        button(${NEW_AGENT}, /^Launch agent/)?.click();
-        const closed = await until(() => ${NEW_AGENT} == null, 15000);
-        const pending = globalStore.get(model.pendingLaunchesAtom).find((p) => !before.has(p.tabId));
-        const error = closed ? null : flat(${NEW_AGENT});
-        // a failed launch leaves the dialog up over every later scenario
-        if (!closed) globalStore.set(model.newAgentOpenAtom, false);
-        return {
-            closed,
-            project,
-            error,
-            tabId: pending?.tabId ?? null,
-            blockId: pending?.blockId ?? null,
-            name: pending?.name ?? null,
-            workspaceId: globalStore.get(atoms.workspace)?.oid ?? null,
-        };
-    `);
+// A Claude Code agent asking a question in the project, with old.py edited: a fixture tab whose transcript makes that
+// edit, since a claude agent's scope lists only its transcript's edits (fd40f2cf3) and an agent the dev app launches
+// writes no transcript; the agent:status event its hooks publish marks it asking.
+async function seedAskingAgent(h, ctx) {
+    const root = mkdtempSync(join(tmpdir(), "verify-diff-states-asker-"));
+    ctx.dirs.push(root);
+    const at = { cwd: ctx.dir, ts: new Date().toISOString() };
+    const transcriptPath = writeTranscript(root, "session", [
+        userText("keep the old helper for now", at),
+        ...editCall("toolu_ds_old", join(ctx.dir, STATES.deleted), "    return 1\n", "    return 2\n", at),
+    ]);
+    writeFileSync(join(ctx.dir, STATES.deleted), "def old():\n    return 2\n");
+    // a term block counts as a session only with a cwd; the shell is never shown, so it never starts there
+    const tab = await makeTab(h, ctx, {
+        label: ASKER,
+        blockMeta: { view: "term", "cmd:cwd": ctx.dir },
+        tabMeta: { "session:project": STATES.project },
+    });
+    await h.rpc("eventpublish", {
+        event: "agent:status",
+        scopes: [`block:${tab.blockId}`],
+        persist: 1,
+        data: { oref: `block:${tab.blockId}`, state: "asking", agent: "claude", cwd: ctx.dir, transcriptpath: transcriptPath, ts: Date.now() },
+    });
+    return { ...tab, project: STATES.project };
 }
 
 // answers the named wshrpc commands with canned values in the page, every other command as before; unstubRpc puts
@@ -199,65 +172,13 @@ async function untilValue(read, ok, ms) {
     return { ok: false, value };
 }
 
-const controllerStatus = (h, blockId) =>
-    waveService(h, "block", "GetControllerStatus", [blockId]).then((rs) => rs?.shellprocstatus ?? null);
-
-const agentState = (h, tabId) =>
+// the roster entry's state and the name the roster gives it
+const agentOf = (h, tabId) =>
     lookEval(h, `
         const { globalStore } = await mod("app/store/jotaiStore.ts");
-        return globalStore.get(${MODEL}.agentsAtom).find((a) => a.id === ${JSON.stringify(tabId)})?.state ?? null;
+        const a = globalStore.get(${MODEL}.agentsAtom).find((a) => a.id === ${JSON.stringify(tabId)});
+        return { state: a?.state ?? null, name: a?.name ?? null };
     `);
-
-const typeInto = (h, blockId, text) =>
-    lookEval(h, `
-        const { RpcApi } = await mod("app/store/wshclientapi.ts");
-        const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
-        await RpcApi.ControllerInputCommand(TabRpcClient, { blockid: ${JSON.stringify(blockId)}, inputdata64: btoa(${JSON.stringify(text)}) });
-    `);
-
-// the terminal's visible text, from the xterm the hidden Agent surface keeps mounted
-const screenOf = (h, blockId) =>
-    lookEval(h, `
-        const { RpcApi } = await mod("app/store/wshclientapi.ts");
-        const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
-        try {
-            const r = await RpcApi.TermGetScrollbackLinesCommand(TabRpcClient, { linestart: 0, lineend: 200, lastcommand: false }, { route: "feblock:" + ${JSON.stringify(blockId)} });
-            return r.lines.join(" ");
-        } catch (e) {
-            return "";
-        }
-    `);
-
-// accepts the trust prompt once it shows, types the question's prompt once Claude Code's input is up, then waits for the ask
-async function untilAsking(h, agent) {
-    const seen = [];
-    let trusted = false;
-    let prompted = false;
-    for (let waited = 0; waited < AGENT_READY_MS && !prompted; waited += AGENT_POLL_MS) {
-        await sleep(AGENT_POLL_MS);
-        const screen = await screenOf(h, agent.blockId);
-        if (!trusted && screen.includes(TRUST_TEXT)) {
-            await typeInto(h, agent.blockId, DOWN);
-            await sleep(KEY_GAP_MS);
-            await typeInto(h, agent.blockId, "\r");
-            trusted = true;
-        } else if (!screen.includes(TRUST_TEXT) && INPUT_BOX.test(screen)) {
-            // Claude Code is past the trust prompt and its input box is drawn
-            await sleep(KEY_GAP_MS);
-            await typeInto(h, agent.blockId, ASK_PROMPT);
-            await sleep(KEY_GAP_MS);
-            await typeInto(h, agent.blockId, "\r");
-            prompted = true;
-        }
-    }
-    for (let waited = 0; prompted && waited < AGENT_ASKING_MS; waited += AGENT_POLL_MS) {
-        const state = await agentState(h, agent.tabId);
-        if (state !== seen[seen.length - 1]) seen.push(state);
-        if (state === "asking") return { asking: true, trusted, prompted, seen };
-        await sleep(AGENT_POLL_MS);
-    }
-    return { asking: false, trusted, prompted, seen, screen: (await screenOf(h, agent.blockId)).replace(/\s+/g, " ").slice(-600) };
-}
 
 export const STATES = {
     project: "verify-diff-states",
@@ -323,13 +244,12 @@ export const diffStates = {
             throw new Error(`arrange: ${STATES.project} not listed by the app after ${PROJECT_LISTED_MS}ms; last seen ${JSON.stringify(listed.value)}`);
         }
         // the comment store reads its key once, at module load, so it is cleared before the reload; teardown puts
-        // back the user's comments and remembered launch flags
+        // back the user's comments
         const prevComments = await h.ev(`localStorage.getItem(${JSON.stringify(COMMENT_STORAGE_KEY)})`);
-        const prevFlags = await h.ev(`localStorage.getItem(${JSON.stringify(FLAGS_KEY)})`);
         await h.ev(`localStorage.removeItem(${JSON.stringify(COMMENT_STORAGE_KEY)})`);
         // fresh module state: Diff's scope, range and history collapse outlive the surface for the page's life
         await reloadApp(h);
-        return { dir, names: [STATES.project], dirs: [dir], prevComments, prevFlags, agent: null };
+        return { dir, names: [STATES.project], dirs: [dir], prevComments };
     },
     async assert(h, ctx) {
         const steps = [];
@@ -816,21 +736,9 @@ export const diffStates = {
 
         const s11 = "11. asking agent waits: a Claude Code agent asking a question gets no comments — the bar says answer it first and ⇧Enter sends nothing";
         await guard(s11, async () => {
-            const agent = await launchAskingAgent(h, STATES.project);
-            ctx.agent = agent;
-            if (agent.tabId == null) {
-                rec(s11, false, `the launch did not start: ${JSON.stringify(agent)}`);
-                return;
-            }
-            // the terminal reads below go to a controller that has to be up first
-            const started = await untilValue(() => controllerStatus(h, agent.blockId), (s) => s === "running", CONTROLLER_STARTED_MS);
-            if (!started.ok) {
-                rec(s11, false, `the agent's controller did not start within ${CONTROLLER_STARTED_MS}ms; last status ${JSON.stringify(started.value)}`);
-                return;
-            }
-            const asked = await untilAsking(h, agent);
-            // the working tree then edits old.py, so the agent's synthetic row lists it with a side to comment on
-            writeFileSync(join(ctx.dir, STATES.deleted), "def old():\n    return 2\n");
+            const agent = await seedAskingAgent(h, ctx);
+            const asking = await untilValue(() => agentOf(h, agent.tabId), (a) => a.state === "asking", ASKING_MS);
+            const asked = { asking: asking.ok, ...asking.value };
             await h.goto("files");
             await setViewport(h);
             // by id: the picker's own trigger and the project row carry the same name as the agent
@@ -911,12 +819,12 @@ export const diffStates = {
                     drafting &&
                     waiting &&
                     bar?.kind === "wait" &&
-                    bar.detail === `${agent.name} is asking a question — answer it first` &&
+                    bar.detail === `${asked.name} is asking a question — answer it first` &&
                     bar.send === "Send 1 comment" &&
                     bar.disabled === true &&
                     bar.pending === 1 &&
                     prompts === 0,
-                JSON.stringify({ agent: { name: agent.name, project: agent.project }, asked, listed, scoped, scope, opened, drafting, waiting, bar, prompts })
+                JSON.stringify({ agent: { project: agent.project }, asked, listed, scoped, scope, opened, drafting, waiting, bar, prompts })
             );
         });
 
@@ -1040,14 +948,11 @@ export const diffStates = {
         };
         await step("put back the rpc client", () => unstubRpc(h));
         await step("put back the roster and projects", () => refillTheSurface(h));
-        if (ctx.agent?.tabId) {
-            await step("close the agent", () => waveService(h, "workspace", "CloseTab", [ctx.agent.workspaceId, ctx.agent.tabId, false]));
-        }
-        await step("restore comments and launch flags", () =>
+        await step("close the asking agent", () => closeTabs(h, ctx));
+        await step("restore comments", () =>
             h.ev(`(() => {
                 const put = (k, v) => (v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v));
                 put(${JSON.stringify(COMMENT_STORAGE_KEY)}, ${JSON.stringify(ctx.prevComments ?? null)});
-                put(${JSON.stringify(FLAGS_KEY)}, ${JSON.stringify(ctx.prevFlags ?? null)});
             })()`)
         );
         await step("clear the viewport", () => h.cdp("Emulation.clearDeviceMetricsOverride", {}));

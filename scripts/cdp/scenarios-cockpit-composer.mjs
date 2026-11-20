@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { assistantText, userText, writeTranscript } from "./agent-page-fixtures.mjs";
 import { COCKPIT, polishReload, polishWaitFor, TREE_RAIL_FIXTURE, waveService } from "./scenarios-shared.mjs";
 
 const WORKING_ID = "fx-composer-working";
@@ -11,8 +12,6 @@ const WORKING_NAME = "composer worker";
 const IDLE_ID = "fx-composer-idle";
 const IDLE_NAME = "composer idler";
 const MESSAGE_LEN = 120;
-// a cold scan of every transcript root outlasts one CDP command, so it runs in the page and is polled
-const SESSIONS_SCAN_TIMEOUT_MS = 120_000;
 // typeWake pastes, pauses (agentask.KeystrokeDelay), then submits: well inside this
 const ARRIVE_MS = 10_000;
 // long enough for a stray second submit to land after the first
@@ -62,18 +61,13 @@ async function startEchoBlock(h, ctx, name) {
     return echo;
 }
 
-// a transcript the archive scan already lists (read, never written), so both agents have entries to show
-async function borrowTranscript(h) {
-    await h.ev(`void window.TabRpcClient.wshRpcCall("getsessionsactivity", { windowdays: 30, limit: 100 }, { timeout: ${SESSIONS_SCAN_TIMEOUT_MS} }).then(
-        (r) => (window.__composerSendScan = { path: (r?.sessions ?? []).find((s) => s.transcriptpath)?.transcriptpath ?? null }),
-        (e) => (window.__composerSendScan = { error: String(e?.message ?? e) })
-    )`);
-    await polishWaitFor(h, "window.__composerSendScan != null", SESSIONS_SCAN_TIMEOUT_MS);
-    const scan = await h.ev("(() => { const s = window.__composerSendScan; delete window.__composerSendScan; return s ?? null; })()");
-    if (scan?.error != null) throw new Error(`the sessions scan failed: ${scan.error}`);
-    if (!scan?.path) throw new Error("no listed session has a transcript to borrow");
-    return scan.path;
-}
+// a transcript of its own, so both agents have entries to show: a borrowed live one carries that session's state,
+// and a background shell still running in it reads the idle agent as standing by, which is never parked
+const seedTranscript = (dir) =>
+    writeTranscript(dir, "composer-send", [
+        userText("echo what the composer sends", { cwd: dir }),
+        assistantText("Waiting for a message.", { cwd: dir }),
+    ]);
 
 // types into a composer the way React sees typing, then presses its Send button
 const sendFrom = (placeholder, text) => `(() => {
@@ -125,7 +119,7 @@ export const cockpitComposerSend = {
             ctx.workspaceId = ws.workspacedata.oid;
             ctx.working = await startEchoBlock(h, ctx, "composer-working");
             ctx.idle = await startEchoBlock(h, ctx, "composer-idle");
-            const transcriptPath = await borrowTranscript(h);
+            const transcriptPath = seedTranscript(ctx.dir);
             const now = Date.now();
             mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
             writeFileSync(

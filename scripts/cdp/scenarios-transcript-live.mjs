@@ -365,14 +365,14 @@ async function judgeStep(h, ctx, steps) {
     });
 }
 
-// an ended session whose last call never got its result (the engine closed it): the row reads stopped, with no spinner
-// and no clock counting from the call to now
-const STOPPED_ROW = "Mark the final verify passed";
+// an ended session whose last call never got its result: the row reads stopped, with no spinner and no clock counting
+// from the call to now. A plain command: a session-closing wsh call (complete, dag final) lays out landed (a1f20505e)
+const STOPPED_ROW = "Run the final verify";
 async function stoppedStep(h) {
     const entries = [
         user("Run the final verify.", T0),
-        prose("It passed; marking it.", T0 + S),
-        bash({ description: STOPPED_ROW, command: "wsh jarvis dag final pass", ts: T0 + 2 * S, pending: true }),
+        prose("Running it.", T0 + S),
+        bash({ description: STOPPED_ROW, command: "node scripts/cdp/final-verify.mjs", ts: T0 + 2 * S, pending: true }),
     ];
     await showLive(h, entries);
     const s = await h.ev(`(() => {
