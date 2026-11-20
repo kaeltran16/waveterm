@@ -9,9 +9,9 @@ import {
     agentChip,
     agentChoices,
     askBox,
-    besideLines,
+    askInput,
+    barLine,
     boardFacts,
-    drawerWorking,
     elapsedText,
     SLOW_AFTER_MS,
     switcherGroups,
@@ -247,7 +247,7 @@ describe("talkItems, routed turns", () => {
         });
     const forwardItem = (t: BoardTurn, placement: Placement, agent?: BoardAgent) =>
         talkItems(talk([t], agent), NOW, placement).find((i) => i.kind === "forward");
-    const placements: Placement[] = ["beside", "expanded", "surface"];
+    const placements: Placement[] = ["expanded", "surface"];
 
     it("shows a drawn turn as its card with no words, offering Send to the agent", () => {
         const items = talkItems(talk([drawn()]), NOW);
@@ -286,15 +286,11 @@ describe("talkItems, routed turns", () => {
         }
     });
 
-    it("says a sent forward is answered in the transcript only beside it", () => {
+    it("says a sent forward was sent, in every placement", () => {
         const sent: BoardForward = { state: "sent", tabid: "tab1", title: "claude · waveterm", sentts: at(15, 22) };
-        expect(forwardItem(forwarded(sent), "beside")).toMatchObject({
-            state: "sent",
-            line: "sent to the agent · answered in the transcript",
-            reroute: "draw",
-        });
-        expect(forwardItem(forwarded(sent), "expanded")).toMatchObject({ line: "sent to the agent" });
-        expect(forwardItem(forwarded(sent), "surface")).toMatchObject({ line: "sent to the agent" });
+        for (const p of placements) {
+            expect(forwardItem(forwarded(sent), p)).toMatchObject({ line: "sent to the agent", reroute: "draw" });
+        }
     });
 
     it("shows the copied reply where the transcript is not in view, with the way to the agent", () => {
@@ -317,10 +313,6 @@ describe("talkItems, routed turns", () => {
             reroute: "draw",
         });
         expect(forwardItem(forwarded(replied), "expanded")).toMatchObject({ line, way: "back", reply: replied.reply });
-        const beside = forwardItem(forwarded(replied), "beside");
-        expect(beside).toMatchObject({ line, reroute: "draw" });
-        expect(beside).not.toHaveProperty("reply");
-        expect(beside).not.toHaveProperty("way");
     });
 
     it("keeps a needs-an-agent turn's reason, capitalised, in every placement", () => {
@@ -458,6 +450,7 @@ describe("askBox", () => {
             hint: "This board won't open, so the drawer can't answer on it",
             placeholder,
             stoppable: false,
+            selected: null,
         });
     });
 
@@ -468,6 +461,7 @@ describe("askBox", () => {
             hint,
             placeholder,
             stoppable: false,
+            selected: null,
         });
         expect(askBox(talk([turn({ state: "answering" })]), null, false, false).hint).toBe(hint);
         expect(askBox(talk([turn({ state: "waiting" })]), null, false, false).disabled).toBe(true);
@@ -487,12 +481,14 @@ describe("askBox", () => {
             hint: "Selected wavesrv",
             placeholder,
             stoppable: false,
+            selected: "wavesrv",
         });
         expect(askBox(null, null, false, false)).toEqual({
             disabled: false,
             hint: "Select shapes to ask about them",
             placeholder,
             stoppable: false,
+            selected: null,
         });
     });
 });
@@ -592,33 +588,18 @@ describe("the board tab in the agent's workspace", () => {
             answeredts: at(15, 12),
             ...over,
         });
-    const drawn = (id: string, over: Partial<BoardTurn> = {}) =>
-        turn({
-            id,
-            question: `Open ${id} up.`,
-            on: "wavesrv",
-            title: `${id}, opened up`,
-            added: 5,
-            shapeids: [`${id}-s`],
-            answeredts: at(15, 20),
-            ...over,
-        });
-    const sent = (id: string) =>
-        turn({ id, question: "Why does it own the orchestrator?", state: "forwarded", forward: { state: "sent" } });
 
     describe("talkItems", () => {
-        it("says the agent asked, with its one-line request, beside the transcript and expanded over it", () => {
-            for (const p of ["beside", "expanded"] as Placement[]) {
-                expect(talkItems(talk([request()]), NOW, p)[0]).toEqual({
-                    kind: "briefing",
-                    turnId: "a1",
-                    from: "claude · waveterm",
-                    time: "15:20",
-                    text: "",
-                    ask: "how the app fits",
-                    asked: true,
-                });
-            }
+        it("says the agent asked, with its one-line request, expanded over the transcript", () => {
+            expect(talkItems(talk([request()]), NOW, "expanded")[0]).toEqual({
+                kind: "briefing",
+                turnId: "a1",
+                from: "claude · waveterm",
+                time: "15:20",
+                text: "",
+                ask: "how the app fits",
+                asked: true,
+            });
         });
 
         it("keeps the full briefing on the Boards surface", () => {
@@ -629,87 +610,104 @@ describe("the board tab in the agent's workspace", () => {
             expect(talkItems(talk([request()]), NOW, "surface")[0]).not.toHaveProperty("asked");
         });
     });
+});
 
-    describe("besideLines", () => {
-        const lines = (turns: BoardTurn[]) => besideLines(talkItems(talk(turns, CLAUDE), NOW, "beside"));
-
-        it("lists the last 2 turns, one line each", () => {
-            expect(lines([request(), drawn("d1"), drawn("d2"), sent("f1")]).map((l) => l.turnId)).toEqual(["d2", "f1"]);
-        });
-
-        it("gives a drawn turn of yours its card's facts, Show and Send to the agent", () => {
-            expect(lines([drawn("d1", { added: 2, changed: 1 })])).toEqual([
-                {
-                    turnId: "d1",
-                    text: "Open d1 up.",
-                    agent: false,
-                    detail: "on wavesrv · d1, opened up · added 2 shapes · changed 1 · 15:20",
-                    shapeIds: ["d1-s"],
-                    reroute: "agent",
-                },
-            ]);
-        });
-
-        it("gives a forwarded turn its forward's line and Draw instead", () => {
-            expect(lines([sent("f1")])).toEqual([
-                {
-                    turnId: "f1",
-                    text: "Why does it own the orchestrator?",
-                    agent: false,
-                    detail: "sent to the agent · answered in the transcript",
-                    forward: "sent",
-                    reroute: "draw",
-                },
-            ]);
-        });
-
-        it("marks the agent's request as the agent's, with Show and no send-the-other-way", () => {
-            expect(lines([request()])).toEqual([
-                {
-                    turnId: "a1",
-                    text: "how the app fits",
-                    agent: true,
-                    detail: "How Arc fits together · drew 9 shapes · 15:12",
-                    shapeIds: ["s1"],
-                },
-            ]);
-        });
-
-        it("leaves a turn still being drawn to the header, listing the 2 before it", () => {
-            const answering = drawn("d3", { state: "answering", ts: NOW - 6000, answeredts: undefined });
-            expect(lines([drawn("d1"), sent("f1"), answering]).map((l) => l.turnId)).toEqual(["d1", "f1"]);
-        });
-
-        it("offers Retry on a failed turn and the choice on an agent's request that asks where it goes", () => {
-            const failed = drawn("x1", { state: "failed", reason: "the reply was not JSON" });
-            const asks = request({ id: "a2", state: "asks", reply: "Does this belong on a new board?" });
-            expect(lines([failed, asks])).toEqual([
-                { turnId: "x1", text: "Open x1 up.", agent: false, detail: "couldn't answer", failed: true },
-                {
-                    turnId: "a2",
-                    text: "how the app fits",
-                    agent: true,
-                    detail: "Does this belong on a new board?",
-                    asks: true,
-                },
-            ]);
-            const chosen = request({ id: "a3", state: "asks", reply: "New board?", choice: "keep" });
-            expect(lines([chosen])[0]).toMatchObject({ detail: "kept here" });
-            expect(lines([chosen])[0]).not.toHaveProperty("asks");
-        });
+describe("barLine", () => {
+    const mine = (over: Partial<BoardTurn>) => turn({ id: "n1", question: "Add the retry", ts: NOW - 18_000, ...over });
+    const request = (over: Partial<BoardTurn>) =>
+        turn({ id: "n1", briefing: { from: "claude · waveterm", text: "", ask: "Draw the cancel path too" }, ...over });
+    const forward = (f: BoardForward | undefined) => mine({ state: "forwarded", route: "agent", forward: f });
+    const line = (over: Partial<ReturnType<typeof barLine>>) => ({
+        turnId: "n1",
+        text: "Add the retry",
+        needs: false,
+        ...over,
     });
 
-    describe("drawerWorking", () => {
-        it("is the answering turn's elapsed time, slow past the slow mark", () => {
-            const answering = (ms: number) => talk([drawn("d1", { state: "answering", ts: NOW - ms })]);
-            expect(drawerWorking(answering(6000), NOW)).toEqual({ turnId: "d1", elapsed: "6 s", slow: false });
-            expect(drawerWorking(answering(SLOW_AFTER_MS), NOW)).toMatchObject({ slow: true });
-        });
+    it.each<[string, BoardTurn[]]>([
+        ["answered", [mine({})]],
+        ["stopped", [mine({ state: "stopped" })]],
+        ["sent", [forward({ state: "sent" })]],
+        ["replied", [forward({ state: "replied", reply: "r" })]],
+        ["a request already chosen", [request({ state: "asks", reply: "New board?", choice: "keep" })]],
+        ["an answered turn after a failed one", [mine({ id: "x", state: "failed" }), mine({})]],
+        ["no turns", []],
+    ])("shows nothing when the newest turn is %s", (_, turns) => {
+        expect(barLine(talk(turns, CLAUDE), NOW)).toBeNull();
+    });
 
-        it("is null with nothing being drawn, a waiting turn included", () => {
-            expect(drawerWorking(talk([drawn("d1")]), NOW)).toBeNull();
-            expect(drawerWorking(talk([drawn("d1", { state: "waiting" })]), NOW)).toBeNull();
-            expect(drawerWorking(null, NOW)).toBeNull();
-        });
+    it("shows nothing before the talk is read", () => {
+        expect(barLine(null, NOW)).toBeNull();
+    });
+
+    it.each<[string, BoardTurn[], object]>([
+        ["waiting", [mine({ state: "waiting" })], line({ state: "drawing", detail: "Waiting" })],
+        ["answering", [mine({ state: "answering" })], line({ state: "drawing", detail: "Drawing", elapsed: "18 s" })],
+        [
+            "answering past the slow mark",
+            [mine({ state: "answering", ts: NOW - SLOW_AFTER_MS })],
+            line({ state: "drawing", detail: "Still drawing", elapsed: "1 min 30 s" }),
+        ],
+        [
+            "a request waiting on your choice",
+            [request({ state: "asks", reply: "Does this belong on a new board?" })],
+            line({ state: "asks", text: "Draw the cancel path too", detail: "wants a new board", needs: true }),
+        ],
+        [
+            "failed, after an answered turn",
+            [mine({ id: "x" }), mine({ state: "failed", reason: "the reply was not JSON" })],
+            line({ state: "failed", detail: "couldn't answer" }),
+        ],
+        ["a forward on its way", [forward(undefined)], line({ state: "forward", detail: "sending to the agent" })],
+        [
+            "a forward held for its agent",
+            [forward({ state: "held" })],
+            line({ state: "forward", detail: "waiting for claude · waveterm" }),
+        ],
+        [
+            "a forward that needs an agent",
+            [forward({ state: "needsagent", reason: "no agent" })],
+            line({ state: "forward", detail: "needs an agent", needs: true }),
+        ],
+    ])("shows the newest turn when it is %s", (_, turns, want) => {
+        expect(barLine(talk(turns, CLAUDE), NOW)).toEqual(want);
+    });
+});
+
+describe("askInput", () => {
+    const answering = talk([turn({ state: "answering" })]);
+    it.each<[string, Parameters<typeof askBox>, ReturnType<typeof askInput>]>([
+        [
+            "in flight, answering",
+            [answering, "wavesrv", false, false],
+            { placeholder: "You can ask once this answer lands", disabled: true, chip: null, stop: true },
+        ],
+        [
+            "in flight, waiting",
+            [talk([turn({ state: "waiting" })]), null, false, false],
+            { placeholder: "You can ask once this answer lands", disabled: true, chip: null, stop: false },
+        ],
+        [
+            "idle with a selection",
+            [talk([turn({})]), "wavesrv +1", false, false],
+            { placeholder: "Ask the board", disabled: false, chip: "wavesrv +1", stop: false },
+        ],
+        [
+            "idle with nothing selected",
+            [talk([turn({ state: "failed" })]), null, false, false],
+            { placeholder: "Select shapes to ask about them", disabled: false, chip: null, stop: false },
+        ],
+        [
+            "a board that won't open",
+            [answering, "wavesrv", false, true],
+            {
+                placeholder: "This board won't open, so the drawer can't answer on it",
+                disabled: true,
+                chip: null,
+                stop: false,
+            },
+        ],
+    ])("words the input %s", (_, args, want) => {
+        expect(askInput(askBox(...args))).toEqual(want);
     });
 });

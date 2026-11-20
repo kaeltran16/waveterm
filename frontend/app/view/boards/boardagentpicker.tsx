@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The board's agent (decision 10): the header's chip, whose picker lists the project's live claude and pi agents,
+// The board's agent (decision 10): the chip, whose picker lists the project's live claude and pi agents,
 // and the same list inline in a turn that needs an agent, with Start an agent. Thin render: the choices come from
 // boardtalkmodel.ts and picking is the caller's.
 
@@ -73,9 +73,11 @@ export interface BoardAgentChipProps {
     choices: AgentChoice[];
     project: string;
     onPick: (tabId: string) => void;
+    // the workspace tab's ask bar: no "Agent" word, and the picker opens upward, since one below the pane's foot clips
+    bare?: boolean;
 }
 
-export function BoardAgentChip({ chip, choices, project, onPick }: BoardAgentChipProps) {
+export function BoardAgentChip({ chip, choices, project, onPick, bare }: BoardAgentChipProps) {
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement | null>(null);
     const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -96,18 +98,18 @@ export function BoardAgentChip({ chip, choices, project, onPick }: BoardAgentChi
     }, [open]);
     const Chevron = open ? ChevronUp : ChevronDown;
     return (
-        <div ref={rootRef} className="relative flex min-w-0">
+        <div ref={rootRef} className={cn("relative flex", bare ? "flex-none" : "min-w-0")}>
             <button
                 ref={triggerRef}
                 type="button"
                 data-board-agent-chip
                 aria-haspopup="listbox"
                 aria-expanded={open}
-                aria-label={`The board's agent, now ${chip.label}`}
+                aria-label={bare ? `Board agent: ${chip.label}` : `The board's agent, now ${chip.label}`}
                 onClick={() => setOpen((o) => !o)}
-                className={cn(CHIP, open && "bg-surface-hover")}
+                className={cn(CHIP, bare && "h-7 font-semibold", open && "bg-surface-hover")}
             >
-                <span className="text-muted">Agent</span>
+                {bare ? null : <span className="text-muted">Agent</span>}
                 {chip.runtime != null ? <RuntimeDot runtime={chip.runtime} /> : null}
                 <span className="truncate">{chip.label}</span>
                 <Chevron size={11} strokeWidth={2} aria-hidden className="shrink-0 text-ink-faint" />
@@ -122,8 +124,11 @@ export function BoardAgentChip({ chip, choices, project, onPick }: BoardAgentChi
                         initial="initial"
                         animate="animate"
                         exit="exit"
-                        style={{ transformOrigin: "top left" }}
-                        className="absolute left-0 top-[calc(100%+6px)] z-20 flex w-[280px] flex-col gap-1 rounded-xl border border-edge-mid bg-surface-raised p-2 shadow-popover-sm"
+                        style={{ transformOrigin: bare ? "bottom left" : "top left" }}
+                        className={cn(
+                            "absolute left-0 z-20 flex w-[280px] flex-col gap-1 rounded-xl border border-edge-mid bg-surface-raised p-2 shadow-popover-sm",
+                            bare ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"
+                        )}
                     >
                         <span className="px-2 py-0.5 text-[11.5px] text-muted">Questions on this board go to</span>
                         <AgentChoiceList

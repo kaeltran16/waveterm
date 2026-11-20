@@ -1,33 +1,36 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The workspace pane's Board tab (W1, W2): a board tied to this agent, beside its transcript. The header line names
-// the board, its agent and its facts, with the drawer's working state; the canvas fills the tab. Beside the transcript
-// the last turns show as one line each above the ask box; expanded over the center, the full turns column takes the
-// left with the copied replies, and Back to the transcript un-expands the pane. The board's state and actions are
-// boardview.tsx's, shared with the Boards surface.
+// The workspace pane's Board tab (W1, W2): a board tied to this agent, beside its transcript. The tab strip names the
+// board; the canvas fills the tab, with one ask bar under it (the board's agent, the input, the board's facts). Beside
+// the transcript one line above the bar shows the newest turn while it draws, needs you or failed; expanded over the
+// center, the full turns column takes the left with the copied replies, and Back to the transcript un-expands the
+// pane. The board's state and actions are boardview.tsx's, shared with the Boards surface.
 
-import { useChangeFlash } from "@/app/element/motionhooks";
-import { cardVariants, changeFlashClass } from "@/app/element/motiontokens";
+import { useChangeFlash, useLastShown } from "@/app/element/motionhooks";
+import { cardVariants, changeFlashClass, composerReveal } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
+import { CircleAlert, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import type { ReactNode } from "react";
+import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { BoardAgentChip } from "../boards/boardagentpicker";
 import { boardFormAtom } from "../boards/boardformrequest";
 import { selectBoard } from "../boards/boardstore";
-import { AskBox, BoardTalk, RerouteButton, SMALL_BTN, TEXT_BTN } from "../boards/boardtalk";
+import { BoardTalk, RerouteButton, TEXT_BTN } from "../boards/boardtalk";
 import {
     aboutTitle,
     agentChip,
     agentChoices,
     askBox,
-    besideLines,
+    askInput,
+    barLine,
     boardFacts,
-    drawerWorking,
     talkItems,
-    type BesideLine,
+    type AskState,
+    type BarLine,
 } from "../boards/boardtalkmodel";
 import {
     briefingForm,
@@ -44,6 +47,8 @@ import type { AgentVM } from "./agentsviewmodel";
 import { SurfaceError } from "./surfacescaffold";
 import type { WorkspaceTab } from "./workspacemodel";
 import { setWorkspaceExpanded } from "./workspacestore";
+
+type OnChoice = (turnId: string, choice: "keep" | "new") => void;
 
 export function WorkspaceBoardTab({
     model,
@@ -64,10 +69,9 @@ export function WorkspaceBoardTab({
     const name = board?.name ?? "";
     const loadError = board?.loaderror || view.canvasError;
     const choices = agentChoices(agents, project, talk?.agent?.tabid);
-    const ask = askBox(talk, view.selection.label, view.asking, !!loadError);
 
     // New board from this goes to the Boards surface, where the form is; Keep it here stays
-    const onChoice = (turnId: string, choice: "keep" | "new") => {
+    const onChoice: OnChoice = (turnId, choice) => {
         if (choice === "keep") {
             view.onKeep(turnId);
             return;
@@ -78,212 +82,152 @@ export function WorkspaceBoardTab({
     };
 
     return (
-        <div data-board-tab={expanded ? "expanded" : "beside"} className="flex min-h-0 flex-1 flex-col">
-            <Header view={view} board={board} name={name} loadError={!!loadError}>
-                {talk != null ? (
-                    <BoardAgentChip
-                        chip={agentChip(talk.agent)}
-                        choices={choices}
-                        project={project}
-                        onPick={view.onSetAgent}
-                    />
-                ) : null}
-            </Header>
+        <div data-board-tab={expanded ? "expanded" : "beside"} className="flex min-h-0 flex-1">
             {/* the canvas keeps its place in the tree, so expanding does not remount it */}
-            <div className="flex min-h-0 flex-1">
-                {expanded && talk != null ? (
-                    <BoardTalk
-                        about={aboutTitle(talk.about, project)}
-                        items={talkItems(talk, now, "expanded")}
-                        ask={ask}
-                        shownTurnId={view.shownTurnId}
-                        onAsk={view.onAsk}
-                        onShow={view.onShow}
-                        onStop={view.onStop}
-                        onRetry={view.onRetry}
-                        onChoice={onChoice}
-                        onReroute={view.onReroute}
-                        onOpenAgent={(tabId) => openBoardAgent(model, tabId)}
-                        onBack={() => setWorkspaceExpanded(agent.id, false)}
-                        agentChoices={choices}
-                        project={project}
-                        onPickAgent={view.onSetAgent}
-                        onStartAgent={() => startBoardAgent(model, project)}
-                    />
-                ) : null}
-                <div className="flex min-w-0 flex-1 flex-col">
-                    <section
-                        aria-label={`Board: ${name}`}
-                        className="relative min-h-0 flex-1 overflow-hidden bg-background"
-                    >
-                        {loadError ? (
-                            <div data-board-load-error className="pt-3">
-                                <SurfaceError
-                                    message={`Couldn't open ${name || "this board"}: ${loadError}`}
-                                    onRetry={view.retryCanvas}
-                                />
-                            </div>
-                        ) : (
-                            <LazyBoardCanvas
-                                key={`${boardId}:${view.attempt}`}
-                                channelId={channelId}
-                                boardId={boardId}
-                                controlRef={view.controlRef}
-                                onLoaded={view.onScene}
-                                onScene={view.onScene}
-                                onError={view.onCanvasError}
-                                onSelection={view.onSelection}
+            {expanded && talk != null ? (
+                <BoardTalk
+                    about={aboutTitle(talk.about, project)}
+                    items={talkItems(talk, now, "expanded")}
+                    shownTurnId={view.shownTurnId}
+                    onAsk={view.onAsk}
+                    onShow={view.onShow}
+                    onStop={view.onStop}
+                    onRetry={view.onRetry}
+                    onChoice={onChoice}
+                    onReroute={view.onReroute}
+                    onOpenAgent={(tabId) => openBoardAgent(model, tabId)}
+                    onBack={() => setWorkspaceExpanded(agent.id, false)}
+                    agentChoices={choices}
+                    project={project}
+                    onPickAgent={view.onSetAgent}
+                    onStartAgent={() => startBoardAgent(model, project)}
+                />
+            ) : null}
+            <div className="flex min-w-0 flex-1 flex-col">
+                <section
+                    aria-label={`Board: ${name}`}
+                    className="relative min-h-0 flex-1 overflow-hidden bg-background"
+                >
+                    {loadError ? (
+                        <div data-board-load-error className="pt-3">
+                            <SurfaceError
+                                message={`Couldn't open ${name || "this board"}: ${loadError}`}
+                                onRetry={view.retryCanvas}
                             />
-                        )}
-                    </section>
-                    {!expanded ? (
-                        <div className="flex-none border-t border-border">
-                            {talk != null ? (
-                                <Lines
-                                    lines={besideLines(talkItems(talk, now, "beside"))}
-                                    view={view}
-                                    onChoice={onChoice}
-                                />
-                            ) : null}
-                            <AskBox ask={ask} onAsk={view.onAsk} onStop={view.onStop} />
                         </div>
-                    ) : null}
+                    ) : (
+                        <LazyBoardCanvas
+                            key={`${boardId}:${view.attempt}`}
+                            channelId={channelId}
+                            boardId={boardId}
+                            controlRef={view.controlRef}
+                            onLoaded={view.onScene}
+                            onScene={view.onScene}
+                            onError={view.onCanvasError}
+                            onSelection={view.onSelection}
+                        />
+                    )}
+                </section>
+                <div className="flex-none border-t border-border">
+                    {/* the turns column shows every turn when expanded, so the line is the beside layout's */}
+                    {!expanded ? <TurnLine line={barLine(talk, now)} view={view} onChoice={onChoice} /> : null}
+                    <AskBar
+                        ask={askBox(talk, view.selection.label, view.asking, !!loadError)}
+                        view={view}
+                        chip={
+                            talk != null ? (
+                                <BoardAgentChip
+                                    bare
+                                    chip={agentChip(talk.agent)}
+                                    choices={choices}
+                                    project={project}
+                                    onPick={view.onSetAgent}
+                                />
+                            ) : null
+                        }
+                        facts={
+                            loadError ? (
+                                "won't open"
+                            ) : board != null && view.shapes != null ? (
+                                <Facts text={boardFacts(board, view.shapes, now)} />
+                            ) : null
+                        }
+                    />
                 </div>
             </div>
         </div>
     );
 }
 
-// name, the agent chip (children), "N drawings · M shapes · drawn HH:MM", and the drawer at work
-function Header({
-    view,
-    board,
-    name,
-    loadError,
-    children,
-}: {
-    view: BoardView;
-    board: BoardInfo | null;
-    name: string;
-    loadError: boolean;
-    children: ReactNode;
-}) {
-    const working = drawerWorking(view.talk, view.now);
+// the newest turn while it is unresolved: it reveals and collapses (moment 6), keeping its last words while it goes
+function TurnLine({ line, view, onChoice }: { line: BarLine | null; view: BoardView; onChoice: OnChoice }) {
+    const shown = useLastShown(line);
     return (
-        <div
-            data-board-tab-header
-            className="flex h-[44px] flex-none items-center gap-[10px] whitespace-nowrap border-b border-edge-faint px-[14px]"
-        >
-            <span data-board-tab-name className="min-w-0 truncate text-[13px] font-semibold text-primary">
-                {name}
-            </span>
-            {children}
-            {/* name and facts shrink together, so neither loses its end to the other */}
-            <span data-board-facts className="min-w-0 truncate font-mono text-[11px] text-muted">
-                {loadError ? (
-                    "won't open"
-                ) : board != null && view.shapes != null ? (
-                    <Facts text={boardFacts(board, view.shapes, view.now)} />
+        <PaneReveal open={line != null} variants={composerReveal}>
+            {shown != null ? <TurnLineRow line={shown} view={view} onChoice={onChoice} /> : null}
+        </PaneReveal>
+    );
+}
+
+const DETAIL_TONE: Record<BarLine["state"], string> = {
+    drawing: "font-semibold text-working",
+    asks: "font-semibold text-warning",
+    failed: "font-semibold text-error",
+    forward: "text-muted",
+};
+
+function TurnLineRow({ line, view, onChoice }: { line: BarLine; view: BoardView; onChoice: OnChoice }) {
+    // a line changing state in place washes once (moment 14); keyed on the state, as the seconds tick every second
+    const flash = useChangeFlash(line.state);
+    const running = line.state === "drawing" && line.elapsed != null;
+    return (
+        <div className="px-3 pt-2 text-[12.5px]">
+            <div
+                data-board-bar-line={line.turnId}
+                data-board-bar-line-state={line.state}
+                className={cn(
+                    "flex min-w-0 items-center gap-2 rounded-md",
+                    // a request waiting on your choice, or a question waiting on an agent, breathes (moment 3)
+                    line.needs && "pulse-glow border border-warning/40 bg-surface px-2 py-1"
+                )}
+            >
+                {line.state === "drawing" ? (
+                    // the drawer at work pulses (moment 7); a turn still queued holds a quiet dot
+                    <span
+                        aria-hidden
+                        className={cn(
+                            "h-[6px] w-[6px] flex-none rounded-full",
+                            running ? "pulse-dot bg-working" : "bg-ink-faint"
+                        )}
+                    />
                 ) : null}
-            </span>
-            <span className="flex-1" />
-            {working != null ? (
-                <span
-                    role="status"
-                    data-board-drawing
-                    className="flex flex-none items-center gap-1.5 text-[11.5px] text-working"
-                >
-                    {/* the drawer at work pulses (moment 7) */}
-                    <span className="pulse-dot h-[6px] w-[6px] rounded-full bg-working" aria-hidden />
-                    {working.slow ? "Still drawing" : "Drawing"} · {working.elapsed}
-                </span>
-            ) : null}
-        </div>
-    );
-}
-
-// the last turns, one line each: one joining enters (moment 1), the oldest leaves and the list reflows (moment 2)
-function Lines({
-    lines,
-    view,
-    onChoice,
-}: {
-    lines: BesideLine[];
-    view: BoardView;
-    onChoice: (turnId: string, choice: "keep" | "new") => void;
-}) {
-    if (lines.length === 0) {
-        return null;
-    }
-    return (
-        <div data-board-lines className="relative flex flex-col gap-1.5 px-[14px] pt-2.5 text-[12.5px]">
-            <AnimatePresence initial={false} mode="popLayout">
-                {lines.map((line) => (
-                    <motion.div
-                        key={line.turnId}
-                        layout="position"
-                        variants={cardVariants}
-                        initial="initial"
-                        animate="animate"
-                        exit="exit"
-                        data-board-line={line.turnId}
-                        data-board-forward={line.forward}
-                        className="flex"
+                {line.state === "failed" ? (
+                    <CircleAlert size={14} strokeWidth={1.6} aria-label="Error" className="flex-none text-error" />
+                ) : null}
+                <span role="status" className="min-w-0 flex-1 truncate text-secondary">
+                    {line.text ? `"${line.text}" ` : null}
+                    <span
+                        data-board-bar-line-detail
+                        className={cn(
+                            "rounded",
+                            line.needs ? DETAIL_TONE.asks : DETAIL_TONE[line.state],
+                            flash && changeFlashClass
+                        )}
                     >
-                        <Line line={line} view={view} onChoice={onChoice} />
-                    </motion.div>
-                ))}
-            </AnimatePresence>
+                        {line.detail}
+                    </span>
+                    {line.elapsed != null ? <span className="text-muted"> · {line.elapsed}</span> : null}
+                </span>
+                <LineActions line={line} view={view} onChoice={onChoice} />
+            </div>
         </div>
     );
 }
 
-function Line({
-    line,
-    view,
-    onChoice,
-}: {
-    line: BesideLine;
-    view: BoardView;
-    onChoice: (turnId: string, choice: "keep" | "new") => void;
-}) {
-    // a forward's line changing under you (waiting to sent, sent to answered) washes once (moment 14)
-    const flash = useChangeFlash(line.detail);
-    const needs = line.forward === "needsagent" || line.asks;
-    const shown = view.shownTurnId === line.turnId;
-    return (
-        <div
-            className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-md",
-                // a question waiting on an agent, or a request waiting on your choice, breathes (moment 3)
-                needs && "pulse-glow border border-warning/40 bg-surface px-2 py-1"
-            )}
-        >
-            <span className="min-w-0 flex-1 truncate text-secondary">
-                {line.agent ? <span className="text-muted">the agent asked </span> : null}"{line.text}"{" "}
-                <span
-                    data-board-line-detail
-                    className={cn(
-                        "rounded",
-                        needs ? "font-semibold text-warning" : "text-muted",
-                        flash && changeFlashClass
-                    )}
-                >
-                    {line.detail}
-                </span>
-            </span>
-            {line.shapeIds != null && line.shapeIds.length > 0 ? (
-                <button
-                    type="button"
-                    data-board-show={line.turnId}
-                    aria-pressed={shown}
-                    onClick={() => view.onShow(line.turnId, line.shapeIds)}
-                    className={cn(SMALL_BTN, "flex-none bg-surface", shown && "border-accent text-accent-soft")}
-                >
-                    Show
-                </button>
-            ) : null}
-            {line.failed ? (
+function LineActions({ line, view, onChoice }: { line: BarLine; view: BoardView; onChoice: OnChoice }) {
+    switch (line.state) {
+        case "failed":
+            return (
                 <button
                     type="button"
                     data-board-retry={line.turnId}
@@ -292,8 +236,9 @@ function Line({
                 >
                     Retry
                 </button>
-            ) : null}
-            {line.asks ? (
+            );
+        case "asks":
+            return (
                 <span className="flex flex-none gap-3">
                     <button
                         type="button"
@@ -312,16 +257,115 @@ function Line({
                         Keep it here
                     </button>
                 </span>
-            ) : null}
-            {line.reroute != null ? (
+            );
+        case "forward":
+            return (
                 <span className="flex-none">
-                    <RerouteButton
-                        turnId={line.turnId}
-                        to={line.reroute}
-                        onReroute={() => view.onReroute(line.turnId)}
-                    />
+                    <RerouteButton turnId={line.turnId} to="draw" onReroute={() => view.onReroute(line.turnId)} />
                 </span>
-            ) : null}
+            );
+        default:
+            return null;
+    }
+}
+
+// Ask and the Stop that takes its place share a size, so the group doesn't shift between them
+const SEND_BTN =
+    "inline-flex min-w-16 flex-none items-center justify-center gap-1.5 rounded-lg border-0 px-3 py-[5px] text-[12.5px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
+// the board's agent, one input (the selection chip, the line, Ask or Stop), and the board's facts, which ellipsize first
+function AskBar({ ask, view, chip, facts }: { ask: AskState; view: BoardView; chip: ReactNode; facts: ReactNode }) {
+    const [text, setText] = useState("");
+    const id = useId();
+    const input = askInput(ask);
+    const empty = text.trim() === "";
+    const send = () => {
+        if (input.disabled || empty) {
+            return;
+        }
+        view.onAsk(text.trim());
+        setText("");
+    };
+    const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+        if (e.key !== "Enter" || e.nativeEvent.isComposing) {
+            return;
+        }
+        e.preventDefault();
+        send();
+    };
+    return (
+        <div data-board-ask-bar className="flex items-center gap-[10px] py-2 pl-2.5 pr-3">
+            {chip}
+            <div
+                data-board-ask-box
+                aria-disabled={input.disabled}
+                className={cn(
+                    "flex min-w-[200px] flex-[1_1_320px] items-center gap-2 rounded-[10px] border border-edge-mid bg-surface-raised py-[3px] pr-[3px]",
+                    input.chip != null ? "pl-2" : "pl-2.5"
+                )}
+            >
+                {/* the selection enters and leaves (moment 1) */}
+                <AnimatePresence initial={false}>
+                    {input.chip != null ? (
+                        <motion.span
+                            key="selection"
+                            data-board-ask-selection
+                            variants={cardVariants}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
+                            className="inline-flex min-w-0 max-w-[60%] flex-none items-center gap-1.5 rounded-md bg-accentbg px-2 py-[3px] text-[12px] text-accent-soft"
+                        >
+                            <span>Selected</span>
+                            <span className="truncate font-mono">{input.chip}</span>
+                        </motion.span>
+                    ) : null}
+                </AnimatePresence>
+                <label htmlFor={id} className="sr-only">
+                    {ask.placeholder}
+                </label>
+                <input
+                    id={id}
+                    type="text"
+                    value={text}
+                    disabled={input.disabled}
+                    placeholder={input.placeholder}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={onKeyDown}
+                    className="min-w-0 flex-1 truncate border-0 bg-transparent py-1 text-[13.5px] text-primary outline-none placeholder:text-muted disabled:cursor-default"
+                />
+                {input.stop ? (
+                    <button
+                        type="button"
+                        data-board-ask-stop
+                        onClick={view.onStop}
+                        className={cn(SEND_BTN, "cursor-pointer bg-edge-mid text-secondary hover:bg-edge-strong")}
+                    >
+                        <Square size={10} strokeWidth={0} fill="currentColor" aria-hidden />
+                        Stop
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        data-board-ask-send
+                        disabled={input.disabled}
+                        onClick={send}
+                        className={cn(
+                            SEND_BTN,
+                            input.disabled
+                                ? "cursor-default bg-edge-mid text-muted"
+                                : empty
+                                  ? "cursor-pointer bg-edge-mid text-secondary"
+                                  : "cursor-pointer bg-accent text-background hover:bg-accenthover"
+                        )}
+                    >
+                        Ask
+                    </button>
+                )}
+            </div>
+            <span data-board-facts className="min-w-0 flex-[0_1_auto] truncate font-mono text-[11px] text-muted">
+                {facts}
+            </span>
         </div>
     );
 }
