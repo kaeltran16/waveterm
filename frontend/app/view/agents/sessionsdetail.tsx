@@ -17,7 +17,7 @@ import { landOn } from "@/app/view/jarvis/returnsurface";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { Check, ChevronDown, ChevronUp, Search } from "lucide-react";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentEntry } from "./agentsviewmodel";
 import { formatAge, formatAgeShort, formatTokens } from "./agentsviewmodel";
@@ -427,7 +427,12 @@ function SessionBody({
     }
     const full = key != null && fullFor === key;
     const read = useTranscript(view === "transcript" ? session : undefined, full);
-    const entries = read.entries;
+    // a find opening on a long transcript draws every turn unfolded (~0.5 s twice on 2k lines): drawn deferred, in
+    // slices, so the bar's growth gets its frames
+    const entries = useDeferredValue(read.entries);
+    const unfold = useDeferredValue(find != null);
+    const renderAll = useDeferredValue(full);
+    const drawn = entries === read.entries && unfold === (find != null) && renderAll === full;
     const items = useMemo(() => (entries == null ? 0 : layoutTranscript(entries, { active: false }).length), [entries]);
     // a session has no run role here, so no prompt reads as a brief
     const ctx = useMemo(() => transcriptContextFor({ model }), [model]);
@@ -470,17 +475,18 @@ function SessionBody({
         setFullFor(key);
     };
 
-    // the matches, in document order, over the text of each prompt and reply as drawn
+    // the matches, in document order, over the text of each prompt and reply as drawn: only once the deferred draw
+    // lands, since a capped or clamped draw holds fewer of them and the first match is centred once
     const [ranges, setRanges] = useState<Range[] | null>(null);
     useLayoutEffect(() => {
         const root = scrollRef.current;
-        if (find == null || entries == null || root == null) {
+        if (find == null || entries == null || root == null || !drawn) {
             setRanges(null);
             return;
         }
         const turns = [...root.querySelectorAll("[data-find-turn]")];
         setRanges(turns.flatMap((el) => findRanges(docTextOf(el), terms).flatMap(([s, e]) => rangeOf(el, s, e) ?? [])));
-    }, [entries, find, termsKey]);
+    }, [entries, find, termsKey, drawn]);
 
     const total = ranges?.length ?? 0;
     const cur = total > 0 ? Math.min(edit.pos, total - 1) : 0;
@@ -538,7 +544,7 @@ function SessionBody({
         body = (
             <>
                 <ShowEarlier show={earlier} marker="data-sessions-earlier" onClick={showEarlier} />
-                <NarrationTimeline entries={entries} active={session.live} renderAll={full} unfold={find != null} ctx={ctx} />
+                <NarrationTimeline entries={entries} active={session.live} renderAll={renderAll} unfold={unfold} ctx={ctx} />
             </>
         );
     }
