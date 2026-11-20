@@ -342,14 +342,12 @@ export function ReviewCard({ agent, s, f, compact }: CardProps): JSX.Element | n
             open={s.review.open[x.id] === true}
         />
     );
-    const head = <span className="min-w-0 truncate font-mono text-[12px] text-ink-mid">{s.topic}</span>;
     return (
         <CardFrame
             agent={agent}
             s={s}
             f={f}
             asking={true}
-            head={head}
             title={REVIEW_TITLE}
             compact={compact}
             attr="data-rendered-bs-review"

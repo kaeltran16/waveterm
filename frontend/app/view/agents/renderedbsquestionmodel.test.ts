@@ -110,10 +110,14 @@ describe("questionRows", () => {
 });
 
 describe("picksHint", () => {
-    it("counts the rows, or sends the answer to the box when there are none", () => {
-        expect(picksHint(3)).toBe("1–3 picks · or type your own answer below");
-        expect(picksHint(1)).toBe("1 pick · or type your own answer below");
-        expect(picksHint(0)).toBe("answer in the box below");
+    it.each([
+        [0, "answer in the box below"],
+        [1, "press 1 to pick · or type your own answer below"],
+        [3, "press 1–3 to pick · or type your own answer below"],
+        // only nine rows have a key
+        [12, "press 1–9 to pick · or type your own answer below"],
+    ])("%i rows: %s", (rows, hint) => {
+        expect(picksHint(rows)).toBe(hint);
     });
 });
 

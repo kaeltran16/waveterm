@@ -31,7 +31,7 @@ import {
 } from "./brainstormmodel";
 import { NO_RUN, useCheckTimes } from "./brainstormpane";
 import { approveAndOpenRun, sendBrainstorm } from "./brainstormsend";
-import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
+import type { BrainstormState } from "./brainstormstore";
 import { CHIP, ErrorLine, SMALL_DOT, useAction } from "./brainstormui";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN } from "./canvaspane";
 import { CardFrame, useCardRow } from "./renderedbrainstorm";
@@ -46,8 +46,7 @@ import {
     clockBar,
     settledLine,
 } from "./renderedbscheckmodel";
-import { OptionRows } from "./renderedbsquestion";
-import { picksHint } from "./renderedbsquestionmodel";
+import { OptionRows, PicksHint } from "./renderedbsquestion";
 
 const OPEN_LINK =
     "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline";
@@ -290,29 +289,10 @@ function BuilderQuestion({
             s={s}
             f={f}
             asking={true}
-            lead={false}
             status=""
             title={head.lead}
             compact={compact}
             attr="data-rendered-bs-builder-question"
-            head={
-                <>
-                    <span className="whitespace-nowrap font-mono font-semibold">
-                        {head.lead}
-                        {head.part != null ? " →" : ""}
-                    </span>
-                    {head.part != null ? (
-                        <button
-                            type="button"
-                            data-rendered-bs-part-link
-                            onClick={() => openBrainstormAt(agent.id, { part: head.part!.id })}
-                            className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-warning hover:underline"
-                        >
-                            {head.part.title}
-                        </button>
-                    ) : null}
-                </>
-            }
         >
             <div className="flex flex-col gap-1.5">
                 <span
@@ -353,9 +333,7 @@ function BuilderQuestion({
                     Let the agent decide
                 </button>
                 {compact ? null : <span className="flex-1" />}
-                <span data-rendered-bs-picks-hint className="text-[12px] text-muted">
-                    {picksHint(options.length)}
-                </span>
+                <PicksHint rows={options.length} />
             </div>
             <ErrorLine error={act.error} attrs={{ "data-rendered-bs-error": "" }} />
         </CardFrame>

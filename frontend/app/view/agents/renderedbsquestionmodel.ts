@@ -7,6 +7,7 @@
 
 import {
     judgeWork,
+    OPTION_KEYS,
     plural,
     progressView,
     type AnswerOption,
@@ -66,11 +67,13 @@ export function questionRows(q: BrainstormQuestion, judging: boolean): QuestionR
     };
 }
 
+// only the first OPTION_KEYS.length rows have a key to press
 export function picksHint(rows: number): string {
     if (rows === 0) {
         return "answer in the box below";
     }
-    return `${rows === 1 ? "1 pick" : `1–${rows} picks`} · or type your own answer below`;
+    const keys = Math.min(rows, OPTION_KEYS.length);
+    return `press ${keys === 1 ? "1" : `1–${keys}`} to pick · or type your own answer below`;
 }
 
 // guessing or skipping means something only for a question about a part; the judge's pick is coming, so no guess

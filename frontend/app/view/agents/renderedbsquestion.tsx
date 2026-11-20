@@ -13,7 +13,7 @@ import { ArrowUpRight, Lightbulb, LoaderCircle, Scale } from "lucide-react";
 import type { JSX, ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { partTitle, type AnswerOption, type BrainstormAction, type JudgeWork } from "./brainstormmodel";
+import { OPTION_KEYS, type AnswerOption, type BrainstormAction, type JudgeWork } from "./brainstormmodel";
 import { sendBrainstorm } from "./brainstormsend";
 import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
 import { CHIP, ErrorLine, SMALL_DOT, useAction } from "./brainstormui";
@@ -34,6 +34,10 @@ import { fmtDuration } from "./runcompletion";
 const OPEN_LINK =
     "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline";
 const SPIN = "flex-none animate-spin motion-reduce:animate-none";
+
+function keySize(compact: boolean): string {
+    return compact ? "h-[20px] w-[20px] text-[10.5px]" : "h-[22px] w-[22px] text-[11px]";
+}
 
 // the judge's time so far, on the 1s clock; only this re-renders each tick
 function JudgeClock({ model, agent, s }: { model: AgentsViewModel; agent: AgentVM; s: BrainstormState }) {
@@ -207,14 +211,19 @@ export function OptionRows({
                                 compact ? "items-start px-[10px] py-2" : "items-center px-3 py-2.5"
                             )}
                         >
-                            <span
-                                className={cn(
-                                    "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary",
-                                    compact ? "h-[20px] w-[20px] text-[10.5px]" : "h-[22px] w-[22px] text-[11px]"
-                                )}
-                            >
-                                {i + 1}
-                            </span>
+                            {i < OPTION_KEYS.length ? (
+                                <span
+                                    className={cn(
+                                        "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary",
+                                        keySize(compact)
+                                    )}
+                                >
+                                    {OPTION_KEYS[i]}
+                                </span>
+                            ) : (
+                                // no key reaches this row: a blank keeps its label in line with the others
+                                <span data-rendered-bs-no-key className={cn("flex-none", keySize(compact))} />
+                            )}
                             <span
                                 className={cn(
                                     "flex min-w-0 flex-1",
@@ -261,6 +270,28 @@ export function OptionRows({
     );
 }
 
+// the picks hint with its keys drawn as keys
+export function PicksHint({ rows }: { rows: number }) {
+    return (
+        <span data-rendered-bs-picks-hint className="text-[12px] text-muted">
+            {picksHint(rows)
+                .split(/(\d+)/)
+                .map((part, i) =>
+                    i % 2 === 1 ? (
+                        <kbd
+                            key={i}
+                            className="rounded-[4px] border border-b-2 border-edge-strong px-1 font-mono text-[11.5px] text-secondary"
+                        >
+                            {part}
+                        </kbd>
+                    ) : (
+                        part
+                    )
+                )}
+        </span>
+    );
+}
+
 export function QuestionCard({
     model,
     agent,
@@ -282,21 +313,6 @@ export function QuestionCard({
     const send = (a: BrainstormAction) =>
         void act.run(() => sendBrainstorm(agent, a, undefined, undefined, "transcript"));
     const clock = <JudgeClock model={model} agent={agent} s={s} />;
-    const head = q.part ? (
-        <>
-            <span className="whitespace-nowrap font-mono font-semibold">{q.n} →</span>
-            <button
-                type="button"
-                data-rendered-bs-part-link
-                onClick={() => openBrainstormAt(agent.id, { part: q.part })}
-                className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-warning hover:underline"
-            >
-                {partTitle(f, q.part)}
-            </button>
-        </>
-    ) : (
-        <span className="whitespace-nowrap font-mono font-semibold">Question {q.n}</span>
-    );
     return (
         <div className="flex flex-col gap-4">
             {started != null && !row ? (
@@ -307,9 +323,7 @@ export function QuestionCard({
                 s={s}
                 f={f}
                 asking={true}
-                head={head}
                 title={q.text}
-                step={q.part ? `${q.n} →` : `Question ${q.n}`}
                 compact={compact}
                 attr="data-rendered-bs-question"
             >
@@ -376,9 +390,7 @@ export function QuestionCard({
                         </div>
                     ) : null}
                     {compact ? null : <span className="flex-1" />}
-                    <span data-rendered-bs-picks-hint className="text-[12px] text-muted">
-                        {picksHint(rows.options.length)}
-                    </span>
+                    <PicksHint rows={rows.options.length} />
                 </div>
                 <ErrorLine error={act.error} attrs={{ "data-rendered-bs-error": "" }} />
             </CardFrame>

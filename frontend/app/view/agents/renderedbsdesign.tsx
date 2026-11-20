@@ -251,7 +251,6 @@ export function DesignCard({ agent, s, f, compact }: CardProps): JSX.Element | n
                 s={s}
                 f={f}
                 asking={true}
-                head={<span className="whitespace-nowrap font-mono font-semibold">{CONFIRM_TITLE}</span>}
                 title={CONFIRM_TITLE}
                 compact={compact}
                 attr="data-rendered-bs-design"
