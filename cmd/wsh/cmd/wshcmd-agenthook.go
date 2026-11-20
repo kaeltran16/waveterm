@@ -48,7 +48,7 @@ const sessionContextText = "You are running inside Arc, the user's agent cockpit
 	"- What the user is looking at and has selected: `wsh ui state`.\n" +
 	"- Work too big for this session, or the user says \"run it\": `wsh runs start` (arc:runs).\n" +
 	"- Multi-part work across sessions: `wsh effort list|show|create` (arc:initiatives).\n" +
-	"- Other live agents: `wsh agents list`; message one with `wsh agents send <tab> \"<msg>\"`, read its answer with `wsh agents wait <tab>`.\n" +
+	"- Other live agents: `wsh agents list`; message one with `wsh agents send <tab> \"<msg>\"`, read its answer with `wsh agents wait <tab>`; start a worker agent in its own tab with `wsh agents start \"<task>\"`, which prints its tab id.\n" +
 	"- What is waiting on the user: `wsh runs attention`.\n" +
 	"- A Jira key: `wsh jira show <KEY>`.\n" +
 	"- When the user asks: notes (arc:notes), boards and cockpit actions (arc:cockpit). `wsh <cmd> --help` for flags."
