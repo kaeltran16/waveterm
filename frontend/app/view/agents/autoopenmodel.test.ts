@@ -193,4 +193,10 @@ describe("remember and dismissed", () => {
         expect(dismissed(m, { kind: "changes", selected: null })).toBe(m);
         expect(dismissed(m, file)).toBe(m);
     });
+
+    it("never turns a kind down for a Docs or Initiative tab, which auto-open does not open", () => {
+        const m = { ...EMPTY_MEMORY, opened: ["docs", "initiative:e1"] };
+        expect(dismissed(m, { kind: "docs", selected: null })).toBe(m);
+        expect(dismissed(m, { kind: "initiative", effortId: "e1" })).toBe(m);
+    });
 });
