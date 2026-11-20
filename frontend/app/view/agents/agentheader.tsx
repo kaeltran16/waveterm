@@ -116,8 +116,14 @@ function InitiativeLink({ model, agent }: { model: AgentsViewModel; agent: Agent
         <button
             type="button"
             data-peek
-            onClick={(e) => fireAndForget(() => openOrPeek(model, { kind: "effort", effortId: agent.effortId! }, e))}
-            title={`Open ${effort?.title ?? "this initiative"} in Hub`}
+            data-header-initiative-link
+            onClick={(e) => {
+                // in Rendered a plain click opens the initiative beside the transcript; elsewhere it opens Hub
+                if (!openBeside(model, agent.id, { kind: "initiative", effortId: agent.effortId! }, e)) {
+                    fireAndForget(() => openOrPeek(model, { kind: "effort", effortId: agent.effortId! }, e));
+                }
+            }}
+            title={`Open ${effort?.title ?? "this initiative"}`}
             className="cursor-pointer text-accent-soft hover:underline"
         >
             {initiativeLinkText(agent.name, effort)}

@@ -8,8 +8,8 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { stateRpcTimeoutMs } from "@/app/view/jarvis/briefingstore";
 import { chunkTone, type ChunkTone } from "@/app/view/jarvis/effortmodel";
-import { openTarget } from "@/app/view/jarvis/openref";
-import { cn } from "@/util/util";
+import { openOrPeek } from "@/app/view/jarvis/openref";
+import { cn, fireAndForget } from "@/util/util";
 import { ArrowUpRight, Check, ChevronDown, Flag, Pencil, Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
@@ -29,6 +29,7 @@ import {
 import { LoadFailure } from "./recordedoutput";
 import type { TranscriptContext } from "./transcriptcontext";
 import { actionCommand } from "./transcriptlayout";
+import { openBeside } from "./workspacestore";
 import { printsOnlyWsh, wshJsonOutput } from "./wshcall";
 import { CallFacts, WshVerbRow } from "./wshchangerow";
 import { useWshData } from "./wshdata";
@@ -133,7 +134,13 @@ function OpenLink({ ctx, effortId, compact }: { ctx: TranscriptContext; effortId
     return (
         <button
             type="button"
-            onClick={() => void openTarget(ctx.model!, { kind: "effort", effortId })}
+            data-peek
+            data-initiative-card-open
+            onClick={(e) => {
+                if (!ctx.agentId || !openBeside(ctx.model!, ctx.agentId, { kind: "initiative", effortId }, e)) {
+                    fireAndForget(() => openOrPeek(ctx.model!, { kind: "effort", effortId }, e));
+                }
+            }}
             className={cn(
                 "inline-flex shrink-0 cursor-pointer items-center gap-1 text-ink-mid hover:text-foreground",
                 compact ? "text-[11.5px]" : "text-[12px]"
