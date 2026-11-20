@@ -158,6 +158,20 @@ export function useStickToBottom(entries: unknown[], hold?: HoldPlace) {
         remember();
     };
 
+    // the host moved the region on purpose (an arriving ask brought into view): released outright, since onScroll
+    // would read that scroll up, coming with the content that grew, as layout and keep it stuck
+    const release = () => {
+        const el = scrollRef.current;
+        if (!el) {
+            return;
+        }
+        stickRef.current = false;
+        setAtBottom(false);
+        lastTopRef.current = el.scrollTop;
+        lastHeightRef.current = el.scrollHeight;
+        remember();
+    };
+
     const jumpToBottom = () => {
         const el = scrollRef.current;
         if (!el) {
@@ -174,7 +188,7 @@ export function useStickToBottom(entries: unknown[], hold?: HoldPlace) {
         el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     };
 
-    return { scrollRef, onScroll, atBottom, jumpToBottom };
+    return { scrollRef, onScroll, atBottom, jumpToBottom, release };
 }
 
 // The jump-to-latest pill. Render inside a `relative` parent of the scroll region so it anchors to the
