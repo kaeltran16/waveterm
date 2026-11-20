@@ -329,7 +329,7 @@ func TestNormalizeClaudePathIsAbsoluteWithForwardSlashes(t *testing.T) {
 func TestEnsureClaudeDirTrustedRegistersUntrustedProject(t *testing.T) {
 	path := withTempClaudeConfig(t, `{"numStartups": 3, "projects": {"C:/other": {"hasTrustDialogAccepted": true}}}`)
 	repo := newTrustRepo(t)
-	if err := ensureClaudeDirTrusted(repo); err != nil {
+	if err := EnsureClaudeDirTrusted(repo); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -354,7 +354,7 @@ func TestEnsureClaudeDirTrustedLeavesWorktreeInTrustedProjectAlone(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureClaudeDirTrusted(wt); err != nil {
+	if err := EnsureClaudeDirTrusted(wt); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := os.ReadFile(path)
@@ -369,7 +369,7 @@ func TestEnsureClaudeDirTrustedRegistersProjectOnceForManyWorktrees(t *testing.T
 	path := withTempClaudeConfig(t, `{}`)
 	repo := newTrustRepo(t)
 	for _, name := range []string{"run-1", "run-2", "run-3"} {
-		if err := ensureClaudeDirTrusted(newTrustWorktree(t, repo, name)); err != nil {
+		if err := EnsureClaudeDirTrusted(newTrustWorktree(t, repo, name)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -394,7 +394,7 @@ func TestEnsureClaudeDirTrustedRegistersProjectOnceForManyWorktrees(t *testing.T
 func TestEnsureClaudeDirTrustedCreatesMissingConfig(t *testing.T) {
 	path := withTempClaudeConfig(t, "")
 	dir := t.TempDir()
-	if err := ensureClaudeDirTrusted(dir); err != nil {
+	if err := EnsureClaudeDirTrusted(dir); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -408,7 +408,7 @@ func TestEnsureClaudeDirTrustedCreatesMissingConfig(t *testing.T) {
 
 func TestEnsureClaudeDirTrustedRefusesMalformedConfig(t *testing.T) {
 	path := withTempClaudeConfig(t, `{"projects": {`)
-	if err := ensureClaudeDirTrusted(t.TempDir()); err == nil {
+	if err := EnsureClaudeDirTrusted(t.TempDir()); err == nil {
 		t.Fatal("malformed config accepted")
 	}
 	data, _ := os.ReadFile(path)
@@ -425,7 +425,7 @@ func TestEnsureClaudeDirTrustedFailsWhileLockIsHeld(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	err := ensureClaudeDirTrusted(t.TempDir())
+	err := EnsureClaudeDirTrusted(t.TempDir())
 	if err == nil || !strings.Contains(err.Error(), "held by another process") {
 		t.Fatalf("err = %v", err)
 	}
@@ -445,7 +445,7 @@ func TestEnsureClaudeDirTrustedBreaksStaleLock(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := ensureClaudeDirTrusted(dir); err != nil {
+	if err := EnsureClaudeDirTrusted(dir); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)

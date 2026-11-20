@@ -738,6 +738,27 @@ declare global {
         midturn: boolean;
     };
 
+    // wshrpc.CommandAgentsStartData
+    type CommandAgentsStartData = {
+        fromoref: string;
+        prompt: string;
+        harness?: string;
+        model?: string;
+        reasoning?: string;
+        systemprompt?: string;
+        appendsystemprompt?: string;
+        tools?: string;
+        permissionmode?: string;
+        worktree?: string;
+    };
+
+    // wshrpc.CommandAgentsStartRtnData
+    type CommandAgentsStartRtnData = {
+        tabid: string;
+        harness: string;
+        cwd: string;
+    };
+
     // wshrpc.CommandAnswerAgentData
     type CommandAnswerAgentData = {
         oref: string;
@@ -1807,6 +1828,22 @@ declare global {
         channelid: string;
         runid: string;
         force?: boolean;
+    };
+
+    // wshrpc.CommandLaunchAgentTabData
+    type CommandLaunchAgentTabData = {
+        workspaceid: string;
+        tabname: string;
+        tabmeta: MetaType;
+        blockmeta: MetaType;
+        start: boolean;
+    };
+
+    // wshrpc.CommandLaunchAgentTabRtnData
+    type CommandLaunchAgentTabRtnData = {
+        tabid: string;
+        blockid: string;
+        starterror?: string;
     };
 
     // wshrpc.CommandListBranchesData

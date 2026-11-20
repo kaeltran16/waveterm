@@ -102,6 +102,12 @@ export class RpcApiType {
         return client.wshRpcCall("agentssend", data, opts);
     }
 
+    // command "agentsstart" [call]
+    AgentsStartCommand(client: WshClient, data: CommandAgentsStartData, opts?: RpcOpts): Promise<CommandAgentsStartRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsstart", data, opts);
+        return client.wshRpcCall("agentsstart", data, opts);
+    }
+
     // command "agentsyncadopt" [call]
     AgentSyncAdoptCommand(client: WshClient, data: CommandAgentSyncAdoptData, opts?: RpcOpts): Promise<CommandAgentSyncAdoptRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsyncadopt", data, opts);
@@ -940,6 +946,12 @@ export class RpcApiType {
     LandRunCommand(client: WshClient, data: CommandLandRunData, opts?: RpcOpts): Promise<RunLand> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "landrun", data, opts);
         return client.wshRpcCall("landrun", data, opts);
+    }
+
+    // command "launchagenttab" [call]
+    LaunchAgentTabCommand(client: WshClient, data: CommandLaunchAgentTabData, opts?: RpcOpts): Promise<CommandLaunchAgentTabRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "launchagenttab", data, opts);
+        return client.wshRpcCall("launchagenttab", data, opts);
     }
 
     // command "listbranches" [call]

@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
 type AgentCommands interface {
@@ -29,6 +30,8 @@ type AgentCommands interface {
 	AgentsSendCommand(ctx context.Context, data CommandAgentsSendData) (*CommandAgentsSendRtnData, error)                                 // hand a prompt from one agent to another's live session
 	AgentsReadCommand(ctx context.Context, data CommandAgentsReadData) (*CommandAgentsReadRtnData, error)                                 // a live agent's state and last answer
 	AgentsExplainCommand(ctx context.Context, data CommandAgentsExplainData) (*CommandAgentsExplainRtnData, error)                        // what the roster reads about a tab and why it does or does not list it as live
+	AgentsStartCommand(ctx context.Context, data CommandAgentsStartData) (*CommandAgentsStartRtnData, error)                              // start a worker agent in its own tab under the calling agent
+	LaunchAgentTabCommand(ctx context.Context, data CommandLaunchAgentTabData) (*CommandLaunchAgentTabRtnData, error)                     // open an agent tab with the given meta and, when asked, start it
 	AgentPromptCommand(ctx context.Context, data CommandAgentPromptData) error                                                            // the cockpit's own prompt to a block's agent session: its mod runs it, or it is typed
 	AgentBashCommand(ctx context.Context, data CommandAgentBashData) error                                                                // type a `!` shell command into a block's Claude session, as a person would
 	SetClaudeLiveCommandsCommand(ctx context.Context, data CommandSetClaudeLiveCommandsData) error                                        // keep the slash command list a block's Claude session offers (the arc mod publishes it)
@@ -62,6 +65,7 @@ const (
 	AgentsState_Idle    = "idle"
 	AgentsState_Working = "working"
 	AgentsState_Asking  = "asking"
+	AgentsState_Stopped = "stopped"
 )
 
 // AgentInfo is one live agent tab. RunId is the run that owns it, empty for a session no run started.
@@ -85,6 +89,41 @@ type CommandAgentsSendData struct {
 	Tab      string `json:"tab"` // a tab id or a unique prefix of one
 	Text     string `json:"text"`
 	FromORef string `json:"fromoref"` // the sender's block oref
+}
+
+// CommandAgentsStartData starts a worker under the agent at FromORef. Every option left empty takes the
+// parent's or the harness's default.
+type CommandAgentsStartData struct {
+	FromORef           string `json:"fromoref"` // the calling agent's block oref
+	Prompt             string `json:"prompt"`
+	Harness            string `json:"harness,omitempty"` // claude | pi
+	Model              string `json:"model,omitempty"`
+	Reasoning          string `json:"reasoning,omitempty"`
+	SystemPrompt       string `json:"systemprompt,omitempty"`
+	AppendSystemPrompt string `json:"appendsystemprompt,omitempty"`
+	Tools              string `json:"tools,omitempty"`
+	PermissionMode     string `json:"permissionmode,omitempty"`
+	Worktree           string `json:"worktree,omitempty"` // a new branch the worker works on, in its own worktree
+}
+
+type CommandAgentsStartRtnData struct {
+	TabId   string `json:"tabid"`
+	Harness string `json:"harness"`
+	Cwd     string `json:"cwd"`
+}
+
+type CommandLaunchAgentTabData struct {
+	WorkspaceId string              `json:"workspaceid"`
+	TabName     string              `json:"tabname"`
+	TabMeta     waveobj.MetaMapType `json:"tabmeta"`
+	BlockMeta   waveobj.MetaMapType `json:"blockmeta"`
+	Start       bool                `json:"start"` // false for a terminal, which starts when its pane first opens
+}
+
+type CommandLaunchAgentTabRtnData struct {
+	TabId      string `json:"tabid"`
+	BlockId    string `json:"blockid"`
+	StartError string `json:"starterror,omitempty"` // the start's refusal; the tab is kept
 }
 
 // CommandBrainstormCheckData starts the builder check: File is the absolute path of the brainstorm.json, BlockId the
