@@ -116,7 +116,7 @@ function cropPng(w = 300, h = 76) {
 const SHOT = (n, what) => `cdp-shots/rendered-bs-rows-${n}-${what}.png`;
 
 export default (kit) => {
-    const { scenario, agentPage, polishWaitFor, polishNap, narrow, widen, closePaneTabs, RV, PANE, WAIT_MS } = kit;
+    const { scenario, agentPage, polishWaitFor, polishNap, narrow, widen, closePaneTabs, RV, WAIT_MS } = kit;
     const FEED = `${RV}?.querySelector("[data-rendered-feed]")`;
 
     // every brainstorm row the feed draws, in order: its kind, flat text, origin, and the answer's font size
@@ -147,6 +147,16 @@ export default (kit) => {
             globalStore.set(S.brainstormAnswersAtom, { ...all, [s.path]: ${JSON.stringify(RECORDS)} });
             return true;`
         );
+
+    // the canvas window and the canvas state, read through the store as the app does
+    const canvasStore = (h, ctx, body) =>
+        agentPage(
+            h,
+            `const C = await mod("app/view/agents/canvasstore.ts");
+            const id = ${JSON.stringify(ctx.agentId)};
+            ${body}`
+        );
+    const canvasFacts = (h, ctx) => canvasStore(h, ctx, `return { window: globalStore.get(C.canvasWindowAtom), board: C.getCanvas(id)?.board ?? null };`);
 
     // the canvas and the crop exist before the feed draws, as they do before any mark is sent
     const files = { [`.superpowers/design/${TOPIC}/feedback/003.png`]: cropPng() };
@@ -213,7 +223,7 @@ export default (kit) => {
                 return [b?.origin === "transcript" && b.kindMono === false, b];
             });
 
-            await step("CanvasUpdated: the mark is a bubble with its crop, the note and marked on Main · the canvas; the crop opens Main in the pane", async () => {
+            await step("CanvasUpdated: the mark is a bubble with its crop, the note and marked on Main · the canvas; the crop opens Main in the canvas window", async () => {
                 await polishWaitFor(h, `(${FEED}?.querySelector("[data-rbs-row='mark'] img")?.naturalWidth ?? 0) > 0`, WAIT_MS);
                 const bubble = await h.ev(`(() => {
                     const el = ${FEED}?.querySelector("[data-rbs-row='mark']");
@@ -226,17 +236,25 @@ export default (kit) => {
                 })()`);
                 await h.shot(SHOT(3, "mark"));
                 await h.ev(`(() => { ${FEED}?.querySelector("[data-rbs-row='mark'] [data-rbs-crop]")?.click(); return true; })()`);
-                const board = await polishWaitFor(h, `${PANE}?.getAttribute("data-brainstorm-view") === "board"`, WAIT_MS);
+                const shown = await polishWaitFor(h, `!!document.querySelector("[data-canvas-window]")`, WAIT_MS);
+                const opened = await canvasFacts(h, ctx);
                 await h.shot(SHOT(4, "mark-opened"));
+                await canvasStore(h, ctx, `C.closeCanvasWindow(); return true;`);
+                const closed = await polishWaitFor(h, `!document.querySelector("[data-canvas-window]")`, WAIT_MS);
+                const after = await canvasFacts(h, ctx);
                 const back = await closePaneTabs(h, ctx);
                 return [
                     bubble.text.includes(NOTE) &&
                         bubble.text.includes(`marked on Main · ${TOPIC}`) &&
                         bubble.crop === "300x76" &&
                         bubble.right === "flex-end" &&
-                        board &&
+                        shown &&
+                        opened.window === ctx.agentId &&
+                        opened.board === "Main.dc.html" &&
+                        closed &&
+                        after.window == null &&
                         back,
-                    { ...bubble, board, back },
+                    { ...bubble, shown, opened, closed, after, back },
                 ];
             });
 
