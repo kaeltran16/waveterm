@@ -27,9 +27,6 @@ import (
 
 const metaTabProject = "session:project"
 
-// startAgentTab launches a worker's process. A var so tests launch none.
-var startAgentTab = jarvis.StartAgentTab
-
 // parentTab is what a worker takes from the agent that starts it.
 type parentTab struct {
 	tab         *waveobj.Tab

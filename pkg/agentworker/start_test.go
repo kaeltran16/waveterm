@@ -70,19 +70,6 @@ func (p startParent) tabIds(t *testing.T) []string {
 	return ws.TabIds
 }
 
-// stubStart records each worker start instead of launching a process, failing with err when it is set.
-func stubStart(t *testing.T, err error) *[]string {
-	t.Helper()
-	old := startAgentTab
-	t.Cleanup(func() { startAgentTab = old })
-	var started []string
-	startAgentTab = func(_ context.Context, tabId, blockId string) error {
-		started = append(started, tabId+"/"+blockId)
-		return err
-	}
-	return &started
-}
-
 // isolateHome keeps a claude start's folder-trust write out of the real ~/.claude.json.
 func isolateHome(t *testing.T) {
 	t.Helper()
@@ -145,7 +132,7 @@ func TestStartOpensARunningWorkerUnderItsParent(t *testing.T) {
 	if env := m.GetMap(waveobj.MetaKey_CmdEnv); !reflect.DeepEqual(env, waveobj.MetaMapType{consult.PromptCacheTTLEnv: "5m"}) {
 		t.Errorf("cmd:env %v, want only the 5-minute cache TTL (no %s)", env, jarvis.RunAgentEnv)
 	}
-	if !reflect.DeepEqual(*started, []string{rtn.TabId + "/" + blockId}) {
+	if !reflect.DeepEqual(*started, []startCall{{rtn.TabId, blockId}}) {
 		t.Errorf("started %v, want the worker's tab once", *started)
 	}
 	events := wps.Broker.ReadEventHistory(wps.Event_AgentStatus, waveobj.MakeORef(waveobj.OType_Block, blockId).String(), 1)
