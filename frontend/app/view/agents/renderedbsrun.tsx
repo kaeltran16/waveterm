@@ -39,7 +39,8 @@ export function GoneCard({
             {text}
         </span>
     );
-    // no status and no link of its own: the file is gone, and the header's Open brainstorm is the only way on
+    // no status and no link on the full card: the file is gone. the folded row CardFrame draws while the
+    // Brainstorm tab shows keeps Open brainstorm
     const frame = (children: ReactNode, title: string, error: boolean) => (
         <CardFrame
             agent={agent}
