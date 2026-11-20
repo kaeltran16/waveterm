@@ -138,13 +138,7 @@ var ResumeRunWorker = func(ctx context.Context, tabORef, runtime, sessionId, nud
 // launcher): a run worker is headless with no human attached, so without it the agent blocks forever on
 // per-tool prompts — alive but never running, never firing the hooks that report agent:status (the
 // "worker never starts" symptom). The flag stops there, so claude's separate first-run folder-trust
-// prompt is handled by ensureClaudeDirTrusted (see claudetrust.go).
-// Configure the new tab's default block as a cmd worker and tag the tab for the roster. It broadcasts
-// its tab's workspace update itself when the caller's ctx isn't already collecting updates (the engine's
-// dispatch collects none); a caller that does collect — like spawnRunWorkersWithPrompt — flushes them
-// itself, on its own schedule.
-//
-// It is a var so tests can stub the tab-creating boundary without a live tab.
+// prompt is handled by EnsureClaudeDirTrusted (see claudetrust.go). The tab itself is OpenAgentTab's.
 
 type RunWorkerOptions struct {
 	KeepOnExit bool
@@ -286,10 +280,10 @@ func prunePromptFiles(dir string) {
 	}
 }
 
-// launchPrompt is the prompt to put on the command line: the prompt itself when it fits, otherwise a
+// LaunchPrompt is the prompt to put on the command line: the prompt itself when it fits, otherwise a
 // pointer to a file holding it. Only long prompts move, because claude titles a session from its first
 // message and a pointer would give every worker the same title.
-func launchPrompt(prompt, sessionId string) (string, error) {
+func LaunchPrompt(prompt, sessionId string) (string, error) {
 	if len(prompt) <= maxInlinePromptBytes {
 		return prompt, nil
 	}
@@ -313,7 +307,7 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	if workspaceId == "" {
 		return "", fmt.Errorf("workspaceId is required to spawn a worker")
 	}
-	prompt, err := launchPrompt(prompt, opts.SessionId)
+	prompt, err := LaunchPrompt(prompt, opts.SessionId)
 	if err != nil {
 		return "", err
 	}
@@ -328,41 +322,10 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	// writes at most one entry per project (never per worktree — see claudetrust.go); when it cannot
 	// register the trust the spawn fails visibly instead of returning a worker that can never start.
 	if cap.Runtime == "claude" && cwd != "" {
-		if err := ensureClaudeDirTrusted(cwd); err != nil {
+		if err := EnsureClaudeDirTrusted(cwd); err != nil {
 			return "", fmt.Errorf("registering claude folder trust for %s: %w", cwd, err)
 		}
 	}
-	// the new tab reaches the app only as a broadcast workspace update. A caller that collects updates
-	// (spawnRunWorkersWithPrompt) flushes them itself; the engine's dispatch collects nothing, so the spawn
-	// does, even when it fails part-way, because the tab may already exist.
-	if waveobj.ContextGetUpdates(ctx) == nil {
-		ctx = waveobj.ContextWithUpdates(ctx)
-		defer func() { sendWorkerTabUpdates(waveobj.ContextGetUpdatesRtn(ctx)) }()
-	}
-	tabId, err := createWorkerTab(ctx, workspaceId, projectName, false, false)
-	if err != nil {
-		return "", fmt.Errorf("creating worker tab: %w", err)
-	}
-	// a failure from here returns no oref, so no caller can remove the tab; uncancelled, since an expired
-	// spawn ctx is one way to fail, and before the deferred broadcast above, which then carries the delete
-	spawned := false
-	defer func() {
-		if spawned {
-			return
-		}
-		if _, derr := deleteWorkerTab(context.WithoutCancel(ctx), workspaceId, tabId, false); derr != nil {
-			log.Printf("removing worker tab %s of a failed spawn: %v", tabId, derr)
-		}
-	}()
-	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId)
-	if err != nil {
-		return "", fmt.Errorf("loading worker tab: %w", err)
-	}
-	if len(tab.BlockIds) == 0 {
-		return "", fmt.Errorf("worker tab %s has no block", tabId)
-	}
-	blockId := tab.BlockIds[0]
-
 	blockMeta := makeWorkerBlockMeta(spec, cwd, opts.KeepOnExit)
 	if opts.DesignSession {
 		delete(blockMeta[waveobj.MetaKey_CmdEnv].(map[string]any), RunAgentEnv)
@@ -385,18 +348,73 @@ var SpawnRunWorker = func(ctx context.Context, cap runroute.Capability, workspac
 	if opts.Label != "" {
 		tabMeta["session:label"] = opts.Label
 	}
-	if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId), tabMeta, false); err != nil {
-		return "", fmt.Errorf("setting worker tab meta: %w", err)
+	tabId, _, err := OpenAgentTab(ctx, AgentTabSpec{WorkspaceId: workspaceId, TabName: projectName, TabMeta: tabMeta, BlockMeta: blockMeta})
+	if err != nil {
+		return "", err
 	}
-	if err := persistWorkerBlockMeta(ctx, blockId, blockMeta); err != nil {
-		return "", fmt.Errorf("setting worker block meta: %w", err)
-	}
-	spawned = true
 	return waveobj.MakeORef(waveobj.OType_Tab, tabId).String(), nil
 }
 
-// StartRunWorker launches the process of a worker SpawnRunWorker set up, force-starting its controller
-// (controllers otherwise start lazily on a frontend terminal resync — force=true launches it headlessly).
+// AgentTabSpec is one agent tab to open: its name, and the meta set on the tab and on its first block. The
+// caller's session:project tag goes in TabMeta.
+type AgentTabSpec struct {
+	WorkspaceId, TabName string
+	TabMeta, BlockMeta   waveobj.MetaMapType
+}
+
+// OpenAgentTab creates a background tab in the workspace and sets its tab and block meta. It starts nothing,
+// so a caller can record the agent before its process runs (StartAgentTab). It broadcasts its tab's workspace
+// update itself when ctx collects no updates (the engine's dispatch collects none); a caller that collects
+// them flushes them on its own schedule. A failure part-way deletes the tab.
+func OpenAgentTab(ctx context.Context, spec AgentTabSpec) (string, string, error) {
+	if spec.WorkspaceId == "" {
+		return "", "", fmt.Errorf("workspaceId is required to open an agent tab")
+	}
+	if waveobj.ContextGetUpdates(ctx) == nil {
+		ctx = waveobj.ContextWithUpdates(ctx)
+		defer func() { sendWorkerTabUpdates(waveobj.ContextGetUpdatesRtn(ctx)) }()
+	}
+	// wcore.CreateTab returns the tab's id with an error when the tab exists but its block failed
+	tabId, err := createWorkerTab(ctx, spec.WorkspaceId, spec.TabName, false, false)
+	// a failure from here returns no id, so no caller can remove the tab; uncancelled, since an expired ctx
+	// is one way to fail, and before the deferred broadcast above, which then carries the delete
+	opened := false
+	defer func() {
+		if opened || tabId == "" {
+			return
+		}
+		if _, derr := deleteWorkerTab(context.WithoutCancel(ctx), spec.WorkspaceId, tabId, false); derr != nil {
+			log.Printf("removing agent tab %s of a failed open: %v", tabId, derr)
+		}
+	}()
+	if err != nil {
+		return "", "", fmt.Errorf("creating agent tab: %w", err)
+	}
+	tab, err := wstore.DBMustGet[*waveobj.Tab](ctx, tabId)
+	if err != nil {
+		return "", "", fmt.Errorf("loading agent tab: %w", err)
+	}
+	if len(tab.BlockIds) == 0 {
+		return "", "", fmt.Errorf("agent tab %s has no block", tabId)
+	}
+	blockId := tab.BlockIds[0]
+	if _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Tab, tabId), spec.TabMeta, false); err != nil {
+		return "", "", fmt.Errorf("setting agent tab meta: %w", err)
+	}
+	if err := persistWorkerBlockMeta(ctx, blockId, spec.BlockMeta); err != nil {
+		return "", "", fmt.Errorf("setting agent block meta: %w", err)
+	}
+	opened = true
+	return tabId, blockId, nil
+}
+
+// StartAgentTab launches the process of a tab OpenAgentTab set up, force-starting its controller (controllers
+// otherwise start lazily on a frontend terminal resync; force launches it headlessly). It publishes nothing.
+func StartAgentTab(ctx context.Context, tabId, blockId string) error {
+	return startWorkerController(ctx, tabId, blockId)
+}
+
+// StartRunWorker launches the process of a worker SpawnRunWorker set up and publishes its initial status.
 // A var so tests can stub the process-spawning boundary without a live tab/PTY.
 var StartRunWorker = func(ctx context.Context, tabORef string) error {
 	oref, err := waveobj.ParseORef(tabORef)
@@ -411,7 +429,7 @@ var StartRunWorker = func(ctx context.Context, tabORef string) error {
 		return fmt.Errorf("worker tab %s has no block", oref.OID)
 	}
 	blockId := tab.BlockIds[0]
-	if err := startWorkerController(ctx, oref.OID, blockId); err != nil {
+	if err := StartAgentTab(ctx, oref.OID, blockId); err != nil {
 		return fmt.Errorf("starting worker controller: %w", err)
 	}
 	// Make the worker visible in the roster immediately. The roster keys off agent:status, which

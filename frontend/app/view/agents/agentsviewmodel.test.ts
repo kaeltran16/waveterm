@@ -264,6 +264,14 @@ describe("displayAgeMs", () => {
 describe("agentVMFromInput", () => {
     const NOW = 1_000_000;
 
+    it("carries a worker's parent tab and stopped flag", () => {
+        const vm = agentVMFromInput(
+            { id: "tab-w", name: "x", status: "idle", parentTabId: "tab-p", stopped: true },
+            NOW
+        );
+        expect(vm).toMatchObject({ parentTabId: "tab-p", stopped: true });
+    });
+
     it("reads the linked initiative's id off its oref", () => {
         const vm = agentVMFromInput({ id: "tab-9", name: "x", status: "idle", effortORef: "effort:e1" }, NOW);
         expect(vm.effortId).toBe("e1");

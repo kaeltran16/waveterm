@@ -27,6 +27,8 @@ const (
 	agentsAllProjectsTip = "wsh agents list --all shows every project"
 	agentsSelfMark       = "(you)"
 	agentsTitleMax       = 60
+	// a start may create a worktree and launch a process before it returns
+	agentsStartTimeoutMs = 60_000
 )
 
 var agentsCmd = &cobra.Command{
@@ -59,12 +61,25 @@ command wait for it.`,
 	RunE:    agentsSendRun,
 }
 
+var agentsStartCmd = &cobra.Command{
+	Use:   "start [task]",
+	Short: "start a worker: a claude or pi agent in its own tab under this one; prints its tab id",
+	Long: `Start a worker: an agent in its own tab, nested under this one in the Agent tree. The task is the
+argument or the contents of --file, never both. Harness, model and permission mode default to this agent's;
+--permission-mode may only be stricter. --worktree <branch> runs it in a new worktree on that new branch, off
+this checkout's HEAD. Prints the worker's tab id and nothing else; read its answer with 'wsh agents read <tab>'
+or 'wsh agents wait <tab>'.`,
+	Args:    cobra.MaximumNArgs(1),
+	PreRunE: preRunSetupRpcClient,
+	RunE:    agentsStartRun,
+}
+
 var agentsWaitCmd = &cobra.Command{
 	Use:   "wait <tab>",
 	Short: "wait until a live agent is idle or asking the user, and print its answer",
-	Long: `Wait until a live agent settles: it is idle (and its last answer is printed) or it has a question or a
-permission prompt open for the user. --until idle or --until asking waits for that state alone. Returns at once when the agent is
-already in it.`,
+	Long: `Wait until a live agent settles: it is idle or stopped (and its last answer is printed) or it has a
+question or a permission prompt open for the user. --until idle (met by stopped too) or --until asking waits for
+that state alone. Returns at once when the agent is already in it.`,
 	Args:    cobra.ExactArgs(1),
 	PreRunE: preRunSetupRpcClient,
 	RunE:    agentsWaitRun,
@@ -97,11 +112,21 @@ func init() {
 	agentsSendCmd.Flags().Bool("json", false, "print the send's result as JSON; not with --wait")
 	agentsSendCmd.Flags().Bool("wait", false, "wait for the target's answer and print it")
 	agentsSendCmd.Flags().Duration("timeout", agentsWaitDefault, "how long --wait waits")
+	agentsStartCmd.Flags().String("file", "", "read the task from this file instead of the argument")
+	agentsStartCmd.Flags().String("harness", "", "claude or pi; this agent's by default")
+	agentsStartCmd.Flags().String("model", "", "the model; this agent's by default, when the harness is the same")
+	agentsStartCmd.Flags().String("reasoning", "", "the reasoning level, as the harness names it")
+	agentsStartCmd.Flags().String("system-prompt", "", "replace the harness's system prompt")
+	agentsStartCmd.Flags().String("append-system-prompt", "", "append to the harness's system prompt")
+	agentsStartCmd.Flags().String("tools", "", "the only tools the worker gets, comma-separated")
+	agentsStartCmd.Flags().String("permission-mode", "", "claude's permission mode, as strict as this agent's or stricter")
+	agentsStartCmd.Flags().String("worktree", "", "a new branch the worker works on, in its own worktree")
+	agentsStartCmd.Flags().Bool("json", false, "print the start's result as JSON")
 	agentsWaitCmd.Flags().String("until", "", "idle or asking; either by default")
 	agentsWaitCmd.Flags().Duration("timeout", agentsWaitDefault, "how long to wait")
 	agentsReadCmd.Flags().Bool("json", false, "JSON output")
 	agentsExplainCmd.Flags().Bool("json", false, "JSON output")
-	agentsCmd.AddCommand(agentsListCmd, agentsSendCmd, agentsWaitCmd, agentsReadCmd, agentsExplainCmd)
+	agentsCmd.AddCommand(agentsListCmd, agentsSendCmd, agentsStartCmd, agentsWaitCmd, agentsReadCmd, agentsExplainCmd)
 	rootCmd.AddCommand(agentsCmd)
 }
 
@@ -321,6 +346,50 @@ func agentsSendLines(sent *wshrpc.CommandAgentsSendRtnData) []string {
 	}
 }
 
+func agentsStartRun(cmd *cobra.Command, args []string) error {
+	file, _ := cmd.Flags().GetString("file")
+	task, err := agentsSendText(args, file)
+	if err != nil {
+		return err
+	}
+	from, err := resolveBlockArg()
+	if err != nil {
+		return err
+	}
+	flag := func(name string) string {
+		v, _ := cmd.Flags().GetString(name)
+		return v
+	}
+	rtn, err := wshclient.AgentsStartCommand(RpcClient, wshrpc.CommandAgentsStartData{
+		FromORef: from.String(), Prompt: task,
+		Harness: flag("harness"), Model: flag("model"), Reasoning: flag("reasoning"), SystemPrompt: flag("system-prompt"),
+		AppendSystemPrompt: flag("append-system-prompt"), Tools: flag("tools"), PermissionMode: flag("permission-mode"),
+		Worktree: flag("worktree"),
+	}, &wshrpc.RpcOpts{Timeout: agentsStartTimeoutMs})
+	if err != nil {
+		return err
+	}
+	out, err := agentsStartOutput(rtn, isJSON(cmd))
+	if err != nil {
+		return err
+	}
+	fmt.Println(out)
+	return nil
+}
+
+// agentsStartOutput is what a start prints: the worker's tab id alone, so a caller can capture it, or the RPC
+// return as one JSON line under --json
+func agentsStartOutput(rtn *wshrpc.CommandAgentsStartRtnData, asJSON bool) (string, error) {
+	if !asJSON {
+		return rtn.TabId, nil
+	}
+	b, err := json.Marshal(rtn)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
 // errAgentsPollTimeout is agentsPoll's timeout, which each caller words for itself
 var errAgentsPollTimeout = errors.New("timed out")
 
@@ -389,11 +458,13 @@ func agentsCheckUntil(until string) error {
 	return nil
 }
 
-// agentsWaitUntil polls read until the agent is in the until state, or idle or asking for an empty until.
+// agentsWaitUntil polls read until the agent is in the until state, or settled for an empty until. A stopped
+// worker has answered and holds no process, so it meets idle.
 func agentsWaitUntil(read func() (*wshrpc.CommandAgentsReadRtnData, error), sleep func(time.Duration), now func() time.Time,
 	until string, timeout time.Duration) (*wshrpc.CommandAgentsReadRtnData, error) {
 	r, err := agentsPoll(read, sleep, now, timeout, func(r *wshrpc.CommandAgentsReadRtnData, _ time.Duration) (bool, error) {
-		return r.State == until || (until == "" && r.State != wshrpc.AgentsState_Working), nil
+		stopped := r.State == wshrpc.AgentsState_Stopped
+		return r.State == until || (until == "" && r.State != wshrpc.AgentsState_Working) || (until == wshrpc.AgentsState_Idle && stopped), nil
 	})
 	if errors.Is(err, errAgentsPollTimeout) {
 		id := agentsShort(r.TabId)

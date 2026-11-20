@@ -144,7 +144,7 @@ func (m *fakeMachine) liveTree(t *testing.T, runId, taskId, role string) (*Claim
 	t.Helper()
 	o := block(taskId)
 	restore := UncapForTest()
-	c, ok := TryAdmit(Request{Tag: Tag{runId, taskId, role}, Owner: o})
+	c, ok := TryAdmit(Request{Tag: Tag{runId, taskId, role, ""}, Owner: o})
 	restore()
 	if !ok {
 		t.Fatalf("admitting %s refused", taskId)
@@ -203,6 +203,29 @@ func TestPausesYoungestSpikingWorker(t *testing.T) {
 	}
 	if paused[0].Need != highWater || paused[0].Free != lowWater-mib {
 		t.Fatalf("paused event free %d need %d, want %d and %d", paused[0].Free, paused[0].Need, lowWater-mib, highWater)
+	}
+}
+
+// an agent-started worker carries a TabId and no RunId, and is paused like a run worker
+func TestPausesWorkerStartedByAnAgent(t *testing.T) {
+	_, m := newLoop(t, 8*gib)
+	m.liveTree(t, "r1", "idle", RoleWorker)
+	o := block("agent-tab")
+	c, ok := TryAdmit(Request{Tag: Tag{TabId: "agent-tab", Role: RoleWorker}, Owner: o})
+	if !ok {
+		t.Fatal("admitting the agent-started worker refused")
+	}
+	m.setLive(o)
+	m.advance(time.Second)
+	m.mu.Lock()
+	m.rising[o] = true
+	m.mu.Unlock()
+	c.SetCacheExpiry(freshCache)
+	tickN(m, 1)
+	m.free.Store(lowWater - mib)
+	tickN(m, 1)
+	if got := m.suspends(); !slices.Equal(got, []jobobject.Owner{o}) {
+		t.Fatalf("paused %v, want the agent-started worker %v", got, o)
 	}
 }
 
@@ -523,7 +546,7 @@ func TestRunningTreesThatUseLittleDoNotBlock(t *testing.T) {
 	m.liveTree(t, "r2", "w2", RoleWorker)
 	tickN(m, 1) // the loop sees both jobs: their startup allowances end
 
-	c, ok := TryAdmit(Request{Tag: Tag{"r2", "w3", RoleWorker}})
+	c, ok := TryAdmit(Request{Tag: Tag{"r2", "w3", RoleWorker, ""}})
 	if !ok {
 		t.Fatal("a third worker was refused with 7.7 GB available beside two running workers")
 	}
@@ -536,10 +559,10 @@ func TestStartupAllowanceEndsOnSeenOrGrace(t *testing.T) {
 	rec, m := newLoop(t, 4*gib)
 	wk := Key{Role: RoleWorker}
 	restore := UncapForTest()
-	seen := mustAdmit(t, Request{Key: wk, Tag: Tag{"r1", "a", RoleWorker}, Owner: block("a")})
+	seen := mustAdmit(t, Request{Key: wk, Tag: Tag{"r1", "a", RoleWorker, ""}, Owner: block("a")})
 	restore()
 	defer seen.Release()
-	held := Request{Key: wk, Tag: Tag{"r1", "b", RoleWorker}}
+	held := Request{Key: wk, Tag: Tag{"r1", "b", RoleWorker, ""}}
 	if _, ok := TryAdmit(held); ok {
 		t.Fatal("admitted beside a starting tree with 4 GiB free")
 	}
@@ -553,12 +576,12 @@ func TestStartupAllowanceEndsOnSeenOrGrace(t *testing.T) {
 	defer unseen.Release()
 
 	// an unbound claim is never seen: its allowance ends at startupGrace
-	if _, ok := TryAdmit(Request{Key: wk, Tag: Tag{"r2", "c", RoleWorker}}); ok {
+	if _, ok := TryAdmit(Request{Key: wk, Tag: Tag{"r2", "c", RoleWorker, ""}}); ok {
 		t.Fatal("admitted beside a starting unbound tree with 4 GiB free")
 	}
 	m.clock = unseen.admitted.Add(startupGrace - time.Second)
 	tick()
-	if _, ok := TryAdmit(Request{Key: wk, Tag: Tag{"r2", "c", RoleWorker}}); ok {
+	if _, ok := TryAdmit(Request{Key: wk, Tag: Tag{"r2", "c", RoleWorker, ""}}); ok {
 		t.Fatal("an unseen tree stopped counting its allowance before startupGrace")
 	}
 	m.clock = unseen.admitted.Add(startupGrace)
@@ -566,7 +589,7 @@ func TestStartupAllowanceEndsOnSeenOrGrace(t *testing.T) {
 	if got := rec.roomCalls(); len(got) != 2 || !slices.Equal(got[1], []string{"r2"}) {
 		t.Fatalf("room calls after startupGrace: %v, want a second with [r2]", got)
 	}
-	c := mustAdmit(t, Request{Key: wk, Tag: Tag{"r2", "c", RoleWorker}})
+	c := mustAdmit(t, Request{Key: wk, Tag: Tag{"r2", "c", RoleWorker, ""}})
 	c.Release()
 }
 
@@ -576,7 +599,7 @@ func TestLowWaterPausesTreesAdmittedOnTheirEstimate(t *testing.T) {
 	rec, m := newLoop(t, 8*gib)
 	for _, id := range []string{"a", "b"} {
 		o := block(id)
-		c := mustAdmit(t, Request{Tag: Tag{"r1", id, RoleWorker}, Owner: o})
+		c := mustAdmit(t, Request{Tag: Tag{"r1", id, RoleWorker, ""}, Owner: o})
 		c.SetCacheExpiry(freshCache)
 		m.setLive(o)
 		tickN(m, 1)
@@ -723,7 +746,7 @@ func TestNeverSeenClaimForgetsItsKey(t *testing.T) {
 	_, m := newLoop(t, 8*gib)
 	k := Key{"c:\\proj", RoleWorker}
 	restore := UncapForTest()
-	ghost := mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "ghost", RoleWorker}, Owner: block("ghost")})
+	ghost := mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "ghost", RoleWorker, ""}, Owner: block("ghost")})
 	restore()
 	m.clock = ghost.boundAt.Add(bindStale)
 	tickN(m, 1)
@@ -739,7 +762,7 @@ func TestNeverSeenClaimForgetsItsKey(t *testing.T) {
 
 	o := block("seen")
 	restore = UncapForTest()
-	mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "seen", RoleWorker}, Owner: o})
+	mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "seen", RoleWorker, ""}, Owner: o})
 	restore()
 	m.setLive(o)
 	tickN(m, 1)

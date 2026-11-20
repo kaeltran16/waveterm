@@ -77,6 +77,46 @@ describe("buildAgentTree", () => {
     });
 });
 
+describe("buildAgentTree with agent-started workers", () => {
+    const worker = (id: string, parentTabId: string, path = WAVE): AgentVM => ({
+        ...vm(id, "working", path),
+        parentTabId,
+    });
+    const shape = (rows: AgentTreeRow[]) =>
+        rows.map((r: any) => (r.kind === "group" ? `${r.project}:${r.count}` : `${r.agent.id}@${r.depth ?? 0}`));
+
+    it("nests a worker under its parent and a worker's worker under it, in roster order", () => {
+        const agents = [
+            worker("w2", "w1"),
+            vm("other", "idle", WAVE),
+            worker("w1", "p"),
+            vm("p", "idle", WAVE),
+            worker("w3", "p"),
+        ];
+        expect(shape(buildAgentTree(agents))).toEqual(["waveterm:5", "other@0", "p@0", "w1@1", "w2@2", "w3@1"]);
+    });
+
+    it("keeps a row for workers whose parents name each other", () => {
+        const agents = [worker("a", "b"), worker("b", "a")];
+        expect(shape(buildAgentTree(agents))).toEqual(["waveterm:2", "a@0", "b@0"]);
+    });
+
+    it("gives a worker whose parent is not in the roster a top-level row in its own project", () => {
+        const agents = [vm("p", "idle", WAVE), worker("orphan", "gone", LOOM)];
+        expect(shape(buildAgentTree(agents))).toEqual(["waveterm:1", "p@0", "loom:1", "orphan@0"]);
+    });
+
+    it("counts an asking worker in its parent's group attn", () => {
+        const agents = [vm("p", "idle", WAVE), { ...worker("w", "p"), state: "asking" as const }];
+        expect(buildAgentTree(agents)[0]).toMatchObject({ kind: "group", count: 2, attn: 1 });
+    });
+
+    it("places the worker in the focus order right after its parent", () => {
+        const agents = [worker("w", "p"), vm("a", "idle", WAVE), vm("p", "idle", WAVE)];
+        expect(treeFocusOrder(buildAgentTree(agents), [])).toEqual(["a", "p", "w"]);
+    });
+});
+
 describe("rowFocusKey and treeFocusOrder", () => {
     const task = (id: string, state: string, merged = false): TaskNode =>
         ({ id, label: id, state, merged }) as TaskNode;
@@ -1259,6 +1299,14 @@ describe("buildAgentTree with run lineage", () => {
             lineage([], { w1: { kind: "worker", leadRunId: "gone", taskId: "t-1" } })
         );
         expect(shape(rows)).toEqual(["group:waveterm:1:0", "parent:w1"]);
+    });
+
+    it("gives an agent-started worker whose parent is a run's lead a top-level row", () => {
+        const rows = buildAgentTree(
+            [agent("lead", "working"), { ...agent("w", "working"), parentTabId: "lead" }],
+            lineage([run("r1", [])], { lead: { kind: "lead", runId: "r1" } })
+        );
+        expect(rows.map((r: any) => r.kind)).toEqual(["group", "lead", "parent"]);
     });
 });
 

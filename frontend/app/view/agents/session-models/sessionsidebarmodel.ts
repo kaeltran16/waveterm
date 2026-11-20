@@ -12,6 +12,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom } from "jotai";
 import type { AgentsViewModel } from "../agents";
+import { launchAgentTab, settleLaunchStart } from "../agentcontrollerstore";
 import type { PendingLaunch } from "../agentsviewmodel";
 import { getAgentStatusAtom, getSubagentExpandAtom } from "./agentstatusstore";
 import { sessionGroupLabelAtom } from "./sessiongroupstore";
@@ -25,6 +26,7 @@ import {
     findSessionTermBlock,
     reorderWithinGroup,
     sessionRunORef,
+    sessionWorkerOf,
     subagentExpanded,
     type ResolvedSessionBlock,
     type SessionInput,
@@ -95,6 +97,7 @@ export const sessionSidebarViewModelAtom = atom<SidebarViewModel>((get) => {
             customLabel: meta["session:label"],
             projectLabel: meta["session:project"],
             runORef: sessionRunORef(meta, termBlock?.meta),
+            ...sessionWorkerOf(meta, termBlock?.meta),
             effortORef: meta["session:effort"],
             brainstormFile: meta["session:brainstorm"],
             builderCheck: builderCheckOf(meta),
@@ -265,10 +268,11 @@ export function closeGroup(label: string, memberIds: string[]) {
 }
 
 /** Duplicate a session: open a new tab that re-launches the same agent in the same cwd as the source.
- *  Clones the source term block's launch meta onto the new tab's default block *before* it renders, then
- *  surfaces + focuses the clone exactly like launchAgent — a pending roster row so it shows immediately,
- *  plus focusIdAtom/surfaceAtom so its terminal mounts and the controller starts. The cockpit renders
- *  agents in-place via the focus pane, so the old setActiveTab path is a dead no-op stub under Tauri. */
+ *  The backend opens the tab with the source term block's launch meta and starts an agent's process; a
+ *  terminal starts when its pane mounts. The clone then surfaces + focuses like launchAgent — a pending
+ *  roster row so it shows immediately, plus focusIdAtom/surfaceAtom so its terminal mounts, where a
+ *  refused start shows. The cockpit renders agents in-place via the focus pane, so the old setActiveTab
+ *  path is a dead no-op stub under Tauri. */
 export function duplicateSession(model: AgentsViewModel, sourceTabId: string) {
     const source = resolveSessionTermBlock(sourceTabId);
     if (source == null) {
@@ -283,28 +287,24 @@ export function duplicateSession(model: AgentsViewModel, sourceTabId: string) {
     const project = srcTab?.meta?.["session:project"];
     const name = srcTab?.name ?? "";
     const blockMeta = buildDuplicateBlockMeta(source.meta);
+    const tabMeta: MetaType = {};
+    if (agent != null) {
+        tabMeta["session:agent"] = agent;
+    }
+    if (project != null) {
+        tabMeta["session:project"] = project;
+    }
+    // a terminal starts when its pane first opens
+    const start = blockMeta.controller === "cmd";
     fireAndForget(async () => {
-        const newTabId = await WorkspaceService.CreateTab(ws.oid, name, false);
-        const newTab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", newTabId)));
-        const defaultBlockId = newTab?.blockids?.[0];
-        if (defaultBlockId == null) {
-            return;
-        }
-        const blockORef = WOS.makeORef("block", defaultBlockId);
-        await RpcApi.SetMetaCommand(TabRpcClient, { oref: blockORef, meta: blockMeta });
-        // getWaveObjectAtom is a one-time fetch (no subscription); reload so the session sidebar sees the
-        // cloned cmd:cwd and the tab enters the roster (without this the clone never surfaces).
-        await WOS.reloadWaveObject(blockORef);
-        const tabMeta: Record<string, any> = {};
-        if (agent != null) {
-            tabMeta["session:agent"] = agent;
-        }
-        if (project != null) {
-            tabMeta["session:project"] = project;
-        }
-        if (Object.keys(tabMeta).length > 0) {
-            await RpcApi.SetMetaCommand(TabRpcClient, { oref: WOS.makeORef("tab", newTabId), meta: tabMeta });
-        }
+        const launched = await launchAgentTab({
+            workspaceid: ws.oid,
+            tabname: name,
+            tabmeta: tabMeta,
+            blockmeta: blockMeta,
+            start,
+        });
+        const { tabid: newTabId, blockid: defaultBlockId } = launched;
         // agent panel gets a pending roster row so the clone appears before the reporter registers it.
         if (agent != null) {
             const pending: PendingLaunch = {
@@ -316,8 +316,11 @@ export function duplicateSession(model: AgentsViewModel, sourceTabId: string) {
             };
             globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
         }
-        // Focus into the Agent surface so the clone's terminal mounts and its controller starts.
+        // Focus into the Agent surface so the clone's terminal mounts.
         globalStore.set(model.focusIdAtom, newTabId);
         globalStore.set(model.surfaceAtom, "agent");
+        if (start) {
+            settleLaunchStart(launched);
+        }
     });
 }

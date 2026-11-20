@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 
 	"github.com/skratchdot/open-golang/open"
+	"github.com/wavetermdev/waveterm/pkg/agentworker"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
@@ -201,7 +202,18 @@ func publishEvent(ctx context.Context, data wps.WaveEvent) {
 		orchestrate.NoteLeadStatus(ctx, &data)
 		noteAgentTurnEnded(ctx, &data)
 		noteBoardForwardStatus(ctx, &data)
+		noteWorkerStatus(ctx, &data)
 	}
+}
+
+// noteWorkerStatus hands a status to the workers' lifecycle. Events arrive over the RPC wire with Data as a raw JSON
+// map, so it decodes rather than asserts.
+func noteWorkerStatus(ctx context.Context, ev *wps.WaveEvent) {
+	var data baseds.AgentStatusData
+	if utilfn.ReUnmarshal(&data, ev.Data) != nil {
+		return
+	}
+	agentworker.NoteStatus(ctx, &data)
 }
 
 func (ws *WshServer) EventSubCommand(ctx context.Context, data wps.SubscriptionRequest) error {

@@ -329,10 +329,10 @@ func lockClaudeConfig(path string) (func(), error) {
 	}
 }
 
-// ensureClaudeDirTrusted registers dir's project as a trusted folder for Claude Code unless it, or an
+// EnsureClaudeDirTrusted registers dir's project as a trusted folder for Claude Code unless it, or an
 // ancestor that confers trust, already is. The common case — any directory inside a project the
 // operator has opened before, run worktrees included — reads the config and writes nothing.
-func ensureClaudeDirTrusted(dir string) error {
+func EnsureClaudeDirTrusted(dir string) error {
 	target := resolveClaudeTrust(dir)
 	path, err := claudeConfigPath()
 	if err != nil {

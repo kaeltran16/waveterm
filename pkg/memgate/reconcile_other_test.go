@@ -18,8 +18,8 @@ func TestNoJobObjectsOffWindows(t *testing.T) {
 	liveUsage, suspendJob, resumeJob = jobobject.LiveUsage, jobobject.Suspend, jobobject.Resume
 
 	restore := UncapForTest()
-	w1 := mustAdmit(t, Request{Tag: Tag{"r1", "w1", RoleWorker}, Owner: block("w1")})
-	w2 := mustAdmit(t, Request{Tag: Tag{"r1", "w2", RoleWorker}, Owner: block("w2")})
+	w1 := mustAdmit(t, Request{Tag: Tag{"r1", "w1", RoleWorker, ""}, Owner: block("w1")})
+	w2 := mustAdmit(t, Request{Tag: Tag{"r1", "w2", RoleWorker, ""}, Owner: block("w2")})
 	restore()
 	m.free.Store(gib)
 

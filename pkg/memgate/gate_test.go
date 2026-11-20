@@ -86,7 +86,7 @@ func setFree(t *testing.T, free uint64) {
 }
 
 func req(runId, taskId string) Request {
-	return Request{Key: Key{Role: RoleWorker}, Tag: Tag{runId, taskId, RoleWorker}}
+	return Request{Key: Key{Role: RoleWorker}, Tag: Tag{runId, taskId, RoleWorker, ""}}
 }
 
 func mustAdmit(t *testing.T, r Request) *Claim {
@@ -120,7 +120,7 @@ func TestStartingClaimCountsItsMedian(t *testing.T) {
 		}
 	}()
 	for _, id := range []string{"a", "b", "c", "d"} {
-		if c, ok := TryAdmit(Request{Key: k, Tag: Tag{"", id, RoleWorker}}); ok {
+		if c, ok := TryAdmit(Request{Key: k, Tag: Tag{"", id, RoleWorker, ""}}); ok {
 			admitted = append(admitted, c)
 		}
 	}
@@ -131,11 +131,85 @@ func TestStartingClaimCountsItsMedian(t *testing.T) {
 	for _, c := range admitted {
 		markSeen(c)
 	}
-	c, ok := TryAdmit(Request{Key: k, Tag: Tag{"", "c", RoleWorker}})
+	c, ok := TryAdmit(Request{Key: k, Tag: Tag{"", "c", RoleWorker, ""}})
 	if !ok {
 		t.Fatal("a seen tree still counted its median against the next admission")
 	}
 	admitted = append(admitted, c)
+}
+
+// a refusal names who holds the memory by what each holds now: a starting tree its estimate, a seen one its reading
+func TestTryAdmitOrWhyNamesHoldersLargestFirst(t *testing.T) {
+	newGate(t, 4*gib)
+	ka, kb := Key{"c:\\a", RoleWorker}, Key{"c:\\b", RoleWorker}
+	for range 3 {
+		Record(ka, 2*gib)
+		Record(kb, gib)
+	}
+	a := Admit(Request{Key: ka, Tag: Tag{TabId: "tab-a", Role: RoleWorker}})
+	b := Admit(Request{Key: kb, Tag: Tag{TabId: "tab-b", Role: RoleWorker}})
+	defer a.Release()
+	defer b.Release()
+	markSeen(b)
+	book.mu.Lock()
+	b.use = 3 * gib
+	book.mu.Unlock()
+
+	c, why := TryAdmitOrWhy(Request{Key: Key{"c:\\c", RoleWorker}, Tag: Tag{TabId: "tab-c", Role: RoleWorker}})
+	if c != nil || why == nil {
+		t.Fatalf("admitted onto 2 GiB free with a 3.5 GiB default: claim %v shortfall %v", c, why)
+	}
+	want := Shortfall{
+		Free: 2 * gib,
+		Need: defaultPeak(RoleWorker),
+		Holders: []Holder{
+			{Tag: Tag{TabId: "tab-b", Role: RoleWorker}, Use: 3 * gib},
+			{Tag: Tag{TabId: "tab-a", Role: RoleWorker}, Use: 2 * gib},
+		},
+	}
+	if !slices.Equal(why.Holders, want.Holders) || why.Free != want.Free || why.Need != want.Need {
+		t.Fatalf("shortfall %+v, want %+v", *why, want)
+	}
+}
+
+func TestTryAdmitOrWhyAdmitsAsTryAdmitDoes(t *testing.T) {
+	tests := []struct {
+		name    string
+		free    uint64
+		holders int
+	}{
+		{"room beside a claim", 20 * gib, 1},
+		{"empty book on little memory", mib, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			newGate(t, tt.free)
+			for i := range tt.holders {
+				defer Admit(req("", string(rune('a'+i)))).Release()
+			}
+			c, why := TryAdmitOrWhy(req("", "z"))
+			if c == nil || why != nil {
+				t.Fatalf("claim %v shortfall %v, want admitted", c, why)
+			}
+			c.Release()
+		})
+	}
+}
+
+// a tree an agent started outside any run has no run to tell: it is refused and left out of the held set silently
+func TestTryAdmitOrWhyRefusalWithoutRunIdIsSilent(t *testing.T) {
+	rec := newGate(t, gib)
+	live := Admit(req("", "a"))
+	defer live.Release()
+	if c, why := TryAdmitOrWhy(Request{Key: Key{Role: RoleWorker}, Tag: Tag{TabId: "tab", Role: RoleWorker}}); c != nil || why == nil {
+		t.Fatalf("admitted beside a starting tree with 1 GiB free: claim %v shortfall %v", c, why)
+	}
+	book.mu.Lock()
+	held := len(book.held)
+	book.mu.Unlock()
+	if held != 0 || len(rec.kinds()) != 0 {
+		t.Fatalf("refusal held %d tags and emitted %v, want none", held, rec.kinds())
+	}
 }
 
 func TestOneTreeAlwaysStarts(t *testing.T) {
@@ -268,14 +342,14 @@ func TestMedianAdmitsWithinFree(t *testing.T) {
 	defer running.Release()
 	markSeen(running)
 
-	c, ok := TryAdmit(Request{Key: k, Tag: Tag{"run1", "t1", RoleWorker}})
+	c, ok := TryAdmit(Request{Key: k, Tag: Tag{"run1", "t1", RoleWorker, ""}})
 	if !ok {
 		t.Fatal("a 4.6 GB median was refused with 5.0 GB free")
 	}
 	c.Release()
 
 	setFree(t, 4500*gbDec/1000)
-	r := Request{Key: k, Tag: Tag{"run1", "t2", RoleWorker}}
+	r := Request{Key: k, Tag: Tag{"run1", "t2", RoleWorker, ""}}
 	if _, ok := TryAdmit(r); ok {
 		t.Fatal("a 4.6 GB median was admitted with 4.5 GB free")
 	}
@@ -289,7 +363,7 @@ func TestAdmitNeverHolds(t *testing.T) {
 	rec := newGate(t, 0)
 	blocker := mustAdmit(t, req("", "blocker"))
 	defer blocker.Release()
-	verify := Admit(Request{Key: Key{"c:\\proj", "Verify"}, Tag: Tag{"run1", "", "Verify"}})
+	verify := Admit(Request{Key: Key{"c:\\proj", "Verify"}, Tag: Tag{"run1", "", "Verify", ""}})
 	if verify == nil {
 		t.Fatal("Admit returned no claim")
 	}
@@ -332,7 +406,7 @@ func TestPeakRecordedOnClose(t *testing.T) {
 	newGate(t, 64*gib)
 	k := Key{"c:\\proj", RoleWorker}
 	o := block("a")
-	c := mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "a", RoleWorker}, Owner: o})
+	c := mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "a", RoleWorker, ""}, Owner: o})
 	onJobClosed(o, 5*gib)
 	flush()
 	if got := Estimate(k); got != 5*gib {
@@ -346,7 +420,7 @@ func TestPeakRecordedOnClose(t *testing.T) {
 	k2 := Key{"c:\\proj", RoleReviewer}
 	o2 := block("twice")
 	for range 2 {
-		mustAdmit(t, Request{Key: k2, Tag: Tag{"r1", "b", RoleReviewer}, Owner: o2})
+		mustAdmit(t, Request{Key: k2, Tag: Tag{"r1", "b", RoleReviewer, ""}, Owner: o2})
 	}
 	onJobClosed(o2, 2*gib)
 	onJobClosed(o2, 4*gib)
@@ -373,7 +447,7 @@ func TestPeakRecordedAfterEarlyRelease(t *testing.T) {
 	newGate(t, 64*gib)
 	k := Key{"c:\\proj", RoleWorker}
 	o := block("done")
-	c := mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "a", RoleWorker}})
+	c := mustAdmit(t, Request{Key: k, Tag: Tag{"r1", "a", RoleWorker, ""}})
 	c.Bind(o)
 	ReleaseOwner(o) // the run went done; its lane is reaped later
 	if n := LiveClaimsForTest(); n != 0 {

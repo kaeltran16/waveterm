@@ -71,6 +71,8 @@ export const liveAgentBaseAtom: Atom<AgentVM[]> = atom((get) => {
                 builderCheck: row.builderCheck,
                 brainstormJudge: row.brainstormJudge,
                 pinned: row.pinned,
+                parentTabId: row.parentTabId,
+                stopped: row.stopped,
                 sessionId: status.sessionid,
             },
             now

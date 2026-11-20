@@ -97,6 +97,12 @@ func AgentsSendCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentsSendData, opt
 	return resp, err
 }
 
+// command "agentsstart", wshserver.AgentsStartCommand
+func AgentsStartCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentsStartData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentsStartRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentsStartRtnData](w, "agentsstart", data, opts)
+	return resp, err
+}
+
 // command "agentsyncadopt", wshserver.AgentSyncAdoptCommand
 func AgentSyncAdoptCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentSyncAdoptData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentSyncAdoptRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentSyncAdoptRtnData](w, "agentsyncadopt", data, opts)
@@ -933,6 +939,12 @@ func JiraShowCommand(w *wshutil.WshRpc, data wshrpc.CommandJiraShowData, opts *w
 // command "landrun", wshserver.LandRunCommand
 func LandRunCommand(w *wshutil.WshRpc, data wshrpc.CommandLandRunData, opts *wshrpc.RpcOpts) (*waveobj.RunLand, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.RunLand](w, "landrun", data, opts)
+	return resp, err
+}
+
+// command "launchagenttab", wshserver.LaunchAgentTabCommand
+func LaunchAgentTabCommand(w *wshutil.WshRpc, data wshrpc.CommandLaunchAgentTabData, opts *wshrpc.RpcOpts) (*wshrpc.CommandLaunchAgentTabRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandLaunchAgentTabRtnData](w, "launchagenttab", data, opts)
 	return resp, err
 }
 

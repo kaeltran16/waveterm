@@ -643,7 +643,7 @@ func TestLaunchPromptPrunesOldPromptFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := launchPrompt(strings.Repeat("x", maxInlinePromptBytes+1), "sess-1"); err != nil {
+	if _, err := LaunchPrompt(strings.Repeat("x", maxInlinePromptBytes+1), "sess-1"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {

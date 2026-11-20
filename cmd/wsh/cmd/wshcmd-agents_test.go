@@ -239,6 +239,20 @@ func TestAgentsSendOutput(t *testing.T) {
 	}
 }
 
+// a parent captures the worker's tab id from stdout, so plain output is the id and nothing else
+func TestAgentsStartOutput(t *testing.T) {
+	rtn := &wshrpc.CommandAgentsStartRtnData{TabId: agentsTestTabA, Harness: "claude", Cwd: `C:\work\arc`}
+	plain, err := agentsStartOutput(rtn, false)
+	if err != nil || plain != agentsTestTabA {
+		t.Errorf("plain: %q, %v; want the tab id alone", plain, err)
+	}
+	line, err := agentsStartOutput(rtn, true)
+	var got wshrpc.CommandAgentsStartRtnData
+	if err != nil || strings.Contains(line, "\n") || json.Unmarshal([]byte(line), &got) != nil || got != *rtn {
+		t.Errorf("--json: %q, %v; want one line decoding to %+v", line, err, *rtn)
+	}
+}
+
 const agentsTestSentTs = int64(1_000_000)
 
 // agentsWaitScript runs agentsWait over scripted reads (the last one repeats) with a clock that only
@@ -380,6 +394,7 @@ func TestAgentsWaitUntil(t *testing.T) {
 	working := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Working}
 	idle := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Idle, Answer: "done", AnswerTs: 5}
 	asking := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Asking}
+	stopped := wshrpc.CommandAgentsReadRtnData{State: wshrpc.AgentsState_Stopped, Answer: "done", AnswerTs: 5}
 	cases := []struct {
 		name   string
 		until  string
@@ -392,6 +407,8 @@ func TestAgentsWaitUntil(t *testing.T) {
 		{"already idle returns at once", "", []wshrpc.CommandAgentsReadRtnData{idle}, wshrpc.AgentsState_Idle, 1},
 		{"until asking passes idle by", wshrpc.AgentsState_Asking, []wshrpc.CommandAgentsReadRtnData{idle, working, asking}, wshrpc.AgentsState_Asking, 3},
 		{"until idle passes asking by", wshrpc.AgentsState_Idle, []wshrpc.CommandAgentsReadRtnData{asking, working, idle}, wshrpc.AgentsState_Idle, 3},
+		{"settles on a stopped worker", "", []wshrpc.CommandAgentsReadRtnData{working, stopped}, wshrpc.AgentsState_Stopped, 2},
+		{"until idle is met by stopped", wshrpc.AgentsState_Idle, []wshrpc.CommandAgentsReadRtnData{asking, stopped}, wshrpc.AgentsState_Stopped, 2},
 	}
 	for _, c := range cases {
 		r, n, err := agentsWaitUntilScript(t, c.until, time.Minute, c.reads...)

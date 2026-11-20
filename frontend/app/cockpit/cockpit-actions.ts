@@ -3,13 +3,11 @@
 import { pushToast } from "@/app/cockpit/notificationstore";
 import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
-import { WorkspaceService } from "@/app/store/services";
 import { RpcApi } from "@/app/store/wshclientapi";
-import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { AgentsViewModel } from "@/app/view/agents/agents";
 import { SESSION_BRAINSTORM } from "@/app/view/agents/brainstormstore";
-import { resyncController } from "@/app/view/agents/agentcontrollerstore";
+import { launchAgentTab, settleLaunchStart } from "@/app/view/agents/agentcontrollerstore";
 import type { PendingLaunch } from "@/app/view/agents/agentsviewmodel";
 import { resolveCwd } from "@/app/view/agents/agentcwdresolve";
 import {
@@ -42,11 +40,11 @@ export interface LaunchAgentOpts {
 }
 
 // Launch a runtime as its OWN session tab. Agent runtimes get a pending roster row; terminals only
-// open in the Agent surface focus pane. We do NOT setActiveTab. The new tab's default term block is
-// reconfigured via SetMeta first, so meta is honored at controller start. An agent's process is started
-// here with a resync (the backend otherwise starts controllers lazily on the first terminal-view
-// resync), so it runs without its terminal mounted and a launch from the Cockpit can stay there; it
-// starts at the block's stored size and the terminal resizes it when first opened. A start error throws.
+// open in the Agent surface focus pane. We do NOT setActiveTab. The backend opens the tab with its meta
+// already set and starts an agent's process there (controllers otherwise start lazily on the first
+// terminal-view resync), so it runs without its terminal mounted and a launch from the Cockpit can stay
+// there; it starts at the block's stored size and the terminal resizes it when first opened. A refused
+// start keeps its tab, where the block's start error shows, and throws.
 export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts): Promise<string> {
     // Pi --session creates a session when the path is missing; a stale archived entry must never reach
     // that behavior, so a resumePath that no longer exists on disk aborts before anything is created.
@@ -87,19 +85,34 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     if (ws?.oid == null) {
         throw new Error("no active workspace");
     }
-    const tabId = await WorkspaceService.CreateTab(ws.oid, opts.projectName, false);
-    let blockId: string;
-    try {
-        blockId = await configureLaunchTab(tabId, opts, cwd);
-    } catch (e) {
-        await closeFailedLaunchTab(ws.oid, tabId);
-        throw e;
+    // steering and skills are launch-time, for every runtime: a harness must never start against
+    // a stale region. fire-and-forget — a sync failure must not block the launch, but it must be seen.
+    void RpcApi.AgentSyncApplyCommand(TabRpcClient, { dryrun: false }).catch((e) =>
+        pushToast({
+            level: "warn",
+            title: "Instructions not synced",
+            message: `Harness sync failed: ${e instanceof Error ? e.message : String(e)}. Setup → Instructions has Sync now.`,
+        })
+    );
+    const launched = await launchAgentTab({
+        workspaceid: ws.oid,
+        tabname: opts.projectName,
+        tabmeta: launchTabMeta(opts),
+        blockmeta: buildLaunchMeta({
+            runtime: opts.runtime,
+            startupCommand: opts.startupCommand,
+            startupArgs: opts.startupArgs,
+            task: opts.task,
+            cwd,
+        }),
+        start: !isTerminal,
+    });
+    const { tabid: tabId, blockid: blockId } = launched;
+    if (!isTerminal) {
+        // a refusal reads "failed to start" on the Agent and Sessions surfaces too
+        settleLaunchStart(launched);
     }
     const agentPanel = runtimeCreatesAgentPanel(opts.runtime);
-    if (!isTerminal) {
-        // the shared start path, so a refusal reads "failed to start" on the Agent and Sessions surfaces too
-        await resyncController({ tabid: tabId, blockid: blockId });
-    }
     if (agentPanel) {
         // named as the roster will name its row, so the name does not jump when that row replaces it
         const taken = flattenVisualOrder(globalStore.get(sessionSidebarViewModelAtom))
@@ -129,38 +142,8 @@ export async function launchAgent(model: AgentsViewModel, opts: LaunchAgentOpts)
     return tabId;
 }
 
-// configureLaunchTab turns the new tab's default block into the launch and tags the tab; returns the block id.
-async function configureLaunchTab(tabId: string, opts: LaunchAgentOpts, cwd: string): Promise<string> {
-    const tab = globalStore.get(WOS.getWaveObjectAtom<Tab>(WOS.makeORef("tab", tabId)));
-    const blockId = tab?.blockids?.[0];
-    if (blockId == null) {
-        throw new Error("new tab has no block");
-    }
-    const blockORef = WOS.makeORef("block", blockId);
-    await RpcApi.SetMetaCommand(TabRpcClient, {
-        oref: blockORef,
-        meta: buildLaunchMeta({
-            runtime: opts.runtime,
-            startupCommand: opts.startupCommand,
-            startupArgs: opts.startupArgs,
-            task: opts.task,
-            cwd,
-        }),
-    });
-    // Refresh the frontend's cached block object. getWaveObjectAtom does a one-time fetch and does
-    // NOT subscribe, so the session sidebar's read of this block stays pinned to the pre-SetMeta
-    // shell meta — leaving it without cmd:cwd, so the tab never enters the agent roster (the agent
-    // renders as a bare terminal and the cockpit panel stays empty). Reload so the roster sees cmd.
-    await WOS.reloadWaveObject(blockORef);
-    // steering and skills are launch-time, for every runtime: a harness must never start against
-    // a stale region. fire-and-forget — a sync failure must not block the launch, but it must be seen.
-    void RpcApi.AgentSyncApplyCommand(TabRpcClient, { dryrun: false }).catch((e) =>
-        pushToast({
-            level: "warn",
-            title: "Instructions not synced",
-            message: `Harness sync failed: ${e instanceof Error ? e.message : String(e)}. Setup → Instructions has Sync now.`,
-        })
-    );
+// launchTabMeta tags the launch's tab for the roster
+function launchTabMeta(opts: LaunchAgentOpts): MetaType {
     const agentPanel = runtimeCreatesAgentPanel(opts.runtime);
     const tabMeta: MetaType = agentPanel
         ? { "session:agent": opts.runtime, "session:project": opts.projectName }
@@ -174,18 +157,7 @@ async function configureLaunchTab(tabId: string, opts: LaunchAgentOpts, cwd: str
     if (opts.brainstormFile) {
         tabMeta[SESSION_BRAINSTORM] = opts.brainstormFile;
     }
-    await RpcApi.SetMetaCommand(TabRpcClient, { oref: WOS.makeORef("tab", tabId), meta: tabMeta });
-    return blockId;
-}
-
-// a launch that failed before its process started leaves nothing in its tab worth keeping. A failed start keeps
-// its tab, where the block's start error shows.
-async function closeFailedLaunchTab(workspaceId: string, tabId: string): Promise<void> {
-    try {
-        await WorkspaceService.CloseTab(workspaceId, tabId);
-    } catch (e) {
-        console.error(`closing tab ${tabId} of a failed launch:`, e);
-    }
+    return tabMeta;
 }
 
 // launchAgentOrToast is launchAgent for a click that has nowhere else to say why it failed
