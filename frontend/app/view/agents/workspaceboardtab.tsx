@@ -295,7 +295,9 @@ function AskBar({ ask, view, chip, facts }: { ask: AskState; view: BoardView; ch
     };
     return (
         <div data-board-ask-bar className="flex items-center gap-[10px] py-2 pl-2.5 pr-3">
-            {chip}
+            {/* the chip never shrinks with the row, so its label truncates only at the cap, once the group is at its
+                200px floor (220px is that floor plus the bar's two gaps); any shared shrink ellipsizes it by a sliver */}
+            {chip != null ? <div className="flex min-w-0 max-w-[calc(100%-220px)] shrink-0">{chip}</div> : null}
             <div
                 data-board-ask-box
                 aria-disabled={input.disabled}
@@ -363,9 +365,11 @@ function AskBar({ ask, view, chip, facts }: { ask: AskState; view: BoardView; ch
                     </button>
                 )}
             </div>
-            {/* the heavy shrink empties the facts before the agent chip's label truncates; the chip's own shrink stays 1,
-                since a factor under 1 left alone absorbs only that fraction of the overflow */}
-            <span data-board-facts className="min-w-0 flex-[0_100_auto] truncate font-mono text-[11px] text-muted">
+            {/* the facts get only the room left past the group's 320px, up to their own width, so they empty first */}
+            <span
+                data-board-facts
+                className="min-w-0 max-w-max flex-[1000_1_0px] truncate font-mono text-[11px] text-muted"
+            >
                 {facts}
             </span>
         </div>

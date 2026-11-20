@@ -754,11 +754,22 @@ export const workspacePane = {
             // with the tree open the 1000px row is 674px and the pane sits on the 360px floor; hiding it gives the design's ~922px row
             await press(h, KEY.f);
             const f = await facts();
+            // the States frame: the bar's facts ellipsize first, and the agent chip keeps its whole label
+            const bar = await page(
+                h,
+                `const bar = document.querySelector('aside[aria-label="Workspace"] [data-board-ask-bar]');
+                const cut = (el) => (el == null ? null : el.scrollWidth > el.clientWidth);
+                return {
+                    chipCut: cut(bar?.querySelector("[data-board-agent-chip] .truncate")),
+                    factsCut: cut(bar?.querySelector("[data-board-facts]")),
+                };`
+            );
             await h.shot("cdp-shots/workspace-pane-board-narrow.png");
             await press(h, KEY.f);
             await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
             await polishNap(SETTLE_MS);
-            return [f.paneW === f.rowW - TRANSCRIPT_MIN_PX && f.paneW > TRANSCRIPT_MIN_PX, { paneW: f.paneW, rowW: f.rowW }];
+            const ok = f.paneW === f.rowW - TRANSCRIPT_MIN_PX && f.paneW > TRANSCRIPT_MIN_PX && bar.chipCut === false && bar.factsCut === true;
+            return [ok, { paneW: f.paneW, rowW: f.rowW, ...bar }];
         });
 
         await page(
