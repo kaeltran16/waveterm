@@ -7,6 +7,7 @@
 package memgate
 
 import (
+	"cmp"
 	"log"
 	"slices"
 	"sync"
@@ -31,8 +32,22 @@ const (
 // sees its job (an unbound claim, or no job objects on this OS): long enough for its memory to show in the reading.
 const startupGrace = 30 * time.Second
 
-// Tag is where events about a tree go, and its Role whether the loop may pause it. RunId "" = no events.
-type Tag struct{ RunId, TaskId, Role string }
+// Tag is where events about a tree go, and its Role whether the loop may pause it. RunId "" = no events. TabId names
+// a tree an agent started outside any run.
+type Tag struct{ RunId, TaskId, Role, TabId string }
+
+// Holder is a claim in the book: Use is its job's last reading, or its estimate while it starts.
+type Holder struct {
+	Tag Tag
+	Use uint64
+}
+
+// Shortfall is what a refusal reports: the free memory the gate saw, the request's estimate, and the claims that
+// hold memory, largest first.
+type Shortfall struct {
+	Free, Need uint64
+	Holders    []Holder
+}
 
 type Request struct {
 	Key   Key // what the tree is sized on, and where its peak is recorded at its job's close
@@ -194,6 +209,12 @@ func holdLocked(tag Tag, free, need uint64) {
 
 // TryAdmit admits r if free memory covers its estimate now, and never blocks. A refusal marks r's Tag held.
 func TryAdmit(r Request) (*Claim, bool) {
+	c, _ := TryAdmitOrWhy(r)
+	return c, c != nil
+}
+
+// TryAdmitOrWhy is TryAdmit that says why it refused: exactly one result is non-nil.
+func TryAdmitOrWhy(r Request) (*Claim, *Shortfall) {
 	// outside book.mu: the store has its own lock and may read the file
 	need := Estimate(r.Key)
 	book.mu.Lock()
@@ -201,9 +222,23 @@ func TryAdmit(r Request) (*Claim, bool) {
 	ok, free := fitsLocked(need)
 	if !ok {
 		holdLocked(r.Tag, free, need)
-		return nil, false
+		return nil, &Shortfall{Free: free, Need: need, Holders: holdersLocked(now())}
 	}
-	return admitLocked(r, need), true
+	return admitLocked(r, need), nil
+}
+
+// holdersLocked lists the claims in the book by what each holds now, largest first.
+func holdersLocked(t time.Time) []Holder {
+	hs := make([]Holder, 0, len(book.claims))
+	for c := range book.claims {
+		use := c.use
+		if c.startingLocked(t) {
+			use = c.need
+		}
+		hs = append(hs, Holder{Tag: c.tag, Use: use})
+	}
+	slices.SortFunc(hs, func(a, b Holder) int { return cmp.Compare(b.Use, a.Use) })
+	return hs
 }
 
 // Admit always admits r and never blocks, for work that must progress: its claim counts its estimate while it
