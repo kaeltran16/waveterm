@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // What a board says about its talk, on the Boards surface and in its agent's workspace tab: the talk column's items,
-// the narrow tab's one-line turns, the ask box, the header's facts and the drawer at work, the agent chip and its
-// picker, and the switcher's rows. Pure: no React, no RPC.
+// the tab's one line above its ask bar, the ask box and the bar's input, the facts, the agent chip and its picker,
+// and the switcher's rows. Pure: no React, no RPC.
 
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { liveAgentsForProject } from "@/app/view/code/codehandoff";
@@ -28,9 +28,8 @@ const BOARD_AGENT_RUNTIMES = new Set(["claude", "pi"]);
 // the roster and the server both read an agent with no runtime as claude
 const DEFAULT_RUNTIME = "claude";
 
-// where the talk renders: beside the agent's transcript (the narrow workspace tab), the workspace tab expanded over
-// the center, or the Boards surface
-export type Placement = "beside" | "expanded" | "surface";
+// where the talk column renders: the workspace tab expanded over the center, or the Boards surface
+export type Placement = "expanded" | "surface";
 
 // a forwarded turn's forward; "sending" is the moment between the drawer's flag and the forwarder's first state
 export type ForwardState = "held" | "sent" | "replied" | "needsagent" | "sending";
@@ -187,40 +186,40 @@ function forwardState(f: BoardForward | undefined): ForwardState {
     }
 }
 
+function forwardLine(t: BoardTurn, agent: BoardAgent | undefined, now: number): string {
+    const f = t.forward;
+    const who = f?.title || agent?.title || "the agent";
+    switch (forwardState(f)) {
+        case "held":
+            return `waiting for ${who}`;
+        case "sent":
+            return "sent to the agent";
+        case "replied":
+            return `${who} answered · ${talkTime(f.replyts || f.sentts || t.ts, now)}`;
+        case "needsagent":
+            return "needs an agent";
+        default:
+            return "sending to the agent";
+    }
+}
+
 function forwardItem(t: BoardTurn, agent: BoardAgent | undefined, placement: Placement, now: number): TalkItem {
     const f = t.forward;
     const state = forwardState(f);
-    const who = f?.title || agent?.title || "the agent";
     const item: Extract<TalkItem, { kind: "forward" }> = {
         kind: "forward",
         turnId: t.id,
         state,
-        line: "",
+        line: forwardLine(t, agent, now),
         reroute: "draw",
     };
-    switch (state) {
-        case "held":
-            item.line = `waiting for ${who}`;
-            break;
-        case "sent":
-            item.line = placement === "beside" ? "sent to the agent · answered in the transcript" : "sent to the agent";
-            break;
-        case "replied":
-            item.line = `${who} answered · ${talkTime(f.replyts || f.sentts || t.ts, now)}`;
-            if (placement !== "beside") {
-                item.reply = f.reply ?? "";
-                item.agentTabId = f.tabid;
-                item.way = placement === "surface" ? "open" : "back";
-            }
-            break;
-        case "needsagent":
-            item.line = "needs an agent";
-            if (f.reason) {
-                item.reason = capitalize(f.reason.trim());
-            }
-            break;
-        default:
-            item.line = "sending to the agent";
+    if (state === "replied") {
+        item.reply = f.reply ?? "";
+        item.agentTabId = f.tabid;
+        item.way = placement === "surface" ? "open" : "back";
+    }
+    if (state === "needsagent" && f.reason) {
+        item.reason = capitalize(f.reason.trim());
     }
     return item;
 }
@@ -297,108 +296,70 @@ export function talkItems(talk: BoardTalk, now: number, placement: Placement): T
     return items;
 }
 
-// the narrow tab's turns (decision 9); the one being drawn shows in its header instead
-const BESIDE_TURNS = 2;
-const CHOSEN_LINE: Record<"keep" | "new", string> = { keep: "kept here", new: "moved to a new board" };
+// the line above the workspace tab's ask bar (decision 4): the newest turn, only while it is unresolved
+export type BarLineState = "drawing" | "asks" | "failed" | "forward";
 
-// one line per turn in the narrow tab: what was asked, what came of it, and its one action
-export interface BesideLine {
+export interface BarLine {
     turnId: string;
+    state: BarLineState; // asks: New board from this, Keep it here; failed: Retry; forward: Draw instead
     text: string; // your line, or the agent's request
-    agent: boolean; // the agent's request
     detail: string;
-    forward?: ForwardState;
-    shapeIds?: string[]; // Show
-    reroute?: Reroute;
-    failed?: boolean; // Retry
-    asks?: boolean; // the request's open choice: New board from this, Keep it here
+    elapsed?: string; // drawing: the time so far, once it runs
+    needs: boolean; // waits on you: it breathes
 }
 
-function besideLine(group: TalkItem[]): BesideLine | null {
-    const head = group.find((i) => i.kind === "question" || i.kind === "briefing");
-    const state = group.find((i) => i !== head);
-    if (state == null || state.kind === "working") {
-        return null;
-    }
-    const line: BesideLine = { turnId: state.turnId, text: "", agent: false, detail: "" };
-    let on: string | undefined;
-    if (head?.kind === "question") {
-        line.text = head.text;
-        on = head.on;
-    } else if (head?.kind === "briefing") {
-        line.text = head.ask || head.text;
-        line.agent = true;
-    }
-    switch (state.kind) {
-        case "reply":
-            if (state.card != null) {
-                line.detail = [on && `on ${on}`, state.card.title, state.card.summary].filter(Boolean).join(" · ");
-                line.shapeIds = state.card.shapeIds;
-            } else {
-                line.detail = state.text;
-            }
-            if (state.reroute != null) {
-                line.reroute = state.reroute;
-            }
-            break;
-        case "forward":
-            line.detail = state.line;
-            line.forward = state.state;
-            line.reroute = state.reroute;
-            break;
-        case "failed":
-            line.detail = "couldn't answer";
-            line.failed = true;
-            break;
-        case "stopped":
-            line.detail = "stopped";
-            break;
-        case "asks":
-            if (state.choice != null) {
-                line.detail = CHOSEN_LINE[state.choice];
-            } else {
-                line.detail = state.text;
-                line.asks = true;
-            }
-            break;
-    }
-    return line;
+// a forward already in the transcript, or answered there, needs no line
+const FORWARD_UNRESOLVED = new Set<ForwardState>(["sending", "held", "needsagent"]);
+
+function barText(t: BoardTurn): string {
+    return t.briefing != null ? t.briefing.ask || t.briefing.text : (t.question ?? "");
 }
 
-// the last turns as one line each, from talkItems(..., "beside")
-export function besideLines(items: TalkItem[]): BesideLine[] {
-    const groups = new Map<string, TalkItem[]>();
-    for (const item of items) {
-        groups.set(item.turnId, [...(groups.get(item.turnId) ?? []), item]);
-    }
-    const lines = [...groups.values()].map(besideLine).filter((l): l is BesideLine => l != null);
-    return lines.slice(-BESIDE_TURNS);
-}
-
-// the drawer at work, for a header: the answering turn's time so far
-export function drawerWorking(
-    talk: BoardTalk | null,
-    now: number
-): { turnId: string; elapsed: string; slow: boolean } | null {
-    const t = (talk?.turns ?? []).find((t) => t.state === "answering");
+export function barLine(talk: BoardTalk | null, now: number): BarLine | null {
+    const t = talk?.turns?.at(-1);
     if (t == null) {
         return null;
     }
-    const ms = now - t.ts;
-    return { turnId: t.id, elapsed: elapsedText(ms), slow: ms >= SLOW_AFTER_MS };
+    const line = { turnId: t.id, text: barText(t), needs: false };
+    switch (t.state) {
+        case "waiting":
+            return { ...line, state: "drawing", detail: "Waiting" };
+        case "answering": {
+            const ms = now - t.ts;
+            const detail = ms >= SLOW_AFTER_MS ? "Still drawing" : "Drawing";
+            return { ...line, state: "drawing", detail, elapsed: elapsedText(ms) };
+        }
+        case "asks":
+            return t.choice ? null : { ...line, state: "asks", detail: "wants a new board", needs: true };
+        case "failed":
+            return { ...line, state: "failed", detail: "couldn't answer" };
+        case "forwarded": {
+            const state = forwardState(t.forward);
+            if (!FORWARD_UNRESOLVED.has(state)) {
+                return null;
+            }
+            const detail = forwardLine(t, talk.agent, now);
+            return { ...line, state: "forward", detail, needs: state === "needsagent" };
+        }
+        default:
+            return null;
+    }
 }
 
 function turnInFlight(talk: BoardTalk | null): boolean {
     return (talk?.turns ?? []).some((t) => t.state === "waiting" || t.state === "answering");
 }
 
+export interface AskState {
+    disabled: boolean;
+    hint: string;
+    placeholder: string;
+    stoppable: boolean; // Stop takes Ask's place
+    selected: string | null; // the selection the next ask is about
+}
+
 // one box, one Ask: the drawer draws the line or flags it for the agent
-export function askBox(
-    talk: BoardTalk | null,
-    selection: string | null,
-    busy: boolean,
-    wontOpen: boolean
-): { disabled: boolean; hint: string; placeholder: string; stoppable: boolean } {
+export function askBox(talk: BoardTalk | null, selection: string | null, busy: boolean, wontOpen: boolean): AskState {
     const placeholder = "Ask the board";
     if (wontOpen) {
         return {
@@ -406,15 +367,32 @@ export function askBox(
             hint: "This board won't open, so the drawer can't answer on it",
             placeholder,
             stoppable: false,
+            selected: null,
         };
     }
     // a waiting turn is not running yet, and Stop only ends the running one
     const stoppable = (talk?.turns ?? []).some((t) => t.state === "answering");
     if (busy || turnInFlight(talk)) {
-        return { disabled: true, hint: "You can ask once this answer lands", placeholder, stoppable };
+        return { disabled: true, hint: "You can ask once this answer lands", placeholder, stoppable, selected: null };
     }
-    const hint = selection ? `Selected ${selection}` : "Select shapes to ask about them";
-    return { disabled: false, hint, placeholder, stoppable };
+    const selected = selection || null;
+    const hint = selected != null ? `Selected ${selected}` : "Select shapes to ask about them";
+    return { disabled: false, hint, placeholder, stoppable, selected };
+}
+
+// the ask bar's one-line input (decision 5): the hint is the placeholder unless a selection chip says it
+export function askInput(ask: AskState): {
+    placeholder: string;
+    disabled: boolean;
+    chip: string | null;
+    stop: boolean;
+} {
+    return {
+        placeholder: ask.selected != null ? ask.placeholder : ask.hint,
+        disabled: ask.disabled,
+        chip: ask.selected,
+        stop: ask.stoppable,
+    };
 }
 
 // "3 drawings · 14 shapes · drawn 15:20" (decision 13)

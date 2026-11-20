@@ -29,6 +29,8 @@ const WAIT_MS = 15_000;
 const SETTLE_MS = 700;
 // how long a sampler watches a list change: past the exit (durExit) and the entrance (durMacro)
 const SAMPLE_MS = 900;
+// how long a sampler watches a line change state: past the wash (CHANGE_FLASH_MS, 1.2 s)
+const CHANGE_WATCH_MS = 1800;
 const SEC = 1000;
 const MIN = 60 * SEC;
 const q = JSON.stringify;
@@ -37,7 +39,15 @@ const HHMM = String.raw`\d\d:\d\d`;
 const AGENT_NAME = `claude · ${PROJECT}`;
 const BOARD = "App architecture";
 const AGENT_REPLY = "Because a run outlives any one agent tab: wavesrv holds the DAG and lands the merges.";
-const SENT_BESIDE = "sent to the agent · answered in the transcript";
+// your lines in W1: one drawn (then failing in place), one the drawer wants on a new board
+const DRAWING_Q = "Add the retry when a task review rejects twice";
+const NEEDS_Q = "Draw the cancel path too";
+const ASKED_Q = "What restarts a crashed worker?";
+// the prototype's narrow window (States board, last frame), where the facts ellipsize and the input group holds
+const NARROW = { ...VIEWPORT, width: 1000 };
+const MIN_BOX_PX = 200;
+// a ticking line watched for a wash: past two of the drawer's one-second ticks
+const TICK_WATCH_MS = 2300;
 const box = (x, y, text) => ({ type: "rectangle", x, y, width: 180, height: 70, label: { text } });
 const FIRST_DRAWING = [box(0, 0, "Tauri shell"), box(260, 0, "wavesrv"), box(520, 0, "agents")];
 const SECOND_DRAWING = [box(260, 160, "pkg/orchestrate"), { type: "arrow", x: 350, y: 75, width: 0, height: 80 }];
@@ -47,9 +57,21 @@ const SURF = `document.querySelector("[data-cockpit-surface-wrap]")`;
 const RV = `${SURF}?.querySelector("[data-rendered-view]")`;
 const ASIDE = `document.querySelector('aside[aria-label="Workspace"]')`;
 const TAB = `${ASIDE}?.querySelector("[data-board-tab]")`;
-const HEADER = `${TAB}?.querySelector("[data-board-tab-header]")`;
 const TALK = `${TAB}?.querySelector("[data-board-talk]")`;
-const lineOf = (turnId) => `${TAB}?.querySelector('[data-board-line="${turnId}"]')`;
+const BAR = `${TAB}?.querySelector("[data-board-ask-bar]")`;
+const LINE = `${TAB}?.querySelector("[data-board-bar-line]")`;
+const INPUT = `${BAR}?.querySelector("[data-board-ask-box] input")`;
+const lineIs = (turnId, state) =>
+    `${LINE}?.getAttribute("data-board-bar-line") === ${q(turnId)} && ${LINE}?.getAttribute("data-board-bar-line-state") === ${q(state)}`;
+// Excalidraw's App component off the tab canvas's fiber
+const TAB_APP = `(() => {
+    const el = ${TAB}?.querySelector(".excalidraw");
+    const key = el && Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
+    for (let f = key ? el[key] : null; f != null; f = f.return) {
+        if (typeof f.stateNode?.updateScene === "function" && f.stateNode?.scene != null) return f.stateNode;
+    }
+    return null;
+})()`;
 const text = (expr) => `((${expr})?.textContent ?? "").replace(/\\s+/g, " ").trim()`;
 
 // placement: the board tab's button in the pane's tab row, the Boards surface's switcher, the drawer's toast
@@ -76,17 +98,45 @@ const PAGE = `
         E.handleWaveEvent({ event: "board:update", data: { channelid: fx.channelId, ...data } });
     };
     const t = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
-    // what the narrow tab lists: each line's turn, opacity, detail and actions
-    const readLines = () => [...(${TAB}?.querySelectorAll("[data-board-line]") ?? [])].map((el) => ({
-        id: el.getAttribute("data-board-line"),
-        opacity: Number(getComputedStyle(el).opacity),
-        forward: el.getAttribute("data-board-forward"),
-        text: t(el),
-        detail: t(el.querySelector("[data-board-line-detail]")),
-        flash: getComputedStyle(el.querySelector("[data-board-line-detail]") ?? el).animationName,
-        show: !!el.querySelector("[data-board-show]"),
-        reroute: t(el.querySelector("[data-board-reroute]")),
-    }));
+    // the one line above the bar: its turn, state, words, actions, the detail's wash, and the reveal's height
+    const readLine = () => {
+        const el = ${LINE};
+        if (el == null) return null;
+        const detail = el.querySelector("[data-board-bar-line-detail]");
+        return {
+            id: el.getAttribute("data-board-bar-line"),
+            state: el.getAttribute("data-board-bar-line-state"),
+            count: ${TAB}.querySelectorAll("[data-board-bar-line]").length,
+            text: t(el),
+            words: t(el.querySelector('[role="status"]')),
+            detail: t(detail),
+            flash: getComputedStyle(detail ?? el).animationName,
+            actions: [...el.querySelectorAll("button")].map(t),
+            breathes: el.classList.contains("pulse-glow"),
+            pulses: !!el.querySelector(".pulse-dot"),
+            height: Math.round(el.closest(".overflow-hidden")?.getBoundingClientRect().height ?? 0),
+        };
+    };
+    // the selection chip in the input group, with its opacity mid-entrance or mid-exit
+    const readChip = () => {
+        const el = ${BAR}?.querySelector("[data-board-ask-selection]");
+        return el == null ? null : { text: t(el), opacity: Number(getComputedStyle(el).opacity) };
+    };
+    // the first n boxes on the tab's canvas selected, as a pointer would
+    const select = (n) => {
+        const app = ${TAB_APP};
+        const ids = app.scene.getNonDeletedElements().filter((e) => e.type === "rectangle").slice(0, n).map((e) => e.id);
+        app.updateScene({ appState: { selectedElementIds: Object.fromEntries(ids.map((id) => [id, true])) }, captureUpdate: "NEVER" });
+    };
+    // typed into the bar's input as React sees typing, then Enter
+    const typeAndEnter = async (value) => {
+        const input = ${INPUT};
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        // the keydown reads the typed value from the next render
+        await new Promise((r) => setTimeout(r, 50));
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+    };
     // every frame for ms after fn runs, in one evaluation: a CDP round trip per frame is slower than the motion
     const sample = async (ms, fn, read) => {
         const frames = [];
@@ -107,6 +157,8 @@ const STUBBED = [
     "BoardRerouteCommand",
     "BoardSetAgentCommand",
     "BoardAnswerInboxCommand",
+    "BoardAskRetryCommand",
+    "BoardAskChoiceCommand",
 ];
 async function installStubs(h, ctx) {
     await page(
@@ -139,12 +191,25 @@ async function installStubs(h, ctx) {
         RpcApi.BoardRerouteCommand = async (_c, d) => { (fx.calls.reroute ??= []).push(d); };
         RpcApi.BoardSetAgentCommand = async (_c, d) => { (fx.calls.setagent ??= []).push(d); };
         RpcApi.BoardAnswerInboxCommand = async () => [];
+        // wavesrv's retry and Keep it here, on the fixed talk
+        const onTurn = async (d, change) => {
+            Object.assign(fx.talks[d.boardid].turns.find((t) => t.id === d.turnid), change);
+            await feed({ boardid: d.boardid, what: "talk" });
+        };
+        RpcApi.BoardAskRetryCommand = async (_c, d) => {
+            (fx.calls.retry ??= []).push(d);
+            await onTurn(d, { state: "answering", ts: Date.now(), reason: undefined, answeredts: undefined });
+        };
+        RpcApi.BoardAskChoiceCommand = async (_c, d) => {
+            (fx.calls.choice ??= []).push(d);
+            await onTurn(d, { choice: d.choice });
+        };
         return true;`
     );
 }
 
 // a throwaway project, and the channel wavesrv gives it
-async function createProject(h, name, path) {
+export async function createProject(h, name, path) {
     await h.rpc("createproject", { name, path });
     await waitForProjectInConfig(h, name);
     for (let waited = 0; waited < 10_000; waited += 250) {
@@ -169,7 +234,7 @@ const makeBoard = (h, name, drawings) =>
         return { info, ids };`
     );
 
-// the agent's request (a briefing), your drawn line, your forwarded line, and the agent's next request being drawn
+// the agent's request (a briefing), your drawn line, your forwarded line, and the agent's next request, drawn: idle
 function startTalk(ctx, ids) {
     const now = Date.now();
     const agent = { tabid: ctx.agentId, title: AGENT_NAME, runtime: "claude" };
@@ -193,8 +258,9 @@ function startTalk(ctx, ids) {
                 forward: { state: "sent", tabid: ctx.agentId, title: AGENT_NAME, runtime: "claude", sentts: now - 4 * MIN },
             },
             {
-                id: "r4", ts: now - 6 * SEC, state: "answering",
+                id: "r4", ts: now - 3 * MIN, state: "answered", route: "draw",
                 briefing: { from: AGENT_NAME, text: "", ask: "under pkg/orchestrate, the run loop" },
+                title: "The run loop", added: 1, shapeids: [], answeredts: now - 2 * MIN,
             },
         ],
     };
@@ -271,28 +337,49 @@ async function arrange(h) {
     return ctx;
 }
 
-// the tab as drawn: the pane, the header line, the canvas, the lines and the ask box, and the transcript beside it
+// the tab as drawn: the pane, the canvas, the line above the bar, the ask bar (the agent chip, the input group with its
+// selection chip, the facts at its end), and the transcript beside it
 const readTab = (h) =>
     page(
         h,
         `const aside = ${ASIDE};
         const canvas = ${TAB}?.querySelector("section[aria-label^='Board:']");
         const rv = ${RV};
+        const bar = ${BAR};
+        const group = bar?.querySelector("[data-board-ask-box]");
+        const input = ${INPUT};
+        const facts = bar?.querySelector("[data-board-facts]");
+        const chip = bar?.querySelector("[data-board-agent-chip]");
+        const chipText = chip?.querySelector(".truncate");
+        const ask = group?.querySelector("[data-board-ask-send]");
+        const rect = (el) => el?.getBoundingClientRect();
         return {
             pane: aside?.getAttribute("data-workspace-pane") ?? null,
             layout: ${TAB}?.getAttribute("data-board-tab") ?? null,
             label: aside?.querySelector('[role="tab"][aria-selected="true"]')?.textContent.trim() ?? null,
-            name: t(${HEADER}?.querySelector("[data-board-tab-name]")),
-            chip: t(${HEADER}?.querySelector("[data-board-agent-chip]")),
-            facts: t(${HEADER}?.querySelector("[data-board-facts]")),
-            drawing: t(${HEADER}?.querySelector("[data-board-drawing]")),
+            header: !!${TAB}?.querySelector("[data-board-tab-header]"),
+            line: readLine(),
+            bar: bar != null,
+            barUnderCanvas: bar != null && canvas != null && rect(bar).top >= rect(canvas).bottom - 1 && rect(bar).left >= rect(canvas).left - 1,
+            chip: t(chip),
+            chipLabel: chip?.getAttribute("aria-label") ?? null,
+            selection: readChip()?.text ?? null,
+            placeholder: input?.placeholder ?? null,
+            inputDisabled: input?.disabled ?? null,
+            // a wrapping input drops a placeholder wider than itself out of view
+            placeholderOneLine: input != null && getComputedStyle(input).whiteSpace === "nowrap",
+            buttons: [...(group?.querySelectorAll("button") ?? [])].map((b) => t(b)),
+            facts: t(facts),
+            factsAtEnd: facts != null && group != null && rect(facts).left >= rect(group).right && rect(facts).right <= rect(bar).right,
+            factsTruncated: facts != null && facts.scrollWidth > facts.clientWidth,
+            groupPx: group ? Math.round(rect(group).width) : 0,
+            barFits: bar != null && bar.scrollWidth <= bar.clientWidth,
+            askVisible: ask != null && aside != null && rect(ask).right <= rect(aside).right && rect(ask).right <= rect(bar).right,
+            chipTruncated: chipText != null && chipText.scrollWidth > chipText.clientWidth,
             canvas: !!canvas?.querySelector(".excalidraw"),
-            canvasPx: canvas ? Math.round(canvas.getBoundingClientRect().width) : 0,
-            lines: readLines(),
-            askBox: !!${TAB}?.querySelector("[data-board-ask-box]"),
-            askButtons: [...(${TAB}?.querySelectorAll("[data-board-ask-box] button") ?? [])].map((b) => t(b)),
-            transcript: rv != null && rv.getBoundingClientRect().width > 0,
-            transcriptLeftOfPane: rv != null && aside != null && rv.getBoundingClientRect().right <= aside.getBoundingClientRect().left + 1,
+            canvasPx: canvas ? Math.round(rect(canvas).width) : 0,
+            transcript: rv != null && rect(rv).width > 0,
+            transcriptLeftOfPane: rv != null && aside != null && rect(rv).right <= rect(aside).left + 1,
         };`
     );
 
@@ -326,105 +413,220 @@ export const boardsWorkspace = {
             }
         };
 
-        await run("W1 board tab: beside the transcript, the header line (name, agent chip, facts, the drawer at work with its seconds), the canvas, the 2 last turns (drawn with Show, forwarded with Draw instead) and the ask box", async () => {
-            await polishWaitFor(h, `/shapes/.test(${HEADER}?.querySelector("[data-board-facts]")?.textContent ?? "")`, WAIT_MS);
+        const facts = new RegExp(`^3 drawings · ${SHAPES} shapes · drawn ${HHMM}$`);
+
+        await run("W1 idle, 2 shapes selected: no header and no line; under the canvas the ask bar holds the bare agent chip, the Selected chip entering (moment 1), Ask the board, Ask, and the facts at its end", async () => {
+            await polishWaitFor(h, `/shapes/.test(${BAR}?.querySelector("[data-board-facts]")?.textContent ?? "")`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const frames = await page(h, `return sample(${SAMPLE_MS}, () => select(2), readChip);`);
             await polishNap(SETTLE_MS);
             const s = await readTab(h);
-            await h.shot(SHOT("W1", "board-tab"));
-            const [drawn, sent] = s.lines;
+            await h.shot(SHOT("W1", "idle-selected"));
+            const entered = frames.filter((c) => c != null && c.opacity < 0.99);
             const ok =
                 s.pane === "open" &&
                 s.layout === "beside" &&
                 s.label === `Board · ${BOARD}` &&
-                s.name === BOARD &&
-                s.chip === `Agent${AGENT_NAME}` &&
-                new RegExp(`^2 drawings · ${SHAPES} shapes · drawn ${HHMM}$`).test(s.facts) &&
-                /^Drawing · \d+ s$/.test(s.drawing) &&
+                !s.header &&
+                s.line == null &&
+                s.bar &&
+                s.barUnderCanvas &&
+                s.chip === AGENT_NAME &&
+                s.chipLabel === `Board agent: ${AGENT_NAME}` &&
+                /^Selected.+ and 1 more$/.test(s.selection ?? "") &&
+                entered.length > 0 &&
+                s.placeholder === "Ask the board" &&
+                s.inputDisabled === false &&
+                q(s.buttons) === q(["Ask"]) &&
+                facts.test(s.facts) &&
+                s.factsAtEnd &&
                 s.canvas &&
-                s.lines.length === 2 &&
-                drawn.id === "r2" &&
-                drawn.show &&
-                drawn.reroute === "Send to the agent" &&
-                drawn.text.startsWith('"Open this up" on wavesrv · wavesrv, opened up') &&
-                sent.id === "r3" &&
-                sent.detail === SENT_BESIDE &&
-                sent.reroute === "Draw instead" &&
-                !sent.show &&
-                s.askBox &&
-                // the drawer is at work, so Stop holds Ask's place
-                q(s.askButtons) === q(["Stop"]) &&
                 s.transcript &&
                 s.transcriptLeftOfPane;
+            return { ok, detail: q({ s, entered: entered.length }) };
+        });
+
+        await run("W1 Enter asks: Enter in the input asks the typed line about the selection, and Enter on an empty input asks nothing", async () => {
+            await page(h, `fx.calls.ask = []; await typeAndEnter(${q(ASKED_Q)}); return true;`);
+            const asked = await polishWaitFor(h, `(window.__boardsWorkspaceFx?.calls.ask ?? []).length === 1`, WAIT_MS);
+            await polishWaitFor(h, `${INPUT}?.disabled === false && ${INPUT}?.value === ""`, WAIT_MS);
+            await page(h, `await typeAndEnter("   "); return true;`);
+            await polishNap(SETTLE_MS);
+            const calls = await page(h, `return fx.calls.ask;`);
+            // the blank line stays typed; cleared, so the input shows its placeholder again
+            await page(h, `await typeAndEnter(""); return true;`);
+            const ok = asked && calls.length === 1 && calls[0].question === ASKED_Q && /and 1 more$/.test(calls[0].on ?? "");
+            return { ok, detail: q({ asked, calls }) };
+        });
+
+        await run("W1 idle, nothing selected: clearing the selection takes the Selected chip out (moment 1) and the input reads Select shapes to ask about them", async () => {
+            const frames = await page(h, `return sample(${SAMPLE_MS}, () => select(0), readChip);`);
+            await polishNap(SETTLE_MS);
+            const s = await readTab(h);
+            await h.shot(SHOT("W1", "idle-none"));
+            const left = frames.filter((c) => c != null && c.opacity < 0.99);
+            const ok =
+                frames[0] != null &&
+                left.length > 0 &&
+                s.selection == null &&
+                s.line == null &&
+                s.placeholder === "Select shapes to ask about them" &&
+                s.placeholderOneLine &&
+                s.inputDisabled === false &&
+                q(s.buttons) === q(["Ask"]);
+            return { ok, detail: q({ s, left: left.length }) };
+        });
+
+        await run("W1 drawing: a turn being drawn reveals one line (moment 6) with its pulsing dot and seconds, the input is disabled with You can ask once this answer lands, and Stop holds Ask's place; the ticking seconds never wash", async () => {
+            const frames = await page(
+                h,
+                `return sample(${SAMPLE_MS}, async () => ${changeTalk(
+                    ctx,
+                    `talk.turns.push({ id: "d1", ts: Date.now() - 18 * ${SEC}, state: "answering", route: "draw", question: ${q(DRAWING_Q)} });`
+                )}, readLine);`
+            );
+            await polishWaitFor(h, lineIs("d1", "drawing"), WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const s = await readTab(h);
+            await h.shot(SHOT("W1", "drawing"));
+            const ticks = await page(h, `return sample(${TICK_WATCH_MS}, () => {}, readLine);`);
+            const final = s.line?.height ?? 0;
+            const revealing = frames.filter((l) => l != null && l.height > 0 && l.height < final);
+            const elapsed = new Set(ticks.map((l) => l?.words));
+            const ok =
+                revealing.length > 0 &&
+                s.line?.id === "d1" &&
+                s.line.count === 1 &&
+                new RegExp(`^"${DRAWING_Q}" Drawing · (1[89]|2\\d) s$`).test(s.line.words) &&
+                s.line.pulses &&
+                q(s.line.actions) === q([]) &&
+                s.inputDisabled === true &&
+                s.placeholder === "You can ask once this answer lands" &&
+                q(s.buttons) === q(["Stop"]) &&
+                elapsed.size > 1 &&
+                ticks.every((l) => l?.flash !== "changeFlash");
+            return { ok, detail: q({ s, revealing: revealing.length, elapsed: [...elapsed] }) };
+        });
+
+        await run("W1 failed: the drawing turn failing in place keeps one line whose detail washes once (moment 14), with the error and Retry; Retry re-asks that turn", async () => {
+            const frames = await page(
+                h,
+                `return sample(${CHANGE_WATCH_MS}, async () => ${changeTalk(
+                    ctx,
+                    `Object.assign(talk.turns.find((t) => t.id === "d1"), { state: "failed", reason: "the reply was not JSON", answeredts: Date.now() });`
+                )}, readLine);`
+            );
+            await polishWaitFor(h, lineIs("d1", "failed"), WAIT_MS);
+            const s = await readTab(h);
+            await h.shot(SHOT("W1", "failed"));
+            // the wash's runs: one stretch of frames, never two
+            const washes = frames.filter((l, i) => l?.flash === "changeFlash" && frames[i - 1]?.flash !== "changeFlash");
+            await page(h, `fx.calls.retry = []; return true;`);
+            await h.ev(`${LINE}?.querySelector('[data-board-retry="d1"]')?.click()`);
+            const reasked = await polishWaitFor(h, lineIs("d1", "drawing"), WAIT_MS);
+            const retry = await page(h, `return fx.calls.retry;`);
+            const ok =
+                frames.every((l) => l?.id === "d1" && l.count === 1) &&
+                washes.length === 1 &&
+                s.line?.state === "failed" &&
+                s.line.words === `"${DRAWING_Q}" couldn't answer` &&
+                q(s.line.actions) === q(["Retry"]) &&
+                s.inputDisabled === false &&
+                reasked &&
+                q(retry.map((d) => d.turnid)) === q(["d1"]);
+            return { ok, detail: q({ s, washes: washes.length, frames: frames.length, reasked, retry }) };
+        });
+
+        await run("W1 needs you: a request waiting on your choice breathes (moment 3) with New board from this and Keep it here; Keep it here keeps it and the line collapses (moment 6); New board from this opens the Boards form", async () => {
+            await page(
+                h,
+                `${changeTalk(
+                    ctx,
+                    `Object.assign(talk.turns.find((t) => t.id === "d1"), { state: "answered", reply: "Drawn.", answeredts: Date.now() });
+                    talk.turns.push({ id: "n1", ts: Date.now(), state: "asks", route: "draw", question: ${q(NEEDS_Q)}, reply: "That is its own path. Draw it on a new board?" });`
+                )} return true;`
+            );
+            const shown = await polishWaitFor(h, lineIs("n1", "asks"), WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const s = await readTab(h);
+            await h.shot(SHOT("W1", "needs-you"));
+            await page(h, `fx.calls.choice = []; return true;`);
+            const frames = await page(
+                h,
+                `return sample(${SAMPLE_MS}, () => ${LINE}?.querySelector('[data-board-choice="keep"]')?.click(), readLine);`
+            );
+            const cleared = await polishWaitFor(h, `!${LINE}`, WAIT_MS);
+            const choice = await page(h, `return fx.calls.choice;`);
+            const final = s.line?.height ?? 0;
+            const collapsing = frames.filter((l) => l != null && l.height > 0 && l.height < final);
+            // New board from this, on a second request: the Boards surface with its form
+            await page(
+                h,
+                `${changeTalk(
+                    ctx,
+                    `talk.turns.push({ id: "n2", ts: Date.now(), state: "asks", route: "draw", question: ${q(NEEDS_Q)}, reply: "A new board?" });`
+                )} return true;`
+            );
+            await polishWaitFor(h, lineIs("n2", "asks"), WAIT_MS);
+            await h.ev(`${LINE}?.querySelector('[data-board-choice="new"]')?.click()`);
+            const form = await polishWaitFor(h, `!!${BOARDS_SURFACE}?.querySelector("[data-board-ask-form]")`, WAIT_MS);
+            const surface = await h.activeSurfaceLabel();
+            await h.shot(SHOT("W1", "new-board-form"));
+            await h.ev(`${BOARDS_SURFACE}?.querySelector("[data-board-form-cancel]")?.click()`);
+            await page(h, `${changeTalk(ctx, `talk.turns.find((t) => t.id === "n2").choice = "new";`)} return true;`);
+            await h.goto("agent");
+            const back = await polishWaitFor(h, `!!${TAB}?.querySelector(".excalidraw") && !${LINE}`, WAIT_MS);
+            const ok =
+                shown &&
+                s.line?.words === `"${NEEDS_Q}" wants a new board` &&
+                q(s.line.actions) === q(["New board from this", "Keep it here"]) &&
+                s.line.breathes &&
+                s.placeholder === "Select shapes to ask about them" &&
+                cleared &&
+                q(choice.map((d) => [d.turnid, d.choice])) === q([["n1", "keep"]]) &&
+                collapsing.length > 0 &&
+                form &&
+                surface === "Boards" &&
+                back;
+            return { ok, detail: q({ s, cleared, choice, collapsing: collapsing.length, form, surface, back }) };
+        });
+
+        await run("W1 narrow window: at 1000px wide the bar fits the pane: the facts at its end and the agent chip's label are truncated, the input group keeps at least 200px, and Ask is fully visible", async () => {
+            await h.cdp("Emulation.setDeviceMetricsOverride", NARROW);
+            await polishNap(SETTLE_MS);
+            const s = await readTab(h);
+            await h.shot(SHOT("W1", "narrow"));
+            await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
+            await polishNap(SETTLE_MS);
+            const ok = s.bar && s.factsTruncated && s.groupPx >= MIN_BOX_PX && s.barFits && s.askVisible && s.chipTruncated;
             return { ok, detail: q(s) };
         });
 
-        await run("W1 new turn: a turn joining the list enters while the oldest leaves (moments 1, 2), and a forward's line moves from waiting for the agent to sent with the change wash (moment 14)", async () => {
-            // the agent's request lands drawn: it joins, and r2 leaves
-            const joined = await page(
-                h,
-                `return sample(${SAMPLE_MS}, async () => ${changeTalk(
-                    ctx,
-                    `Object.assign(talk.turns.find((t) => t.id === "r4"), { state: "answered", route: "draw", title: "The run loop", added: 1, shapeids: [], answeredts: Date.now() });`
-                )}, readLines);`
-            );
-            await polishNap(SETTLE_MS);
-            const afterJoin = (await readTab(h)).lines.map((l) => l.id);
-            // your next line, flagged for the agent while it has a prompt open, then sent once it is answered
+        await run("W2 expanded: Expand gives the turns column (the agent's request rows, the copied reply with Back to the transcript and Draw instead, the agent's request being drawn with its seconds) with no ask box, beside the full-width canvas with the ask bar under it; Back to the transcript returns to W1 with the drawing line", async () => {
+            // W1's own turns leave; your line goes to the agent and its reply lands, while the agent's next request is drawn
             await page(
                 h,
                 `${changeTalk(
                     ctx,
-                    `talk.turns.push({ id: "r5", ts: Date.now(), state: "forwarded", route: "agent", question: "Who restarts a crashed worker?", forward: { state: "held", tabid: ${q(ctx.agentId)}, title: ${q(AGENT_NAME)}, runtime: "claude" } });`
-                )} return true;`
-            );
-            const held = await polishWaitFor(h, `!!${lineOf("r5")}`, WAIT_MS);
-            await polishNap(SETTLE_MS);
-            const waiting = (await readTab(h)).lines.find((l) => l.id === "r5");
-            const moved = await page(
-                h,
-                `return sample(${SAMPLE_MS}, async () => ${changeTalk(
-                    ctx,
-                    `Object.assign(talk.turns.find((t) => t.id === "r5").forward, { state: "sent", sentts: Date.now() });`
-                )}, () => readLines().find((l) => l.id === "r5"));`
-            );
-            await h.shot(SHOT("W1", "new-turn"));
-            const enter = joined.filter((f) => f.some((l) => l.id === "r4" && l.opacity < 0.99));
-            const exit = joined.filter((f) => f.some((l) => l.id === "r2" && l.opacity < 0.99));
-            const washed = moved.filter((l) => l?.detail === SENT_BESIDE && l.flash === "changeFlash");
-            const ok =
-                joined[0].some((l) => l.id === "r2") &&
-                enter.length > 0 &&
-                exit.length > 0 &&
-                q(afterJoin) === q(["r3", "r4"]) &&
-                held &&
-                waiting?.forward === "held" &&
-                waiting.detail === `waiting for ${AGENT_NAME}` &&
-                moved.at(-1)?.forward === "sent" &&
-                washed.length > 0;
-            return {
-                ok,
-                detail: q({ frames: joined.length, enter: enter.length, exit: exit.length, afterJoin, waiting, washed: washed.length, last: moved.at(-1) }),
-            };
-        });
-
-        await run("W2 expanded: Expand gives the turns column (the agent's request rows, the copied reply with Back to the transcript and Draw instead, the agent's request being drawn with its seconds) beside the full-width canvas; Back to the transcript returns to W1", async () => {
-            await page(
-                h,
-                `${changeTalk(
-                    ctx,
-                    `Object.assign(talk.turns.find((t) => t.id === "r5").forward, { state: "replied", reply: ${q(AGENT_REPLY)}, replyts: Date.now() });
+                    `talk.turns = talk.turns.filter((t) => ["r1", "r2", "r3", "r4"].includes(t.id));
+                    talk.turns.push({ id: "r5", ts: Date.now() - 60 * ${SEC}, state: "forwarded", route: "agent", question: "Who restarts a crashed worker?", forward: { state: "replied", tabid: ${q(ctx.agentId)}, title: ${q(AGENT_NAME)}, runtime: "claude", sentts: Date.now() - 50 * ${SEC}, reply: ${q(AGENT_REPLY)}, replyts: Date.now() } });
                     talk.turns.push({ id: "r6", ts: Date.now() - 4000, state: "answering", briefing: { from: ${q(AGENT_NAME)}, text: "", ask: "who restarts a crashed worker" } });`
                 )} return true;`
             );
-            await polishWaitFor(h, `!!${lineOf("r5")}?.textContent.includes("answered")`, WAIT_MS);
+            await polishWaitFor(h, lineIs("r6", "drawing"), WAIT_MS);
             await h.ev(`${ASIDE}?.querySelector("[data-workspace-expand]")?.click()`);
-            const expanded = await polishWaitFor(h, `${ASIDE}?.getAttribute("data-workspace-pane") === "expanded" && !!${TALK}`, WAIT_MS);
-            await polishNap(SETTLE_MS);
             const turnOf = (id, kind) => `${TALK}?.querySelector('[data-board-turn="${id}"][data-board-item="${kind}"]')`;
+            const expanded = await polishWaitFor(
+                h,
+                `${ASIDE}?.getAttribute("data-workspace-pane") === "expanded" && !!${turnOf("r5", "forward")}?.textContent.includes("answered")`,
+                WAIT_MS
+            );
+            await polishNap(SETTLE_MS);
             const s = await page(
                 h,
                 `const talkEl = ${TALK};
                 const canvas = ${TAB}?.querySelector("section[aria-label^='Board:']");
+                const bar = ${BAR};
                 const reply = ${turnOf("r5", "forward")};
                 return {
                     layout: ${TAB}?.getAttribute("data-board-tab"),
@@ -434,7 +636,9 @@ export const boardsWorkspace = {
                     back: t(reply?.querySelector("[data-board-back]")),
                     reroute: t(reply?.querySelector("[data-board-reroute]")),
                     working: t(${turnOf("r6", "working")}),
-                    lines: !!${TAB}?.querySelector("[data-board-lines]"),
+                    talkAskBox: !!talkEl?.querySelector("[data-board-ask-box]"),
+                    barLine: !!${LINE},
+                    barUnderCanvas: bar != null && canvas != null && talkEl != null && bar.getBoundingClientRect().top >= canvas.getBoundingClientRect().bottom - 1 && bar.getBoundingClientRect().left >= talkEl.getBoundingClientRect().right - 1,
                     canvas: !!canvas?.querySelector(".excalidraw"),
                     canvasBesideTalk: canvas != null && talkEl != null && canvas.getBoundingClientRect().left >= talkEl.getBoundingClientRect().right - 1,
                     canvasPx: canvas ? Math.round(canvas.getBoundingClientRect().width) : 0,
@@ -459,16 +663,21 @@ export const boardsWorkspace = {
                 s.back === "Back to the transcript" &&
                 s.reroute === "Draw instead" &&
                 /^Answering\d+ s$/.test(s.working) &&
-                !s.lines &&
+                !s.talkAskBox &&
+                !s.barLine &&
+                s.barUnderCanvas &&
                 s.canvas &&
                 s.canvasBesideTalk &&
                 s.canvasPx >= s.pane - s.talkPx - 2 &&
                 back &&
                 w1.pane === "open" &&
                 w1.layout === "beside" &&
-                q(w1.lines.map((l) => l.id)) === q(["r4", "r5"]) &&
-                /^Drawing · \d+ s$/.test(w1.drawing) &&
-                w1.askBox &&
+                w1.line?.id === "r6" &&
+                w1.line.state === "drawing" &&
+                /^"who restarts a crashed worker" Drawing · \d+ s$/.test(w1.line.words) &&
+                w1.bar &&
+                w1.barUnderCanvas &&
+                q(w1.buttons) === q(["Stop"]) &&
                 w1.transcript;
             return { ok, detail: q({ expanded, s, back, w1 }) };
         });

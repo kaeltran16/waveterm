@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
     activateTab,
     addTab,
+    boardPaneWidth,
     closeTab,
     EMPTY_WORKSPACE,
     iconOnlyTabs,
@@ -213,6 +214,20 @@ describe("paneWidth", () => {
 
     it("reads a stored width that is not a number as the 600 default", () => {
         expect(paneWidth(Number.NaN, 1400)).toBe(600);
+    });
+});
+
+describe("boardPaneWidth", () => {
+    it.each([
+        { name: "the widest when nothing is stored", stored: null, room: 1362, want: 1002 },
+        { name: "never under 360 on a narrow row", stored: null, room: 600, want: 360 },
+        { name: "a stored width clamped as paneWidth clamps it", stored: 1200, room: 1362, want: 1002 },
+        { name: "a stored width that fits", stored: 700, room: 1362, want: 700 },
+        { name: "a stored width under the floor", stored: 200, room: 1362, want: 360 },
+        { name: "the 600 default for the widest in an unmeasured row", stored: null, room: Infinity, want: 600 },
+        { name: "the stored width in an unmeasured row", stored: 700, room: Infinity, want: 700 },
+    ])("gives $name", ({ stored, room, want }) => {
+        expect(boardPaneWidth(stored, room)).toBe(want);
     });
 });
 

@@ -4,7 +4,7 @@
 // A board's talk column (boards B1, B4-B7, B11, A2, W2): About, the turns and the ask box, on the Boards surface and
 // in the agent's workspace tab expanded. A turn is drawn or sent to the board's agent, and each of yours can go the
 // other way. Thin render: the items and the ask box's words come from boardtalkmodel.ts, and every action is the
-// caller's. AskBox is the narrow workspace tab's too.
+// caller's. The workspace tab passes no ask: its ask bar sits under the canvas.
 
 import { useChangeFlash } from "@/app/element/motionhooks";
 import { cardVariants, changeFlashClass, settleClass } from "@/app/element/motiontokens";
@@ -13,11 +13,11 @@ import { CircleAlert, Shapes, Square } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { AgentChoiceList, RuntimeDot } from "./boardagentpicker";
-import type { AgentChoice, TalkItem } from "./boardtalkmodel";
+import type { AgentChoice, AskState, TalkItem } from "./boardtalkmodel";
 
 export { RuntimeDot };
 
-export const SMALL_BTN =
+const SMALL_BTN =
     "cursor-pointer rounded-md border border-edge-mid bg-surface-raised px-[9px] py-[3px] text-[12px] font-semibold text-secondary hover:border-edge-strong hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const PRIMARY_BTN =
     "cursor-pointer rounded-lg border-0 bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-background hover:bg-accenthover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -32,14 +32,13 @@ const SEND_BTN =
 export const TEXT_BTN =
     "cursor-pointer rounded border-0 bg-transparent p-0 text-[12px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 const REROUTE_LABEL = { agent: "Send to the agent", draw: "Draw instead" } as const;
-const SELECTED_PREFIX = "Selected ";
 // the briefing's sender is "<runtime> · <project>", so its first word names the runtime's dot
 const FROM_SEPARATOR = " · ";
 
 export interface BoardTalkProps {
     about: string; // the About chip's title: "the waveterm code", "claude · waveterm"
     items: TalkItem[];
-    ask: { disabled: boolean; hint: string; placeholder: string; stoppable: boolean }; // stoppable: Stop takes Ask's place
+    ask?: AskState; // the ask box under the turns; none where the caller asks elsewhere
     shownTurnId: string | null; // whose Show is on
     onAsk: (question: string) => void; // Enter asks, Shift Enter new line; empty does nothing
     onShow: (turnId: string, shapeIds: string[]) => void;
@@ -368,15 +367,7 @@ function itemKey(item: TalkItem): string {
     return `${item.kind}:${item.turnId}`;
 }
 
-export function AskBox({
-    ask,
-    onAsk,
-    onStop,
-}: {
-    ask: BoardTalkProps["ask"];
-    onAsk: (question: string) => void;
-    onStop: () => void;
-}) {
+function AskBox({ ask, onAsk, onStop }: { ask: AskState; onAsk: (question: string) => void; onStop: () => void }) {
     const [text, setText] = useState("");
     const id = useId();
     const empty = text.trim() === "";
@@ -394,7 +385,7 @@ export function AskBox({
         e.preventDefault();
         send();
     };
-    const selected = ask.hint.startsWith(SELECTED_PREFIX) ? ask.hint.slice(SELECTED_PREFIX.length) : null;
+    const selected = ask.selected;
     return (
         <div className="px-3.5 pb-3.5 pt-3">
             <div
@@ -550,7 +541,7 @@ export function BoardTalk(props: BoardTalkProps) {
                     </AnimatePresence>
                 </div>
             )}
-            <AskBox ask={ask} onAsk={props.onAsk} onStop={props.onStop} />
+            {ask != null ? <AskBox ask={ask} onAsk={props.onAsk} onStop={props.onStop} /> : null}
         </aside>
     );
 }

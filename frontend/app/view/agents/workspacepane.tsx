@@ -48,6 +48,7 @@ import { DocsTab } from "./workspacedocstab";
 import { FileTab } from "./workspacefiletab";
 import { InitiativeTab } from "./workspaceinitiativetab";
 import {
+    boardPaneWidth,
     DEFAULT_PANE_PX,
     iconOnlyTabs,
     paneShape,
@@ -67,6 +68,7 @@ import {
     activateWorkspaceTab,
     setWorkspaceCollapsed,
     setWorkspaceExpanded,
+    workspaceBoardWidthAtom,
     workspaceWidthAtom,
 } from "./workspacestore";
 
@@ -82,6 +84,9 @@ const TAB_ICON: Record<WorkspaceTab["kind"], LucideIcon> = {
 };
 
 const MIDDLE_BUTTON = 1;
+
+const RESET_TITLE = `Drag to resize · double-click resets to ${DEFAULT_PANE_PX}px`;
+const BOARD_RESET_TITLE = "Drag to resize · double-click resets to full width";
 
 // a tab's box, shared by the tab and its hidden full-label copy so the measured width is the one it would draw
 const TAB_FACE = "flex items-center gap-[7px] pl-[10px] pr-[4px] text-[12.5px] font-semibold";
@@ -114,10 +119,12 @@ export function WorkspacePane({
     availablePx: number | null;
 }) {
     const [stored, setStored] = useAtom(workspaceWidthAtom);
+    const [boardStored, setBoardStored] = useAtom(workspaceBoardWidthAtom);
     const [dragPx, setDragPx] = useState<number | null>(null);
     const room = availablePx ?? Number.POSITIVE_INFINITY;
     const shape = paneShape(ws);
-    const openPx = dragPx ?? paneWidth(stored, room);
+    const onBoard = ws.tabs.find((t) => tabKey(t) === ws.active)?.kind === "board";
+    const openPx = dragPx ?? (onBoard ? boardPaneWidth(boardStored, room) : paneWidth(stored, room));
     const target = shape === "strip" ? STRIP_PX : shape === "expanded" && availablePx != null ? availablePx : openPx;
     const waits = useWaitInput(agent);
     return (
@@ -159,12 +166,13 @@ export function WorkspacePane({
                             <ResizeHandle
                                 widthPx={openPx}
                                 availablePx={room}
+                                resetTitle={onBoard ? BOARD_RESET_TITLE : RESET_TITLE}
                                 onDrag={setDragPx}
                                 onCommit={(px) => {
-                                    setStored(px);
+                                    (onBoard ? setBoardStored : setStored)(px);
                                     setDragPx(null);
                                 }}
-                                onReset={() => setStored(DEFAULT_PANE_PX)}
+                                onReset={() => (onBoard ? setBoardStored(null) : setStored(DEFAULT_PANE_PX))}
                             />
                         ) : null}
                         <TabStrip agentId={agent.id} ws={ws} waits={waits} />
@@ -193,12 +201,14 @@ function useWaitInput(agent: AgentVM): WaitInput {
 function ResizeHandle({
     widthPx,
     availablePx,
+    resetTitle,
     onDrag,
     onCommit,
     onReset,
 }: {
     widthPx: number;
     availablePx: number;
+    resetTitle: string;
     onDrag: (px: number | null) => void;
     onCommit: (px: number) => void;
     onReset: () => void;
@@ -235,14 +245,14 @@ function ResizeHandle({
             aria-orientation="vertical"
             aria-label="Resize the workspace pane"
             aria-valuenow={Math.round(widthPx)}
-            title="Drag to resize · double-click resets to 600px"
+            title={resetTitle}
             data-workspace-resize
             onPointerDown={down}
             onPointerMove={move}
             onPointerUp={up}
             onPointerCancel={up}
             onDoubleClick={onReset}
-            className="group absolute bottom-0 left-0 top-0 z-[2] flex w-[8px] cursor-col-resize items-center justify-center"
+            className="group absolute bottom-0 left-0 top-0 z-10 flex w-[8px] cursor-col-resize items-center justify-center"
         >
             <span className="h-[34px] w-[3px] rounded-[2px] bg-edge-mid group-hover:bg-edge-strong" aria-hidden />
         </div>

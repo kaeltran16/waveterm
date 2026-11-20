@@ -12,7 +12,7 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
     agentPage,
     assistantText,
@@ -29,16 +29,25 @@ import {
     writeTranscript,
 } from "./agent-page-fixtures.mjs";
 import { dragMarkBox } from "./scenarios-agent.mjs";
+import { createProject } from "./scenarios-boards-workspace.mjs";
 import { RBS_KIT } from "./scenarios-rendered-brainstorm.mjs";
 import { git, polishNap, polishWaitFor, RAIL_VISIBLE_KEY, restoreLocalStorage, VIEW_DEFAULT_KEY } from "./scenarios-shared.mjs";
 
 const NAME = "workspace-pane";
 const WIDTH_KEY = "agent.workspace.width";
+const BOARD_WIDTH_KEY = "agent.workspace.boardwidth";
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
+const NARROW_VIEWPORT = { ...VIEWPORT, width: 1000 };
+// the transcript keeps this much beside a board tab's pane (MIN_TRANSCRIPT_PX); a pane never goes under it either
+const TRANSCRIPT_MIN_PX = 360;
+const BOARD_PROJECT = "workspace-pane-board-fx";
+const BOARD_NAME = "Pane width";
 const WAIT_MS = 10_000;
 // longer than the pane's macro reveal (360ms), so a read after it sees the settled pane
 const SETTLE_MS = 700;
 const DEFAULT_PX = 600;
+// the pane's sheet entrance and exit offset (SHEET_SLIDE_PX in motiontokens.ts)
+const SHEET_SLIDE_PX = 24;
 const STRIP_PX = 44;
 const DRAG_PX = 120;
 // the run is not in the store, so its tab shows the id as its title: a long one, so four tabs overflow the strip
@@ -79,6 +88,13 @@ const LIB = `
         };
         requestAnimationFrame(tick);
         return { values, stop: () => (on = false) };
+    };
+    // the pane's width, opacity and x translate as one string, so sampleFrames keeps every frame that changes any of them
+    const paneFrame = () => {
+        const el = pane();
+        if (!el) return null;
+        const cs = getComputedStyle(el);
+        return JSON.stringify({ w: width(el), o: Number(Number(cs.opacity).toFixed(2)), x: Math.round(new DOMMatrixReadOnly(cs.transform).m41) });
     };
 `;
 const page = (h, body) => agentPage(h, `${LIB} ${body}`);
@@ -131,6 +147,7 @@ export const workspacePane = {
         try {
             ctx.prev = await h.ev(`({
                 width: localStorage.getItem(${JSON.stringify(WIDTH_KEY)}),
+                boardWidth: localStorage.getItem(${JSON.stringify(BOARD_WIDTH_KEY)}),
                 view: localStorage.getItem(${JSON.stringify(VIEW_DEFAULT_KEY)}),
                 rail: localStorage.getItem(${JSON.stringify(RAIL_VISIBLE_KEY)}),
             })`);
@@ -167,9 +184,24 @@ export const workspacePane = {
                 rosterAgent(b.tabId, b.blockId, `workspace-b-${tag}`, path("dedupe")),
             ];
             // a fresh profile: no stored width, the rail closed
-            await h.ev(`localStorage.removeItem(${JSON.stringify(WIDTH_KEY)}); localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "false")`);
+            await h.ev(
+                `localStorage.removeItem(${JSON.stringify(WIDTH_KEY)}); localStorage.removeItem(${JSON.stringify(BOARD_WIDTH_KEY)}); localStorage.setItem(${JSON.stringify(RAIL_VISIBLE_KEY)}, "false")`
+            );
+            // a real board with no question (so no drawer runs), in a throwaway project: the board tab's fixture
+            ctx.project = BOARD_PROJECT;
+            mkdirSync(join(ctx.dir, "project"));
+            ctx.channelId = (await createProject(h, BOARD_PROJECT, join(ctx.dir, "project"))).oid;
             await h.reload();
             await arrangeRoster(h, ctx);
+            const board = await page(
+                h,
+                `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                const { TabRpcClient } = await mod("app/store/wshrpcutil.ts");
+                return await RpcApi.BoardStartCommand(TabRpcClient, {
+                    channelid: ${JSON.stringify(ctx.channelId)}, name: ${JSON.stringify(BOARD_NAME)}, about: { kind: "project", ref: "", title: "" },
+                });`
+            );
+            Object.assign(ctx, { boardId: board.id, boardDir: dirname(board.path) });
         } catch (err) {
             ctx.arrangeError = String(err?.message ?? err);
         }
@@ -236,18 +268,22 @@ export const workspacePane = {
         });
         await h.shot("cdp-shots/workspace-pane-main.png");
 
-        // 6b: the pane opens from nothing to the stored width, through the frames between
-        await step("opening a tab reveals the pane (6b) at 600px on a fresh profile", async () => {
+        // 6b: the pane slides in like a sheet at the stored width from its first frame, fading up and moving left into
+        // place, so the transcript beside it never rewraps through a growing width
+        await step("opening a tab slides the pane in (6b) at 600px on a fresh profile", async () => {
             const r = await page(
                 h,
-                `const s = sampleFrames(() => width(pane()));
+                `const s = sampleFrames(paneFrame);
                 W.openWorkspaceTab(${A}, { kind: "changes", selected: null });
                 await nap(${SETTLE_MS});
                 s.stop();
-                return { widths: s.values, final: width(pane()) };`
+                return { frames: s.values.map((v) => JSON.parse(v)) };`
             );
-            const between = r.widths.filter((w) => w > 0 && w < DEFAULT_PX);
-            return [r.final === DEFAULT_PX && between.length > 0, r];
+            const fullWidth = r.frames.length > 0 && r.frames.every((f) => f.w === DEFAULT_PX);
+            const sliding = r.frames.some((f) => (f.o > 0 && f.o < 1) || (f.x > 0 && f.x < SHEET_SLIDE_PX));
+            const last = r.frames.at(-1);
+            const settled = last?.w === DEFAULT_PX && last.o === 1 && last.x === 0;
+            return [fullWidth && sliding && settled, r];
         });
 
         await step("the d binding follows the tabs with no key event: the footer offers d for the pane", async () => {
@@ -598,19 +634,168 @@ export const workspacePane = {
             return [!full.tree && full.pane === "open" && back.tree && back.pane === "open", { full: [full.tree, full.pane], back: [back.tree, back.pane] }];
         });
 
-        // closing the last tab removes the pane, which leaves rather than vanishing
-        await step("closing the last tab removes the pane", async () => {
+        // a board tab widens the pane to all of the row but the transcript's 360px; its own drag is kept apart from the
+        // width the other tabs share. The tabs it adds are closed again, so the last-tab step below still ends the pane
+        const BOARD_KEY = `board:${ctx.boardId}`;
+        const boardTab = { kind: "board", channelId: ctx.channelId, boardId: ctx.boardId };
+        const showTab = async (key) => {
+            await page(h, `W.activateWorkspaceTab(${A}, ${JSON.stringify(key)}); return true;`);
+            await polishNap(SETTLE_MS);
+        };
+        const stored = (key) => h.ev(`localStorage.getItem(${JSON.stringify(key)})`);
+        const widest = (f) => Math.max(TRANSCRIPT_MIN_PX, f.rowW - TRANSCRIPT_MIN_PX);
+        const dragHandle = async (dx) => {
+            const at = await centreOf(h, "document.querySelector('[data-workspace-resize]')");
+            if (at == null) return false;
+            await mouse(h, "mouseMoved", at.x, at.y);
+            await mouse(h, "mousePressed", at.x, at.y, { button: "left", buttons: 1, clickCount: 1 });
+            for (let i = 1; i <= 6; i++) await mouse(h, "mouseMoved", at.x + (dx * i) / 6, at.y, { button: "left", buttons: 1 });
+            await mouse(h, "mouseReleased", at.x + dx, at.y, { button: "left", buttons: 0, clickCount: 1 });
+            await polishNap(SETTLE_MS);
+            return true;
+        };
+        const hadChanges = (await facts()).tabs.includes("changes");
+
+        await step("a board tab shown in the open pane widens it to the row less 360px", async () => {
+            if (!hadChanges) await openTab(h, ctx.aId, { kind: "changes", selected: null });
+            const before = await facts();
+            await openTab(h, ctx.aId, boardTab);
+            const canvas = await polishWaitFor(h, `document.querySelector('aside[aria-label="Workspace"] [data-board-tab] .excalidraw') != null`, WAIT_MS * 2);
+            await polishNap(SETTLE_MS);
+            const f = await facts();
+            await h.shot("cdp-shots/workspace-pane-board-widest.png");
+            const title = await h.ev(`document.querySelector('[data-workspace-resize]')?.title`);
+            const ok =
+                canvas &&
+                f.active === BOARD_KEY &&
+                f.pane === "open" &&
+                before.paneW === DEFAULT_PX &&
+                f.paneW === widest(f) &&
+                f.paneW > DEFAULT_PX &&
+                title === "Drag to resize · double-click resets to full width";
+            return [ok, { canvas, before: before.paneW, paneW: f.paneW, rowW: f.rowW, title }];
+        });
+
+        await step("showing the Changes tab returns the pane to the stored width, and back to the board widens it again", async () => {
+            await showTab("changes");
+            const changes = await facts();
+            const title = await h.ev(`document.querySelector('[data-workspace-resize]')?.title`);
+            await showTab(BOARD_KEY);
+            const board = await facts();
+            const ok =
+                changes.paneW === DEFAULT_PX &&
+                title === "Drag to resize · double-click resets to 600px" &&
+                board.paneW === widest(board);
+            return [ok, { changes: changes.paneW, title, board: board.paneW }];
+        });
+
+        await step("expanded and strip are unchanged with a board shown", async () => {
+            await h.ev(`document.querySelector("[data-workspace-expand]").click()`);
+            await polishNap(SETTLE_MS);
+            const expanded = await facts();
+            await h.ev(`document.querySelector("[data-workspace-expand]").click()`);
+            await polishNap(SETTLE_MS);
+            await h.ev(`document.querySelector("[data-workspace-collapse]").click()`);
+            await polishNap(SETTLE_MS);
+            const strip = await facts();
+            await h.ev(`document.querySelector("[data-workspace-strip]").click()`);
+            await polishNap(SETTLE_MS);
+            const back = await facts();
+            const ok =
+                expanded.pane === "expanded" &&
+                expanded.paneW === expanded.rowW &&
+                strip.pane === "strip" &&
+                strip.paneW === STRIP_PX &&
+                back.pane === "open" &&
+                back.paneW === widest(back);
+            return [ok, { expanded: [expanded.pane, expanded.paneW], strip: [strip.pane, strip.paneW], back: [back.pane, back.paneW] }];
+        });
+
+        await step("a drag on a board tab writes the board width alone, and holds across a switch away and back", async () => {
+            const widthBefore = await stored(WIDTH_KEY);
+            const start = await facts();
+            // the board is at its widest, so the drag goes right, which narrows the pane
+            if (!(await dragHandle(DRAG_PX))) return [false, "no resize handle"];
+            const dragged = await facts();
+            const boardStored = await stored(BOARD_WIDTH_KEY);
+            await showTab("changes");
+            const changes = await facts();
+            await showTab(BOARD_KEY);
+            const back = await facts();
+            const want = start.paneW - DRAG_PX;
+            const ok =
+                dragged.paneW === want &&
+                Number(boardStored) === want &&
+                (await stored(WIDTH_KEY)) === widthBefore &&
+                changes.paneW === DEFAULT_PX &&
+                back.paneW === want;
+            return [ok, { start: start.paneW, dragged: dragged.paneW, boardStored, widthBefore, changes: changes.paneW, back: back.paneW }];
+        });
+
+        await step("double-clicking a board tab's edge returns it to the widest", async () => {
+            const at = await centreOf(h, "document.querySelector('[data-workspace-resize]')");
+            if (at == null) return [false, "no resize handle"];
+            // the drag above left the pane narrower than the widest, so a reset has something to undo
+            const before = await facts();
+            await mouse(h, "mousePressed", at.x, at.y, { button: "left", buttons: 1, clickCount: 1 });
+            await mouse(h, "mouseReleased", at.x, at.y, { button: "left", buttons: 0, clickCount: 1 });
+            await mouse(h, "mousePressed", at.x, at.y, { button: "left", buttons: 1, clickCount: 2 });
+            await mouse(h, "mouseReleased", at.x, at.y, { button: "left", buttons: 0, clickCount: 2 });
+            await polishNap(SETTLE_MS);
+            const f = await facts();
+            const boardStored = await stored(BOARD_WIDTH_KEY);
+            const ok = before.paneW < widest(before) && f.paneW === widest(f) && (boardStored == null || boardStored === "null");
+            return [ok, { before: before.paneW, paneW: f.paneW, boardStored }];
+        });
+
+        await step("at a 1000px window with the tree hidden the board tab's pane is the row less 360px", async () => {
+            await h.cdp("Emulation.setDeviceMetricsOverride", NARROW_VIEWPORT);
+            await polishNap(SETTLE_MS);
+            // with the tree open the 1000px row is 674px and the pane sits on the 360px floor; hiding it gives the design's ~922px row
+            await press(h, KEY.f);
+            const f = await facts();
+            // the States frame: the bar's facts ellipsize first, and the agent chip keeps its whole label
+            const bar = await page(
+                h,
+                `const bar = document.querySelector('aside[aria-label="Workspace"] [data-board-ask-bar]');
+                const cut = (el) => (el == null ? null : el.scrollWidth > el.clientWidth);
+                return {
+                    chipCut: cut(bar?.querySelector("[data-board-agent-chip] .truncate")),
+                    factsCut: cut(bar?.querySelector("[data-board-facts]")),
+                };`
+            );
+            await h.shot("cdp-shots/workspace-pane-board-narrow.png");
+            await press(h, KEY.f);
+            await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
+            await polishNap(SETTLE_MS);
+            const ok = f.paneW === f.rowW - TRANSCRIPT_MIN_PX && f.paneW > TRANSCRIPT_MIN_PX && bar.chipCut === false && bar.factsCut === true;
+            return [ok, { paneW: f.paneW, rowW: f.rowW, ...bar }];
+        });
+
+        await page(
+            h,
+            `W.closeWorkspaceTab(${A}, ${JSON.stringify(BOARD_KEY)});
+            ${hadChanges ? "" : `W.closeWorkspaceTab(${A}, "changes");`}
+            return true;`
+        );
+        await polishNap(SETTLE_MS);
+
+        // closing the last tab removes the pane, which slides out at its full width, fading, rather than vanishing
+        await step("closing the last tab slides the pane out at its full width", async () => {
             const r = await page(
                 h,
-                `const s = sampleFrames(() => width(pane()) ?? "gone");
+                `const s = sampleFrames(() => paneFrame() ?? "gone");
                 document.querySelector('[data-workspace-tab] [data-workspace-tab-close]').click();
                 await nap(${SETTLE_MS});
                 s.stop();
-                return { widths: s.values, state: ws(${A}) };`
+                return { frames: s.values.map((v) => (v === "gone" ? v : JSON.parse(v))), state: ws(${A}) };`
             );
             const f = await facts();
-            const leaving = r.widths.some((w) => w !== "gone" && w > 0 && w < DEFAULT_PX);
-            return [f.pane == null && !f.rail && r.state.tabs.length === 0 && leaving && !f.footer.includes("d pane"), { widths: r.widths, pane: f.pane, footer: f.footer }];
+            const goneAt = r.frames.indexOf("gone");
+            const before = r.frames.slice(0, goneAt);
+            const leaving = goneAt > 0 && before.every((p) => p.w === DEFAULT_PX) && before.some((p) => p.o > 0 && p.o < 1);
+            const ok = f.pane == null && !f.rail && r.state.tabs.length === 0 && leaving && r.frames.at(-1) === "gone" && !f.footer.includes("d pane");
+            return [ok, { frames: r.frames, pane: f.pane, footer: f.footer }];
         });
 
         return steps;
@@ -627,7 +812,7 @@ export const workspacePane = {
             page(
                 h,
                 `for (const id of ${JSON.stringify([ctx.aId, ctx.bId].filter(Boolean))}) {
-                    for (const t of [...ws(id).tabs]) W.closeWorkspaceTab(id, t.kind === "run" ? "run:" + t.runId : t.kind === "file" ? "file:" + t.path : t.kind);
+                    for (const t of [...ws(id).tabs]) W.closeWorkspaceTab(id, t.kind === "run" ? "run:" + t.runId : t.kind === "file" ? "file:" + t.path : t.kind === "board" ? "board:" + t.boardId : t.kind);
                     const R = await mod("app/view/agents/renderedmode.ts");
                     globalStore.set(R.viewModeAtom(id), "rendered");
                 }
@@ -652,6 +837,7 @@ export const workspacePane = {
                 h.ev(
                     [
                         restoreLocalStorage(WIDTH_KEY, ctx.prev.width),
+                        restoreLocalStorage(BOARD_WIDTH_KEY, ctx.prev.boardWidth),
                         restoreLocalStorage(VIEW_DEFAULT_KEY, ctx.prev.view),
                         restoreLocalStorage(RAIL_VISIBLE_KEY, ctx.prev.rail),
                     ].join("; ")
@@ -660,6 +846,8 @@ export const workspacePane = {
             await step("reload onto the restored preferences", () => h.reload());
         }
         await step("clear the viewport", () => h.cdp("Emulation.clearDeviceMetricsOverride", {}));
+        if (ctx.boardDir) await step("remove the board", () => rmSync(ctx.boardDir, { recursive: true, force: true }));
+        if (ctx.project) await step("delete the board project", () => h.rpc("deleteproject", { name: ctx.project }));
         await step("remove the temp dir", () => rmSync(ctx.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
         await step("go home", () => h.goto("cockpit"));
     },
