@@ -6,7 +6,7 @@
 // no controller. The lead's user-owned asks are injected into the page's ask map. Teardown closes what the steps
 // opened, cancels the run, deletes its channel and the repo, and puts back the default view.
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -38,12 +38,17 @@ const CHIP_TEXT = "2 files +3 −1";
 // the records sit a minute after the seed commit, so the session-start anchor is that commit whatever the clocks' rounding
 const AHEAD_MS = 60_000;
 const CHIP_TITLE = "Open the Changes tab";
+const DOC_TITLES = { "first.md": "First notes", "second.md": "Second notes" };
 const ask = (n) => ({ taskid: "t-1", askid: `fx-header-ask-${n}`, owner: "user", questions: [], blockoref: "", ts: n });
 
 const HEADER = `document.querySelector("[data-agent-header]")`;
 // the checkout's changes moved from the header to the first row of the message box
 const CHIP = `document.querySelector("[data-rendered-composer] [data-composer-changes]")`;
 const RUN_LINK = `${HEADER}?.querySelector("[data-header-run-link]")`;
+const DOCS_LINK = `${HEADER}?.querySelector("[data-header-docs-link]")`;
+const PANE = `document.querySelector('aside[aria-label="Workspace"]')`;
+// the app's Markdown draws an h1 as a .heading.is-1 block
+const DOCS_H1 = `(${PANE}?.querySelector("[data-docs-body] .heading.is-1")?.textContent ?? "").trim()`;
 
 const LIB = `
     const W = await mod("app/view/agents/workspacestore.ts");
@@ -140,6 +145,23 @@ function leadTranscript(ctx, name) {
     ]);
 }
 
+// two Markdown docs in a folder of their own, so the repo's checkouts stay clean; the later write is the newest
+function makeDocs(ctx, tag) {
+    ctx.docsDir = mkdtempSync(join(tmpdir(), "verify-workspace-header-docs-"));
+    const t0 = Date.now() - 10 * 60_000;
+    const at = (n) => ({ cwd: ctx.docsDir, ts: new Date(t0 + n * 60_000).toISOString() });
+    const write = (id, name, n) => {
+        writeFileSync(join(ctx.docsDir, name), `# ${DOC_TITLES[name]}\n\nBody.\n`);
+        return [toolUse(id, "Write", { file_path: join(ctx.docsDir, name), content: "" }, at(n)), toolResult(id, "ok", at(n))];
+    };
+    return writeTranscript(join(ctx.docsDir, "transcripts"), `header-docs-${tag}`, [
+        userText("Write the notes down.", at(0)),
+        ...write("w-first", "first.md", 1),
+        ...write("w-second", "second.md", 2),
+        assistantText("The notes are written.", at(3)),
+    ]);
+}
+
 async function focusRendered(h, id, name) {
     await focusAgent(h, id);
     const ok = await polishWaitFor(
@@ -190,7 +212,13 @@ export const workspaceHeader = {
                 label: `header-clean-${tag}`,
                 blockMeta: { view: "term", controller: null, "cmd:cwd": ctx.cwd },
             });
+            const docs = await makeTab(h, ctx, {
+                label: `header-docs-${tag}`,
+                blockMeta: { view: "term", controller: null, "cmd:cwd": ctx.cwd },
+            });
             Object.assign(ctx, {
+                docsId: docs.tabId,
+                docsName: `header-docs-${tag}`,
                 leadId: lead.tabId,
                 leadName: `header-lead-${tag}`,
                 cleanId: clean.tabId,
@@ -201,6 +229,7 @@ export const workspaceHeader = {
                     runId: ctx.runId,
                 }),
                 rosterAgent(clean.tabId, clean.blockId, ctx.cleanName, path("clean")),
+                rosterAgent(docs.tabId, docs.blockId, ctx.docsName, makeDocs(ctx, tag)),
             ]);
             await focusRendered(h, ctx.leadId, ctx.leadName);
         } catch (err) {
@@ -366,6 +395,49 @@ export const workspaceHeader = {
             return [loaded && f.branchIcon && f.chip == null && f.worktree == null, f];
         });
 
+        await step("no docs link: an agent that wrote no Markdown has no docs link in its subline", async () => {
+            // the clean agent is focused: give its Docs read time to land, so an empty list is the answer, not a pending read
+            await polishNap(SETTLE_MS);
+            const r = await page(
+                h,
+                `return { link: ${DOCS_LINK} != null, subline: flat(header()?.querySelector("[data-agent-subline]")) };`
+            );
+            return [!r.link && !/\bdocs?\b/.test(r.subline), r];
+        });
+
+        await step("docs link: an agent that wrote two Markdown files shows 2 docs, and a click opens the Docs tab on the newest", async () => {
+            await focusRendered(h, ctx.docsId, ctx.docsName);
+            await polishWaitFor(h, `${DOCS_LINK} != null`, WAIT_MS);
+            const D = JSON.stringify(ctx.docsId);
+            const before = await page(h, `return { link: flat(${DOCS_LINK}), tabs: ws(${D}).tabs.length };`);
+            await h.ev(`${DOCS_LINK}.click()`);
+            await polishWaitFor(h, `${DOCS_H1} === ${JSON.stringify(DOC_TITLES["second.md"])}`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const r = await page(
+                h,
+                `const t = ws(${D}).tabs.find((x) => x.kind === "docs");
+                return {
+                    surface: globalStore.get(agentsModel().surfaceAtom),
+                    active: ws(${D}).active,
+                    selected: t?.selected ?? null,
+                    h1: ${DOCS_H1},
+                    transcript: document.querySelector("[data-rendered-view]") != null,
+                    link: flat(${DOCS_LINK}),
+                };`
+            );
+            await h.shot("cdp-shots/workspace-header-docs.png");
+            const ok =
+                before.link === "2 docs" &&
+                before.tabs === 0 &&
+                r.surface === "agent" &&
+                r.active === "docs" &&
+                r.selected === null &&
+                r.h1 === DOC_TITLES["second.md"] &&
+                r.transcript &&
+                r.link === "2 docs";
+            return [ok, { before, ...r }];
+        });
+
         await step("the Terminal view's header shows none of the new facts, and keeps its details toggle", async () => {
             await focusRendered(h, ctx.leadId, ctx.leadName);
             await page(
@@ -399,7 +471,7 @@ export const workspaceHeader = {
                 console.error(`${NAME} teardown: ${what} failed: ${e?.message ?? e}`);
             }
         };
-        const ids = [ctx.leadId, ctx.cleanId].filter(Boolean);
+        const ids = [ctx.leadId, ctx.cleanId, ctx.docsId].filter(Boolean);
         await step("close the workspace tabs and put back the view", () =>
             page(
                 h,
@@ -426,6 +498,9 @@ export const workspaceHeader = {
         await step("restore the default view", () => restoreDefaultView(h));
         // cancels the run, deletes its channel, reloads, and removes the run's trees and the temp repo
         await teardownFixtureRun(h, ctx, NAME);
+        if (ctx.docsDir) {
+            await step("remove the docs folder", () => rmSync(ctx.docsDir, { recursive: true, force: true }));
+        }
         await step("clear the viewport", () => h.cdp("Emulation.clearDeviceMetricsOverride", {}));
         await step("go home", () => h.goto("cockpit"));
     },
