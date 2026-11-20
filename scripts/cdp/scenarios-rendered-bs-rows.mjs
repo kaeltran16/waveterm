@@ -131,6 +131,7 @@ export default (kit) => {
                 origin: el.getAttribute("data-origin"),
                 compact: el.closest("[data-rbs-compact]") != null,
                 size: getComputedStyle(el.querySelector("[data-rbs-answer]") ?? el).fontSize,
+                kindMono: el.querySelector("[data-rbs-answer-kind]")?.classList.contains("font-mono") ?? null,
             }));
         })()`);
 
@@ -155,23 +156,26 @@ export default (kit) => {
             const seeded = await seedRecords(h, ctx);
             await polishWaitFor(h, `(${FEED}?.querySelectorAll("[data-rbs-row='answer']").length ?? 0) >= 4`, WAIT_MS);
 
-            await step("Main: Q1 and Q2 fold to their picks, picked here; Q3, with no record, reads You answered question 3", async () => {
+            await step("Main: Question 1 and Question 2 fold to their picks, picked here, the label not mono; Question 3, with no record, reads You answered question 3", async () => {
                 const rows = await readRows(h);
-                const q1 = byText(rows, "answer", ["Q1", Q1.q, "Runs with a Final", "picked here"]);
-                const q2 = byText(rows, "answer", ["Q2", Q2.q, "The OS low-memory signal", "picked here"]);
+                const q1 = byText(rows, "answer", ["Question 1", Q1.q, "Runs with a Final", "picked here"]);
+                const q2 = byText(rows, "answer", ["Question 2", Q2.q, "The OS low-memory signal", "picked here"]);
                 const q3 = byText(rows, "answered", ["You answered question 3:", "One Final at a time"]);
                 await h.shot(SHOT(1, "answers"));
-                return [seeded && !!q1 && !!q2 && !!q3 && q1.origin === "transcript", { q1, q2, q3 }];
+                return [
+                    seeded && !!q1 && !!q2 && !!q3 && q1.origin === "transcript" && q1.kindMono === false && q2.kindMono === false,
+                    { q1, q2, q3 },
+                ];
             });
 
-            await step("Answered: Q4, answered from the pane, reads picked in the brainstorm pane", async () => {
-                const q4 = byText(await readRows(h), "answer", ["Q4", "Both", "picked in the brainstorm pane"]);
-                return [q4?.origin === "pane", q4];
+            await step("Answered: Question 4, answered from the pane, reads picked in the brainstorm pane", async () => {
+                const q4 = byText(await readRows(h), "answer", ["Question 4", "Both", "picked in the brainstorm pane"]);
+                return [q4?.origin === "pane" && q4.kindMono === false, q4];
             });
 
             await step("a folded row opens, read-only, to its question, why and options with the pick marked", async () => {
                 const opened = await h.ev(`(() => {
-                    const row = [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Q4"));
+                    const row = [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Question 4"));
                     const b = row?.querySelector("button[aria-expanded]");
                     if (!b) return false;
                     b.click();
@@ -180,7 +184,7 @@ export default (kit) => {
                 await polishWaitFor(h, `!!${FEED}?.querySelector("[data-rbs-answer-body]")`, WAIT_MS);
                 await polishNap(400);
                 const body = await h.ev(`(() => {
-                    const row = [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Q4"));
+                    const row = [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Question 4"));
                     const b = row?.querySelector("[data-rbs-answer-body]");
                     return {
                         expanded: row?.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded"),
@@ -189,7 +193,7 @@ export default (kit) => {
                         buttons: b?.querySelectorAll("button").length ?? 0,
                     };
                 })()`);
-                await h.ev(`(() => { [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Q4"))?.scrollIntoView({ block: "center" }); return true; })()`);
+                await h.ev(`(() => { [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Question 4"))?.scrollIntoView({ block: "center" }); return true; })()`);
                 await polishNap(300);
                 await h.shot(SHOT(2, "expanded"));
                 const picked = body.options.filter((o) => o.picked).map((o) => o.text);
@@ -204,9 +208,9 @@ export default (kit) => {
                 ];
             });
 
-            await step("CheckReview: the builder answer folds to Builder <question> Yes picked here", async () => {
-                const b = byText(await readRows(h), "answer", ["Builder", BUILDER_Q, "Yes", "picked here"]);
-                return [b?.origin === "transcript", b];
+            await step("CheckReview: the builder answer folds to Builder question <question> Yes picked here", async () => {
+                const b = byText(await readRows(h), "answer", ["Builder question", BUILDER_Q, "Yes", "picked here"]);
+                return [b?.origin === "transcript" && b.kindMono === false, b];
             });
 
             await step("CanvasUpdated: the mark is a bubble with its crop, the note and marked on Main · the canvas; the crop opens Main in the pane", async () => {
@@ -323,8 +327,8 @@ export default (kit) => {
                 const rows = await readRows(h);
                 await h.shot(SHOT(6, "narrow"));
                 const widened = await widen(h);
-                const q1Wide = byText(wide, "answer", ["Q1"]);
-                const q1 = byText(rows, "answer", ["Q1"]);
+                const q1Wide = byText(wide, "answer", ["Question 1"]);
+                const q1 = byText(rows, "answer", ["Question 1"]);
                 return [
                     narrowed &&
                         widened &&
