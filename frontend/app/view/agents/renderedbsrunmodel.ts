@@ -34,7 +34,8 @@ export function closedRowText(rec: CloseRecord): string {
 
 export type GoneView =
     | { kind: "unreadable"; title: string; error: string; path: string }
-    | { kind: "removed"; title: string; text: string }
+    // path is set only when text does not already name it (a run worktree's line names the folder instead)
+    | { kind: "removed"; title: string; text: string; path: string | null }
     | { kind: "closed"; text: string };
 
 // closed is brainstormClosedAtom's value: a removed brainstorm Arc closed itself is a row, one that is simply gone
@@ -56,9 +57,11 @@ export function goneView(
     if (rec != null) {
         return { kind: "closed", text: closedRowText(rec) };
     }
+    const line = brainstormGoneText(s.path);
     return {
         kind: "removed",
         title: `${s.topic}'s brainstorm file is gone`,
-        text: `${brainstormGoneText(s.path)} The answers above stay in the transcript.`,
+        text: `${line} The answers above stay in the transcript.`,
+        path: line.includes(s.path) ? null : s.path,
     };
 }

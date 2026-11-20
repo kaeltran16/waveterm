@@ -8,15 +8,16 @@ import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Lightbulb } from "lucide-react";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import type { BrainstormState } from "./brainstormstore";
-import { DOT } from "./brainstormui";
+import { CardFrame, headIconSize } from "./renderedbrainstorm";
 import { brainstormClosedAtom, goneView } from "./renderedbsrunmodel";
 
-const GONE_CARD = "flex flex-col rounded-[10px] border border-edge-mid bg-surface";
+const MONO_PATH = "break-all font-mono text-[11.5px] text-muted";
 
 export function GoneCard({
+    agent,
     s,
     why,
     compact,
@@ -28,7 +29,6 @@ export function GoneCard({
 }): JSX.Element | null {
     const closed = useAtomValue(brainstormClosedAtom);
     const v = goneView(why, s, closed);
-    const pad = compact ? "gap-1.5 px-[14px] py-3" : "gap-1.5 px-[18px] py-[14px]";
     const body = (text: string) => (
         <span
             className={cn(
@@ -38,6 +38,29 @@ export function GoneCard({
         >
             {text}
         </span>
+    );
+    // no status and no link of its own: the file is gone, and the header's Open brainstorm is the only way on
+    const frame = (children: ReactNode, title: string, error: boolean) => (
+        <CardFrame
+            agent={agent}
+            s={s}
+            f={null}
+            asking={false}
+            tone={error ? "error" : undefined}
+            icon={
+                error ? (
+                    <Lightbulb size={headIconSize(compact)} strokeWidth={2} className="text-error" aria-hidden />
+                ) : undefined
+            }
+            subject={title}
+            status=""
+            link={null}
+            title={title}
+            compact={compact}
+            attr="data-rendered-bs-gone-card"
+        >
+            {children}
+        </CardFrame>
     );
     return (
         <ViewSwap swapKey={v.kind}>
@@ -53,18 +76,26 @@ export function GoneCard({
                     <span className="min-w-0">{v.text}</span>
                 </div>
             ) : v.kind === "unreadable" ? (
-                <div data-rendered-bs-gone="unreadable" className={cn(GONE_CARD, pad)}>
-                    <span className="flex items-center gap-2 text-[13.5px] font-semibold text-primary">
-                        <span className={cn(DOT, "bg-error")} />
-                        {v.title}
-                    </span>
-                    {body(v.error)}
-                    <span className="break-all font-mono text-[11.5px] text-muted">{v.path}</span>
+                <div data-rendered-bs-gone="unreadable">
+                    {frame(
+                        <>
+                            {body(v.error)}
+                            <span className={MONO_PATH}>{v.path}</span>
+                        </>,
+                        v.title,
+                        true
+                    )}
                 </div>
             ) : (
-                <div data-rendered-bs-gone="removed" className={cn(GONE_CARD, pad)}>
-                    <span className="text-[13.5px] font-semibold text-primary [overflow-wrap:anywhere]">{v.title}</span>
-                    {body(v.text)}
+                <div data-rendered-bs-gone="removed">
+                    {frame(
+                        <>
+                            {body(v.text)}
+                            {v.path != null ? <span className={MONO_PATH}>{v.path}</span> : null}
+                        </>,
+                        v.title,
+                        false
+                    )}
                 </div>
             )}
         </ViewSwap>
