@@ -21,7 +21,7 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { cardVariants, shouldFadeEntry, viewFade } from "@/app/element/motiontokens";
+import { cardVariants, foldLineReveal, shouldFadeEntry, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { conversationText, formatTokens, type AgentEntry } from "./agentsviewmodel";
@@ -48,15 +48,13 @@ const NO_CTX: TranscriptContext = {};
 
 export const VERB = "min-w-[50px] shrink-0 font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-muted";
 
-// "Worked for N · phrase +a −d ✗ k failed": a finished turn's folded work. Fades in when a turn folds after mount.
+// "Worked for N · phrase +a −d ✗ k failed": a finished turn's folded work. TurnFold reveals it when a turn folds after
+// mount.
 function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: boolean; onClick: () => void; compact: boolean }) {
     return (
-        <motion.button
+        <button
             type="button"
             data-fold
-            variants={viewFade}
-            initial="initial"
-            animate="animate"
             aria-expanded={open}
             onClick={onClick}
             className={cn(
@@ -79,7 +77,7 @@ function FoldLine({ fold, open, onClick, compact }: { fold: FoldSummary; open: b
             <span className="flex shrink-0">
                 <TurnChevron open={open} size={14} strokeWidth={2} />
             </span>
-        </motion.button>
+        </button>
     );
 }
 
@@ -117,11 +115,15 @@ function TurnFold({
     const body = <AnimatePresence initial={live}>{children}</AnimatePresence>;
     return (
         <div data-turn-fold={live ? undefined : ""} data-turn-live={live ? "" : undefined}>
-            {live ? null : <FoldLine fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />}
+            <PaneReveal open={!live} variants={foldLineReveal}>
+                <FoldLine fold={fold} open={open} onClick={() => setToggled((v) => !v)} compact={compact} />
+            </PaneReveal>
             {unfold ? (
                 <div>{body}</div>
             ) : (
-                <PaneReveal open={open} className={live ? "overflow-visible" : undefined}>
+                // flow-root: unclipped yet holding its rows' margins as the clipped pane does, so finishing does not
+                // grow the pane by them
+                <PaneReveal open={open} className={live ? "overflow-visible flow-root" : undefined}>
                     {body}
                 </PaneReveal>
             )}

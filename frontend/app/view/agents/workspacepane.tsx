@@ -5,7 +5,7 @@
 // resizable split, not a rail: it opens at the stored width, drags from its left edge, expands over the center and
 // collapses to a 44px strip. The surface renders it only while the agent has tabs (workspacestore.ts holds them).
 
-import { cardVariants, indicatorSlide, MOTION, popoverReveal } from "@/app/element/motiontokens";
+import { cardVariants, indicatorSlide, MOTION, popoverReveal, SHEET_SLIDE_PX } from "@/app/element/motiontokens";
 import { TickNumber } from "@/app/element/ticknumber";
 import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
@@ -86,7 +86,9 @@ const DOT_CORNER = "absolute left-[20px] top-[6px] box-content h-[6px] w-[6px] r
 const DOT_TONE = { waiting: "bg-asking", unseen: "bg-accent" } as const;
 const DOT_LABEL = { waiting: "waiting on you", unseen: "new since you looked" } as const;
 
-// 6b on the horizontal axis: paneReveal's opacity and timing, with width in place of height
+// paneReveal's opacity and timing. The pane arrives and leaves at its full width, sliding like a sheet: growing its
+// width would narrow the transcript beside it every frame, rewrapping the whole feed. A change of shape (strip,
+// expanded) still tweens the width, since you asked for it
 const REVEAL = { duration: MOTION.durMacro, ease: MOTION.easeFluid };
 const LEAVE = { duration: MOTION.durExit, ease: MOTION.easeFluid };
 // a drag follows the pointer 1:1, never eased
@@ -115,9 +117,9 @@ export function WorkspacePane({
         <motion.aside
             aria-label="Workspace"
             data-workspace-pane={shape}
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: target, opacity: 1 }}
-            exit={{ width: 0, opacity: 0, transition: LEAVE }}
+            initial={{ width: target, opacity: 0, x: SHEET_SLIDE_PX }}
+            animate={{ width: target, opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: SHEET_SLIDE_PX, transition: LEAVE }}
             transition={dragPx != null ? UNEASED : REVEAL}
             className="relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border bg-surface"
         >

@@ -36,10 +36,11 @@ export const modalPanel = cardVariants;
 // pinned to: a layer arriving from off-screen reads as navigation, where a centered scale reads as a
 // dialog. x is safe here — cardVariants bans it because Reorder.Item owns that transform on cockpit
 // cards, and a sheet has no such owner.
+export const SHEET_SLIDE_PX = 24;
 export const sheetPanel: Variants = {
-    initial: { opacity: 0, x: 24 },
+    initial: { opacity: 0, x: SHEET_SLIDE_PX },
     animate: { opacity: 1, x: 0, transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } },
-    exit: { opacity: 0, x: 24, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
+    exit: { opacity: 0, x: SHEET_SLIDE_PX, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
 };
 
 // Lift on grab (moment 8). Drop-settle is the Reorder.Item dragTransition already in place.
@@ -59,6 +60,14 @@ export const composerReveal: Variants = {
 export const paneReveal: Variants = {
     initial: { opacity: 0, height: 0 },
     animate: { opacity: 1, height: "auto", transition: { duration: MOTION.durMacro, ease: MOTION.easeFluid } },
+    exit: { opacity: 0, height: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
+};
+
+// A finished turn's Worked line grows at paneReveal's exit timing while its work's pane closes, so the two heights
+// trade in step and the rows below move once, instead of jumping down by the line and sliding back.
+export const foldLineReveal: Variants = {
+    initial: { opacity: 0, height: 0 },
+    animate: { opacity: 1, height: "auto", transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
     exit: { opacity: 0, height: 0, transition: { duration: MOTION.durExit, ease: MOTION.easeFluid } },
 };
 

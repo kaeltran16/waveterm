@@ -6,6 +6,7 @@
 // its Started run row. Each card kind is its own slice (renderedbs*.tsx); this host picks it, measures the column for
 // the compact sizes, and fades a trade of cards. CardFrame is the shell every card draws in.
 
+import { AutoHeight } from "@/app/element/autoheight";
 import { MOTION, viewFade } from "@/app/element/motiontokens";
 import { ViewSwap } from "@/app/element/viewswap";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
@@ -232,11 +233,15 @@ export function RenderedBrainstorm({ model, agent }: { model: AgentsViewModel; a
                         exit="exit"
                         className="mt-1 pb-2"
                     >
-                        <ViewSwap swapKey={`${cardKey(card, f)}${row ? ":row" : ""}`}>
-                            <CardRowContext.Provider value={row}>
-                                <CardBody card={card} p={props} agent={agent} s={s} compact={compact} />
-                            </CardRowContext.Provider>
-                        </ViewSwap>
+                        {/* a swap (the card folding to its row as the pane opens) changes its height: followed, so the
+                            feed above slides with it rather than jumping the reader by the difference */}
+                        <AutoHeight>
+                            <ViewSwap swapKey={`${cardKey(card, f)}${row ? ":row" : ""}`}>
+                                <CardRowContext.Provider value={row}>
+                                    <CardBody card={card} p={props} agent={agent} s={s} compact={compact} />
+                                </CardRowContext.Provider>
+                            </ViewSwap>
+                        </AutoHeight>
                     </motion.div>
                 ) : null}
             </AnimatePresence>

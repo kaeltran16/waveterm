@@ -150,15 +150,31 @@ const base = RBS_KIT.scenario(NAME, { noBrainstorm: true, topic: TOPIC }, async 
         return [added && p.shape === "strip" && p.unseen.includes("run:fx-auto-3") && p.stripDot, p];
     });
 
-    await step("an edit alone opens Changes on an empty pane", async () => {
+    await step("an edit alone opens Changes on an empty pane; the transcript narrows and widens in one frame each", async () => {
+        // the pane arrives and leaves at its full width: a width tween would rewrap the transcript on every frame
+        await h.ev(`(() => {
+            const s = { on: true, widths: [] };
+            window.__autoOpenWidths = s;
+            const tick = () => {
+                if (!s.on) return;
+                const w = document.querySelector("[data-rendered-scroll]")?.clientWidth ?? null;
+                if (w !== s.widths[s.widths.length - 1]) s.widths.push(w);
+                requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+            return true;
+        })()`);
         await closeAll(h, ctx);
         await polishWaitFor(h, `${PANE} == null`, WAIT_MS);
         await stampEdit(h, ctx);
         const opened = await waitPane(h, ctx, `s.active === "changes"`, GIT_WAIT_MS);
         await polishNap(700);
+        const widths = await h.ev(`(() => { const s = window.__autoOpenWidths; s.on = false; delete window.__autoOpenWidths; return s.widths; })()`);
         const p = await readPane(h, ctx);
         await h.shot(SHOT(4, "changes"));
-        return [opened && p.shape === "open" && p.tabs.join() === "changes", p];
+        // beside the strip, then wide once the pane is gone, then beside the open pane: no width in between
+        const oneFrame = widths.length === 3 && widths[1] > widths[0] && widths[2] < widths[1];
+        return [opened && p.shape === "open" && p.tabs.join() === "changes" && oneFrame, { ...p, widths }];
     });
 
     await step("closing the Changes tab auto-open put there keeps the next edit's Changes closed", async () => {
