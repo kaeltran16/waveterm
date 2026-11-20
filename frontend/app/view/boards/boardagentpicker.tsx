@@ -98,7 +98,7 @@ export function BoardAgentChip({ chip, choices, project, onPick, bare }: BoardAg
     }, [open]);
     const Chevron = open ? ChevronUp : ChevronDown;
     return (
-        <div ref={rootRef} className={cn("relative flex", bare ? "flex-none" : "min-w-0")}>
+        <div ref={rootRef} className="relative flex min-w-0">
             <button
                 ref={triggerRef}
                 type="button"

@@ -48,7 +48,7 @@ const NARROW = { ...VIEWPORT, width: 1000 };
 const MIN_BOX_PX = 200;
 // a ticking line watched for a wash: past two of the drawer's one-second ticks
 const TICK_WATCH_MS = 2300;
-const box =(x, y, text) => ({ type: "rectangle", x, y, width: 180, height: 70, label: { text } });
+const box = (x, y, text) => ({ type: "rectangle", x, y, width: 180, height: 70, label: { text } });
 const FIRST_DRAWING = [box(0, 0, "Tauri shell"), box(260, 0, "wavesrv"), box(520, 0, "agents")];
 const SECOND_DRAWING = [box(260, 160, "pkg/orchestrate"), { type: "arrow", x: 350, y: 75, width: 0, height: 80 }];
 const SHAPES = FIRST_DRAWING.length + SECOND_DRAWING.length;
@@ -72,7 +72,7 @@ const TAB_APP = `(() => {
     }
     return null;
 })()`;
-const text =(expr) => `((${expr})?.textContent ?? "").replace(/\\s+/g, " ").trim()`;
+const text = (expr) => `((${expr})?.textContent ?? "").replace(/\\s+/g, " ").trim()`;
 
 // placement: the board tab's button in the pane's tab row, the Boards surface's switcher, the drawer's toast
 const BOARD_KEY = (ctx) => `board:${ctx.boardId}`;
@@ -350,6 +350,8 @@ const readTab = (h) =>
         const input = ${INPUT};
         const facts = bar?.querySelector("[data-board-facts]");
         const chip = bar?.querySelector("[data-board-agent-chip]");
+        const chipText = chip?.querySelector(".truncate");
+        const ask = group?.querySelector("[data-board-ask-send]");
         const rect = (el) => el?.getBoundingClientRect();
         return {
             pane: aside?.getAttribute("data-workspace-pane") ?? null,
@@ -371,6 +373,9 @@ const readTab = (h) =>
             factsAtEnd: facts != null && group != null && rect(facts).left >= rect(group).right && rect(facts).right <= rect(bar).right,
             factsTruncated: facts != null && facts.scrollWidth > facts.clientWidth,
             groupPx: group ? Math.round(rect(group).width) : 0,
+            barFits: bar != null && bar.scrollWidth <= bar.clientWidth,
+            askVisible: ask != null && aside != null && rect(ask).right <= rect(aside).right && rect(ask).right <= rect(bar).right,
+            chipTruncated: chipText != null && chipText.scrollWidth > chipText.clientWidth,
             canvas: !!canvas?.querySelector(".excalidraw"),
             canvasPx: canvas ? Math.round(rect(canvas).width) : 0,
             transcript: rv != null && rect(rv).width > 0,
@@ -586,14 +591,14 @@ export const boardsWorkspace = {
             return { ok, detail: q({ s, cleared, choice, collapsing: collapsing.length, form, surface, back }) };
         });
 
-        await run("W1 narrow window: at 1000px wide the facts at the bar's end are truncated and the input group keeps at least 200px", async () => {
+        await run("W1 narrow window: at 1000px wide the bar fits the pane: the facts at its end and the agent chip's label are truncated, the input group keeps at least 200px, and Ask is fully visible", async () => {
             await h.cdp("Emulation.setDeviceMetricsOverride", NARROW);
             await polishNap(SETTLE_MS);
             const s = await readTab(h);
             await h.shot(SHOT("W1", "narrow"));
             await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
             await polishNap(SETTLE_MS);
-            const ok = s.bar && s.factsTruncated && s.groupPx >= MIN_BOX_PX;
+            const ok = s.bar && s.factsTruncated && s.groupPx >= MIN_BOX_PX && s.barFits && s.askVisible && s.chipTruncated;
             return { ok, detail: q(s) };
         });
 

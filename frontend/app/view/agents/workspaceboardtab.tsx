@@ -363,7 +363,9 @@ function AskBar({ ask, view, chip, facts }: { ask: AskState; view: BoardView; ch
                     </button>
                 )}
             </div>
-            <span data-board-facts className="min-w-0 flex-[0_1_auto] truncate font-mono text-[11px] text-muted">
+            {/* the heavy shrink empties the facts before the agent chip's label truncates; the chip's own shrink stays 1,
+                since a factor under 1 left alone absorbs only that fraction of the overflow */}
+            <span data-board-facts className="min-w-0 flex-[0_100_auto] truncate font-mono text-[11px] text-muted">
                 {facts}
             </span>
         </div>
