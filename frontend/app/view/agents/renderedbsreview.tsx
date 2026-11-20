@@ -9,6 +9,7 @@ import { turnTransition } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { TickNumber } from "@/app/element/ticknumber";
 import { cn } from "@/util/util";
+import { ChevronRight } from "lucide-react";
 import type { JSX } from "react";
 import type { AgentVM } from "./agentsviewmodel";
 import type { BrainstormFile, BrainstormPart, PartPick, ReviewRow } from "./brainstormmodel";
@@ -167,13 +168,20 @@ function ReviewRowCard({
                                 {row.gist}
                             </span>
                             {row.cause ? (
-                                <span
-                                    data-rendered-bs-review-cause
-                                    className="font-mono text-[10.5px] leading-[1.4] text-muted"
-                                >
+                                <span data-rendered-bs-review-cause className="text-[12px] leading-[1.4] text-muted">
                                     {row.cause}
                                 </span>
                             ) : null}
+                            {row.calls.map((c, i) => (
+                                <span
+                                    key={i}
+                                    data-rendered-bs-review-call
+                                    className="mt-[2px] text-[12.5px] leading-[1.5] text-ink-mid"
+                                >
+                                    <b className="mr-1.5 font-semibold text-secondary">Agent’s call</b>
+                                    {c}
+                                </span>
+                            ))}
                         </span>
                     </div>
                 </div>
@@ -200,16 +208,6 @@ function ReviewRowCard({
                     )}
                 </div>
             </PaneReveal>
-            {row.calls.map((c, i) => (
-                <div
-                    key={i}
-                    data-rendered-bs-review-call
-                    className="ml-[17px] flex items-baseline gap-2 rounded-[6px] bg-accentbg px-[10px] py-[5px] text-[12.5px] leading-[1.5] text-secondary"
-                >
-                    <span className="flex-none text-[11px] font-semibold text-accent-soft">Agent’s call</span>
-                    {c}
-                </div>
-            ))}
             <ErrorLine error={act.error} className="pl-[17px]" />
         </div>
     );
@@ -233,9 +231,10 @@ function PartLinks({
         <section
             aria-label={label}
             data-rendered-bs-review-links={kind}
-            className="flex flex-wrap items-baseline gap-x-[14px] gap-y-[6px] border-t border-edge-faint pt-[10px]"
+            className="flex flex-wrap items-center gap-x-[10px] gap-y-[6px] border-t border-edge-faint py-[10px] text-[13px] text-muted"
         >
-            <h2 className="m-0 text-[13px] font-semibold text-ink-mid">
+            <ChevronRight size={12} strokeWidth={2} aria-hidden className="flex-none" />
+            <h2 className="m-0 text-[13px] font-semibold text-secondary">
                 {label} · {parts.length}
             </h2>
             {parts.map((p) => (
@@ -244,7 +243,7 @@ function PartLinks({
                     type="button"
                     data-rendered-bs-review-link={p.id}
                     onClick={() => openBrainstormAt(agent.id, { part: p.id })}
-                    className={cn(LINK_BTN, "text-[12.5px] text-ink-mid")}
+                    className={cn(LINK_BTN, "text-[13px] text-muted hover:text-secondary")}
                 >
                     {p.title}
                 </button>
@@ -293,7 +292,7 @@ function PicksBar({
                     <span
                         data-rendered-bs-picks-line
                         title={picks.line}
-                        className={cn("text-secondary", compact ? "text-[12.5px]" : "text-[13px]")}
+                        className={cn("font-semibold text-secondary", compact ? "text-[12.5px]" : "text-[13.5px]")}
                     >
                         <TickNumber value={picks.picked} /> {picks.picked === 1 ? "choice" : "choices"} made
                         {picks.open > 0 ? (
