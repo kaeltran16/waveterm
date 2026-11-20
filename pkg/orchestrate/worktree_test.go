@@ -50,6 +50,8 @@ func gitRepoTemplate(t *testing.T) string {
 		gitCmd(t, dir, "init", "-b", "main")
 		gitCmd(t, dir, "config", "user.email", "t@test")
 		gitCmd(t, dir, "config", "user.name", "t")
+		// fixtures commit hundreds of times a run, and each commit launched a `git maintenance run --auto`
+		gitCmd(t, dir, "config", "maintenance.auto", "false")
 		writeFile(t, filepath.Join(dir, "base.txt"), "base\n")
 		gitCmd(t, dir, "add", ".")
 		gitCmd(t, dir, "commit", "-m", "base")
@@ -133,9 +135,31 @@ func TestDropProgressKeepsTheFailureLine(t *testing.T) {
 	}
 }
 
-func TestIsGitRepoFalse(t *testing.T) {
-	if IsGitRepo(t.TempDir()) {
-		t.Fatal("temp dir must not be a git repo")
+func TestIsGitRepo(t *testing.T) {
+	repo := newGitRepo(t)
+	sub := filepath.Join(repo, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wt, err := CreateRunWorktree(context.Background(), repo, "run-1", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		path string
+		want bool
+	}{
+		{"plain dir", t.TempDir(), false},
+		{"repo root", repo, true},
+		{"subfolder of a repo", sub, true},
+		{"linked worktree", wt, true},
+		{"missing folder inside a repo", filepath.Join(repo, "gone"), false},
+		{"file inside a repo", filepath.Join(repo, "base.txt"), false},
+	} {
+		if got := IsGitRepo(tc.path); got != tc.want {
+			t.Errorf("%s: IsGitRepo(%s) = %v, want %v", tc.name, tc.path, got, tc.want)
+		}
 	}
 }
 

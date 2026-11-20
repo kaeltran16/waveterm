@@ -93,10 +93,10 @@ func normalizeClaudePath(path string) string {
 	return filepath.ToSlash(abs)
 }
 
-// claudeGitRoot walks up from dir for a `.git` entry, matching Claude Code's own finder: a `.git`
+// GitRoot walks up from dir for a `.git` entry, matching Claude Code's own finder: a `.git`
 // *file* counts as much as a directory, so a linked worktree is its own git root. Returns "" when
 // there is no repository above dir.
-func claudeGitRoot(dir string) string {
+func GitRoot(dir string) string {
 	cur, err := filepath.Abs(dir)
 	if err != nil {
 		return ""
@@ -119,7 +119,7 @@ func MainCheckout(dir string) string {
 	if dir == "" {
 		return ""
 	}
-	root := claudeGitRoot(dir)
+	root := GitRoot(dir)
 	if root == "" {
 		return dir
 	}
@@ -194,7 +194,7 @@ func resolveClaudeTrust(dir string) claudeTrustTarget {
 	if err != nil {
 		abs = filepath.Clean(dir)
 	}
-	root := claudeGitRoot(abs)
+	root := GitRoot(abs)
 	key := abs
 	if root != "" {
 		key = claudeCanonicalRoot(root)
