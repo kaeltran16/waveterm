@@ -12,7 +12,9 @@ import {
     checkCardState,
     checkRowTitle,
     clockBar,
+    noteLead,
     settledLine,
+    TAKING_LONGER,
 } from "./renderedbscheckmodel";
 
 const READING: BuilderCheckView = { kind: "pending", stage: "reading", text: "A builder is reading the design." };
@@ -74,13 +76,15 @@ describe("builderHead", () => {
     it("counts the open question among the builder's and names the part it is for", () => {
         expect(builderHead(file([ANSWERED, OPEN]))).toEqual({
             lead: "Builder question · 2 of 2",
+            index: 2,
+            total: 2,
             part: { id: "queue", title: "Final queue" },
         });
     });
 
     it("has no part to link when the question names none", () => {
         const f = file([{ q: "Anything else?" }]);
-        expect(builderHead(f)).toEqual({ lead: "Builder question · 1 of 1", part: null });
+        expect(builderHead(f)).toEqual({ lead: "Builder question · 1 of 1", index: 1, total: 1, part: null });
     });
 });
 
@@ -146,9 +150,15 @@ describe("cardClock", () => {
     it("says it is taking longer once past the usual time", () => {
         const c = cardClock(pending(READING), { start: START, end: null }, TIMES, START + 460_000);
         expect(c.over).toBe(true);
-        expect(c.note).toBe(
-            "Taking longer than usual: most checks here finish in about 5m. Edits to the design wait until it is back."
-        );
+        expect(noteLead(c.note)).toEqual({
+            lead: TAKING_LONGER,
+            rest: " most checks here finish in about 5m. Edits to the design wait until it is back.",
+        });
+    });
+
+    it("has no warning lead within the usual time", () => {
+        const c = cardClock(pending(READING), { start: START, end: null }, TIMES, START + 130_000);
+        expect(noteLead(c.note)).toEqual({ lead: "", rest: c.note });
     });
 
     it("says how long the builder took while the agent takes its questions in", () => {
