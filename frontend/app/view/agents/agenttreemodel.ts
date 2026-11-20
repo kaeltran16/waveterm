@@ -3,7 +3,8 @@
 //
 // Pure view-model logic for the Agent surface's left tree. No React, no Wave runtime imports.
 // Produces group headers, agent rows, each orchestrator run's workers nested under its lead, and a brainstorm's
-// builder-check reviewer and judge nested under the brainstorming agent; subagent
+// builder-check reviewer and judge nested under the brainstorming agent, and each agent-started worker nested under the
+// agent that started it; subagent
 // children are read from per-block atoms in the component (they're ephemeral and keyed by block ORef), so
 // they stay out of this pure helper.
 
@@ -33,7 +34,8 @@ export const UNGROUPED_PROJECT = "ungrouped";
 
 export type AgentTreeRow =
     | { kind: "group"; project: string; count: number; attn: number }
-    | { kind: "parent"; agent: AgentVM; project: string }
+    // `depth` is how many agent-started workers deep it nests under a top-level agent; 0 or absent at the top
+    | { kind: "parent"; agent: AgentVM; project: string; depth?: number }
     // a builder check's reviewer or a judge under the brainstorming agent that started it; `stageRole` is which, and
     // `state` is that agent's record of it
     | { kind: "check"; agent: AgentVM; project: string; stageRole: string; state: BuilderCheckRecord["state"] }
@@ -415,9 +417,53 @@ export function buildAgentTree(
         }
         items.push(item);
     };
+    // a worker nests under the agent that started it while that agent has a plain row: a run's rows and a check's
+    // are laid out by their run or brainstorm. Workers whose parents name each other in a loop stay top-level rows
+    const isPlain = (a: AgentVM) => {
+        const role = lineage.roles[a.id];
+        if (role?.kind === "lead") {
+            return leads.get(role.runId) !== a;
+        }
+        if (role?.kind === "worker" || role?.kind === "stage") {
+            return !lineage.runs[role.leadRunId];
+        }
+        return !(a.runId != null && checkOwners.has(a.runId));
+    };
+    const byId = new Map(agents.map((a) => [a.id, a]));
+    const parentOf = (a: AgentVM): AgentVM | undefined => {
+        const p = a.parentTabId != null ? byId.get(a.parentTabId) : undefined;
+        return p != null && isPlain(p) ? p : undefined;
+    };
+    const nestsUnder = new Map<string, AgentVM>();
+    for (const a of agents) {
+        const p = isPlain(a) ? parentOf(a) : undefined;
+        if (p == null) {
+            continue;
+        }
+        const seen = new Set([a.id]);
+        let up: AgentVM | undefined = p;
+        while (up != null && !seen.has(up.id)) {
+            seen.add(up.id);
+            up = parentOf(up);
+        }
+        if (up == null) {
+            nestsUnder.set(a.id, p);
+        }
+    }
+    const workersOf = new Map<string, AgentVM[]>(); // by the parent's id, in roster order
+    for (const a of agents) {
+        const p = nestsUnder.get(a.id);
+        if (p != null) {
+            workersOf.set(p.id, [...(workersOf.get(p.id) ?? []), a]);
+        }
+    }
+
     const placedRuns = new Set<string>();
     for (const a of agents) {
         const role = lineage.roles[a.id];
+        if (nestsUnder.has(a.id)) {
+            continue;
+        }
         if (role?.kind === "lead" && leads.get(role.runId) === a) {
             placedRuns.add(role.runId);
             push({ kind: "lead", agent: a, project: projectOf(a) || UNGROUPED_PROJECT, run: lineage.runs[role.runId] });
@@ -444,11 +490,20 @@ export function buildAgentTree(
         let attn = 0;
         for (const item of [...g.items.filter(isPinned), ...g.items.filter((i) => !isPinned(i))]) {
             if (item.kind === "parent") {
-                const nested = checks.get(item.agent.id) ?? [];
-                body.push(item, ...nested.map((n) => ({ kind: "check" as const, project: g.project, ...n })));
-                const members = [item.agent, ...nested.map((n) => n.agent)];
-                count += members.length;
-                attn += members.filter((a) => a.state === "asking").length;
+                const pushAgent = (agent: AgentVM, depth: number) => {
+                    const nested = checks.get(agent.id) ?? [];
+                    body.push(
+                        depth > 0 ? { ...item, agent, depth } : item,
+                        ...nested.map((n) => ({ kind: "check" as const, project: g.project, ...n }))
+                    );
+                    const members = [agent, ...nested.map((n) => n.agent)];
+                    count += members.length;
+                    attn += members.filter((a) => a.state === "asking").length;
+                    for (const w of workersOf.get(agent.id) ?? []) {
+                        pushAgent(w, depth + 1);
+                    }
+                };
+                pushAgent(item.agent, 0);
                 continue;
             }
             const r = runRows(

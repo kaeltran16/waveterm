@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { globalStore } from "@/app/store/jotaiStore";
+import * as WOS from "@/app/store/wos";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -53,6 +54,25 @@ export async function resyncController(data: CommandControllerResyncData): Promi
         throw e;
     }
     globalStore.set(errAtom, undefined);
+}
+
+// the UI's agent tabs open through the backend. The broadcast carrying the new tab can trail the reply, so the tab
+// and its block are loaded here, for a caller that reads them at once.
+export async function launchAgentTab(data: CommandLaunchAgentTabData): Promise<CommandLaunchAgentTabRtnData> {
+    const rtn = await RpcApi.LaunchAgentTabCommand(TabRpcClient, data);
+    await Promise.all([
+        WOS.reloadWaveObject(WOS.makeORef("tab", rtn.tabid)),
+        WOS.reloadWaveObject(WOS.makeORef("block", rtn.blockid)),
+    ]);
+    return rtn;
+}
+
+// a launch's start outcome, kept as resyncController keeps one: a refusal reaches the roster and is thrown
+export function settleLaunchStart(rtn: CommandLaunchAgentTabRtnData): void {
+    globalStore.set(getStartErrorAtom(rtn.blockid), rtn.starterror || undefined);
+    if (rtn.starterror) {
+        throw new Error(rtn.starterror);
+    }
 }
 
 let subscribed = false;

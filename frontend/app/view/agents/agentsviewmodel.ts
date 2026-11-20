@@ -172,6 +172,8 @@ export interface AgentVM {
     pinned?: boolean; // session:pinned on the tab: the Agent tree lists it first in its project
     booting?: boolean; // a pending launch with no roster row yet: live, but not working
     startError?: string; // its controller refused to start: it reads idle, not booting, with this reason
+    parentTabId?: string; // agent:parenttab on the tab: the agent that started this worker; the tree nests it there
+    stopped?: boolean; // a worker with no process between turns: it reads stopped, and a message resumes it
 }
 
 const STATE_RANK: Record<AgentState, number> = { asking: 0, working: 1, idle: 2 };
@@ -465,6 +467,8 @@ export interface LiveAgentInput {
     builderCheck?: BuilderCheckRecord; // brainstorm:check* on the tab
     brainstormJudge?: BuilderCheckRecord; // brainstorm:judge* on the tab
     pinned?: boolean; // session:pinned on the tab
+    parentTabId?: string; // agent:parenttab on the tab
+    stopped?: boolean; // a worker whose terminal block is disarmed
 }
 
 /** Pure: one live row -> an AgentVM. `asking` (a pending AskUserQuestion) maps straight to asking so
@@ -509,6 +513,12 @@ export function agentVMFromInput(input: LiveAgentInput, now: number): AgentVM {
     }
     if (input.pinned) {
         vm.pinned = true;
+    }
+    if (input.parentTabId) {
+        vm.parentTabId = input.parentTabId;
+    }
+    if (input.stopped) {
+        vm.stopped = true;
     }
     if (input.status === "waiting" || input.status === "idle") {
         vm.atPrompt = true;

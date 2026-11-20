@@ -15,6 +15,7 @@ import {
     reorderWithinGroup,
     rollUpStatus,
     sessionRunORef,
+    sessionWorkerOf,
     subagentExpanded,
     visibleSubagents,
     type SessionInput,
@@ -260,6 +261,22 @@ describe("sessionRunORef", () => {
     it("is undefined for a session no run spawned", () => {
         expect(sessionRunORef({}, { "cmd:cwd": "/x" })).toBeUndefined();
         expect(sessionRunORef({}, undefined)).toBeUndefined();
+    });
+});
+
+describe("sessionWorkerOf", () => {
+    it.each([
+        ["a worker with an armed block", { "agent:parenttab": "p1" }, { controller: "cmd" }, { parentTabId: "p1" }],
+        [
+            "a worker with a disarmed block",
+            { "agent:parenttab": "p1" },
+            { controller: "" },
+            { parentTabId: "p1", stopped: true },
+        ],
+        ["a worker with no block yet", { "agent:parenttab": "p1" }, undefined, { parentTabId: "p1", stopped: true }],
+        ["an agent no parent started, disarmed", {}, { controller: "" }, {}],
+    ])("%s", (_name, tabMeta, termMeta, want) => {
+        expect(sessionWorkerOf(tabMeta, termMeta)).toEqual(want);
     });
 });
 

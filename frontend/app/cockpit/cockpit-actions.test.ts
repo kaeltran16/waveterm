@@ -3,35 +3,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { globalStore } from "@/app/store/jotaiStore";
 import { atoms } from "@/app/store/global-atoms";
 
-// launchAgent configures the new tab's default block via SetMeta, but the frontend's cached
-// (unsubscribed) block object stays stale at the pre-conversion shell meta — so the session
-// sidebar never sees cmd:cwd and the agent never enters the roster (empty cockpit panel). The fix
-// reloads the block object after SetMeta. These tests lock in that reload.
-
-const h = vi.hoisted(() => ({ tab: { blockids: ["blk-1"] } as { blockids?: string[] } | undefined }));
-const createTab = vi.fn();
-const closeTab = vi.fn().mockResolvedValue(undefined);
 const createWorktree = vi.fn();
-const setMeta = vi.fn().mockResolvedValue(undefined);
+const launchTab = vi.fn();
 const reloadWaveObject = vi.fn().mockResolvedValue(undefined);
 const fileInfo = vi.fn();
 const agentSyncApply = vi.fn().mockResolvedValue({ actions: [] });
 const pushToast = vi.fn();
-const controllerResync = vi.fn().mockResolvedValue(undefined);
 
-vi.mock("@/app/store/services", () => ({
-    WorkspaceService: {
-        CreateTab: (...a: any[]) => createTab(...a),
-        CloseTab: (...a: any[]) => closeTab(...a),
-    },
-}));
 vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
-        SetMetaCommand: (...a: any[]) => setMeta(...a),
         FileInfoCommand: (...a: any[]) => fileInfo(...a),
         CreateWorktreeCommand: (...a: any[]) => createWorktree(...a),
         AgentSyncApplyCommand: (...a: any[]) => agentSyncApply(...a),
-        ControllerResyncCommand: (...a: any[]) => controllerResync(...a),
+        LaunchAgentTabCommand: (...a: any[]) => launchTab(...a),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -44,7 +28,6 @@ vi.mock("@/app/view/agents/session-models/sessionsidebarmodel", async () => {
 vi.mock("@/app/store/global-atoms", () => ({ atoms: { workspace: atom({ oid: "ws1", tabids: [] }) } }));
 vi.mock("@/app/store/wos", () => ({
     makeORef: (otype: string, oid: string) => `${otype}:${oid}`,
-    getWaveObjectAtom: () => atom(h.tab),
     reloadWaveObject: (...a: any[]) => reloadWaveObject(...a),
 }));
 
@@ -65,17 +48,14 @@ function fakeModel(surface = "cockpit") {
 }
 
 beforeEach(() => {
-    createTab.mockReset().mockResolvedValue("tab-1");
-    closeTab.mockReset().mockResolvedValue(undefined);
-    setMeta.mockClear();
+    launchTab.mockReset().mockResolvedValue({ tabid: "tab-1", blockid: "blk-1" });
     reloadWaveObject.mockClear();
     fileInfo.mockReset().mockResolvedValue({});
     agentSyncApply.mockClear();
     pushToast.mockClear();
-    controllerResync.mockReset().mockResolvedValue(undefined);
     globalStore.set(sidebarAtom, { groups: [] });
+    globalStore.set(getStartErrorAtom("blk-1"), undefined);
     createWorktree.mockReset().mockResolvedValue({ worktreepath: "C:/wt/feat-x" });
-    h.tab = { blockids: ["blk-1"] };
     globalStore.set(workspaceAtom, { oid: "ws1", tabids: [] } as any);
 });
 
@@ -87,24 +67,39 @@ const agentOpts = {
     projectName: "proj",
 };
 
-const metaOf = (oref: string) => setMeta.mock.calls.find((c) => c[1]?.oref === oref)?.[1].meta;
+// the one LaunchAgentTabCommand's data
+const launched = (): CommandLaunchAgentTabData => {
+    expect(launchTab).toHaveBeenCalledTimes(1);
+    return launchTab.mock.calls[0][1];
+};
 
 describe("launchAgent", () => {
-    it("reloads the configured block's WOS object so the sidebar sees the agent meta (not stale shell)", async () => {
-        createTab.mockResolvedValue("tab-1");
-        await launchAgent(fakeModel(), {
-            runtime: "claude",
-            startupCommand: "claude",
-            task: "",
-            projectPath: "C:/proj",
-            projectName: "proj",
-        });
-        // the block was configured with the agent meta...
-        const blockSetMeta = setMeta.mock.calls.find((c) => c[1]?.oref === "block:blk-1");
-        expect(blockSetMeta, "SetMeta called on the tab's default block").toBeTruthy();
-        expect(blockSetMeta[1].meta.controller).toBe("cmd");
-        // ...and its stale FE cache must be refreshed so the roster recognizes it
-        expect(reloadWaveObject).toHaveBeenCalledWith("block:blk-1");
+    it("opens and starts an agent's tab with one launch, named for the project, in the active workspace", async () => {
+        await expect(launchAgent(fakeModel(), agentOpts)).resolves.toBe("tab-1");
+        expect(launchTab).toHaveBeenCalledWith(
+            {},
+            {
+                workspaceid: "ws1",
+                tabname: "proj",
+                tabmeta: { "session:agent": "claude", "session:project": "proj" },
+                blockmeta: {
+                    view: "term",
+                    controller: "cmd",
+                    cmd: "claude",
+                    "cmd:args": [],
+                    "agent:baseargs": [],
+                    "cmd:shell": false,
+                    "cmd:jwt": true,
+                    "cmd:cwd": "C:/proj",
+                },
+                start: true,
+            }
+        );
+    });
+
+    it("loads the new tab and its block, so a caller reads them as soon as the launch returns", async () => {
+        await launchAgent(fakeModel(), agentOpts);
+        expect(reloadWaveObject.mock.calls.flat().sort()).toEqual(["block:blk-1", "tab:tab-1"]);
     });
 
     it("preflights a missing Pi resumePath and refuses to create a tab", async () => {
@@ -119,7 +114,7 @@ describe("launchAgent", () => {
             resumePath: missing,
         }).catch((e: unknown) => e)) as Error;
         expect(fileInfo).toHaveBeenCalledWith({}, { info: { path: missing } });
-        expect(createTab).not.toHaveBeenCalled();
+        expect(launchTab).not.toHaveBeenCalled();
         expect(err.message).toContain("Pi session no longer exists");
         expect(err.message).toContain(missing);
     });
@@ -133,8 +128,7 @@ describe("launchAgent", () => {
             projectPath: "C:/proj",
             projectName: "proj",
         });
-        const blockSetMeta = setMeta.mock.calls.find((c) => c[1]?.oref === "block:blk-1");
-        expect(blockSetMeta[1].meta["cmd:args"]).toEqual([
+        expect(launched().blockmeta["cmd:args"]).toEqual([
             "--session",
             "C:\\Users\\Jane Doe\\.pi\\agent\\sessions\\s.jsonl",
         ]);
@@ -150,7 +144,7 @@ describe("launchAgent", () => {
             runtime: "pi",
             resumePath: missing,
         }).catch((e: unknown) => e)) as Error;
-        expect(createTab).not.toHaveBeenCalled();
+        expect(launchTab).not.toHaveBeenCalled();
         expect(err.message).toBe(`Pi session no longer exists: ${missing}`);
     });
 
@@ -161,7 +155,7 @@ describe("launchAgent", () => {
         );
         expect(fileInfo).toHaveBeenCalledWith({}, { info: { path: "C:/proj" } });
         expect(createWorktree).not.toHaveBeenCalled();
-        expect(createTab).not.toHaveBeenCalled();
+        expect(launchTab).not.toHaveBeenCalled();
     });
 
     it("checks only the project path when no resume path is given", async () => {
@@ -183,35 +177,24 @@ describe("launchAgent", () => {
             globalStore.set(workspaceAtom, ws as any);
             await expect(launchAgent(fakeModel(), agentOpts)).rejects.toThrow("no active workspace");
         }
-        expect(createTab).not.toHaveBeenCalled();
-    });
-
-    it("creates the tab in the active workspace, named for the project, without selecting it", async () => {
-        await launchAgent(fakeModel(), agentOpts);
-        expect(createTab).toHaveBeenCalledWith("ws1", "proj", false);
-    });
-
-    it("refuses a new tab that has no block", async () => {
-        h.tab = { blockids: [] };
-        await expect(launchAgent(fakeModel(), agentOpts)).rejects.toThrow("new tab has no block");
-        expect(setMeta).not.toHaveBeenCalled();
+        expect(launchTab).not.toHaveBeenCalled();
     });
 
     it("creates a worktree for an agent given a branch and launches in it", async () => {
         await launchAgent(fakeModel(), { ...agentOpts, branch: "  feat/x " });
         expect(createWorktree).toHaveBeenCalledWith({}, { projectpath: "C:/proj", branch: "feat/x" });
-        expect(metaOf("block:blk-1")["cmd:cwd"]).toBe("C:/wt/feat-x");
+        expect(launched().blockmeta["cmd:cwd"]).toBe("C:/wt/feat-x");
     });
 
     it("launches an agent in the project when the branch is blank", async () => {
         await launchAgent(fakeModel(), { ...agentOpts, branch: "   " });
         expect(createWorktree).not.toHaveBeenCalled();
-        expect(metaOf("block:blk-1")["cmd:cwd"]).toBe("C:/proj");
+        expect(launched().blockmeta["cmd:cwd"]).toBe("C:/proj");
     });
 
     it("leaves an agent with no project path without a cwd", async () => {
         await launchAgent(fakeModel(), { ...agentOpts, projectPath: "" });
-        expect(metaOf("block:blk-1")).not.toHaveProperty("cmd:cwd");
+        expect(launched().blockmeta).not.toHaveProperty("cmd:cwd");
     });
 
     it("starts the agent sync for every launch", async () => {
@@ -234,7 +217,7 @@ describe("launchAgent", () => {
 
     it("tags the tab with the agent, project, label and initiative", async () => {
         await launchAgent(fakeModel(), { ...agentOpts, label: "Fix login", effortORef: "effort:e1" });
-        expect(metaOf("tab:tab-1")).toStrictEqual({
+        expect(launched().tabmeta).toStrictEqual({
             "session:agent": "claude",
             "session:project": "proj",
             "session:label": "Fix login",
@@ -244,7 +227,7 @@ describe("launchAgent", () => {
 
     it("tags the tab with only the agent and project when there is no label or initiative", async () => {
         await launchAgent(fakeModel(), agentOpts);
-        expect(metaOf("tab:tab-1")).toStrictEqual({ "session:agent": "claude", "session:project": "proj" });
+        expect(launched().tabmeta).toStrictEqual({ "session:agent": "claude", "session:project": "proj" });
     });
 
     it("adds a booting row for an agent, after the rows already pending, and foregrounds it", async () => {
@@ -291,15 +274,6 @@ describe("launchAgent", () => {
         expect(globalStore.get(model.pendingLaunchesAtom)[0]).toMatchObject({ name: "proj 2" });
     });
 
-    it("launchAgent starts the controller with ControllerResyncCommand", async () => {
-        await launchAgent(fakeModel(), agentOpts);
-        expect(controllerResync).toHaveBeenCalledWith({}, { tabid: "tab-1", blockid: "blk-1" });
-        // the meta the process starts with is in place, and visible, first
-        expect(controllerResync.mock.invocationCallOrder[0]).toBeGreaterThan(
-            reloadWaveObject.mock.invocationCallOrder[0]
-        );
-    });
-
     it("launchAgent from the Cockpit leaves surfaceAtom on cockpit", async () => {
         const model = fakeModel("cockpit");
         await launchAgent(model, agentOpts);
@@ -307,57 +281,39 @@ describe("launchAgent", () => {
         expect(globalStore.get(model.focusIdAtom)).toBe("tab-1");
     });
 
-    it("launchAgent rethrows a controller start error", async () => {
-        controllerResync.mockRejectedValue(new Error("snapshot refused"));
+    it("rejects a refused start with its refusal, records it as the block's start error, and does not land", async () => {
+        launchTab.mockResolvedValue({ tabid: "tab-1", blockid: "blk-1", starterror: "snapshot refused" });
         const model = fakeModel("jarvis");
         await expect(launchAgent(model, agentOpts)).rejects.toThrow("snapshot refused");
-        expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
-    });
-
-    it("launchAgent records a refused controller start as the block's start error", async () => {
-        controllerResync.mockRejectedValue(new Error("snapshot refused"));
-        await expect(launchAgent(fakeModel(), agentOpts)).rejects.toThrow("snapshot refused");
         expect(globalStore.get(getStartErrorAtom("blk-1"))).toBe("snapshot refused");
-    });
-
-    it("closes the tab it made when configuring it fails, and rejects with the original error", async () => {
-        setMeta.mockRejectedValueOnce(new Error("snapshot store: not setting block blk-1's cwd"));
-        const model = fakeModel();
-        await expect(launchAgent(model, agentOpts)).rejects.toThrow("snapshot store: not setting block blk-1's cwd");
-        expect(closeTab).toHaveBeenCalledWith("ws1", "tab-1");
-        expect(controllerResync).not.toHaveBeenCalled();
+        expect(globalStore.get(model.surfaceAtom)).toBe("jarvis");
         expect(globalStore.get(model.pendingLaunchesAtom)).toStrictEqual([]);
     });
 
-    it("rejects with the original error when closing the failed tab also fails", async () => {
-        setMeta.mockRejectedValueOnce(new Error("meta refused"));
-        closeTab.mockRejectedValueOnce(new Error("close failed"));
-        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-        try {
-            await expect(launchAgent(fakeModel(), agentOpts)).rejects.toThrow("meta refused");
-            expect(logged.mock.calls.flat().join(" ")).toContain("tab-1");
-        } finally {
-            logged.mockRestore();
-        }
+    it("clears the block's earlier start error once it starts", async () => {
+        globalStore.set(getStartErrorAtom("blk-1"), "earlier refusal");
+        await launchAgent(fakeModel(), agentOpts);
+        expect(globalStore.get(getStartErrorAtom("blk-1"))).toBeUndefined();
     });
 
-    it("keeps the tab of a refused controller start, where its start error shows", async () => {
-        controllerResync.mockRejectedValue(new Error("snapshot refused"));
-        await expect(launchAgent(fakeModel(), agentOpts)).rejects.toThrow("snapshot refused");
-        expect(closeTab).not.toHaveBeenCalled();
+    it("rejects with the launch's own error, leaving no booting row", async () => {
+        launchTab.mockRejectedValue(new Error("snapshot store: not launching an agent"));
+        const model = fakeModel();
+        await expect(launchAgent(model, agentOpts)).rejects.toThrow("snapshot store: not launching an agent");
+        expect(globalStore.get(model.pendingLaunchesAtom)).toStrictEqual([]);
     });
 
     it("leaves a terminal to start when it is first opened", async () => {
         await launchAgent(fakeModel(), { ...agentOpts, runtime: "terminal", startupCommand: "" });
-        expect(controllerResync).not.toHaveBeenCalled();
+        expect(launched().start).toBe(false);
     });
 
     it("opens a terminal in the project in the background, with no agent row and no branch worktree", async () => {
         const model = fakeModel();
         await launchAgent(model, { ...agentOpts, runtime: "terminal", startupCommand: "", branch: "feat/x" });
         expect(createWorktree).not.toHaveBeenCalled();
-        expect(metaOf("block:blk-1")).toStrictEqual({ view: "term", controller: "shell", "cmd:cwd": "C:/proj" });
-        expect(metaOf("tab:tab-1")).toStrictEqual({ "session:project": "proj" });
+        expect(launched().blockmeta).toStrictEqual({ view: "term", controller: "shell", "cmd:cwd": "C:/proj" });
+        expect(launched().tabmeta).toStrictEqual({ "session:project": "proj" });
         expect(globalStore.get(model.pendingLaunchesAtom)).toStrictEqual([]);
         expect(globalStore.get(model.focusIdAtom)).toBeUndefined();
         expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
@@ -380,7 +336,7 @@ describe("launchAgent", () => {
 
     it("opens a terminal with no project path in the home directory", async () => {
         await launchAgent(fakeModel(), { ...agentOpts, runtime: "terminal", startupCommand: "", projectPath: "" });
-        expect(metaOf("block:blk-1")["cmd:cwd"]).toBe("~");
+        expect(launched().blockmeta["cmd:cwd"]).toBe("~");
     });
 });
 
@@ -399,7 +355,7 @@ describe("launchAgentOrToast", () => {
             title: "Couldn't start the agent",
             message: "Working directory no longer exists: C:/proj",
         });
-        expect(createTab).not.toHaveBeenCalled();
+        expect(launchTab).not.toHaveBeenCalled();
     });
 
     it("returns the tab id and toasts nothing when the launch works", async () => {
