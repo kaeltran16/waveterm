@@ -293,18 +293,11 @@ describe("board tabs", () => {
 });
 
 describe("removedExit", () => {
-    it("detaches a plain canvas, which closes it, and says the swap control goes with it", () => {
-        expect(removedExit(undefined)).toEqual({ label: "Close the canvas", detach: true, swapNote: true });
-    });
-    it("inside a brainstorm takes the brainstorm's own way back: its board view has no canvas to fall back to", () => {
-        expect(removedExit("Back to the question")).toEqual({
-            label: "Back to the question",
-            detach: false,
-            swapNote: false,
-        });
+    it("closes the canvas and says the swap control goes with it", () => {
+        expect(removedExit()).toEqual({ label: "Close the canvas", swapNote: true });
     });
     it("in the tab closes the tab, with no swap control to mention", () => {
-        expect(removedExit(undefined, true)).toEqual({ label: "Close the tab", detach: true, swapNote: false });
+        expect(removedExit(true)).toEqual({ label: "Close the tab", swapNote: false });
     });
 });
 

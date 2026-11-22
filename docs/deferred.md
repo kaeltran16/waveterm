@@ -424,3 +424,16 @@ Rare and xterm-internal; never seen in use. Moved out of `effort:3f309f6d-eecd-4
 
 **Revive when a highlighted line band is seen with no peek open,** after a long scroll or a `clear`.
 Nothing was built, so there is nothing to recover.
+
+## Agent edits: a blank edits chip after `commit-tree` Permission denied (2026-11-20)
+
+`agentedits.BuildCommits` (`pkg/agentedits/commits.go`) once failed on Windows with `commit-tree: unable to write
+.git/objects/... Permission denied` while builds for a repo and its worktree ran at once, so a card's edits chip
+stayed blank until its next refresh. Seen once in 2576 logged builds (dev 1/854, packaged 0/1722). 1920 stress
+builds (16 parallel identical BuildCommits over a repo and its worktree, with and without open `cat-file`
+readers) never reproduced it, so no fix could be verified. Found by the CDP sweep,
+`effort:6df1a7ca-932a-463b-b5c4-abf60765aef5` step 5.
+
+**Revive when it recurs:** take the `waveapp.log` line (the object path and which tree built it) and what else
+was touching that repo's `.git/objects` (an antivirus scan, an agent's own git, a second build). Nothing was
+built, so there is nothing to recover.

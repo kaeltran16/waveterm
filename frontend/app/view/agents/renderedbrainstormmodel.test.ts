@@ -52,7 +52,6 @@ const state = (f: BrainstormFile | null, over: Partial<BrainstormState> = {}): B
     missedStats: 0,
     modifiedMs: 1000,
     lastViewedMs: 0,
-    board: null,
     designOpen: false,
     historyOpen: false,
     boards: [],

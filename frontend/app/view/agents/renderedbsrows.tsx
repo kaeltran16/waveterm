@@ -73,11 +73,16 @@ function OptionList({ view, compact }: { view: AnswerView; compact: boolean }) {
 function AnswerSummary({ view, compact }: { view: AnswerView; compact: boolean }) {
     return (
         <>
-            <Lightbulb size={14} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />
-            <span className={cn("shrink-0 font-mono text-muted", compact ? "text-[11.5px]" : "text-[12px]")}>
-                {view.builder ? "Builder" : `Q${view.n}`}
+            <Lightbulb size={15} strokeWidth={2} className="shrink-0 text-ink-mid" aria-hidden />
+            <span
+                data-rbs-answer-kind
+                className={cn("shrink-0 text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}
+            >
+                {view.builder ? "Builder question" : `Question ${view.n}`}
             </span>
-            <span className={cn("min-w-0 truncate text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}>
+            <span
+                className={cn("min-w-0 truncate font-normal text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}
+            >
                 {view.question}
             </span>
             <span className="flex-1" />
@@ -111,7 +116,7 @@ function FoldedAnswer({ view, compact }: { view: AnswerView; compact: boolean })
                 onClick={() => setOpen(!open)}
                 className={cn(
                     "flex w-full min-w-0 cursor-pointer items-center text-left",
-                    compact ? "gap-2 px-2.5 py-2" : "gap-2.5 px-3 py-[9px]"
+                    compact ? "gap-2 px-2.5 py-2" : "gap-2.5 px-4 py-2.5"
                 )}
             >
                 <AnswerSummary view={view} compact={compact} />
@@ -181,8 +186,8 @@ function projectDirOf(agent: AgentVM, canvas: string, canvasTopic: string | null
     return getBrainstorm(agent.id)?.cwd ?? agent.cwd ?? null;
 }
 
-// the board the mark was made on, as a tab beside the transcript: the brainstorm's board view when the canvas is the
-// brainstorm's, else the canvas pane
+// the board the mark was made on: the canvas window on it when the canvas is the brainstorm's, else the Canvas tab
+// beside the transcript
 function openMarkedBoard(agent: AgentVM, view: MarkView, projectDir: string) {
     if (getBrainstorm(agent.id)?.file?.canvas === view.canvas) {
         openBrainstormAt(agent.id, { board: view.board });

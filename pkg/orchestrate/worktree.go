@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -115,10 +116,14 @@ func gitLocked(ctx context.Context, dir string, args ...string) (string, error) 
 	return git(ctx, dir, args...)
 }
 
-// IsGitRepo reports whether projectPath is inside a git working tree.
+// IsGitRepo reports whether projectPath is inside a git working tree. It looks for the `.git` entry itself
+// rather than asking git: the scheduler asks on every tick, and a git launch per ask was a fifth of the
+// package's test launches.
 func IsGitRepo(projectPath string) bool {
-	_, err := git(context.Background(), projectPath, "rev-parse", "--is-inside-work-tree")
-	return err == nil
+	if fi, err := os.Stat(projectPath); err != nil || !fi.IsDir() {
+		return false
+	}
+	return jarvis.GitRoot(projectPath) != ""
 }
 
 func ProjectHeadCommit(ctx context.Context, projectPath string) (string, error) {

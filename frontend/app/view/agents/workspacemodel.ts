@@ -16,6 +16,10 @@ export type WorkspaceTab =
     | { kind: "run"; runId: string; view: RunView; graph?: RunGraphState }
     | { kind: "changes"; selected: string | null }
     | { kind: "file"; path: string; line: number | null }
+    // selected: the absolute path of the shown doc; null is the newest
+    | { kind: "docs"; selected: string | null }
+    // open: the 1-based chunk whose notes are open; undefined is the first active chunk, null is none
+    | { kind: "initiative"; effortId: string; open?: number | null }
     | { kind: "brainstorm" }
     | { kind: "canvas" }
     | { kind: "board"; channelId: string; boardId: string };
@@ -55,6 +59,8 @@ export function tabKey(tab: WorkspaceTab): string {
             return `file:${tab.path}`;
         case "board":
             return `board:${tab.boardId}`;
+        case "initiative":
+            return `initiative:${tab.effortId}`;
         default:
             return tab.kind;
     }
@@ -66,17 +72,22 @@ export function paneWidth(stored: number, availablePx: number): number {
     return Math.max(MIN_PANE_PX, Math.min(want, availablePx - MIN_TRANSCRIPT_PX));
 }
 
+// a board tab's pane is as wide as the row leaves the transcript's minimum, unless a drag stored a width (null is the
+// widest). An unmeasured row (Infinity) has no widest to reach, so null reads as the default there
+export function boardPaneWidth(stored: number | null, availablePx: number): number {
+    if (stored != null) {
+        return paneWidth(stored, availablePx);
+    }
+    return Number.isFinite(availablePx) ? paneWidth(availablePx, availablePx) : DEFAULT_PANE_PX;
+}
+
 // reopening a key keeps the tab's sub-state (a Run tab's view, the Changes selection), except a File tab's line,
-// which is what the new link cites
+// which is what the new link cites, and a Docs tab's selection when the new open names a doc
 export function openTab(state: WorkspaceState, tab: WorkspaceTab): WorkspaceState {
     const key = tabKey(tab);
     const at = state.tabs.findIndex((t) => tabKey(t) === key);
-    const tabs =
-        at < 0
-            ? [...state.tabs, tab]
-            : tab.kind === "file"
-              ? state.tabs.map((t, i) => (i === at ? tab : t))
-              : state.tabs;
+    const replaces = tab.kind === "file" || (tab.kind === "docs" && tab.selected != null);
+    const tabs = at < 0 ? [...state.tabs, tab] : replaces ? state.tabs.map((t, i) => (i === at ? tab : t)) : state.tabs;
     return { ...state, tabs, active: key, collapsed: false, unseen: seen(state, key) };
 }
 
@@ -158,8 +169,8 @@ export function paneShape(state: WorkspaceState): PaneShape {
     return state.collapsed ? "strip" : state.expanded ? "expanded" : "open";
 }
 
-// name: the run's title for a Run tab, the topic for Brainstorm and Canvas, the board's name; a run not loaded yet
-// shows its id
+// name: the run's title for a Run tab, the topic for Brainstorm and Canvas, the board's name, the initiative's title; a
+// run not loaded yet shows its id
 export function tabLabel(tab: WorkspaceTab, name: string | undefined): string {
     switch (tab.kind) {
         case "run":
@@ -168,6 +179,10 @@ export function tabLabel(tab: WorkspaceTab, name: string | undefined): string {
             return "Changes";
         case "file":
             return tab.path.split(/[\\/]/).pop() || tab.path;
+        case "docs":
+            return "Docs";
+        case "initiative":
+            return name ? `Initiative · ${name}` : "Initiative";
         case "brainstorm":
             return name ? `Brainstorm · ${name}` : "Brainstorm";
         case "canvas":

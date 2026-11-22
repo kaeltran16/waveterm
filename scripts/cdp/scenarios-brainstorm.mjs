@@ -16,6 +16,8 @@ import {
     BS_HISTORY,
     BS_HISTORY_Q4,
     BS_PANE,
+    BS_WIN,
+    bsCloseWindow,
     BS_PART,
     BS_POLL_WAIT_MS,
     BS_Q1,
@@ -255,6 +257,15 @@ const bsRead = (h, ctx) =>
             compacted: flat(document.querySelector("[data-brainstorm-compacted]")),
             terminal: term ? !term.classList.contains("hidden") : null,
             treeLine: flat(${BS_TREE_LINE}),
+            // the canvas window a board opens in full: its picked tab and its buttons' labels; null while closed
+            win: (() => {
+                const w = ${BS_WIN};
+                if (!w) return null;
+                return {
+                    tab: flat(w.querySelector('[role="tablist"] [aria-selected="true"]')),
+                    buttons: [...w.querySelectorAll("button")].map((b) => flat(b) || b.getAttribute("aria-label")),
+                };
+            })(),
         };
     })()`);
 
@@ -1006,27 +1017,28 @@ export const brainstormMode = {
             { ...bsBrief(s2o), options: s2o.options, boards: s2o.qBoards }
         );
         await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-open-board]")?.click()`);
-        const s2f = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
-        const fullBack = await bsClick(h, BS_PANE, "Back to the question");
-        const s2r = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5_LAYOUT.text), 3000);
+        const s2f = await bsUntil(h, ctx, (s) => s.win != null, 3000);
+        await h.shot("cdp-shots/brainstorm-mode-2-full-size-window.png");
+        const fullClose = await bsCloseWindow(h);
+        const s2r = await bsUntil(h, ctx, (s) => s.win == null && s.view === "design" && s.question.includes(BS_Q5_LAYOUT.text), 3000);
         rec(
-            "2l4. Open full size from the question shows the board, and its Back to the question returns to the question",
-            s2f.ok && fullBack === "clicked" && s2r.ok && s2r.qBoards.length === 2,
-            { board: s2f.view, fullBack, back: bsBrief(s2r) }
+            "2l4. Open full size from the question opens the canvas window over it, the pane left on the question; Close returns to the question",
+            s2f.ok && s2f.view === "design" && s2f.question.includes(BS_Q5_LAYOUT.text) && fullClose === "clicked" && s2r.ok && s2r.qBoards.length === 2,
+            { win: s2f.win, view: s2f.view, fullClose, back: bsBrief(s2r) }
         );
-        // Esc takes the back control's step; on the question there is no step left, so a second Esc changes nothing
+        // Esc closes the window; on the question there is no step left, so a second Esc changes nothing
         await bsMouseClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-open-board]")`);
-        const s2e = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
+        const s2e = await bsUntil(h, ctx, (s) => s.win != null, 3000);
         const escVia = await bsEscape(h);
-        const s2eq = await bsUntil(h, ctx, (s) => s.view === "design" && s.question.includes(BS_Q5_LAYOUT.text), 3000);
+        const s2eq = await bsUntil(h, ctx, (s) => s.win == null && s.view === "design" && s.question.includes(BS_Q5_LAYOUT.text), 3000);
         await h.shot("cdp-shots/brainstorm-mode-2-esc-board-to-question.png");
         await bsEscape(h);
         await polishNap(500);
         const s2stay = await bsRead(h, ctx);
         rec(
-            `2l5. Esc on the board opened full size from the question returns to the question, and a second Esc there leaves it be (${escVia === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            `2l5. Esc on the window opened from the question closes it on the question, and a second Esc there leaves it be (${escVia === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
             s2e.ok && s2eq.ok && s2eq.qBoards.length === 2 && s2stay.view === "design" && s2stay.question.includes(BS_Q5_LAYOUT.text),
-            { board: s2e.view, via: escVia, back: bsBrief(s2eq), again: bsBrief(s2stay) }
+            { win: s2e.win, via: escVia, back: bsBrief(s2eq), again: bsBrief(s2stay) }
         );
         bsWrite(ctx, BS_FILES.answered);
         await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5.text));
@@ -1036,35 +1048,33 @@ export const brainstormMode = {
         await bsOpenRow(h, "page");
         await polishWaitFor(h, `!!${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`, 3000);
         await h.ev(`${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")?.click()`);
-        const s3 = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
-        const board = await h.ev(`(() => {
-            const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
-            const labels = [...(${BS_PANE}?.querySelectorAll("button") ?? [])].map(flat);
-            return { mark: labels.includes("Mark"), back: labels.includes("Back to the design"), canvas: !!${BS_PANE}?.querySelector("[data-canvas-pane]") };
-        })()`);
+        const s3 = await bsUntil(h, ctx, (s) => s.win != null, 3000);
         await h.shot("cdp-shots/brainstorm-mode-3.png");
-        await bsClick(h, BS_PANE, "Back to the design");
-        const s3back = await bsUntil(h, ctx, (s) => s.view === "design" && s.parts.length > 0, 3000);
+        const buttons = s3.win?.buttons ?? [];
+        // the brainstorm owns the run launch, so the window on its canvas has no Build this
+        const board = { mark: buttons.includes("Mark"), close: buttons.includes("Close"), build: buttons.some((b) => b.startsWith("Build this")) };
+        await bsCloseWindow(h);
+        const s3back = await bsUntil(h, ctx, (s) => s.win == null && s.view === "design" && s.parts.length > 0, 3000);
         rec(
-            "3. Open full size shows the board with Mark and Back to the design; back returns to the design, not the question",
-            s3.ok && board.mark && board.back && board.canvas && s3back.ok && s3back.back === "Back to question 5",
-            { board: s3.view, ...board, back: s3back.view, parts: s3back.parts.length, backBtn: s3back.back }
+            "3. Open full size from the design opens the canvas window with Mark and Close and no Build this; closing it returns to the design, not the question",
+            s3.ok && board.mark && board.close && !board.build && s3back.ok && s3back.back === "Back to question 5",
+            { win: s3.win, ...board, back: s3back.view, parts: s3back.parts.length, backBtn: s3back.back }
         );
-        // Esc, one level per press: the board opened off the design back to the design, then the design to the question
+        // Esc, one level per press: the window closes on the design, then the design steps back to the question
         await bsOpenRow(h, "page");
         await polishWaitFor(h, `!!${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`, 3000);
         await bsMouseClick(h, `${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`);
-        const s3e = await bsUntil(h, ctx, (s) => s.view === "board", 3000);
+        const s3e = await bsUntil(h, ctx, (s) => s.win != null, 3000);
         const esc3 = await bsEscape(h);
-        const s3d = await bsUntil(h, ctx, (s) => s.view === "design" && s.back === "Back to question 5" && s.parts.length > 0, 3000);
+        const s3d = await bsUntil(h, ctx, (s) => s.win == null && s.view === "design" && s.back === "Back to question 5" && s.parts.length > 0, 3000);
         await h.shot("cdp-shots/brainstorm-mode-3-esc-board-to-design.png");
         await bsEscape(h);
         const s3q = await bsUntil(h, ctx, (s) => s.view === "design" && s.back === "" && s.question.includes(BS_Q5.text), 3000);
         await h.shot("cdp-shots/brainstorm-mode-3-esc-design-to-question.png");
         rec(
-            `3b. Esc steps back one level per press: from the board opened off the design to the design, then from the design to question 5 (${esc3 === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            `3b. Esc steps back one level per press: the window opened off the design closes on the design, then the design steps back to question 5 (${esc3 === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
             s3e.ok && s3d.ok && s3q.ok,
-            { board: s3e.view, via: esc3, design: { ...bsBrief(s3d), back: s3d.back }, question: { ...bsBrief(s3q), back: s3q.back } }
+            { win: s3e.win, via: esc3, design: { ...bsBrief(s3d), back: s3d.back }, question: { ...bsBrief(s3q), back: s3q.back } }
         );
         await bsCloseDesign(h);
 
@@ -2107,35 +2117,12 @@ const bsabRead = (group = "Answers") => `(() => {
 })()`;
 
 const BSAB_TABS = `(() => {
-    const tabs = [...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])];
+    const tabs = [...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])];
     return {
-        canvas: !!${BS_PANE}?.querySelector("[data-canvas-pane]"),
-        picks: [...(${BS_PANE}?.querySelectorAll("[data-canvas-pane] [data-brainstorm-board-pick]") ?? [])].map((b) => (b.textContent ?? "").replace(/\\s+/g, " ").trim()),
+        canvas: !!${BS_WIN},
+        picks: [...(${BS_WIN}?.querySelectorAll("[data-brainstorm-board-pick]") ?? [])].map((b) => (b.textContent ?? "").replace(/\\s+/g, " ").trim()),
         labels: tabs.map((t) => (t.textContent ?? "").trim()),
         selected: (tabs.find((t) => t.getAttribute("aria-selected") === "true")?.textContent ?? "").trim(),
-    };
-})()`;
-
-// the toolbar wraps in a narrow pane (canvaspane.tsx), so its five tabs scroll only once their own row is too narrow
-// for them, yet the longest tab still fits in the scroller: about the width of the workspace's Canvas tab
-const BSAB_NARROW_PX = 600;
-// whether the board toolbar holds a narrow pane: every item inside the bar, the topic and meta on one line each, the
-// tabs scrolling, and the picked tab in view
-const BSAB_TOOLBAR_FIT = `(() => {
-    const box = (el) => el.getBoundingClientRect();
-    const lines = (el) => { const r = document.createRange(); r.selectNodeContents(el); return r.getClientRects().length; };
-    const bar = ${BS_PANE}?.querySelector("[data-canvas-pane]")?.firstElementChild;
-    const tabs = bar?.querySelector('[role="tablist"]');
-    const scroller = tabs?.parentElement;
-    const sel = tabs?.querySelector('[aria-selected="true"]');
-    if (bar == null || scroller == null || sel == null) return { found: false };
-    return {
-        found: true,
-        selected: (sel.textContent ?? "").trim(),
-        scrolls: scroller.scrollWidth > scroller.clientWidth,
-        inBar: [...bar.children].every((c) => box(c).right <= box(bar).right + 1),
-        oneLine: [...bar.querySelectorAll(":scope > span")].every((s) => lines(s) === 1),
-        selectedInView: box(sel).left >= box(scroller).left - 1 && box(sel).right <= box(scroller).right + 1,
     };
 })()`;
 
@@ -2234,19 +2221,19 @@ export const brainstormAnswerBoards = {
         await h.ev(
             `${BS_PANE}?.querySelector('[data-brainstorm-row-boards] [data-brainstorm-thumb="${BSAB_RAIL}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
         );
-        await polishWaitFor(h, `${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]').length === ${BSAB_TABS_WANT.length}`, BS_POLL_WAIT_MS);
+        await polishWaitFor(h, `${BS_WIN}?.querySelectorAll('[role="tab"]').length === ${BSAB_TABS_WANT.length}`, BS_POLL_WAIT_MS);
         const opened = await h.ev(BSAB_TABS);
         await h.shot("cdp-shots/brainstorm-answer-boards-4-full-size.png");
         const via = await bsabNextBoard(h);
         const stepped = await h.ev(BSAB_TABS);
-        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
+        await h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
         await polishNap(300);
         const all = await h.ev(BSAB_TABS);
-        const backed = await bsClick(h, BS_PANE, "Back to the question");
-        const back = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-row-boards]")`, 3000);
+        const backed = await bsCloseWindow(h);
+        const back = await polishWaitFor(h, `!${BS_WIN} && !!${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-row-boards]")`, 3000);
         const tabsHold = (t) => JSON.stringify(t.labels) === JSON.stringify(BSAB_TABS_WANT);
         rec(
-            `4. (Open-full-answer) Open full size on 1's Left-rail shows it, the tabs numbered by answer in canvas order; ] steps to the next board and All keeps the labels; Back returns to the question (${via === "keys" ? "a real ] key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            `4. (Open-full-answer) Open full size on 1's Left-rail opens the canvas window on it, the tabs numbered by answer in canvas order; ] steps to the next board and All keeps the labels; Close returns to the question (${via === "keys" ? "a real ] key" : "a keydown on the document: CDP keys did not reach the page"})`,
             opened.canvas &&
                 tabsHold(opened) &&
                 opened.selected === "1 · Left-rail" &&
@@ -2266,22 +2253,22 @@ export const brainstormAnswerBoards = {
         await h.ev(
             `${BS_PANE}?.querySelector('[data-brainstorm-row-boards] [data-brainstorm-thumb="${BSAB_RAIL}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
         );
-        await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-canvas-pane] [data-brainstorm-board-pick]")`, BS_POLL_WAIT_MS);
+        await polishWaitFor(h, `!!${BS_WIN}?.querySelector("[data-brainstorm-board-pick]")`, BS_POLL_WAIT_MS);
         const railPicks = await h.ev(BSAB_TABS);
-        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
+        await h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
         await polishNap(300);
         const allPicks = await h.ev(BSAB_TABS);
-        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "2 · Top-strip")?.click()`);
+        await h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === "2 · Top-strip")?.click()`);
         await polishNap(300);
         const stripPicks = await h.ev(BSAB_TABS);
         await h.shot("cdp-shots/brainstorm-answer-boards-4b-pick.png");
         const pickMark = await bsMark(h, ctx, STRIP_LABEL);
-        await h.ev(`${BS_PANE}?.querySelector("[data-canvas-pane] [data-brainstorm-board-pick]")?.click()`);
+        await h.ev(`${BS_WIN}?.querySelector("[data-brainstorm-board-pick]")?.click()`);
         const pickTyped = await bsTyped(h, ctx, pickMark, STRIP_LABEL);
-        const leftBoard = await polishWaitFor(h, `!${BS_PANE}?.querySelector("[data-canvas-pane]") && !!${BS_PANE}?.querySelector("[data-brainstorm-working]")`, 3000);
+        const leftBoard = await polishWaitFor(h, `!${BS_WIN} && !!${BS_PANE}?.querySelector("[data-brainstorm-working]")`, 3000);
         await h.ev(BS_TYPED_REMOVE);
         rec(
-            "4b. (Pick from full size) 1's Left-rail offers Pick 1 with its label, All offers none, 2's Top-strip offers Pick 2; clicking it sends 2's label as the answer and leaves the board for the agent writing it up",
+            "4b. (Pick from full size) 1's Left-rail offers Pick 1 with its label, All offers none, 2's Top-strip offers Pick 2; clicking it sends 2's label as the answer and closes the window on the agent writing it up",
             JSON.stringify(railPicks.picks) === JSON.stringify([`Pick 1· ${RAIL_LABEL}`]) &&
                 allPicks.picks.length === 0 &&
                 JSON.stringify(stripPicks.picks) === JSON.stringify([`Pick 2· ${STRIP_LABEL}`]) &&
@@ -2321,24 +2308,14 @@ export const brainstormAnswerBoards = {
         await h.ev(
             `${BS_PANE}?.querySelector('[data-brainstorm-judging] [data-brainstorm-row-boards] [data-brainstorm-thumb="${BSAB_RAIL}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
         );
-        await polishWaitFor(h, `${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]').length === ${BSAB_JUDGING_TABS_WANT.length}`, BS_POLL_WAIT_MS);
+        await polishWaitFor(h, `${BS_WIN}?.querySelectorAll('[role="tab"]').length === ${BSAB_JUDGING_TABS_WANT.length}`, BS_POLL_WAIT_MS);
         const jOpened = await h.ev(BSAB_TABS);
         await h.shot("cdp-shots/brainstorm-answer-boards-6-judging-full-size.png");
 
-        // 7. a pane too narrow for the toolbar: from All, ] once per other tab lands on the last one
-        const setWidth = (px) => h.ev(`(() => { const p = ${BS_PANE}?.querySelector("[data-canvas-pane]"); if (p) p.style.maxWidth = "${px}"; })()`);
-        await setWidth(`${BSAB_NARROW_PX}px`);
-        await h.ev(`[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
-        await polishNap(300);
-        for (let i = 1; i < BSAB_JUDGING_TABS_WANT.length; i++) await bsabNextBoard(h);
-        const fit = await h.ev(BSAB_TOOLBAR_FIT);
-        await h.shot("cdp-shots/brainstorm-answer-boards-7-narrow-toolbar.png");
-        await setWidth("");
-
-        const jBacked = await bsClick(h, BS_PANE, "Back to the question");
-        const jBack = await polishWaitFor(h, `!!${BS_PANE}?.querySelector("[data-brainstorm-judging] [data-brainstorm-row-boards]")`, 3000);
+        const jBacked = await bsCloseWindow(h);
+        const jBack = await polishWaitFor(h, `!${BS_WIN} && !!${BS_PANE}?.querySelector("[data-brainstorm-judging] [data-brainstorm-row-boards]")`, 3000);
         rec(
-            "6. (Judge wait full size) Open full size on 3's Left-rail shows it with the tabs numbered by approach and Pick 3 for that approach; Back returns to the judge's wait",
+            "6. (Judge wait full size) Open full size on 3's Left-rail opens the canvas window on it with the tabs numbered by approach and Pick 3 for that approach; Close returns to the judge's wait",
             jOpened.canvas &&
                 JSON.stringify(jOpened.labels) === JSON.stringify(BSAB_JUDGING_TABS_WANT) &&
                 jOpened.selected === "3 · Left-rail" &&
@@ -2346,16 +2323,6 @@ export const brainstormAnswerBoards = {
                 jBacked === "clicked" &&
                 jBack,
             { opened: jOpened, backed: jBacked, back: jBack }
-        );
-        rec(
-            `7. (Narrow toolbar) at ${BSAB_NARROW_PX}px the toolbar wraps and the board tabs scroll in their row while the back button, topic, meta and buttons stay inside it, each label on one line; ] to the last tab scrolls it into view`,
-            fit.found &&
-                fit.selected === BSAB_JUDGING_TABS_WANT.at(-1) &&
-                fit.scrolls &&
-                fit.inBar &&
-                fit.oneLine &&
-                fit.selectedInView,
-            fit
         );
         return steps;
     },

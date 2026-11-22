@@ -6,7 +6,7 @@ import { atom } from "jotai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { attachBrainstorm, detachBrainstorm, getBrainstorm, openBrainstormBoard } from "./brainstormstore";
+import { attachBrainstorm, detachBrainstorm, getBrainstorm } from "./brainstormstore";
 import { canvasHandoffLine, type Mark } from "./canvasmarks";
 import { sendCanvasMark, type SendIO } from "./canvassend";
 import {
@@ -122,15 +122,6 @@ describe("sendCanvasMark", () => {
             expect(globalStore.get(viewModeAtom("a1"))).toBe("rendered");
         });
 
-        it("a mark on the Brainstorm tab's board leaves that tab on its board", async () => {
-            attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0);
-            openBrainstormBoard("a1", "States.dc.html");
-            openWorkspaceTab("a1", { kind: "brainstorm" });
-            await sendCanvasMark(RENDERED, AGENT, fakeIO());
-            expect(globalStore.get(workspaceAtom("a1")).active).toBe("brainstorm");
-            expect(getBrainstorm("a1")).toMatchObject({ mode: "terminal", board: "States.dc.html" });
-            expect(getCanvas("a1")!.marking).toBe(false);
-        });
     });
 
     describe("with the canvas window open", () => {

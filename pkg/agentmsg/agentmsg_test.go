@@ -37,6 +37,21 @@ func TestEnvelopeNeverStartsWithASlash(t *testing.T) {
 	}
 }
 
+func TestWorkerNoticeIsOneAgentMessageLineNamingTheWorkersTab(t *testing.T) {
+	got := WorkerNotice("refactor helper", "tab-5678")
+	if !IsAgentMessage(got) {
+		t.Fatalf("WorkerNotice output is not an agent message: %q", got)
+	}
+	if strings.ContainsAny(got, "\r\n") {
+		t.Errorf("notice is not one line: %q", got)
+	}
+	for _, want := range []string{`"refactor helper"`, "wsh agents read tab-5678"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("notice %q does not hold %q", got, want)
+		}
+	}
+}
+
 func TestEnvelopeOrdinaryTextIsNotAnAgentMessage(t *testing.T) {
 	for _, text := range []string{"", "fix the bug", "/compact", "[Request interrupted by user]", `he said [Message from agent "x"`} {
 		if IsAgentMessage(text) {

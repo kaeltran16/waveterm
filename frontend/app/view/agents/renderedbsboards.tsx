@@ -19,6 +19,7 @@ import { brainstormAtom, openBrainstormAt, type BrainstormState } from "./brains
 import { boardLabel, updatedAgo } from "./canvasmodel";
 import { SERVER_DOWN } from "./canvaspane";
 import { canvasStateAtom, openCanvasWindow, selectCanvasTab } from "./canvasstore";
+import { CardHead, headIconSize } from "./renderedbrainstorm";
 import { COMPACT_CARD_PX } from "./renderedbrainstormmodel";
 import {
     boardCount,
@@ -39,7 +40,7 @@ function BoardChip({ board, onOpen }: { board: string; onOpen: (board: string) =
     return (
         <button
             type="button"
-            title={`Open ${label} in the Brainstorm tab`}
+            title={`Open ${label} in a window`}
             data-rendered-bs-board-chip={board}
             onClick={() => onOpen(board)}
             className="inline-flex cursor-pointer items-center gap-[5px] whitespace-nowrap rounded-[6px] border border-edge-strong bg-transparent px-2 py-[3px] text-[11.5px] text-ink-mid transition-colors hover:text-secondary"
@@ -50,7 +51,7 @@ function BoardChip({ board, onOpen }: { board: string; onOpen: (board: string) =
     );
 }
 
-// a chip on each option naming a board, which opens the Brainstorm tab at that board. Laid out as the pane's question
+// a chip on each option naming a board, which opens the canvas window on that board. Laid out as the pane's question
 // (questionChips)
 export function useQuestionBoards(
     agent: AgentVM,
@@ -107,18 +108,24 @@ function useNow(ms: number): number {
     return now;
 }
 
-function UpdatedAgo({ ms }: { ms: number | null }) {
+// "N boards · updated 40s ago": the count, and (with boards served) when they changed
+function MockupStatus({ count, updatedMs }: { count: number; updatedMs: number | null }) {
     const now = useNow(AGO_TICK_MS);
-    const ago = updatedAgo(now, ms);
-    return ago ? (
-        <span data-rendered-mockup-ago className="whitespace-nowrap text-[12px] text-muted">
-            {ago}
+    const ago = updatedAgo(now, updatedMs);
+    if (count === 0 && !ago) {
+        return null;
+    }
+    return (
+        <span data-rendered-mockup-status className="min-w-0 truncate text-[12px] text-muted">
+            {count > 0 ? boardCount(count) : null}
+            {count > 0 && ago ? " · " : null}
+            {ago ? <span data-rendered-mockup-ago>{ago}</span> : null}
         </span>
-    ) : null;
+    );
 }
 
-// the card's one row: Mockup, its topic and board count, then (with boards to open) when they changed, Open canvas
-// and, for boards served, Mark
+// the card's header row, the boards' shared one: Mockup, its topic, the status, then (with boards to open) Open canvas
+// and, for boards served, Mark. Narrow, the actions take a second line
 function MockupHead({
     agentId,
     topic,
@@ -136,49 +143,54 @@ function MockupHead({
     markable: boolean;
     compact: boolean;
 }) {
+    const actions = (
+        <span data-rendered-mockup-actions className="flex flex-none items-center gap-[10px]">
+            {open != null ? (
+                <button
+                    type="button"
+                    data-rendered-mockup-open
+                    onClick={() => openCanvasTabAt(agentId, open)}
+                    className={LINK}
+                >
+                    Open canvas
+                    <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
+                </button>
+            ) : null}
+            {markable && open != null ? (
+                <button
+                    type="button"
+                    data-rendered-mockup-mark
+                    title={MARK_TITLE}
+                    onClick={() => markBoard(agentId, open)}
+                    className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-edge-mid bg-surface-raised px-2.5 py-1 text-[12px] font-semibold text-primary hover:border-edge-strong"
+                >
+                    <SquareDashed size={13} strokeWidth={2} aria-hidden />
+                    Mark
+                </button>
+            ) : null}
+        </span>
+    );
     return (
-        <div
-            data-rendered-mockup-head
-            className={cn(
-                "flex px-[14px] py-[11px]",
-                compact ? "flex-col items-start gap-1.5" : "items-center gap-[10px]"
-            )}
-        >
-            <span className="flex min-w-0 items-center gap-[10px]">
-                <PanelsTopLeft size={15} strokeWidth={2} className="flex-none text-ink-mid" aria-hidden />
-                <span className={cn("text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}>Mockup</span>
-                <span className="min-w-0 truncate font-mono text-[12.5px] font-semibold text-foreground">{topic}</span>
-                {count > 0 ? (
-                    <span className="whitespace-nowrap text-[12px] text-muted">{boardCount(count)}</span>
-                ) : null}
-                {markable ? <UpdatedAgo ms={updatedMs} /> : null}
-            </span>
-            {compact ? null : <span className="flex-1" />}
-            <span data-rendered-mockup-actions className="flex flex-none items-center gap-[10px]">
-                {open != null ? (
-                    <button
-                        type="button"
-                        data-rendered-mockup-open
-                        onClick={() => openCanvasTabAt(agentId, open)}
-                        className={LINK}
-                    >
-                        Open canvas
-                        <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-                    </button>
-                ) : null}
-                {markable && open != null ? (
-                    <button
-                        type="button"
-                        data-rendered-mockup-mark
-                        title={MARK_TITLE}
-                        onClick={() => markBoard(agentId, open)}
-                        className="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-edge-mid bg-surface-raised px-2.5 py-1 text-[12px] font-semibold text-primary hover:border-edge-strong"
-                    >
-                        <SquareDashed size={13} strokeWidth={2} aria-hidden />
-                        Mark
-                    </button>
-                ) : null}
-            </span>
+        <div data-rendered-mockup-head>
+            <CardHead
+                icon={<PanelsTopLeft size={headIconSize(compact)} strokeWidth={2} aria-hidden />}
+                kind="Mockup"
+                subject={topic}
+                mono
+                compact={compact}
+            >
+                <MockupStatus count={count} updatedMs={markable ? updatedMs : null} />
+                {compact ? (
+                    open != null ? (
+                        <div className="flex basis-full items-center">{actions}</div>
+                    ) : null
+                ) : (
+                    <>
+                        <span className="flex-1" />
+                        {actions}
+                    </>
+                )}
+            </CardHead>
         </div>
     );
 }

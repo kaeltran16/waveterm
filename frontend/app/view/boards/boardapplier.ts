@@ -22,7 +22,7 @@ import { joinWorkspaceTab, rendersNow, workspaceAtom } from "../agents/workspace
 import { openTarget } from "../jarvis/openref";
 import { BoardFileError, parseBoardFile, serializeBoard } from "./boardmodel";
 import { drawerToastShows } from "./boardplacement";
-import { boardListAtom, liveBoardApply, onLiveBoardRegistered } from "./boardstore";
+import { boardListAtom, liveBoardApply, onLiveBoardRegistered, setOpenBoard } from "./boardstore";
 
 const SAVE_TRIES = 3;
 const TOASTED_STATES = new Set(["answered", "asks", "failed"]);
@@ -215,6 +215,10 @@ export function startBoardApplier(model: AgentsViewModel): () => void {
                     channelId: data.channelid,
                     boardId: data.boardid,
                 });
+                // Boards then opens on it too, but never swaps the board you are reading there
+                if (globalStore.get(model.surfaceAtom) !== "boards") {
+                    setOpenBoard(data.channelid, data.boardid);
+                }
             }
         },
     });

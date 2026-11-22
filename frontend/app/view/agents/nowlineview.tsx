@@ -6,7 +6,8 @@
 // spinner row on its terminal, so the host's memoised timeline does not re-render on each tick.
 
 import { CrossFade } from "@/app/element/crossfade";
-import { microFade } from "@/app/element/motiontokens";
+import { composerReveal } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { atoms } from "@/app/store/global";
 import { screenRows } from "@/app/view/term/termscreen";
 import { cn } from "@/util/util";
@@ -70,49 +71,46 @@ function useSpinnerMotion(verbLength: number | null) {
 export function WorkingLine({ line, compact = false }: { line: NowLine; compact?: boolean }) {
     const { verb, rest } = nowLineText(line, compact);
     const spinner = useSpinnerMotion(verb?.length ?? null);
-    if (line.kind === "hidden") {
-        return null;
-    }
+    // the line is a feed's last row, so it grows and collapses: a snap there jumps a feed pinned to its bottom
     return (
-        <motion.div
-            style={spinner.animated ? ({ "--shimmer": spinner.shimmer } as MotionStyle) : undefined}
-            data-working-line
-            data-compact={compact || undefined}
-            variants={microFade}
-            initial="initial"
-            animate="animate"
-            className={cn(
-                "flex min-w-0 items-center text-muted",
-                compact ? "mt-1 gap-[7px] text-[12px]" : "mt-2 gap-2 text-[13px]"
-            )}
-        >
-            {verb != null ? (
-                <span
-                    className={cn(
-                        "flex shrink-0 items-center gap-[1ch] font-mono",
-                        compact ? "text-[11.5px]" : "text-[12.5px]"
-                    )}
-                >
-                    {/* outside the cross-fade, so a verb change does not restart the glyph's cycle */}
-                    <motion.span
-                        data-working-glyph
-                        className="inline-block text-provider-claude"
-                        style={spinner.animated ? { rotate: spinner.rotate, scale: spinner.scale } : undefined}
+        <PaneReveal open={line.kind !== "hidden"} variants={composerReveal}>
+            <motion.div
+                style={spinner.animated ? ({ "--shimmer": spinner.shimmer } as MotionStyle) : undefined}
+                data-working-line
+                data-compact={compact || undefined}
+                className={cn(
+                    "flex min-w-0 items-center text-muted",
+                    compact ? "mt-1 gap-[7px] text-[12px]" : "mt-2 gap-2 text-[13px]"
+                )}
+            >
+                {verb != null ? (
+                    <span
+                        className={cn(
+                            "flex shrink-0 items-center gap-[1ch] font-mono",
+                            compact ? "text-[11.5px]" : "text-[12.5px]"
+                        )}
                     >
-                        {spinner.animated ? spinner.glyph : REST_GLYPH}
-                    </motion.span>
-                    {/* claude cycles the verb while it works; each new one cross-fades in */}
-                    <CrossFade swapKey={verb}>
-                        <span data-working-verb className="bg-clip-text text-transparent" style={SHIMMER_STYLE}>
-                            {verb}
-                        </span>
-                    </CrossFade>
+                        {/* outside the cross-fade, so a verb change does not restart the glyph's cycle */}
+                        <motion.span
+                            data-working-glyph
+                            className="inline-block text-provider-claude"
+                            style={spinner.animated ? { rotate: spinner.rotate, scale: spinner.scale } : undefined}
+                        >
+                            {spinner.animated ? spinner.glyph : REST_GLYPH}
+                        </motion.span>
+                        {/* claude cycles the verb while it works; each new one cross-fades in */}
+                        <CrossFade swapKey={verb}>
+                            <span data-working-verb className="bg-clip-text text-transparent" style={SHIMMER_STYLE}>
+                                {verb}
+                            </span>
+                        </CrossFade>
+                    </span>
+                ) : null}
+                <span data-working-facts className="min-w-0 truncate">
+                    {rest}
                 </span>
-            ) : null}
-            <span data-working-facts className="min-w-0 truncate">
-                {rest}
-            </span>
-        </motion.div>
+            </motion.div>
+        </PaneReveal>
     );
 }
 

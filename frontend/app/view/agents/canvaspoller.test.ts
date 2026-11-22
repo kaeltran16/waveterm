@@ -9,7 +9,7 @@ vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
 import type { AgentsViewModel } from "./agents";
-import { canvasOnScreen, pollAndMerge, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
+import { pollAndMerge, pollCanvasOnce, type CanvasIO, type HttpStatus } from "./canvaspoller";
 import {
     attachCanvas,
     canvasWindowAtom,
@@ -387,19 +387,5 @@ describe("pollAndMerge with the canvas window", () => {
         await pollAndMerge(TERMINAL, AGENT, served());
         expect(getCanvas(AGENT).reloadKey).toBe(0);
         detachCanvas("other");
-    });
-});
-
-describe("canvasOnScreen", () => {
-    it("is the canvas pane or tab while the canvas shows", () => {
-        expect(canvasOnScreen("canvas", null)).toBe(true);
-        expect(canvasOnScreen(null, null)).toBe(false);
-    });
-    it("is a brainstorm's full-size board while the brainstorm shows", () => {
-        expect(canvasOnScreen("brainstorm", { board: "Main.dc.html" })).toBe(true);
-    });
-    it("is off while the brainstorm shows no board, or does not show", () => {
-        expect(canvasOnScreen("brainstorm", { board: null })).toBe(false);
-        expect(canvasOnScreen(null, { board: "Main.dc.html" })).toBe(false);
     });
 });

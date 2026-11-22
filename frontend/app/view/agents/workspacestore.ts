@@ -50,6 +50,11 @@ export const workspaceWidthAtom = atomWithStorage<number>("agent.workspace.width
     getOnInit: true,
 });
 
+// a dragged board width, kept apart so narrowing a board does not shrink the other tabs; null is the widest
+export const workspaceBoardWidthAtom = atomWithStorage<number | null>("agent.workspace.boardwidth", null, undefined, {
+    getOnInit: true,
+});
+
 function apply(agentId: string, step: (s: WorkspaceState) => WorkspaceState): void {
     const a = stateAtom(agentId);
     globalStore.set(a, step(globalStore.get(a)));
@@ -76,6 +81,15 @@ export function joinWorkspaceTab(model: AgentsViewModel, agentId: string, tab: W
     }
     if (rendersNow(model, agentId)) {
         apply(agentId, (s) => addTab(s, tab));
+    }
+}
+
+// a join from outside the pane (`wsh view`): behind the active tab, unseen. A doc pushed to an existing Docs tab is
+// also its selection, even while that tab is active, since the push is what asks to show it
+export function pushWorkspaceTab(agentId: string, tab: WorkspaceTab): void {
+    apply(agentId, (s) => addTab(s, tab));
+    if (tab.kind === "docs" && tab.selected != null) {
+        apply(agentId, (s) => updateTab(s, tabKey(tab), { selected: tab.selected }));
     }
 }
 

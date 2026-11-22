@@ -49,6 +49,7 @@ import sessionsPaletteResume from "./scenarios-sessions-palette-resume.mjs";
 import agentStartFailed from "./scenarios-agent-start-failed.mjs";
 import agentStreams from "./scenarios-agent-streams.mjs";
 import agentSubagents from "./scenarios-agent-subagents.mjs";
+import agentWorkers from "./scenarios-agent-workers.mjs";
 import agentKeys from "./scenarios-agent-keys.mjs";
 import agentHeader from "./scenarios-agent-header.mjs";
 import agentRail from "./scenarios-agent-rail.mjs";
@@ -63,6 +64,8 @@ import { workspaceRunActivity } from "./scenarios-workspace-run-activity.mjs";
 import { workspaceRunGraph } from "./scenarios-workspace-run-graph.mjs";
 import { workspaceChanges } from "./scenarios-workspace-changes.mjs";
 import { workspaceFile } from "./scenarios-workspace-file.mjs";
+import { workspaceDocs } from "./scenarios-workspace-docs.mjs";
+import { workspaceInitiative } from "./scenarios-workspace-initiative.mjs";
 import { workspaceBrainstormCanvas } from "./scenarios-workspace-brainstorm-canvas.mjs";
 import { workspaceBrainstormQuestion } from "./scenarios-workspace-brainstorm-question.mjs";
 import { workspaceBrainstormHistory } from "./scenarios-workspace-brainstorm-history.mjs";
@@ -375,6 +378,7 @@ export const SCENARIOS = [
     ...agentStartFailed(SESSIONS_KIT),
     ...agentStreams(SESSIONS_KIT),
     ...agentSubagents(SESSIONS_KIT),
+    ...agentWorkers(SESSIONS_KIT),
     ...agentKeys(SESSIONS_KIT),
     ...agentHeader(SESSIONS_KIT),
     ...agentRail(SESSIONS_KIT),
@@ -391,6 +395,8 @@ export const SCENARIOS = [
     workspaceRunGraph,
     workspaceChanges,
     workspaceFile,
+    workspaceDocs,
+    workspaceInitiative,
     workspaceBrainstormCanvas,
     workspaceBrainstormQuestion,
     workspaceBrainstormHistory,

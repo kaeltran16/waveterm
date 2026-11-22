@@ -12,6 +12,7 @@ import { useAtomValue } from "jotai";
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { AgentsViewModel } from "./agents";
+import { useBrainstormBoards } from "./brainstormpane";
 import { CanvasPane } from "./canvaspane";
 import { canvasStateAtom, canvasWindowAtom, closeCanvasWindow, getCanvas, setMark } from "./canvasstore";
 import { canvasEscape } from "./canvaswindowmodel";
@@ -35,8 +36,10 @@ export function CanvasWindow({ model }: { model: AgentsViewModel }) {
     const id = useAtomValue(canvasWindowAtom);
     const surface = useAtomValue(model.surfaceAtom);
     const agents = useAtomValue(model.agentsAtom);
-    const hasCanvas = useAtomValue(canvasStateAtom(id ?? "")) != null;
+    const canvas = useAtomValue(canvasStateAtom(id ?? ""));
+    const hasCanvas = canvas != null;
     const agent = id != null ? agents.find((a) => a.id === id) : undefined;
+    const brainstorm = useBrainstormBoards(agent, canvas?.topic);
     useKeybindings(WINDOW_BINDINGS);
     // the atom is what mutes the surface's keys, so a window left with nothing to draw (its agent closed) closes
     useEffect(() => {
@@ -51,7 +54,13 @@ export function CanvasWindow({ model }: { model: AgentsViewModel }) {
         <ModalShell open={open} onClose={escapeCanvasWindow} align="center" className="flex size-full flex-col">
             {open ? (
                 <div data-canvas-window className="flex min-h-0 flex-1 flex-col">
-                    <CanvasPane model={model} agent={agent} onClose={closeCanvasWindow} />
+                    <CanvasPane
+                        model={model}
+                        agent={agent}
+                        tabLabels={brainstorm?.tabLabels}
+                        boardActions={brainstorm?.boardActions}
+                        onClose={closeCanvasWindow}
+                    />
                 </div>
             ) : null}
         </ModalShell>,

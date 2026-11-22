@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
     activateTab,
     addTab,
+    boardPaneWidth,
     closeTab,
     EMPTY_WORKSPACE,
     iconOnlyTabs,
@@ -27,6 +28,8 @@ import {
 const run = (runId: string): WorkspaceTab => ({ kind: "run", runId, view: "tasks" });
 const file = (path: string, line: number | null): WorkspaceTab => ({ kind: "file", path, line });
 const changes: WorkspaceTab = { kind: "changes", selected: null };
+const docs = (selected: string | null): WorkspaceTab => ({ kind: "docs", selected });
+const initiative = (effortId: string, open?: number | null): WorkspaceTab => ({ kind: "initiative", effortId, open });
 
 function withTabs(...tabs: WorkspaceTab[]): WorkspaceState {
     return tabs.reduce(openTab, EMPTY_WORKSPACE);
@@ -39,6 +42,16 @@ describe("tabKey", () => {
         expect(tabKey(changes)).toBe("changes");
         expect(tabKey({ kind: "brainstorm" })).toBe("brainstorm");
         expect(tabKey({ kind: "canvas" })).toBe("canvas");
+    });
+
+    it("keys one Docs tab per agent and one Initiative tab per effort", () => {
+        expect(tabKey(docs("a.md"))).toBe("docs");
+        expect(tabKey(docs(null))).toBe("docs");
+        expect(tabKey(initiative("e1"))).toBe("initiative:e1");
+        expect(withTabs(initiative("e1"), initiative("e2"), initiative("e1")).tabs.map(tabKey)).toEqual([
+            "initiative:e1",
+            "initiative:e2",
+        ]);
     });
 });
 
@@ -77,6 +90,18 @@ describe("openTab", () => {
     it("keeps a reopened Changes tab's selection", () => {
         const s0 = updateTab(withTabs(changes), "changes", { selected: "b.ts" });
         expect(openTab(s0, changes).tabs[0]).toEqual({ kind: "changes", selected: "b.ts" });
+    });
+
+    it("takes a reopened Docs tab's incoming selection, and keeps the old one on null", () => {
+        const s0 = withTabs(docs("a.md"), changes);
+        expect(openTab(s0, docs("b.md")).tabs[0]).toEqual(docs("b.md"));
+        expect(openTab(s0, docs(null)).tabs[0]).toEqual(docs("a.md"));
+        expect(openTab(s0, docs(null)).active).toBe("docs");
+    });
+
+    it("keeps a reopened Initiative tab's open chunk", () => {
+        const s0 = updateTab(withTabs(initiative("e1")), "initiative:e1", { open: 2 });
+        expect(openTab(s0, initiative("e1")).tabs[0]).toEqual(initiative("e1", 2));
     });
 
     it("un-collapses the pane, for a new tab and an existing one", () => {
@@ -134,6 +159,14 @@ describe("updateTab", () => {
         expect(updateTab(s, "run:r1", { runId: "r2" })).toBe(s);
         expect(updateTab(s, "run:r1", { kind: "canvas" })).toBe(s);
     });
+
+    it("changes a Docs selection and an Initiative's open chunk, never its effort", () => {
+        expect(updateTab(withTabs(docs(null)), "docs", { selected: "a.md" }).tabs[0]).toEqual(docs("a.md"));
+        const s = withTabs(initiative("e1"));
+        expect(updateTab(s, "initiative:e1", { open: 3 }).tabs[0]).toEqual(initiative("e1", 3));
+        expect(updateTab(s, "initiative:e1", { open: null }).tabs[0]).toEqual(initiative("e1", null));
+        expect(updateTab(s, "initiative:e1", { effortId: "e2" })).toBe(s);
+    });
 });
 
 describe("collapse and expand", () => {
@@ -184,6 +217,20 @@ describe("paneWidth", () => {
     });
 });
 
+describe("boardPaneWidth", () => {
+    it.each([
+        { name: "the widest when nothing is stored", stored: null, room: 1362, want: 1002 },
+        { name: "never under 360 on a narrow row", stored: null, room: 600, want: 360 },
+        { name: "a stored width clamped as paneWidth clamps it", stored: 1200, room: 1362, want: 1002 },
+        { name: "a stored width that fits", stored: 700, room: 1362, want: 700 },
+        { name: "a stored width under the floor", stored: 200, room: 1362, want: 360 },
+        { name: "the 600 default for the widest in an unmeasured row", stored: null, room: Infinity, want: 600 },
+        { name: "the stored width in an unmeasured row", stored: 700, room: Infinity, want: 700 },
+    ])("gives $name", ({ stored, room, want }) => {
+        expect(boardPaneWidth(stored, room)).toBe(want);
+    });
+});
+
 describe("paneShape", () => {
     it("is none with no tabs, whatever the flags say", () => {
         expect(paneShape(EMPTY_WORKSPACE)).toBe("none");
@@ -214,6 +261,12 @@ describe("tabLabel", () => {
         expect(tabLabel({ kind: "canvas" }, "import-screen")).toBe("Canvas · import-screen");
         expect(tabLabel({ kind: "brainstorm" }, undefined)).toBe("Brainstorm");
         expect(tabLabel({ kind: "canvas" }, "")).toBe("Canvas");
+    });
+
+    it("names Docs plainly and an Initiative by its title, and by kind alone until the title loads", () => {
+        expect(tabLabel(docs(null), undefined)).toBe("Docs");
+        expect(tabLabel(initiative("e1"), "Stats and dedupe")).toBe("Initiative · Stats and dedupe");
+        expect(tabLabel(initiative("e1"), undefined)).toBe("Initiative");
     });
 });
 

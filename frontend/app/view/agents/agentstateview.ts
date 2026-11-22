@@ -22,7 +22,7 @@ const STATE_LABEL: Record<AgentState, string> = { asking: "asking", working: "wo
 const MS_PER_MINUTE = 60_000;
 
 export interface StateViewInput {
-    agent: Pick<AgentVM, "state" | "kind" | "startError" | "agent">;
+    agent: Pick<AgentVM, "state" | "kind" | "startError" | "agent" | "stopped">;
     ended: boolean;
     landed: boolean;
     runDone: boolean;
@@ -41,6 +41,10 @@ export function agentStateView(input: StateViewInput): { text: string; tone: Sta
     }
     if (agent.startError != null) {
         return { text: "failed to start", tone: "error" };
+    }
+    // a stopped worker has no process, so it is neither quiet nor standing by
+    if (agent.stopped) {
+        return { text: "stopped", tone: "idle" };
     }
     if (silentMs != null) {
         return { text: `quiet ${Math.floor(silentMs / MS_PER_MINUTE)}m`, tone: "warning" };

@@ -54,6 +54,12 @@ export class RpcApiType {
         return client.wshRpcStream("agentcontrol", data, opts);
     }
 
+    // command "agentdocs" [call]
+    AgentDocsCommand(client: WshClient, data: CommandAgentDocsData, opts?: RpcOpts): Promise<CommandAgentDocsRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentdocs", data, opts);
+        return client.wshRpcCall("agentdocs", data, opts);
+    }
+
     // command "agentpermission" [call]
     AgentPermissionCommand(client: WshClient, data: CommandAgentPermissionData, opts?: RpcOpts): Promise<string> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentpermission", data, opts);
@@ -94,6 +100,12 @@ export class RpcApiType {
     AgentsSendCommand(client: WshClient, data: CommandAgentsSendData, opts?: RpcOpts): Promise<CommandAgentsSendRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentssend", data, opts);
         return client.wshRpcCall("agentssend", data, opts);
+    }
+
+    // command "agentsstart" [call]
+    AgentsStartCommand(client: WshClient, data: CommandAgentsStartData, opts?: RpcOpts): Promise<CommandAgentsStartRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "agentsstart", data, opts);
+        return client.wshRpcCall("agentsstart", data, opts);
     }
 
     // command "agentsyncadopt" [call]
@@ -934,6 +946,12 @@ export class RpcApiType {
     LandRunCommand(client: WshClient, data: CommandLandRunData, opts?: RpcOpts): Promise<RunLand> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "landrun", data, opts);
         return client.wshRpcCall("landrun", data, opts);
+    }
+
+    // command "launchagenttab" [call]
+    LaunchAgentTabCommand(client: WshClient, data: CommandLaunchAgentTabData, opts?: RpcOpts): Promise<CommandLaunchAgentTabRtnData> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "launchagenttab", data, opts);
+        return client.wshRpcCall("launchagenttab", data, opts);
     }
 
     // command "listbranches" [call]

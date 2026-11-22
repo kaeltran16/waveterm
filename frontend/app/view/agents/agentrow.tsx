@@ -333,7 +333,7 @@ export const AgentRow = memo(function AgentRow({
 
     const liveEntries = useAtomValue(entriesAtomFor(agent.id));
     const entries = entriesToShow(liveEntries, agent.previousInfo);
-    const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
+    const { scrollRef, onScroll, atBottom, jumpToBottom, release } = useStickToBottom(entries);
     const ctx = useTranscriptContext(model, agent);
     const tail = useWorkingTail(nowAtom, agent, entries, true);
     // the composer ends the scroll region, so opening it re-sticks a card scrolled up into its history
@@ -345,7 +345,7 @@ export const AgentRow = memo(function AgentRow({
     const asking = agent.state === "asking";
     // an ask that arrives (or is there at mount) brings its first option into view: the region sticks to its
     // bottom, which in a short card leaves the options above it. measured against where the pin lands, not the
-    // scrollTop now, since the pin for this same render may still be pending; onScroll then releases the stick so
+    // scrollTop now, since the pin for this same render may still be pending; release then frees the stick so
     // that pin and later resizes leave it. entries too: a transcript that loads after mount re-pins a still-stuck
     // region, while one the user scrolled stays where they left it
     const answerRef = useRef<HTMLDivElement>(null);
@@ -359,7 +359,7 @@ export const AgentRow = memo(function AgentRow({
         const top = askScrollTop(band.offsetTop - el.offsetTop, el.scrollHeight - el.clientHeight);
         if (top != null) {
             el.scrollTop = top;
-            onScroll();
+            release();
         }
     }, [askId, entries]);
     const working = agent.state === "working";

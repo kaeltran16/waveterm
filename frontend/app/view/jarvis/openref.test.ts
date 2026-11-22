@@ -1306,7 +1306,7 @@ describe("board landings", () => {
             expect(globalStore.get(model.surfaceAtom)).toBe("agent");
             expect(globalStore.get(model.focusIdAtom)).toBe(agentId);
             expect(globalStore.get(workspaceAtom(agentId)).active).toBe("board:0a1b2c3d");
-            expect(globalStore.get(openBoardByChannelAtom)).toEqual({});
+            expect(globalStore.get(openBoardByChannelAtom)).toEqual({ c1: "0a1b2c3d" });
         } finally {
             closeWorkspaceTab(agentId, "board:0a1b2c3d");
         }

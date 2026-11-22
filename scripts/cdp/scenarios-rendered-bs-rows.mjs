@@ -116,7 +116,7 @@ function cropPng(w = 300, h = 76) {
 const SHOT = (n, what) => `cdp-shots/rendered-bs-rows-${n}-${what}.png`;
 
 export default (kit) => {
-    const { scenario, agentPage, polishWaitFor, polishNap, narrow, widen, closePaneTabs, RV, PANE, WAIT_MS } = kit;
+    const { scenario, agentPage, polishWaitFor, polishNap, narrow, widen, closePaneTabs, RV, WAIT_MS } = kit;
     const FEED = `${RV}?.querySelector("[data-rendered-feed]")`;
 
     // every brainstorm row the feed draws, in order: its kind, flat text, origin, and the answer's font size
@@ -131,6 +131,7 @@ export default (kit) => {
                 origin: el.getAttribute("data-origin"),
                 compact: el.closest("[data-rbs-compact]") != null,
                 size: getComputedStyle(el.querySelector("[data-rbs-answer]") ?? el).fontSize,
+                kindMono: el.querySelector("[data-rbs-answer-kind]")?.classList.contains("font-mono") ?? null,
             }));
         })()`);
 
@@ -147,6 +148,16 @@ export default (kit) => {
             return true;`
         );
 
+    // the canvas window and the canvas state, read through the store as the app does
+    const canvasStore = (h, ctx, body) =>
+        agentPage(
+            h,
+            `const C = await mod("app/view/agents/canvasstore.ts");
+            const id = ${JSON.stringify(ctx.agentId)};
+            ${body}`
+        );
+    const canvasFacts = (h, ctx) => canvasStore(h, ctx, `return { window: globalStore.get(C.canvasWindowAtom), board: C.getCanvas(id)?.board ?? null };`);
+
     // the canvas and the crop exist before the feed draws, as they do before any mark is sent
     const files = { [`.superpowers/design/${TOPIC}/feedback/003.png`]: cropPng() };
 
@@ -155,23 +166,26 @@ export default (kit) => {
             const seeded = await seedRecords(h, ctx);
             await polishWaitFor(h, `(${FEED}?.querySelectorAll("[data-rbs-row='answer']").length ?? 0) >= 4`, WAIT_MS);
 
-            await step("Main: Q1 and Q2 fold to their picks, picked here; Q3, with no record, reads You answered question 3", async () => {
+            await step("Main: Question 1 and Question 2 fold to their picks, picked here, the label not mono; Question 3, with no record, reads You answered question 3", async () => {
                 const rows = await readRows(h);
-                const q1 = byText(rows, "answer", ["Q1", Q1.q, "Runs with a Final", "picked here"]);
-                const q2 = byText(rows, "answer", ["Q2", Q2.q, "The OS low-memory signal", "picked here"]);
+                const q1 = byText(rows, "answer", ["Question 1", Q1.q, "Runs with a Final", "picked here"]);
+                const q2 = byText(rows, "answer", ["Question 2", Q2.q, "The OS low-memory signal", "picked here"]);
                 const q3 = byText(rows, "answered", ["You answered question 3:", "One Final at a time"]);
                 await h.shot(SHOT(1, "answers"));
-                return [seeded && !!q1 && !!q2 && !!q3 && q1.origin === "transcript", { q1, q2, q3 }];
+                return [
+                    seeded && !!q1 && !!q2 && !!q3 && q1.origin === "transcript" && q1.kindMono === false && q2.kindMono === false,
+                    { q1, q2, q3 },
+                ];
             });
 
-            await step("Answered: Q4, answered from the pane, reads picked in the brainstorm pane", async () => {
-                const q4 = byText(await readRows(h), "answer", ["Q4", "Both", "picked in the brainstorm pane"]);
-                return [q4?.origin === "pane", q4];
+            await step("Answered: Question 4, answered from the pane, reads picked in the brainstorm pane", async () => {
+                const q4 = byText(await readRows(h), "answer", ["Question 4", "Both", "picked in the brainstorm pane"]);
+                return [q4?.origin === "pane" && q4.kindMono === false, q4];
             });
 
             await step("a folded row opens, read-only, to its question, why and options with the pick marked", async () => {
                 const opened = await h.ev(`(() => {
-                    const row = [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Q4"));
+                    const row = [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Question 4"));
                     const b = row?.querySelector("button[aria-expanded]");
                     if (!b) return false;
                     b.click();
@@ -180,7 +194,7 @@ export default (kit) => {
                 await polishWaitFor(h, `!!${FEED}?.querySelector("[data-rbs-answer-body]")`, WAIT_MS);
                 await polishNap(400);
                 const body = await h.ev(`(() => {
-                    const row = [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Q4"));
+                    const row = [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Question 4"));
                     const b = row?.querySelector("[data-rbs-answer-body]");
                     return {
                         expanded: row?.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded"),
@@ -189,7 +203,7 @@ export default (kit) => {
                         buttons: b?.querySelectorAll("button").length ?? 0,
                     };
                 })()`);
-                await h.ev(`(() => { [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Q4"))?.scrollIntoView({ block: "center" }); return true; })()`);
+                await h.ev(`(() => { [...(${FEED}?.querySelectorAll("[data-rbs-row='answer']") ?? [])].find((r) => r.innerText.includes("Question 4"))?.scrollIntoView({ block: "center" }); return true; })()`);
                 await polishNap(300);
                 await h.shot(SHOT(2, "expanded"));
                 const picked = body.options.filter((o) => o.picked).map((o) => o.text);
@@ -204,12 +218,12 @@ export default (kit) => {
                 ];
             });
 
-            await step("CheckReview: the builder answer folds to Builder <question> Yes picked here", async () => {
-                const b = byText(await readRows(h), "answer", ["Builder", BUILDER_Q, "Yes", "picked here"]);
-                return [b?.origin === "transcript", b];
+            await step("CheckReview: the builder answer folds to Builder question <question> Yes picked here", async () => {
+                const b = byText(await readRows(h), "answer", ["Builder question", BUILDER_Q, "Yes", "picked here"]);
+                return [b?.origin === "transcript" && b.kindMono === false, b];
             });
 
-            await step("CanvasUpdated: the mark is a bubble with its crop, the note and marked on Main · the canvas; the crop opens Main in the pane", async () => {
+            await step("CanvasUpdated: the mark is a bubble with its crop, the note and marked on Main · the canvas; the crop opens Main in the canvas window", async () => {
                 await polishWaitFor(h, `(${FEED}?.querySelector("[data-rbs-row='mark'] img")?.naturalWidth ?? 0) > 0`, WAIT_MS);
                 const bubble = await h.ev(`(() => {
                     const el = ${FEED}?.querySelector("[data-rbs-row='mark']");
@@ -222,17 +236,25 @@ export default (kit) => {
                 })()`);
                 await h.shot(SHOT(3, "mark"));
                 await h.ev(`(() => { ${FEED}?.querySelector("[data-rbs-row='mark'] [data-rbs-crop]")?.click(); return true; })()`);
-                const board = await polishWaitFor(h, `${PANE}?.getAttribute("data-brainstorm-view") === "board"`, WAIT_MS);
+                const shown = await polishWaitFor(h, `!!document.querySelector("[data-canvas-window]")`, WAIT_MS);
+                const opened = await canvasFacts(h, ctx);
                 await h.shot(SHOT(4, "mark-opened"));
+                await canvasStore(h, ctx, `C.closeCanvasWindow(); return true;`);
+                const closed = await polishWaitFor(h, `!document.querySelector("[data-canvas-window]")`, WAIT_MS);
+                const after = await canvasFacts(h, ctx);
                 const back = await closePaneTabs(h, ctx);
                 return [
                     bubble.text.includes(NOTE) &&
                         bubble.text.includes(`marked on Main · ${TOPIC}`) &&
                         bubble.crop === "300x76" &&
                         bubble.right === "flex-end" &&
-                        board &&
+                        shown &&
+                        opened.window === ctx.agentId &&
+                        opened.board === "Main.dc.html" &&
+                        closed &&
+                        after.window == null &&
                         back,
-                    { ...bubble, board, back },
+                    { ...bubble, shown, opened, closed, after, back },
                 ];
             });
 
@@ -323,8 +345,8 @@ export default (kit) => {
                 const rows = await readRows(h);
                 await h.shot(SHOT(6, "narrow"));
                 const widened = await widen(h);
-                const q1Wide = byText(wide, "answer", ["Q1"]);
-                const q1 = byText(rows, "answer", ["Q1"]);
+                const q1Wide = byText(wide, "answer", ["Question 1"]);
+                const q1 = byText(rows, "answer", ["Question 1"]);
                 return [
                     narrowed &&
                         widened &&

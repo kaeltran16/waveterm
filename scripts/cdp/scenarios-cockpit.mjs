@@ -91,12 +91,14 @@ export const surfaceSmoke = {
         });
         const order = surfaceOrder();
         const lastLabel = SURFACE_LABEL[order[order.length - 1]];
+        // Ctrl+N jumps to the Nth surface, so the last one's digit follows the order's length (8 since 95538b652)
+        const lastDigit = String(order.length);
         await h.goto("cockpit");
-        await h.ev(keydown({ key: "7", code: "Digit7", ctrlKey: true }));
+        await h.ev(keydown({ key: lastDigit, code: `Digit${lastDigit}`, ctrlKey: true }));
         await h.ev(`new Promise((r) => setTimeout(r, ${SMOKE_KEY_WAIT_MS}))`);
         const chorded = await h.activeSurfaceLabel();
         steps.push({
-            step: "Ctrl+7 lands on the last surface",
+            step: `Ctrl+${lastDigit} lands on the last surface`,
             ok: chorded === lastLabel,
             detail: `active=${chorded} want=${lastLabel} order=${JSON.stringify(order)}`,
         });
@@ -1421,6 +1423,8 @@ const DRIFT_AGENTS = [
 // the ink tokens a hint may wear
 const DRIFT_INKS = ["text-muted", "text-ink-faint", "text-ink-mid", "text-secondary", "text-primary", "text-ink-hi"];
 const DRIFT_BADGE = 12;
+// the rail's buttons: the eight surfaces (Boards joined in 48994cbcd), then Setup and Settings
+const NAV_ITEMS = 10;
 const DRIFT_CONTRAST = 4.5;
 const DRIFT_SWITCHER = `document.querySelector('[data-project-switcher="bar"]')`;
 
@@ -1648,7 +1652,10 @@ export const uiDrift = {
                 const J = await dep("jotai");
                 const { cardShare } = await mod("app/view/agents/cardgridlayout.ts");
                 const noop = () => {};
+                const { NO_LINEAGE } = await mod("app/view/agents/runlineage.ts");
+                // the card reads its transcript context from the model's run lineage (2577f0f5c)
                 const host = await mount("app/view/agents/agentrow.tsx", "AgentRow", {
+                    model: { lineageAtom: J.atom(NO_LINEAGE) },
                     agent: ${JSON.stringify(DRIFT_AGENTS[1])},
                     nowAtom: J.atom(Date.now()),
                     isCursor: false,
@@ -1699,7 +1706,7 @@ export const uiDrift = {
                 step: "the 78px nav rail keeps every label on one line, fits a two-digit count in its pill and passes the floor",
                 ok:
                     s.width === "78px" &&
-                    s.lines.length === 9 &&
+                    s.lines.length === NAV_ITEMS &&
                     s.lines.every((l) => l.height <= l.line + 0.5) &&
                     twoDigit.length === 2 &&
                     s.badges.every((b) => b.scroll <= b.client) &&

@@ -77,9 +77,9 @@ func workerRequest(g *waveobj.TaskGroup, owner *waveobj.Run, taskID string) memg
 // done (ReleaseRunClaims), whichever comes first. A var so tests can release what they bound: no job closes in a test.
 var bindClaim = func(c *memgate.Claim, o jobobject.Owner) { c.Bind(o) }
 
-// workerCacheTTL is how long a worker's prompt cache lives after its last request: consult's short-session TTL, which
+// WorkerCacheTTL is how long a worker's prompt cache lives after its last request: consult's short-session TTL, which
 // the worker is launched with.
-var workerCacheTTL = func() time.Duration {
+var WorkerCacheTTL = func() time.Duration {
 	d, err := time.ParseDuration(consult.ShortSessionCacheTTL)
 	if err != nil {
 		panic("consult.ShortSessionCacheTTL is not a duration: " + err.Error())
@@ -94,7 +94,7 @@ func workerCacheExpiry(run *waveobj.Run) (time.Time, bool) {
 	if last == 0 {
 		return time.Time{}, false
 	}
-	return time.UnixMilli(last).Add(workerCacheTTL), true
+	return time.UnixMilli(last).Add(WorkerCacheTTL), true
 }
 
 // bindToBlock binds c to blockId's job. A non-nil run is a worker the loop may pause: its claim learns when the

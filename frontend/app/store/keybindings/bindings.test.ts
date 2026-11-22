@@ -16,7 +16,6 @@ import {
     attachBrainstorm,
     detachBrainstorm,
     getBrainstorm,
-    openBrainstormBoard,
     openBrainstormDesign,
     openBrainstormHistory,
     setBrainstormMode,
@@ -980,7 +979,7 @@ describe("brainstorm pane Escape", () => {
             .map((b) => b.id);
     const pane = () => {
         const s = getBrainstorm("a1")!;
-        return { board: s.board, designOpen: s.designOpen };
+        return { designOpen: s.designOpen };
     };
 
     beforeEach(() => {
@@ -1009,38 +1008,17 @@ describe("brainstorm pane Escape", () => {
         expect(claiming()).toEqual(["agent:brainstorm-back"]);
         back().run(nav);
         expect(getBrainstorm("a1")!.historyOpen).toBe(false);
-        expect(pane()).toEqual({ board: null, designOpen: false });
+        expect(pane()).toEqual({ designOpen: false });
         expect(claiming()).toEqual([]);
     });
 
-    it("a board opened over the history: Esc closes the board first, then the history", () => {
-        openBrainstormHistory("a1", true);
-        openBrainstormBoard("a1", "Split.dc.html");
-        back().run(nav);
-        expect(getBrainstorm("a1")!.historyOpen).toBe(true);
-        expect(pane()).toEqual({ board: null, designOpen: false });
-        back().run(nav);
-        expect(getBrainstorm("a1")!.historyOpen).toBe(false);
-    });
-
-    it("a board opened full size from the question: Esc goes back to the question, and is the only Escape claim", () => {
-        openBrainstormBoard("a1", "Split.dc.html");
+    it("the design opened over the question: Esc goes back to the question, and is the only Escape claim", () => {
+        openBrainstormDesign("a1", true);
         expect(claiming()).toEqual(["agent:brainstorm-back"]);
         back().run(nav);
-        expect(pane()).toEqual({ board: null, designOpen: false });
+        expect(pane()).toEqual({ designOpen: false });
         // the question is the top: nothing claims Esc there, as before
         expect(claiming()).toEqual([]);
-    });
-
-    it("one level per press: a board opened off the design goes back to the design, and the design back to the question", () => {
-        openBrainstormDesign("a1", true);
-        openBrainstormBoard("a1", "Split.dc.html");
-        back().run(nav);
-        expect(pane()).toEqual({ board: null, designOpen: true });
-        expect(back().when!(nav)).toBe(true);
-        back().run(nav);
-        expect(pane()).toEqual({ board: null, designOpen: false });
-        expect(back().when!(nav)).toBe(false);
     });
 
     it("the design opened with no question under it has no step back, a pending builder check's design included", () => {
@@ -1053,7 +1031,7 @@ describe("brainstorm pane Escape", () => {
     });
 
     it("yields to a focused field, an open modal and an open escape menu", () => {
-        openBrainstormBoard("a1", "Split.dc.html");
+        openBrainstormDesign("a1", true);
         // the answer box, a row's edit or rename, the builder-check answer and the mark note are all fields
         expect(back().when!({ ...nav, editable: true })).toBe(false);
         expect(back().when!({ ...nav, modalOpen: true })).toBe(false);
@@ -1063,19 +1041,8 @@ describe("brainstorm pane Escape", () => {
         expect(back().when!(nav)).toBe(true);
     });
 
-    it("on the board, a drawn mark's note owns Esc (it drops the mark), even with its field unfocused", () => {
-        attachCanvas("a1", { topic: "oncall", dir: "C:\\p\\d", projectDir: "C:\\p", board: "Split.dc.html" }, 0);
-        openBrainstormBoard("a1", "Split.dc.html");
-        setMarking("a1", true);
-        expect(back().when!(nav)).toBe(true);
-        setMark("a1", { x: 1, y: 1, w: 40, h: 40, note: "" });
-        expect(back().when!(nav)).toBe(false);
-        setMark("a1", null);
-        expect(back().when!(nav)).toBe(true);
-    });
-
     it("stands down in the terminal, and while a subagent or a shell task peek holds Escape", () => {
-        openBrainstormBoard("a1", "Split.dc.html");
+        openBrainstormDesign("a1", true);
         setBrainstormMode("a1", "terminal", 2);
         expect(back().when!(nav)).toBe(false);
         setBrainstormMode("a1", "brainstorm", 3);
@@ -2774,7 +2741,7 @@ describe("Agent keys, stepping and toggles", () => {
             updateBrainstorm("r", (s) => ({ ...s, file: asking(["A", "B"]) }));
             openWorkspaceTab("r", { kind: "brainstorm" });
             expect(claiming("Escape")).toEqual([]);
-            openBrainstormBoard("r", "Main.dc.html");
+            openBrainstormDesign("r", true);
             expect(claiming("Escape")).toEqual(["agent:brainstorm-back"]);
             closeWorkspaceTab("r", "brainstorm");
             expect(claiming("Escape")).toEqual(["agent:back"]);

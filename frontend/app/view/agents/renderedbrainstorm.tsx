@@ -6,12 +6,13 @@
 // its Started run row. Each card kind is its own slice (renderedbs*.tsx); this host picks it, measures the column for
 // the compact sizes, and fades a trade of cards. CardFrame is the shell every card draws in.
 
+import { AutoHeight } from "@/app/element/autoheight";
 import { MOTION, viewFade } from "@/app/element/motiontokens";
 import { ViewSwap } from "@/app/element/viewswap";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Lightbulb } from "lucide-react";
 import { AnimatePresence, motion, type Variants } from "motion/react";
 import { createContext, useContext, type ReactNode } from "react";
 import { usePaneShown } from "./agentpanes";
@@ -19,6 +20,7 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { builderCheckView, type BrainstormFile } from "./brainstormmodel";
 import { brainstormAtom, openBrainstormAt, shownBrainstormFile, type BrainstormState } from "./brainstormstore";
+import { SMALL_DOT } from "./brainstormui";
 import {
     cardStatus,
     COMPACT_CARD_PX,
@@ -62,18 +64,102 @@ export function useCardRow(): boolean {
     return useContext(CardRowContext);
 }
 
+// a header icon's size, as the boards draw it wide and narrow
+export function headIconSize(compact: boolean): number {
+    return compact ? 14 : 15;
+}
+
+// the boards' .head: icon, kind and subject; children are the rest of the row (chip, gap, status, links). Compact,
+// the row may wrap, so a header can put its trailing pieces on a second line
+export function CardHead(p: {
+    icon: ReactNode;
+    kind: string;
+    subject: ReactNode;
+    mono?: boolean;
+    compact: boolean;
+    children?: ReactNode;
+}) {
+    return (
+        <div
+            data-rendered-bs-head
+            className={cn(
+                "flex min-w-0 items-center gap-x-[10px]",
+                p.compact ? "flex-wrap gap-y-1.5 px-[14px] py-[10px] text-[12.5px]" : "px-4 py-[11px] text-[13.5px]"
+            )}
+        >
+            <span className="inline-flex flex-none text-ink-mid">{p.icon}</span>
+            <span className="whitespace-nowrap text-ink-mid">{p.kind}</span>
+            {/* the status gives way first (it truncates); a long subject still truncates at half the row */}
+            <span
+                data-rendered-bs-subject
+                className={cn(
+                    "max-w-[50%] shrink-0 truncate font-semibold text-primary",
+                    p.mono && (p.compact ? "font-mono text-[12px]" : "font-mono text-[12.5px]")
+                )}
+            >
+                {p.subject}
+            </span>
+            {p.children}
+        </div>
+    );
+}
+
+// wide, the row runs chip, gap, status, link; compact, the link ends the first line and the chip and status take
+// the second (Narrow)
+function HeadTail({
+    chip,
+    status,
+    link,
+    compact,
+}: {
+    chip: ReactNode;
+    status: ReactNode;
+    link: ReactNode;
+    compact: boolean;
+}) {
+    if (!compact) {
+        return (
+            <>
+                {chip}
+                <span className="flex-1" />
+                {status}
+                {link}
+            </>
+        );
+    }
+    return (
+        <>
+            <span className="flex-1" />
+            {link}
+            {chip || status ? (
+                <div className="flex min-w-0 basis-full items-center gap-[10px]">
+                    {chip}
+                    {status}
+                </div>
+            ) : null}
+        </>
+    );
+}
+
+const NEEDS_INPUT = "Needs your input";
+
 export function CardFrame(p: {
     agent: AgentVM;
     s: BrainstormState;
     f: BrainstormFile | null;
+    // the warning border and the chip
     asking: boolean;
-    head?: ReactNode;
-    // the one row's title, and its step after "Brainstorm ·" when the card has one (the question's number)
+    chip?: string;
+    tone?: "error";
+    icon?: ReactNode;
+    kind?: string;
+    subject?: ReactNode;
+    // "" for none
+    status?: ReactNode;
+    // null for none
+    link?: ReactNode | null;
+    // the one-row card's status words
     title: string;
-    step?: string;
-    // the "Brainstorm ·" lead; the builder question's board heads with the question alone
-    lead?: boolean;
-    status?: string;
     compact: boolean;
     attr: string;
     children?: ReactNode;
@@ -90,66 +176,65 @@ export function CardFrame(p: {
             <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
         </button>
     );
-    if (row) {
-        return (
-            <div className="flex flex-col" {...{ [p.attr]: "" }}>
-                <div
-                    data-rendered-bs-frame
-                    data-rendered-bs-row
-                    className={cn(
-                        "flex min-w-0 items-center gap-[10px] rounded-[10px] border bg-surface px-[14px] py-2 text-[12.5px]",
-                        p.asking ? "border-warning/45" : "border-edge-mid"
-                    )}
-                >
-                    <span
-                        className={cn(
-                            "flex-none whitespace-nowrap font-mono font-semibold",
-                            p.asking ? "text-warning" : "text-ink-mid"
-                        )}
-                    >
-                        {p.step ? `Brainstorm · ${p.step}` : "Brainstorm ·"}
-                    </span>
-                    <span data-rendered-bs-row-title className="min-w-0 flex-1 truncate text-primary">
-                        {p.title}
-                    </span>
-                    {open}
-                </div>
-            </div>
-        );
-    }
-    const status = p.status ?? (p.f != null ? cardStatus(p.f) : "");
-    return (
-        <div className="flex flex-col" {...{ [p.attr]: "" }}>
-            {p.asking ? <NeedsInputPill /> : null}
-            <div
-                data-rendered-bs-frame
-                className={cn(
-                    "flex flex-col rounded-[10px] border bg-surface",
-                    p.compact ? "gap-3 px-[14px] py-3" : "gap-[14px] px-[18px] py-4",
-                    p.asking ? "border-warning/45" : "border-edge-mid"
-                )}
-            >
-                <div
-                    data-rendered-bs-head
-                    className={cn(
-                        "flex min-w-0 items-center gap-x-[10px] gap-y-1",
-                        p.compact ? "flex-wrap text-[12px]" : "text-[12.5px]",
-                        p.asking ? "text-warning" : "text-ink-mid"
-                    )}
-                >
-                    {p.lead === false ? null : (
-                        <span className="whitespace-nowrap font-mono font-semibold">Brainstorm ·</span>
-                    )}
-                    {p.head}
-                    <span className="flex-1" />
-                    {status ? (
-                        <span data-rendered-bs-status className="whitespace-nowrap text-[12px] text-muted">
+    const chip = p.asking ? (
+        <span
+            data-rendered-bs-chip
+            className="inline-flex flex-none items-center gap-1.5 whitespace-nowrap rounded-full bg-warning/12 py-0.5 pl-2 pr-[9px] text-[12px] font-semibold text-warning"
+        >
+            <span className={cn(SMALL_DOT, "bg-warning")} />
+            {p.chip ?? NEEDS_INPUT}
+        </span>
+    ) : null;
+    const lightbulb = <Lightbulb size={headIconSize(p.compact)} strokeWidth={2} aria-hidden />;
+    const status = row ? p.title : (p.status ?? (p.f != null ? cardStatus(p.f) : ""));
+    // the one row is the Brainstorm header whatever the card's own kind: the tab beside it shows the rest
+    const head = (
+        <CardHead
+            icon={row ? lightbulb : (p.icon ?? lightbulb)}
+            kind={row ? "Brainstorm" : (p.kind ?? "Brainstorm")}
+            subject={row || p.subject == null ? p.s.topic : p.subject}
+            mono={row || p.subject == null}
+            compact={p.compact}
+        >
+            <HeadTail
+                chip={chip}
+                status={
+                    status ? (
+                        <span
+                            {...{ [row ? "data-rendered-bs-row-title" : "data-rendered-bs-status"]: "" }}
+                            className="min-w-0 truncate text-[12px] text-muted"
+                        >
                             {status}
                         </span>
-                    ) : null}
-                    {open}
-                </div>
-                {p.children}
+                    ) : null
+                }
+                link={row || p.link === undefined ? open : p.link}
+                compact={p.compact}
+            />
+        </CardHead>
+    );
+    return (
+        <div className="flex flex-col" {...{ [p.attr]: "" }}>
+            <div
+                data-rendered-bs-frame
+                data-rendered-bs-row={row ? "" : undefined}
+                className={cn(
+                    "flex flex-col overflow-hidden rounded-[10px] border bg-surface",
+                    p.tone === "error" ? "border-error/45" : p.asking ? "border-warning/45" : "border-edge-mid"
+                )}
+            >
+                {head}
+                {!row && p.children != null ? (
+                    <div
+                        data-rendered-bs-body
+                        className={cn(
+                            "flex flex-col gap-3 border-t border-edge-faint",
+                            p.compact ? "px-[14px] pb-[14px] pt-3" : "px-4 pb-4 pt-[14px]"
+                        )}
+                    >
+                        {p.children}
+                    </div>
+                ) : null}
             </div>
         </div>
     );
@@ -232,11 +317,15 @@ export function RenderedBrainstorm({ model, agent }: { model: AgentsViewModel; a
                         exit="exit"
                         className="mt-1 pb-2"
                     >
-                        <ViewSwap swapKey={`${cardKey(card, f)}${row ? ":row" : ""}`}>
-                            <CardRowContext.Provider value={row}>
-                                <CardBody card={card} p={props} agent={agent} s={s} compact={compact} />
-                            </CardRowContext.Provider>
-                        </ViewSwap>
+                        {/* a swap (the card folding to its row as the pane opens) changes its height: followed, so the
+                            feed above slides with it rather than jumping the reader by the difference */}
+                        <AutoHeight>
+                            <ViewSwap swapKey={`${cardKey(card, f)}${row ? ":row" : ""}`}>
+                                <CardRowContext.Provider value={row}>
+                                    <CardBody card={card} p={props} agent={agent} s={s} compact={compact} />
+                                </CardRowContext.Provider>
+                            </ViewSwap>
+                        </AutoHeight>
                     </motion.div>
                 ) : null}
             </AnimatePresence>

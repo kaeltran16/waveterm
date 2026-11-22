@@ -49,6 +49,12 @@ func AgentControlCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentControlData,
 	return sendRpcRequestResponseStreamHelper[wshrpc.AgentControlMsg](w, "agentcontrol", data, opts)
 }
 
+// command "agentdocs", wshserver.AgentDocsCommand
+func AgentDocsCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentDocsData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentDocsRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentDocsRtnData](w, "agentdocs", data, opts)
+	return resp, err
+}
+
 // command "agentpermission", wshserver.AgentPermissionCommand
 func AgentPermissionCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentPermissionData, opts *wshrpc.RpcOpts) (string, error) {
 	resp, err := sendRpcRequestCallHelper[string](w, "agentpermission", data, opts)
@@ -88,6 +94,12 @@ func AgentsReadCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentsReadData, opt
 // command "agentssend", wshserver.AgentsSendCommand
 func AgentsSendCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentsSendData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentsSendRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentsSendRtnData](w, "agentssend", data, opts)
+	return resp, err
+}
+
+// command "agentsstart", wshserver.AgentsStartCommand
+func AgentsStartCommand(w *wshutil.WshRpc, data wshrpc.CommandAgentsStartData, opts *wshrpc.RpcOpts) (*wshrpc.CommandAgentsStartRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandAgentsStartRtnData](w, "agentsstart", data, opts)
 	return resp, err
 }
 
@@ -927,6 +939,12 @@ func JiraShowCommand(w *wshutil.WshRpc, data wshrpc.CommandJiraShowData, opts *w
 // command "landrun", wshserver.LandRunCommand
 func LandRunCommand(w *wshutil.WshRpc, data wshrpc.CommandLandRunData, opts *wshrpc.RpcOpts) (*waveobj.RunLand, error) {
 	resp, err := sendRpcRequestCallHelper[*waveobj.RunLand](w, "landrun", data, opts)
+	return resp, err
+}
+
+// command "launchagenttab", wshserver.LaunchAgentTabCommand
+func LaunchAgentTabCommand(w *wshutil.WshRpc, data wshrpc.CommandLaunchAgentTabData, opts *wshrpc.RpcOpts) (*wshrpc.CommandLaunchAgentTabRtnData, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.CommandLaunchAgentTabRtnData](w, "launchagenttab", data, opts)
 	return resp, err
 }
 

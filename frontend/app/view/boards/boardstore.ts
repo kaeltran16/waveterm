@@ -40,6 +40,11 @@ export const boardOwnsEscapeAtom = atom<boolean>(false) as PrimitiveAtom<boolean
 
 export function selectBoard(channelId: string, boardId: string): void {
     globalStore.set(boardsChannelAtom, channelId);
+    setOpenBoard(channelId, boardId);
+}
+
+// the project's open board, without pinning the project as a landing does
+export function setOpenBoard(channelId: string, boardId: string): void {
     globalStore.set(openBoardByChannelAtom, (prev) => ({ ...prev, [channelId]: boardId }));
 }
 

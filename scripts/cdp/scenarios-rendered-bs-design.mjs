@@ -1,9 +1,12 @@
 // Scenario rendered-bs-design: the design card at the end of the Rendered transcript through the DesignReady,
-// KeepTalking and all-yours states; That's right pressing a guess, the narrow column stacking each row's buttons, and
+// KeepTalking and all-yours states; That's right pressing a guess, the narrow column stacking each row's buttons and
+// keeping the settled design whole, and
 // Confirm all and Check with a builder sending the pane's lines. kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
 
 const NAME = "rendered-bs-design";
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
+// the header row alone measures 46px (69px wrapped); this is workspace-brainstorm-cards's bound, the full card is taller
+const ROW_MAX_PX = 80;
 
 const TITLES = [
   ["what", "What counts"],
@@ -97,6 +100,14 @@ export default (kit) => {
                 card: card != null,
                 status: flat(q("[data-rendered-bs-status]")),
                 head: flat(q("[data-rendered-bs-head]")),
+                chip: flat(q("[data-rendered-bs-chip]")),
+                heading: flat(q("[data-rendered-bs-design-title]")),
+                row: q("[data-rendered-bs-row]") != null,
+                rowTitle: flat(q("[data-rendered-bs-row-title]")),
+                height: card ? Math.round(card.getBoundingClientRect().height) : null,
+                body: q("[data-rendered-bs-body]") != null,
+                settledRow: q("[data-rendered-bs-design-settled]") != null,
+                needsPill: host?.querySelector("[data-needs-input]") != null,
                 line: flat(q("[data-rendered-bs-design-line]")),
                 confirmed: flat(q("[data-rendered-bs-design-confirmed]")),
                 open: flat(q("[data-rendered-bs-open]")),
@@ -126,7 +137,9 @@ export default (kit) => {
           const guess = (id) => r.rows.find((x) => x.id === id);
           const ok =
             r.card &&
-            r.head.includes("Confirm the design") &&
+            r.head === `Brainstorm ${ctx.topic} Needs your input Talking it through · 3 of 5 yours Open brainstorm` &&
+            r.heading === "Confirm the design" &&
+            !r.needsPill &&
             r.status === "Talking it through · 3 of 5 yours" &&
             r.line.startsWith("2 decisions are still the agent’s guess.") &&
             r.confirmAll === "Confirm all 2 guesses" &&
@@ -172,6 +185,8 @@ export default (kit) => {
             banner.state === "changed" &&
             banner.gist === "Warn after 10 minutes" &&
             banner.changedMark === "changed" &&
+            r.head.startsWith(`Brainstorm ${ctx.topic} Needs your input Talking it through · `) &&
+            r.rows.filter((x) => x.changedMark === "changed").length === 1 &&
             JSON.stringify(banner.buttons) === JSON.stringify([THAT_S_RIGHT, "Edit"]) &&
             r.line.startsWith("1 decision changed since you confirmed it.") &&
             r.confirmAll === "";
@@ -180,7 +195,7 @@ export default (kit) => {
       );
 
       await step(
-        "every decision yours: one row sums the design up beside Open brainstorm and Check with a builder, with no card head, so The design reads once, and the rows are gone",
+        "every decision yours: the header reads Ready for the builder check, with one body row summing the design up beside Check with a builder, so The design reads once, and the rows are gone",
         async () => {
           writeFile(ctx, ALL_YOURS);
           await drawn(h, `card?.querySelector("[data-rendered-bs-check-btn]") != null`);
@@ -188,7 +203,12 @@ export default (kit) => {
           await h.shot(SHOT(4, "all-yours"));
           const ok =
             r.kind === "design" &&
-            r.head === "" &&
+            r.head === `Brainstorm ${ctx.topic} Ready for the builder check Open brainstorm` &&
+            r.chip === "Ready for the builder check" &&
+            r.status === "" &&
+            r.body &&
+            r.settledRow &&
+            !r.needsPill &&
             r.line === "The design · 5 of 5 yours" &&
             r.confirmed === "you confirmed 2 guesses" &&
             r.text.split("The design").length === 2 &&
@@ -201,12 +221,46 @@ export default (kit) => {
         }
       );
 
+      await step(
+        "with the Brainstorm tab showing, the settled design folds to the header alone, its title The design · 5 of 5 yours, and closing the tab brings the card back",
+        async () => {
+          writeFile(ctx, ALL_YOURS);
+          await drawn(h, `card?.querySelector("[data-rendered-bs-check-btn]") != null`);
+          await agentPage(
+            h,
+            `const W = await mod("app/view/agents/workspacestore.ts");
+                        W.openWorkspaceTab(${JSON.stringify(ctx.agentId)}, { kind: "brainstorm" });
+                        return true;`
+          );
+          const folded = await drawn(h, `card?.querySelector("[data-rendered-bs-row]") != null`);
+          await polishNap(800);
+          const r = await readD(h);
+          await h.shot(SHOT(5, "settled-row"));
+          const back = await closePaneTabs(h, ctx);
+          await waitCard(h, "design");
+          const full = await drawn(h, `card?.querySelector("[data-rendered-bs-check-btn]") != null`);
+          const ok =
+            folded &&
+            r.row &&
+            !r.body &&
+            r.head === `Brainstorm ${ctx.topic} Ready for the builder check The design · 5 of 5 yours Open brainstorm` &&
+            r.rowTitle === "The design · 5 of 5 yours" &&
+            r.chip === "Ready for the builder check" &&
+            r.open === "Open brainstorm" &&
+            r.height != null &&
+            r.height < ROW_MAX_PX &&
+            back &&
+            full;
+          return [ok, { folded, back, full, ...r }];
+        }
+      );
+
       await step("the narrow column stacks each row's buttons under its line", async () => {
         writeFile(ctx, DESIGN_READY);
         await drawn(h, `card?.querySelector('[data-rendered-bs-design-row="banner"]') != null`);
         const narrowed = await narrow(h);
         const r = await readD(h);
-        await h.shot(SHOT(5, "narrow"));
+        await h.shot(SHOT(6, "narrow"));
         const widened = await widen(h);
         const withButtons = r.rows.filter((x) => x.buttons.length > 0);
         const ok =
@@ -217,6 +271,49 @@ export default (kit) => {
           widened;
         return [ok, { narrowed, widened, compact: r.compact, rows: r.rows }];
       });
+
+      await step(
+        "the narrow column keeps the settled design whole: the compact header reads Brainstorm, the topic, the chip and Open brainstorm, and the settled row wraps inside the card with Check with a builder in full",
+        async () => {
+          writeFile(ctx, ALL_YOURS);
+          await drawn(h, `card?.querySelector("[data-rendered-bs-check-btn]") != null`);
+          const narrowed = await narrow(h);
+          const r = await readD(h);
+          const box = await h.ev(`(() => {
+              const card = ${CARD};
+              const rect = (el) => el?.getBoundingClientRect() ?? null;
+              const c = rect(card);
+              const col = rect(${RV}?.querySelector("[data-rendered-column]"));
+              const row = rect(card?.querySelector("[data-rendered-bs-design-settled]"));
+              const btn = rect(card?.querySelector("[data-rendered-bs-check-btn]"));
+              const within = (a, b) => a != null && b != null && a.left >= b.left - 1 && a.right <= b.right + 1;
+              return {
+                  rowInCard: within(row, c),
+                  btnInCard: within(btn, c),
+                  cardInColumn: within(c, col),
+                  cardWidth: c ? Math.round(c.width) : null,
+                  btnRight: btn ? Math.round(btn.right) : null,
+                  cardRight: c ? Math.round(c.right) : null,
+              };
+          })()`);
+          await h.shot(SHOT(7, "narrow-settled"));
+          const widened = await widen(h);
+          // compact, Open brainstorm ends the head's first line and the chip takes the second
+          const ok =
+            narrowed &&
+            r.compact === true &&
+            r.head === `Brainstorm ${ctx.topic} Open brainstorm Ready for the builder check` &&
+            r.chip === "Ready for the builder check" &&
+            r.open === "Open brainstorm" &&
+            r.settledRow &&
+            r.check === "Check with a builder" &&
+            box.rowInCard &&
+            box.btnInCard &&
+            box.cardInColumn &&
+            widened;
+          return [ok, { narrowed, widened, compact: r.compact, head: r.head, check: r.check, ...box }];
+        }
+      );
 
       await step("Edit on the Banner row opens the Brainstorm tab at that part beside the transcript, its row open and in view", async () => {
         writeFile(ctx, DESIGN_READY);
@@ -245,7 +342,7 @@ export default (kit) => {
                 rendered: ${RV} != null,
             };
         })()`);
-        await h.shot(SHOT(6, "edit-opens-pane"));
+        await h.shot(SHOT(8, "edit-opens-pane"));
         const back = await closePaneTabs(h, ctx);
         await waitCard(h, "design");
         return [clicked && shown && row.expanded === "true" && row.inView && row.rendered && back, { clicked, shown, ...row, back }];

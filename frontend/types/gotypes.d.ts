@@ -56,6 +56,14 @@ declare global {
         midturn?: boolean;
     };
 
+    // wshrpc.AgentDoc
+    type AgentDoc = {
+        path: string;
+        ts: number;
+        verb: string;
+        gone?: boolean;
+    };
+
     // wshrpc.AgentInfo
     type AgentInfo = {
         tabid: string;
@@ -591,6 +599,17 @@ declare global {
         oref: string;
     };
 
+    // wshrpc.CommandAgentDocsData
+    type CommandAgentDocsData = {
+        blockid?: string;
+        transcriptpath?: string;
+    };
+
+    // wshrpc.CommandAgentDocsRtnData
+    type CommandAgentDocsRtnData = {
+        docs: AgentDoc[];
+    };
+
     // wshrpc.CommandAgentPermissionData
     type CommandAgentPermissionData = {
         oref: string;
@@ -717,6 +736,27 @@ declare global {
         tabid: string;
         sentts: number;
         midturn: boolean;
+    };
+
+    // wshrpc.CommandAgentsStartData
+    type CommandAgentsStartData = {
+        fromoref: string;
+        prompt: string;
+        harness?: string;
+        model?: string;
+        reasoning?: string;
+        systemprompt?: string;
+        appendsystemprompt?: string;
+        tools?: string;
+        permissionmode?: string;
+        worktree?: string;
+    };
+
+    // wshrpc.CommandAgentsStartRtnData
+    type CommandAgentsStartRtnData = {
+        tabid: string;
+        harness: string;
+        cwd: string;
     };
 
     // wshrpc.CommandAnswerAgentData
@@ -1788,6 +1828,22 @@ declare global {
         channelid: string;
         runid: string;
         force?: boolean;
+    };
+
+    // wshrpc.CommandLaunchAgentTabData
+    type CommandLaunchAgentTabData = {
+        workspaceid: string;
+        tabname: string;
+        tabmeta: MetaType;
+        blockmeta: MetaType;
+        start: boolean;
+    };
+
+    // wshrpc.CommandLaunchAgentTabRtnData
+    type CommandLaunchAgentTabRtnData = {
+        tabid: string;
+        blockid: string;
+        starterror?: string;
     };
 
     // wshrpc.CommandListBranchesData
@@ -3139,6 +3195,7 @@ declare global {
         "agent:lastcommitts"?: number;
         "agent:lasteditts"?: number;
         "agent:turnstartts"?: number;
+        "agent:transcripts"?: string[];
         count?: number;
     };
 
@@ -3180,6 +3237,7 @@ declare global {
     type OpenFileData = {
         path: string;
         edit?: boolean;
+        oref?: string;
     };
 
     // wshrpc.PathCommandData

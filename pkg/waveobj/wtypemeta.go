@@ -98,10 +98,11 @@ type MetaTSType struct {
 	AppLoom bool `json:"app:loom,omitempty"` // block (marks the live loom block for toggle)
 
 	// for agent hook-stamped metadata (Wave Agent Sessions fork)
-	AgentTranscriptPath string `json:"agent:transcriptpath,omitempty"` // block (path to the running agent's transcript file)
-	AgentLastCommitTs   int64  `json:"agent:lastcommitts,omitempty"`   // block (UnixMilli of the agent's last successful git commit)
-	AgentLastEditTs     int64  `json:"agent:lasteditts,omitempty"`     // block (UnixMilli of the agent's last file edit tool call)
-	AgentTurnStartTs    int64  `json:"agent:turnstartts,omitempty"`    // block (UnixMilli the agent's latest prompt was submitted)
+	AgentTranscriptPath string   `json:"agent:transcriptpath,omitempty"` // block (path to the running agent's transcript file)
+	AgentLastCommitTs   int64    `json:"agent:lastcommitts,omitempty"`   // block (UnixMilli of the agent's last successful git commit)
+	AgentLastEditTs     int64    `json:"agent:lasteditts,omitempty"`     // block (UnixMilli of the agent's last file edit tool call)
+	AgentTurnStartTs    int64    `json:"agent:turnstartts,omitempty"`    // block (UnixMilli the agent's latest prompt was submitted)
+	AgentTranscripts    []string `json:"agent:transcripts,omitempty"`    // block (every transcript the agent has reported, oldest first, capped)
 
 	Count int `json:"count,omitempty"` // temp for cpu plot. will remove later
 }

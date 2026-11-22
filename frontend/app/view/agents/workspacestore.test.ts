@@ -16,6 +16,7 @@ import {
     joinWorkspaceTab,
     openBeside,
     openWorkspaceTab,
+    pushWorkspaceTab,
     rendersNow,
     setWorkspaceCollapsed,
     toggleWorkspaceCollapsed,
@@ -202,5 +203,39 @@ describe("openBeside", () => {
         globalStore.set(viewModeAtom(id), "terminal");
         expect(openBeside(fakeModel([claude(id)]), id, RUN)).toBe(false);
         expect(globalStore.get(workspaceAtom(id))).toBe(EMPTY_WORKSPACE);
+    });
+});
+
+describe("pushWorkspaceTab", () => {
+    const DOCS: WorkspaceTab = { kind: "docs", selected: "C:\r\spec.md" };
+
+    it("adds the tab behind the active one, unseen", () => {
+        const id = freshId("c");
+        openWorkspaceTab(id, CHANGES);
+        pushWorkspaceTab(id, DOCS);
+        const ws = globalStore.get(workspaceAtom(id));
+        expect(ws.tabs).toEqual([CHANGES, DOCS]);
+        expect(ws.active).toBe("changes");
+        expect(ws.unseen).toEqual(["docs"]);
+    });
+
+    it("leaves a collapsed pane collapsed", () => {
+        const id = freshId("c");
+        openWorkspaceTab(id, CHANGES);
+        setWorkspaceCollapsed(id, true);
+        pushWorkspaceTab(id, DOCS);
+        const ws = globalStore.get(workspaceAtom(id));
+        expect(ws.collapsed).toBe(true);
+        expect(ws.unseen).toEqual(["docs"]);
+    });
+
+    it("sets the selection of an existing Docs tab, active or not", () => {
+        const id = freshId("c");
+        openWorkspaceTab(id, { kind: "docs", selected: "C:\r\old.md" });
+        pushWorkspaceTab(id, DOCS);
+        expect(globalStore.get(workspaceAtom(id)).tabs).toEqual([DOCS]);
+        openWorkspaceTab(id, CHANGES);
+        pushWorkspaceTab(id, { kind: "docs", selected: "C:\r\plan.md" });
+        expect(globalStore.get(workspaceAtom(id)).tabs[0]).toEqual({ kind: "docs", selected: "C:\r\plan.md" });
     });
 });

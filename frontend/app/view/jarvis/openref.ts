@@ -348,12 +348,13 @@ async function loadBoard(target: BoardTarget, current: () => boolean): Promise<L
 // a tied board opens as its tab in the agent's workspace while that agent renders; else on the Boards surface
 function selectBoardTarget(model: AgentsViewModel, target: BoardTarget, board: BoardInfo): OpenResult {
     const home = boardHome(board.agenttabid, (id) => rendersNow(model, id));
+    // the Boards surface shows the same board, wherever it opens
+    selectBoard(target.channelId, target.boardId);
     if (home.kind === "workspace") {
         openWorkspaceTab(home.agentId, { kind: "board", channelId: target.channelId, boardId: target.boardId });
         jumpToAgent(model, home.agentId);
         return OK;
     }
-    selectBoard(target.channelId, target.boardId);
     landOn(model.surfaceAtom, "boards");
     return OK;
 }

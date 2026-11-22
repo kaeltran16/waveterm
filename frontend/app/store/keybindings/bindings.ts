@@ -33,7 +33,6 @@ import { pickPart, reportSendFailure } from "@/app/view/agents/brainstormsend";
 import {
     focusedBrainstorm,
     moveReviewCursor,
-    openBrainstormBoard,
     openBrainstormDesign,
     openBrainstormHistory,
     shownBrainstormFile,
@@ -296,19 +295,10 @@ function selectListBoard(agentId: string, delta: number): void {
     }
 }
 
-// the canvas of the board the focused agent's brainstorm pane shows full size; null while it shows anything else
-function brainstormBoard(model: AgentsViewModel): ReturnType<typeof focusedCanvas> {
-    const s = focusedBrainstorm(model);
-    if (s == null || focusedShown(model) !== "brainstorm") {
-        return null;
-    }
-    return paneView(s) === "board" ? focusedCanvas(model) : null;
-}
-
-// `[` `]` belong to the boards while the canvas shows and on a brainstorm's full-size board, so the surface switch
-// stands down while the focused agent shows either. The agent switches stay live: the tree stays on screen beside it.
+// `[` `]` belong to the boards while the canvas shows, so the surface switch stands down while the focused agent shows
+// it. The agent switches stay live: the tree stays on screen beside it.
 const inAgentCanvas = (model: AgentsViewModel, ctx: KeyContext) =>
-    ctx.surface === "agent" && (focusedShown(model) === "canvas" || brainstormBoard(model) != null);
+    ctx.surface === "agent" && focusedShown(model) === "canvas";
 
 // the second Ctrl+C closes the focused session among `agents`; the caller passes agents only, so a plain terminal
 // (closed from its row menu or the header's x) gets both presses. null lets the press fall through to the PTY.
@@ -1050,11 +1040,6 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
     // with no boards listed, m would open the window on a board that is not there
     const listReady = (ctx: KeyContext) =>
         inCanvas(ctx) && rendered() && paneState(canvas()!) === "board" && canvas()!.boards.length > 0;
-    // a brainstorm's board opened full size steps with [ and ] as the canvas does
-    const stepReady = (ctx: KeyContext) => {
-        const c = agentNav(ctx) ? brainstormBoard(model) : null;
-        return boardReady(ctx) || (c != null && !c.marking && paneState(c) === "board");
-    };
     const focusId = () => globalStore.get(model.focusIdAtom);
     // the focused agent when the center can show it Rendered; a subagent interior wins over Rendered
     const renderableId = (): string | null => {
@@ -1129,15 +1114,13 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             selectAskQuestion(asker.id, next);
         }
     };
-    // the step the brainstorm pane's back control takes, which Esc takes too. A drawn mark's note owns Esc on the
-    // board (it drops the mark there), so the board's step waits for it even while the note's field is unfocused
+    // the step the brainstorm pane's back control takes, which Esc takes too
     const paneStep = () => {
         const s = brainstorm();
         if (s == null || shown() !== "brainstorm") {
             return null;
         }
-        const step = paneBack(s, shownBrainstormFile(s));
-        return step === "board" && focusedCanvas(model)?.mark != null ? null : step;
+        return paneBack(s, shownBrainstormFile(s));
     };
     return [
         {
@@ -1252,7 +1235,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             id: "agent:brainstorm-back",
             keys: "Escape",
             group: "Agent",
-            label: "Back in the brainstorm: from a full-size board, or from the history or the design to the question",
+            label: "Back in the brainstorm: from the history or the design to the question",
             when: (ctx) =>
                 agentNavStrict(ctx) &&
                 noEscapeMenuOpen() &&
@@ -1265,9 +1248,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                 if (step == null) {
                     return false;
                 }
-                if (step === "board") {
-                    openBrainstormBoard(focusId(), null);
-                } else if (step === "history") {
+                if (step === "history") {
                     openBrainstormHistory(focusId(), false);
                 } else {
                     openBrainstormDesign(focusId(), false);
@@ -1643,7 +1624,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "[",
             group: "Agent",
             label: "Previous board",
-            when: stepReady,
+            when: boardReady,
             run: () => stepCanvasBoard(focusId(), -1),
         },
         {
@@ -1651,7 +1632,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "]",
             group: "Agent",
             label: "Next board",
-            when: stepReady,
+            when: boardReady,
             run: () => stepCanvasBoard(focusId(), 1),
         },
         {

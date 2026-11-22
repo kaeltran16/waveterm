@@ -47,7 +47,7 @@ import type { AgentVM } from "../agents/agentsviewmodel";
 import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "../agents/workspacestore";
 import { startBoardApplier } from "./boardapplier";
 import { parseBoardFile } from "./boardmodel";
-import { registerLiveBoard } from "./boardstore";
+import { openBoardByChannelAtom, registerLiveBoard } from "./boardstore";
 
 const BOARD = "0a1b2c3d";
 const BOARD_KEY = `board:${BOARD}`;
@@ -330,5 +330,16 @@ describe("joins", () => {
         emit({ channelid: "c1", boardid: BOARD, what: "join", agenttabid: OTHER });
         expect(globalStore.get(workspaceAtom(AGENT)).tabs.map((t) => t.kind)).toEqual(["changes"]);
         expect(globalStore.get(workspaceAtom(OTHER)).tabs.map((t) => t.kind)).toEqual(["changes", "board"]);
+    });
+
+    it.each([
+        ["opens the joined board on Boards too", "agent" as SurfaceKey, { c1: BOARD }],
+        ["leaves the board you are reading on Boards", "boards" as SurfaceKey, { c1: "b-reading" }],
+    ])("%s", (_name, surface, open) => {
+        globalStore.set(openBoardByChannelAtom, { c1: "b-reading" });
+        showAgent(surface, AGENT);
+        stop = startBoardApplier(model);
+        emit({ channelid: "c1", boardid: BOARD, what: "join", agenttabid: AGENT });
+        expect(globalStore.get(openBoardByChannelAtom)).toEqual(open);
     });
 });

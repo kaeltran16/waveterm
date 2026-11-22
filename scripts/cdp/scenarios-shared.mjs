@@ -872,6 +872,16 @@ export const BS_TOPIC = "consumer-lag-alerts";
 export const BS_SPEC = "docs/superpowers/specs/2026-10-18-consumer-lag-alerts-design.md";
 export const BS_BOARDS = ["Page.dc.html", "PageB.dc.html"];
 export const BS_PANE = `document.querySelector("[data-brainstorm-pane]")`;
+// the canvas window, where a brainstorm's board opens full size
+export const BS_WIN = `document.querySelector("[data-canvas-window]")`;
+// its Close button: icon only, so bsClick's label lookup cannot find it
+export const bsCloseWindow = (h) =>
+    h.ev(`(() => {
+        const b = ${BS_WIN}?.querySelector('button[aria-label="Close"]');
+        if (!b) return "missing";
+        b.click();
+        return "clicked";
+    })()`);
 export const BS_SWITCH = `document.querySelector('[role="group"][aria-label="Show terminal or brainstorm"]')`;
 // BRAINSTORM_POLL_MS is 3s, so a write shows inside two ticks
 export const BS_POLL_WAIT_MS = 7000;

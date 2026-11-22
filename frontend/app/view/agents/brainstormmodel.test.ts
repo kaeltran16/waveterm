@@ -11,7 +11,6 @@ import {
     answeredQuestions,
     approveBlocker,
     asksUser,
-    boardBackLabel,
     boardPicks,
     boardTabLabels,
     bodyBeyondGist,
@@ -1163,29 +1162,11 @@ describe("mainView", () => {
     });
 });
 
-describe("boardBackLabel", () => {
-    it("goes back to the question during the judge's wait", () => {
-        expect(boardBackLabel(waitFile(), false)).toBe("Back to the question");
-        expect(boardBackLabel(waitFile(), true)).toBe("Back to the design");
-        expect(boardBackLabel(waitFile(), false, true)).toBe("Back to the design");
-    });
-
-    const q = { n: 1, text: "Q", part: "a" };
-
-    it("goes back to the question it was opened from, else to the design", () => {
-        expect(boardBackLabel(file({ question: q }), false)).toBe("Back to the question");
-        expect(boardBackLabel(file({ question: q }), true)).toBe("Back to the design");
-        expect(boardBackLabel(file({ question: q, working: "w" }), false)).toBe("Back to the design");
-        expect(boardBackLabel(file(), false)).toBe("Back to the design");
-        expect(boardBackLabel(null, false)).toBe("Back to the design");
-    });
-});
-
 describe("pickableOptions", () => {
     const options = ["A", "B", "C", "D", "E"].map((label) => ({ label, detail: "" }));
     const many = Array.from({ length: 11 }, (_, i) => ({ label: `O${i + 1}`, detail: "" }));
     const q = { n: 1, text: "Q", part: "a", options: options.slice(0, 3) };
-    const s = { designOpen: false, board: null, removed: false };
+    const s = { designOpen: false, removed: false };
     const check = { yours: [], calls: [], answered: [] };
 
     it("is the options the question view draws", () => {
@@ -1198,11 +1179,10 @@ describe("pickableOptions", () => {
         expect(pickableOptions(file({ question: { ...q, options: many } }), s)).toBe(9);
     });
 
-    it("is none when nothing draws them: no file, the agent writing, the design or a board open, the file gone", () => {
+    it("is none when nothing draws them: no file, the agent writing, the design open, the file gone", () => {
         expect(pickableOptions(null, s)).toBe(0);
         expect(pickableOptions(file({ question: q, working: "w" }), s)).toBe(0);
         expect(pickableOptions(file({ question: q }), { ...s, designOpen: true })).toBe(0);
-        expect(pickableOptions(file({ question: q }), { ...s, board: "B.dc.html" })).toBe(0);
         expect(pickableOptions(file({ question: q }), { ...s, removed: true })).toBe(0);
     });
 
@@ -1240,12 +1220,11 @@ describe("pickableOptions", () => {
         expect(pickableOptions(waitFile({ check, question: waitQuestion(3) }), s)).toBe(3);
     });
 
-    it("is none during the wait with a line sent, the design open or a board open", () => {
+    it("is none during the wait with a line sent or the design open", () => {
         const sent = { at: 1, modifiedMs: 1, kind: "line" } as const;
         expect(pickableOptions(waitFile(), { ...s, sent })).toBe(0);
         expect(pickableOptions(waitFile({ check }), { ...s, sent })).toBe(0);
         expect(pickableOptions(waitFile(), { ...s, designOpen: true })).toBe(0);
-        expect(pickableOptions(waitFile(), { ...s, board: "B.dc.html" })).toBe(0);
     });
 });
 
@@ -2175,14 +2154,14 @@ describe("brainstormWait", () => {
 
 describe("paneView", () => {
     const f = file();
-    const s = { file: f, error: null, removed: false, board: null };
+    const s = { file: f, error: null, removed: false };
 
     it("defaults to the design", () => {
         expect(paneView(s)).toBe("design");
     });
 
     it("removed beats everything", () => {
-        expect(paneView({ ...s, removed: true, error: "e", board: "B" })).toBe("removed");
+        expect(paneView({ ...s, removed: true, error: "e" })).toBe("removed");
     });
 
     it("error shows only with no last good file", () => {
@@ -2190,13 +2169,11 @@ describe("paneView", () => {
         expect(paneView({ ...s, error: "bad" })).toBe("design");
     });
 
-    it("board beats run beats check beats design", () => {
+    it("run beats check beats design", () => {
         const withCheck = file({ check: { yours: [], calls: [], answered: [] } });
         const withRun = { ...withCheck, run: "r1" };
-        expect(paneView({ ...s, file: withRun, board: "B.dc.html" })).toBe("board");
         expect(paneView({ ...s, file: withRun })).toBe("run");
         expect(paneView({ ...s, file: file({ run: "r1" }) })).toBe("run");
-        expect(paneView({ ...s, file: withCheck, board: "B.dc.html" })).toBe("board");
         expect(paneView({ ...s, file: withCheck })).toBe("check");
     });
 });
@@ -2227,7 +2204,6 @@ describe("paneBack", () => {
         file: file({ question: q }),
         error: null,
         removed: false,
-        board: null,
         designOpen: false,
         historyOpen: false,
     };
@@ -2236,24 +2212,17 @@ describe("paneBack", () => {
         return paneBack(x, x.file);
     };
 
-    it("a full-size board steps back to where it was opened, the question or the design", () => {
-        expect(back({ board: "B.dc.html" })).toBe("board");
-        expect(back({ board: "B.dc.html", designOpen: true })).toBe("board");
-        expect(back({ board: "B.dc.html", file: file({ question: q, check }) })).toBe("board");
-    });
-
     it("the design opened over the question or the working note steps back to it", () => {
         expect(back({ designOpen: true })).toBe("design");
         expect(back({ designOpen: true, file: file({ working: "w" }) })).toBe("design");
     });
 
-    it("the history opened over the question or the judge's wait steps back to it, a board first", () => {
+    it("the history opened over the question or the judge's wait steps back to it", () => {
         const approaches = [{ name: "N", description: "d", facts: [] }];
         expect(back({ historyOpen: true })).toBe("history");
         expect(back({ historyOpen: true, file: file({ working: "w", question: { ...q, approaches } }) })).toBe(
             "history"
         );
-        expect(back({ historyOpen: true, board: "B.dc.html" })).toBe("board");
     });
 
     it("the history open over the working note, the design or the check has no history step", () => {

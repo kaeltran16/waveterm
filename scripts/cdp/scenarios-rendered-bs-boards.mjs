@@ -89,7 +89,7 @@ export default (kit) => {
                     s.chips.length === 3 &&
                     s.chips[0].length === 1 &&
                     s.chips[0][0].label === "Main" &&
-                    s.chips[0][0].title === "Open Main in the Brainstorm tab" &&
+                    s.chips[0][0].title === "Open Main in a window" &&
                     s.chips[1].length === 0 &&
                     s.chips[2].length === 1 &&
                     s.chips[2][0].label === "States" &&
@@ -100,7 +100,7 @@ export default (kit) => {
 
         const chipOpens = (row, board) => async () => {
             await h.ev(`${CHIP(row, board)}?.click()`);
-            const opened = await polishWaitFor(h, `${PANE}?.getAttribute("data-brainstorm-view") === "board"`, WAIT_MS);
+            const opened = await polishWaitFor(h, `!!document.querySelector("[data-canvas-window] [data-canvas-pane]")`, WAIT_MS);
             const at = await agentPage(
                 h,
                 `const C = await mod("app/view/agents/canvasstore.ts");
@@ -109,11 +109,13 @@ export default (kit) => {
             );
             const rendered = await h.ev(`${RV} != null`);
             await h.shot(SHOT(board === STATES ? 2 : 3, `${board === STATES ? "states" : "main"}-chip`));
-            const back = await kit.closePaneTabs(h, ctx);
+            await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
+            const closed = await polishWaitFor(h, `!document.querySelector("[data-canvas-window]")`, WAIT_MS);
+            const back = closed && (await kit.closePaneTabs(h, ctx));
             return [opened && at.board === board && !at.all && rendered && back, { opened, ...at, rendered, back }];
         };
-        await step("option 3's States chip opens the Brainstorm tab at the States board beside the transcript", chipOpens(2, STATES));
-        await step("option 1's Main chip opens the Brainstorm tab at the Main board", chipOpens(0, MAIN));
+        await step("option 3's States chip opens the canvas window on the States board over the transcript", chipOpens(2, STATES));
+        await step("option 1's Main chip opens the canvas window on the Main board", chipOpens(0, MAIN));
 
         await step("the narrow column stacks each option's chip under its label", async () => {
             const narrowed = await kit.narrow(h);

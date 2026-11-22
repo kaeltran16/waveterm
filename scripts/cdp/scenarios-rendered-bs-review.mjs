@@ -71,6 +71,12 @@ export default (kit) => {
                 picksLine: flat(q("[data-rendered-bs-picks-line]")),
                 send: flat(q("[data-rendered-bs-send-picks]")),
                 status: flat(q("[data-rendered-bs-status]")),
+                head: flat(q("[data-rendered-bs-head]")),
+                causes: [...(card?.querySelectorAll("[data-rendered-bs-review-cause]") ?? [])].map((el) => ({
+                    mono: el.classList.contains("font-mono"),
+                    family: getComputedStyle(el).fontFamily,
+                })),
+                callFills: [...(card?.querySelectorAll("[data-rendered-bs-review-call]") ?? [])].map((el) => getComputedStyle(el).backgroundColor),
                 rows,
             };
         })()`);
@@ -87,8 +93,14 @@ export default (kit) => {
                 await h.shot(SHOT(1, "review"));
                 const queue = s.rows.find((r) => r.id === "queue");
                 const banner = s.rows.find((r) => r.id === "banner");
+                // the source tags are plain sans; the calls carry no fill
+                const sansCauses = s.causes.length === 3 && s.causes.every((c) => !c.mono && !/mono/i.test(c.family));
+                const bareCalls = s.callFills.length === 2 && s.callFills.every((c) => c === "rgba(0, 0, 0, 0)" || c === "transparent");
                 return [
                     shown &&
+                        s.head === `Brainstorm ${ctx.topic} Needs your input Checking with a builder Open brainstorm` &&
+                        sansCauses &&
+                        bareCalls &&
                         s.text.includes("Review what the check changed") &&
                         s.summary.startsWith("The check changed 2 decisions you had confirmed, and 1 is new.") &&
                         s.changed.includes("Changed since you confirmed · 2") &&

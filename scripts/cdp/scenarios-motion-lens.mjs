@@ -487,14 +487,15 @@ async function boardActionsSteps(h, ctx) {
         return steps;
     }
     const OPEN = `${BS_PANE}?.querySelector("[data-brainstorm-row-boards] [data-brainstorm-open-board]")`;
-    const PICKS = `${BS_PANE}?.querySelector("[data-canvas-pane] [data-brainstorm-board-picks]")`;
+    const WIN = `document.querySelector("[data-canvas-window]")`;
+    const PICKS = `${WIN}?.querySelector("[data-brainstorm-board-picks]")`;
     const TAB = (label) =>
-        `[...(${BS_PANE}?.querySelectorAll('[data-canvas-pane] [role="tab"]') ?? [])].find((t) => t.textContent.trim() === ${label})`;
+        `[...(${WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === ${label})`;
     await polishWaitFor(h, `!!${OPEN}`, BS_POLL_WAIT_MS);
     await h.ev(`${OPEN}?.click()`);
     const shown = await polishWaitFor(h, `!!${PICKS}`, BS_POLL_WAIT_MS);
     const board = await h.ev(
-        `(${BS_PANE}?.querySelector('[data-canvas-pane] [role="tab"][aria-selected="true"]')?.textContent ?? "").trim()`
+        `(${WIN}?.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? "").trim()`
     );
     await h.ev(`${TAB(JSON.stringify("All"))}?.click()`);
     const hidden = await polishWaitFor(h, `!${PICKS}`, 3000);
@@ -508,6 +509,7 @@ async function boardActionsSteps(h, ctx) {
     const added = await h.ev(readAdded);
     const settled = await h.ev(`(() => { const p = ${PICKS}?.parentElement; return p ? getComputedStyle(p).opacity : null; })()`);
     await h.shot("cdp-shots/motion-lens-board-actions.png");
+    await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
     rec(
         "8a. stepping from All back onto a board that names an answer reveals its pick row from opacity 0 through intermediate heights, settling at 1",
         shown && board !== "" && hidden && added[0]?.value === "0" && grewOpen(grow) && settled === "1",

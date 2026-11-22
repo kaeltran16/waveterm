@@ -33,6 +33,11 @@ describe("agentStateView", () => {
     it("standing by is accent", () => {
         expect(agentStateView({ ...base, standingBy: true })).toEqual({ text: "standing by", tone: "accent" });
     });
+    it("a stopped worker reads stopped in the muted tone, over standing by and quiet", () => {
+        expect(
+            agentStateView({ ...base, agent: { ...agent, stopped: true }, standingBy: true, silentMs: 5 * 60_000 })
+        ).toEqual({ text: "stopped", tone: "idle" });
+    });
     it("plain idle and asking", () => {
         expect(agentStateView(base)).toEqual({ text: "idle", tone: "idle" });
         expect(agentStateView({ ...base, agent: { ...agent, state: "asking" } })).toEqual({

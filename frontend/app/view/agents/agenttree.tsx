@@ -196,14 +196,26 @@ function Slot({ children }: { children: React.ReactNode }) {
     return <span className="flex w-[14px] shrink-0 items-center justify-center">{children}</span>;
 }
 
-// A nested row's tree guides: one line per level above it, through that level's leading column.
-const GUIDE_LEFT = ["left-[18px]", "left-[35px]"];
+// A nested row's tree guides: one line per level above it, through that level's leading column. Agent-started
+// workers nest with no depth limit, so the columns are computed rather than listed.
+const ROW_PAD_PX = 11;
+const LEVEL_PX = 17;
+const GUIDE_PX = 18;
 
-function Guides({ depth }: { depth: 1 | 2 }) {
+// the left padding that puts a row's leading column `depth` levels in
+function levelPad(depth: number): number {
+    return ROW_PAD_PX + LEVEL_PX * depth;
+}
+
+function Guides({ depth }: { depth: number }) {
     return (
         <>
-            {GUIDE_LEFT.slice(0, depth).map((left) => (
-                <span key={left} className={cn("absolute inset-y-0 w-px bg-edge-strong", left)} />
+            {Array.from({ length: depth }, (_, i) => (
+                <span
+                    key={i}
+                    className="absolute inset-y-0 w-px bg-edge-strong"
+                    style={{ left: GUIDE_PX + LEVEL_PX * i }}
+                />
             ))}
         </>
     );
@@ -465,11 +477,13 @@ function ShellTaskRows({
     parentId,
     blockId,
     tasks,
+    depth,
 }: {
     model: AgentsViewModel;
     parentId: string;
     blockId: string | undefined;
     tasks: ShellTask[];
+    depth: number;
 }) {
     const now = useAtomValue(model.nowAtom);
     const peek = useAtomValue(shellTaskPeekAtom);
@@ -524,12 +538,13 @@ function ShellTaskRows({
                         }}
                         onContextMenu={(e) => onContextMenu(e, t)}
                         className={cn(
-                            "group relative flex items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px]",
+                            "group relative flex items-center gap-[9px] rounded-[9px] py-[6px] pr-[11px]",
                             canPeek && "cursor-pointer",
                             open ? "bg-accentbg" : canPeek && "hover:bg-surface-hover"
                         )}
+                        style={{ paddingLeft: levelPad(depth) }}
                     >
-                        <Guides depth={1} />
+                        <Guides depth={depth} />
                         <Slot>
                             {monitor ? (
                                 <Radio size={12} aria-label="Monitor" className="shrink-0 text-accent" />
@@ -585,10 +600,12 @@ function ParentRow({
     model,
     agent,
     lead,
+    depth = 0,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
     lead?: { run: RunInfo; open: boolean; live: number };
+    depth?: number;
 }) {
     const focusId = useAtomValue(model.focusIdAtom);
     const branch = useAtomValue(agentBranchesAtom)[agent.id];
@@ -692,6 +709,7 @@ function ParentRow({
                 data-tree-agent={agent.id}
                 onClick={select}
                 onContextMenu={onContextMenu}
+                style={{ paddingLeft: levelPad(depth) }}
                 className={cn(
                     "relative flex cursor-pointer items-center gap-[9px] rounded-[9px] px-[11px] py-[9px] transition-colors duration-[140ms]",
                     // m3 attention: a static amber tint marks an asking row (the pulse lives in the dot, not the row);
@@ -700,6 +718,7 @@ function ParentRow({
                     settling && "animate-[settle_0.5s_ease-out] motion-reduce:animate-none"
                 )}
             >
+                <Guides depth={depth} />
                 <Slot>
                     {mark ? (
                         // a run lead keeps its mark when it failed to start; leadMark tones it error
@@ -768,6 +787,13 @@ function ParentRow({
                             </button>
                         ) : asking ? (
                             <span className="flex-none font-mono text-[10.5px] font-semibold text-warning">asking</span>
+                        ) : agent.stopped ? (
+                            <span
+                                data-tree-stopped
+                                className="flex-none font-mono text-[10.5px] font-semibold text-muted"
+                            >
+                                stopped
+                            </span>
                         ) : null}
                     </div>
                     {lead ? (
@@ -810,11 +836,12 @@ function ParentRow({
                                     });
                                 }}
                                 className={cn(
-                                    "relative flex items-center gap-[9px] rounded-[9px] py-[6px] pl-[28px] pr-[11px] hover:bg-surface-hover",
+                                    "relative flex items-center gap-[9px] rounded-[9px] py-[6px] pr-[11px] hover:bg-surface-hover",
                                     s.transcriptPath && "cursor-pointer"
                                 )}
+                                style={{ paddingLeft: levelPad(depth + 1) }}
                             >
-                                <Guides depth={1} />
+                                <Guides depth={depth + 1} />
                                 <Slot>
                                     <span
                                         className="h-[7px] w-[7px] shrink-0 rounded-full"
@@ -850,7 +877,13 @@ function ParentRow({
                         exit="exit"
                         className="overflow-hidden"
                     >
-                        <ShellTaskRows model={model} parentId={agent.id} blockId={agent.blockId} tasks={tasks} />
+                        <ShellTaskRows
+                            model={model}
+                            parentId={agent.id}
+                            blockId={agent.blockId}
+                            tasks={tasks}
+                            depth={depth + 1}
+                        />
                     </motion.div>
                 ) : null}
             </AnimatePresence>
@@ -1461,7 +1494,7 @@ export const AgentTree = memo(function AgentTree({ model }: { model: AgentsViewM
                         switch (r.kind) {
                             case "parent":
                                 key = r.agent.id;
-                                body = <ParentRow model={model} agent={r.agent} />;
+                                body = <ParentRow model={model} agent={r.agent} depth={r.depth} />;
                                 break;
                             case "check":
                                 key = r.agent.id;

@@ -258,19 +258,19 @@ export const workspaceBrainstormQuestion = wbsScenario(NAME, async (h, ctx, step
         return [ok, { bar, ...q }];
     });
 
-    await step("Main board: row 1's chip opens its board full size in the pane, and the question comes back", async () => {
+    await step("Main board: row 1's chip opens its board in the canvas window over the pane, and the question comes back", async () => {
         const clicked = await h.ev(`(() => {
             const c = ${BS_IN_TAB}?.querySelector('[data-brainstorm-board-chip="${BS_BOARDS[0]}"]');
             if (!c) return false;
             c.click();
             return true;
         })()`);
-        const opened = await polishWaitFor(h, `${VIEW_IS("board")} && !!${BS_IN_TAB}?.querySelector("[data-canvas-pane]")`, WAIT_MS);
-        const board = await store(h, ctx, `return S.getBrainstorm(id)?.board ?? null;`);
+        const opened = await polishWaitFor(h, `${VIEW_IS("design")} && !!document.querySelector("[data-canvas-window] [data-canvas-pane]")`, WAIT_MS);
+        const board = await store(h, ctx, `const C = await mod("app/view/agents/canvasstore.ts"); return C.getCanvas(id)?.board ?? null;`);
         await polishNap(SETTLE_MS);
         await h.shot(SHOT(2, "chip-board"));
-        await store(h, ctx, `S.openBrainstormBoard(id, null); return true;`);
-        const back = await polishWaitFor(h, `${VIEW_IS("design")} && !!${BS_IN_TAB}?.querySelector("[data-brainstorm-question]")`, WAIT_MS);
+        await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
+        const back = await polishWaitFor(h, `!document.querySelector("[data-canvas-window]") && ${VIEW_IS("design")} && !!${BS_IN_TAB}?.querySelector("[data-brainstorm-question]")`, WAIT_MS);
         return [clicked && opened && board === BS_BOARDS[0] && back, { clicked, opened, board, back }];
     });
 

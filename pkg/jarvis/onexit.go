@@ -47,6 +47,10 @@ type WorkerExit struct {
 // transcript parses, and a Claude session may not have written one yet.
 var RunWorkerExitHook func(context.Context, string, WorkerExit) error
 
+// AgentExitHook, when set (by pkg/agentworker at init, which imports jarvis), hears every agent tab's exit, so a
+// worker an agent started is disarmed and its parent re-checked. The hook ignores tabs that are not such workers.
+var AgentExitHook func(ctx context.Context, tabId, blockId string)
+
 func notifyRunWorkerExit(ctx context.Context, workerORef string, exit WorkerExit) {
 	if RunWorkerExitHook == nil {
 		return
@@ -132,6 +136,9 @@ func OnWorkerExit(blockId string, exitCode int) {
 	runtime := tab.Meta.GetString("session:agent", "")
 	if runtime == "" {
 		return // not an agent session
+	}
+	if AgentExitHook != nil {
+		AgentExitHook(ctx, tabId, blockId)
 	}
 	workerORef := waveobj.MakeORef(waveobj.OType_Tab, tabId).String()
 	exit := WorkerExit{ExitCode: exitCode}

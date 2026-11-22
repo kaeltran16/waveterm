@@ -164,11 +164,12 @@ async function workingLineSteps(h, rec) {
         let host = null;
         ${WORKING_LIB}
         host = await mount("app/view/agents/nowlineview.tsx", "WorkingLine", { line: { kind: "hidden" } }, { style: ${JSON.stringify(MOUNT_STYLE)} });
-        const wl = watchAdded((n) => (host.contains(n) && n.matches("[data-working-line]") ? n : null));
+        // the line arrives inside its height reveal, which carries the fade
+        const wl = watchAdded((n) => (host.contains(n) && n.querySelector(":scope > [data-working-line]") ? n : null));
         host.render({ line: working("Cogitating…") });
         await nap(${SETTLE_MS});
         wl.stop();
-        const enter = { first: wl.seen[0] ?? null, settled: await settle(() => host.querySelector("[data-working-line]")) };
+        const enter = { first: wl.seen[0] ?? null, settled: await settle(() => host.querySelector("[data-working-line]")?.parentElement) };
 
         const cw = watchAdded((n) => (host.contains(n) && n.matches("[data-crossfade]") && n.textContent.includes("Pondering") ? n : null));
         host.render({ line: working("Pondering…") });
@@ -199,7 +200,7 @@ async function workingLineSteps(h, rec) {
         return { enter, verbSwap, glyphTicks, idle: { whileWorking, gone: host.querySelector("[data-working-line]") == null } };
     `);
     rec(
-        "5. working line: the line appearing when the agent starts working fades in",
+        "5. working line: the line appearing when the agent starts working grows and fades in",
         revealed(r?.enter),
         JSON.stringify(r?.enter ?? r)
     );

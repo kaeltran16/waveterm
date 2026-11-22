@@ -20,7 +20,6 @@ import {
     getBrainstorm,
     moveReviewCursor,
     openBrainstormAt,
-    openBrainstormBoard,
     openBrainstormDesign,
     openBrainstormHistory,
     setBrainstormMode,
@@ -28,7 +27,7 @@ import {
     toggleReviewRow,
     updateBrainstorm,
 } from "./brainstormstore";
-import { detachCanvas, getCanvas } from "./canvasstore";
+import { canvasWindowAtom, detachCanvas, getCanvas } from "./canvasstore";
 import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "./workspacestore";
 
 const IDS = ["a1", "a2"];
@@ -54,7 +53,6 @@ describe("attachBrainstorm", () => {
             missedStats: 0,
             modifiedMs: null,
             lastViewedMs: 100,
-            board: null,
             designOpen: false,
             historyOpen: false,
             boards: [],
@@ -129,14 +127,6 @@ describe("brainstorm state", () => {
         attachBrainstorm("a2", { topic: "other", cwd: "/p" }, 100);
         expect(brainstormOwner("other")).toBe("a2");
         expect(brainstormOwner("nope")).toBeNull();
-    });
-
-    it("opens and closes a board", () => {
-        attachBrainstorm("a1", LAG, 100);
-        openBrainstormBoard("a1", "Main.dc.html");
-        expect(getBrainstorm("a1")?.board).toBe("Main.dc.html");
-        openBrainstormBoard("a1", null);
-        expect(getBrainstorm("a1")?.board).toBeNull();
     });
 
     it("the history and the design never stack: opening one closes the other", () => {
@@ -248,13 +238,11 @@ describe("openBrainstormAt", () => {
 
     it("with a part, shows the Brainstorm pane with the design open and the part to open", () => {
         arrange(TALK);
-        openBrainstormBoard("a1", "Main.dc.html");
         openBrainstormHistory("a1", true);
         openBrainstormAt("a1", { part: "intent" });
         expect(getBrainstorm("a1")).toMatchObject({
             designOpen: true,
             historyOpen: false,
-            board: null,
             partTarget: "intent",
         });
     });
@@ -269,24 +257,19 @@ describe("openBrainstormAt", () => {
         });
     });
 
-    it("with a board, shows the pane's board view on that board of the brainstorm's canvas", () => {
+    it("with a board, opens the canvas window on that board of the brainstorm's canvas, not the tab", () => {
         arrange(TALK);
         openBrainstormAt("a1", { board: "States.dc.html" });
-        expect(getBrainstorm("a1")).toMatchObject({ board: "States.dc.html" });
-        expect(getCanvas("a1")).toMatchObject({ topic: "lag-canvas", board: "States.dc.html", marking: false });
-    });
-
-    it("with a board and mark, turns marking on", () => {
-        arrange(TALK);
-        openBrainstormAt("a1", { board: "States.dc.html", mark: true });
-        expect(getCanvas("a1")).toMatchObject({ board: "States.dc.html", marking: true });
+        expect(globalStore.get(canvasWindowAtom)).toBe("a1");
+        expect(getCanvas("a1")).toMatchObject({ topic: "lag-canvas", board: "States.dc.html", all: false });
+        expect(tabShown("a1")).toBe(false);
     });
 
     it("with neither, shows the pane as it was", () => {
         arrange(TALK);
-        openBrainstormBoard("a1", "Main.dc.html");
+        openBrainstormDesign("a1", true);
         openBrainstormAt("a1", {});
-        expect(getBrainstorm("a1")).toMatchObject({ board: "Main.dc.html", designOpen: false });
+        expect(getBrainstorm("a1")).toMatchObject({ designOpen: true });
         expect(getBrainstorm("a1")?.partTarget ?? null).toBeNull();
     });
 

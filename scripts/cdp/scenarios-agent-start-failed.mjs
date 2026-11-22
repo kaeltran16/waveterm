@@ -1,7 +1,8 @@
-// The Agent surface's start-failure state, through a real refusal on the resync path: two agent tabs made as
-// launchAgent makes them (CreateTab, the launch meta, the tab's session meta, a pending launch). The failing one's
-// block names a remote connection, which ResyncController refuses before it starts anything; the booting one has
-// no controller, so it never starts and stays a pending launch. Nothing runs and nothing is written to disk.
+// The Agent surface's start-failure state, through a real refusal of the backend start: two agent tabs made as
+// launchAgent makes them (one launchagenttab with the launch and session meta, the start's outcome on the block, a
+// pending launch). The failing one's block names a remote connection, which ResyncController refuses before it
+// starts anything; the booting one has no controller, so it never starts and stays a pending launch. Nothing runs
+// and nothing is written to disk.
 
 import { randomUUID } from "node:crypto";
 import { polishWaitFor, waveService, APP_MOD } from "./scenarios-shared.mjs";
@@ -77,25 +78,31 @@ const termLines = (tabId) => `(() => {
     return out;
 })()`;
 
-// CreateTab is a wavesrv service call, which the page cannot reach cross-origin, so Node makes it
+// the app's own launch: one launchagenttab that opens and starts the tab, then its start outcome on the block
 async function makeAgentTab(h, ctx, label, blockMeta) {
-    const tabId = await waveService(h, "workspace", "CreateTab", [ctx.workspaceId, label, false]);
-    ctx.tabIds.push(tabId);
-    const tab = await waveService(h, "object", "GetObject", [`tab:${tabId}`]);
-    const blockId = tab?.blockids?.[0];
-    if (!blockId) throw new Error(`the new tab ${label} has no block`);
-    await h.rpc("setmeta", { oref: `block:${blockId}`, meta: blockMeta });
-    await h.rpc("setmeta", { oref: `tab:${tabId}`, meta: { "session:agent": "claude", "session:project": label } });
-    await pageEval(
+    const made = await pageEval(
         h,
-        `await WOS.reloadWaveObject(WOS.makeORef("block", ${JSON.stringify(blockId)}));
+        `const { launchAgentTab, settleLaunchStart } = await mod("app/view/agents/agentcontrollerstore.ts");
+        const launched = await launchAgentTab({
+            workspaceid: ${JSON.stringify(ctx.workspaceId)},
+            tabname: ${JSON.stringify(label)},
+            tabmeta: { "session:agent": "claude", "session:project": ${JSON.stringify(label)} },
+            blockmeta: ${JSON.stringify(blockMeta)},
+            start: true,
+        });
+        try {
+            settleLaunchStart(launched);
+        } catch {
+            // the refusal is what the steps check; it is returned below
+        }
         const model = agentsModel();
-        const pending = { tabId: ${JSON.stringify(tabId)}, blockId: ${JSON.stringify(blockId)}, name: ${JSON.stringify(label)},
+        const pending = { tabId: launched.tabid, blockId: launched.blockid, name: ${JSON.stringify(label)},
             project: ${JSON.stringify(label)}, ts: Date.now(), runtime: "claude" };
         globalStore.set(model.pendingLaunchesAtom, [...globalStore.get(model.pendingLaunchesAtom), pending]);
-        return true;`
+        return { tabId: launched.tabid, startError: launched.starterror ?? null };`
     );
-    return tabId;
+    ctx.tabIds.push(made.tabId);
+    return made;
 }
 
 export default function (_kit) {
@@ -114,8 +121,8 @@ export default function (_kit) {
                 // a throw past this point still returns ctx, so teardown closes whatever was already made
                 try {
                     // no controller: ResyncController returns without starting anything, so it stays booting
-                    ctx.bootingId = await makeAgentTab(h, ctx, `start-booting-${tag}`, { view: "term" });
-                    ctx.failingId = await makeAgentTab(h, ctx, `start-failed-${tag}`, {
+                    ctx.bootingId = (await makeAgentTab(h, ctx, `start-booting-${tag}`, { view: "term" })).tabId;
+                    const failing = await makeAgentTab(h, ctx, `start-failed-${tag}`, {
                         view: "term",
                         controller: "cmd",
                         cmd: "claude",
@@ -126,6 +133,8 @@ export default function (_kit) {
                         "cmd:cwd": "~",
                         connection: REMOTE_CONN,
                     });
+                    ctx.failingId = failing.tabId;
+                    ctx.launchRefusal = failing.startError;
                 } catch (e) {
                     ctx.arrangeError = String(e?.message ?? e);
                 }
@@ -158,12 +167,13 @@ export default function (_kit) {
                 await h.shot("cdp-shots/agent-start-failed-2-header.png");
                 rec(
                     "2. a launch whose controller is refused reads failed to start with the error in the Agent header",
-                    failed != null &&
+                    (ctx.launchRefusal ?? "").includes(REFUSAL) &&
+                        failed != null &&
                         failed.text.includes("start-failed-") &&
                         failed.pill === "failed to start" &&
                         failed.pillError &&
                         (failed.error ?? "").includes(REFUSAL),
-                    JSON.stringify(failed)
+                    JSON.stringify({ launchRefusal: ctx.launchRefusal, failed })
                 );
 
                 const dot = await h.ev(treeDot(ctx.failingId));

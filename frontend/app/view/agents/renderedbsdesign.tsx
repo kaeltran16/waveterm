@@ -69,7 +69,7 @@ function DesignRowView({ row, pressed, dimmed, locked, title, compact, onPick, o
         row.pick != null ? (
             <div data-rendered-bs-design-actions className="flex flex-none items-center gap-[8px]">
                 {row.view === "changed" ? (
-                    <span data-rendered-bs-changed className="text-[11.5px] text-accent-soft">
+                    <span data-rendered-bs-changed className="whitespace-nowrap text-[12px] text-accent-soft">
                         changed
                     </span>
                 ) : null}
@@ -92,7 +92,7 @@ function DesignRowView({ row, pressed, dimmed, locked, title, compact, onPick, o
             data-rendered-bs-design-row={row.id}
             data-state={row.view}
             className={cn(
-                "flex border-t border-edge-faint py-[9px]",
+                "flex border-t border-edge-faint py-[11px]",
                 compact ? "flex-col gap-[6px]" : "items-start gap-[12px]"
             )}
         >
@@ -110,14 +110,17 @@ function DesignRowView({ row, pressed, dimmed, locked, title, compact, onPick, o
                         onClick={onOpenPart}
                         className={cn(
                             "cursor-pointer border-0 bg-transparent p-0 text-left font-semibold text-primary hover:underline",
-                            compact ? "text-[12.5px]" : "w-[160px] flex-none text-[13px]"
+                            compact ? "text-[12.5px]" : "w-[150px] flex-none text-[13.5px]"
                         )}
                     >
                         {row.title}
                     </button>
                     <span
                         data-rendered-bs-design-gist
-                        className={cn("min-w-0 leading-[1.45] text-secondary", compact ? "text-[12px]" : "text-[13px]")}
+                        className={cn(
+                            "min-w-0 leading-[1.45] text-secondary",
+                            compact ? "text-[12px]" : "text-[13.5px]"
+                        )}
                     >
                         {row.gist}
                     </span>
@@ -138,9 +141,12 @@ function DesignRowView({ row, pressed, dimmed, locked, title, compact, onPick, o
     );
 }
 
-// every decision yours: the BuilderCheck board's one row, so "The design" reads once, with no card head over it
+// every decision yours: the BuilderCheck board's header (the chip says the check is next) over one body row, so "The
+// design" reads once. Folded, the row title is that same line
 function SettledDesign({
     agent,
+    s,
+    f,
     v,
     locked,
     title,
@@ -149,6 +155,8 @@ function SettledDesign({
     onCheck,
 }: {
     agent: CardProps["agent"];
+    s: CardProps["s"];
+    f: CardProps["f"];
     v: DesignView;
     locked: boolean;
     title: string | undefined;
@@ -157,18 +165,22 @@ function SettledDesign({
     onCheck: () => void;
 }) {
     return (
-        <div className="flex flex-col gap-2" data-rendered-bs-design="">
-            <div
-                data-rendered-bs-design-settled
-                className={cn(
-                    "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-[10px] border border-edge-mid bg-surface",
-                    compact ? "px-3 py-2.5" : "px-[14px] py-[11px]"
-                )}
-            >
-                <Check size={12} strokeWidth={2.8} className="shrink-0 text-success" aria-hidden />
+        <CardFrame
+            agent={agent}
+            s={s}
+            f={f}
+            asking={true}
+            chip={SETTLED_CHIP}
+            status=""
+            title={v.line}
+            compact={compact}
+            attr="data-rendered-bs-design"
+        >
+            <div data-rendered-bs-design-settled className="flex min-w-0 flex-wrap items-center gap-x-[10px] gap-y-1.5">
+                <Check size={13} strokeWidth={2.6} className="shrink-0 text-success" aria-hidden />
                 <span
                     data-rendered-bs-design-line
-                    className={cn("font-semibold text-primary", compact ? "text-[12.5px]" : "text-[13.5px]")}
+                    className={cn("font-semibold text-primary", compact ? "text-[13px]" : "text-[14px]")}
                 >
                     {v.line}
                 </span>
@@ -178,15 +190,6 @@ function SettledDesign({
                     </span>
                 ) : null}
                 <span className="flex-1" />
-                <button
-                    type="button"
-                    data-rendered-bs-open
-                    onClick={() => openBrainstormAt(agent.id, {})}
-                    className={LINK}
-                >
-                    Open brainstorm
-                    <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-                </button>
                 {v.check ? (
                     <button
                         type="button"
@@ -201,7 +204,7 @@ function SettledDesign({
                 ) : null}
             </div>
             <ErrorLine error={error} attrs={{ "data-rendered-bs-error": "" }} />
-        </div>
+        </CardFrame>
     );
 }
 
@@ -209,6 +212,7 @@ function SettledDesign({
 const SETTLED_KEY = "settled";
 const CONFIRM_KEY = "confirm";
 const CONFIRM_TITLE = "Confirm the design";
+const SETTLED_CHIP = "Ready for the builder check";
 
 export function DesignCard({ agent, s, f, compact }: CardProps): JSX.Element | null {
     const act = useAction();
@@ -234,6 +238,8 @@ export function DesignCard({ agent, s, f, compact }: CardProps): JSX.Element | n
             <ViewSwap swapKey={SETTLED_KEY}>
                 <SettledDesign
                     agent={agent}
+                    s={s}
+                    f={f}
                     v={v}
                     locked={locked}
                     title={title}
@@ -251,21 +257,28 @@ export function DesignCard({ agent, s, f, compact }: CardProps): JSX.Element | n
                 s={s}
                 f={f}
                 asking={true}
-                head={<span className="whitespace-nowrap font-mono font-semibold">{CONFIRM_TITLE}</span>}
                 title={CONFIRM_TITLE}
                 compact={compact}
                 attr="data-rendered-bs-design"
             >
                 <div className={cn("flex gap-[14px]", compact ? "flex-col" : "items-center")}>
-                    <span
-                        data-rendered-bs-design-line
-                        className={cn(
-                            "min-w-0 flex-1 leading-[1.5] text-ink-mid",
-                            compact ? "text-[12.5px]" : "text-[13.5px]"
-                        )}
-                    >
-                        {v.line}
-                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                        <span
+                            data-rendered-bs-design-title
+                            className={cn(
+                                "font-semibold leading-[1.35] text-primary",
+                                compact ? "text-[15px]" : "text-[17px]"
+                            )}
+                        >
+                            {CONFIRM_TITLE}
+                        </span>
+                        <span
+                            data-rendered-bs-design-line
+                            className={cn("leading-[1.5] text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}
+                        >
+                            {v.line}
+                        </span>
+                    </div>
                     {v.confirmAll != null ? (
                         <button
                             type="button"

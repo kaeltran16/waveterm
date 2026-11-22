@@ -93,6 +93,8 @@ export interface SessionInput {
     title?: string; // agent ai-title (task summary): auto label between customLabel and agent
     projectLabel?: string; // launch-time project name: a non-sticky default below title, above the agent name
     runORef?: string; // jarvis:runoref, stamped on a run's lead and worker tabs at spawn
+    parentTabId?: string; // agent:parenttab, the agent that started this worker
+    stopped?: boolean; // a worker whose terminal block is disarmed: its process stopped, its tab kept
     effortORef?: string; // session:effort, the initiative the session was launched from or last touched
     brainstormFile?: string; // session:brainstorm, the attached brainstorm.json's absolute path
     builderCheck?: BuilderCheckRecord; // brainstorm:check*, Arc's record of the brainstorm's builder check
@@ -118,6 +120,8 @@ export interface SessionRowVM {
     projectLabel?: string; // launch-time project name; the roster groups by this (not the lossy transcript-path derivation)
     cwd?: string; // the session terminal's cwd; resolves the registered project the agent works in
     runORef?: string; // the run this session works for: a lead's own run, a worker's child run
+    parentTabId?: string; // the agent that started this worker
+    stopped?: boolean; // a worker with no process; a message resumes it
     effortORef?: string; // the initiative this session works on
     brainstormFile?: string; // the brainstorm.json attached to this session
     builderCheck?: BuilderCheckRecord; // Arc's record of that brainstorm's builder check
@@ -179,6 +183,19 @@ export function sessionRunORef(
     return tabMeta["jarvis:runoref"] || (typeof runId === "string" && runId ? `run:${runId}` : undefined);
 }
 
+/** Pure: the agent that started this session, and whether it is stopped: its terminal block disarmed, as the
+ *  backend leaves a worker between turns. Only a worker can be stopped; any other disarmed block is not one. */
+export function sessionWorkerOf(
+    tabMeta: Record<string, any>,
+    termMeta: Record<string, any> | undefined
+): { parentTabId?: string; stopped?: boolean } {
+    const parentTabId = tabMeta["agent:parenttab"];
+    if (typeof parentTabId !== "string" || parentTabId === "") {
+        return {};
+    }
+    return termMeta?.controller === "cmd" ? { parentTabId } : { parentTabId, stopped: true };
+}
+
 /** Pure: is this submitted rename worth a write? Both sides trim, so retyping the same name is a
  *  no-op. An empty draft is NOT automatically a no-op: against an existing custom label it is the
  *  clear gesture (renameSession writes null and rowLabel falls back to the auto label), and only
@@ -224,6 +241,8 @@ function toRow(s: SessionInput, label: string): SessionRowVM {
         projectLabel: s.projectLabel,
         cwd: s.cwd,
         runORef: s.runORef,
+        parentTabId: s.parentTabId,
+        stopped: s.stopped,
         effortORef: s.effortORef,
         brainstormFile: s.brainstormFile,
         builderCheck: s.builderCheck,

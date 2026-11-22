@@ -9,11 +9,11 @@
 import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUpRight, Lightbulb, LoaderCircle, Scale } from "lucide-react";
+import { Lightbulb, LoaderCircle, Scale } from "lucide-react";
 import type { JSX, ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { partTitle, type AnswerOption, type BrainstormAction, type JudgeWork } from "./brainstormmodel";
+import { OPTION_KEYS, partTitle, type AnswerOption, type BrainstormAction, type JudgeWork } from "./brainstormmodel";
 import { sendBrainstorm } from "./brainstormsend";
 import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
 import { CHIP, ErrorLine, SMALL_DOT, useAction } from "./brainstormui";
@@ -31,9 +31,8 @@ import {
 } from "./renderedbsquestionmodel";
 import { fmtDuration } from "./runcompletion";
 
-const OPEN_LINK =
-    "inline-flex cursor-pointer items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[12px] text-accent-soft hover:underline";
 const SPIN = "flex-none animate-spin motion-reduce:animate-none";
+const KEY_SIZE = "h-[22px] w-[22px]";
 
 // the judge's time so far, on the 1s clock; only this re-renders each tick
 function JudgeClock({ model, agent, s }: { model: AgentsViewModel; agent: AgentVM; s: BrainstormState }) {
@@ -43,23 +42,13 @@ function JudgeClock({ model, agent, s }: { model: AgentsViewModel; agent: AgentV
         return null;
     }
     return (
-        <span data-rendered-bs-judge-clock className="whitespace-nowrap text-[12px] text-muted">
+        <span data-rendered-bs-judge-clock className="whitespace-nowrap font-mono text-[12px] text-muted">
             {fmtDuration(now - start)}
         </span>
     );
 }
 
-function StartedRow({
-    agent,
-    s,
-    decisions,
-    compact,
-}: {
-    agent: AgentVM;
-    s: BrainstormState;
-    decisions: string;
-    compact: boolean;
-}) {
+function StartedRow({ s, decisions, compact }: { s: BrainstormState; decisions: string; compact: boolean }) {
     return (
         <div
             data-rendered-bs-started
@@ -72,11 +61,41 @@ function StartedRow({
             <span>Started a brainstorm</span>
             <span className="min-w-0 truncate font-mono text-[12px] text-primary">{s.topic}</span>
             <span className="whitespace-nowrap">· {decisions}</span>
-            <span className="flex-1" />
-            <button type="button" onClick={() => openBrainstormAt(agent.id, {})} className={OPEN_LINK}>
-                Open brainstorm
-                <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
-            </button>
+        </div>
+    );
+}
+
+// the body's meta line: the question's lead, then → the part it settles, which opens the pane at that part
+export function MetaLine({
+    agent,
+    lead,
+    part,
+    title,
+    compact,
+}: {
+    agent: AgentVM;
+    lead: string;
+    part: string | null;
+    title: string;
+    compact: boolean;
+}) {
+    return (
+        <div data-rendered-bs-q-meta className={cn("text-muted", compact ? "text-[12px]" : "text-[12.5px]")}>
+            {lead}
+            {part ? (
+                <>
+                    {" "}
+                    <span className="text-ink-faint">→</span>{" "}
+                    <button
+                        type="button"
+                        data-rendered-bs-part-link
+                        onClick={() => openBrainstormAt(agent.id, { part })}
+                        className="cursor-pointer border-0 bg-transparent p-0 text-secondary hover:underline"
+                    >
+                        {title}
+                    </button>
+                </>
+            ) : null}
         </div>
     );
 }
@@ -105,9 +124,10 @@ function JudgeStatus({ text, clock, compact }: { text: string; clock: ReactNode;
 // how the judge got to its options and what it dropped, struck with why; or why the read and pick are the agent's
 function JudgeWorkLines({ work, compact }: { work: JudgeWork; compact: boolean }) {
     const lead = <span className="text-secondary">Judge’s work:</span>;
+    const size = compact ? "text-[12px]" : "text-[12.5px]";
     if (!work.judged) {
         return (
-            <div data-rendered-bs-judge-work className="flex items-baseline gap-2 text-[12px] leading-[1.5] text-muted">
+            <div data-rendered-bs-judge-work className={cn("flex items-baseline gap-2 leading-[1.5] text-muted", size)}>
                 <span className={cn(SMALL_DOT, "bg-error")} />
                 <span>
                     {lead} {work.line}
@@ -116,8 +136,8 @@ function JudgeWorkLines({ work, compact }: { work: JudgeWork; compact: boolean }
         );
     }
     return (
-        <div data-rendered-bs-judge-work className="flex flex-col gap-1">
-            <span className="text-[12px] leading-[1.5] text-muted">
+        <div data-rendered-bs-judge-work className={cn("flex flex-col", compact ? "gap-1.5" : "gap-1")}>
+            <span className={cn("leading-[1.5] text-muted", size)}>
                 {lead} {work.line}
             </span>
             {work.dropped.map((d, i) => (
@@ -145,7 +165,7 @@ function PickBadge({ label }: { label: string }) {
         <span
             data-rendered-bs-pick-badge
             className={cn(
-                "inline-flex flex-none items-center gap-[5px] whitespace-nowrap text-[11.5px] font-semibold",
+                "inline-flex flex-none items-center gap-[5px] whitespace-nowrap text-[12px] font-semibold",
                 judge ? "text-skill" : "text-accent-soft"
             )}
         >
@@ -190,9 +210,9 @@ export function OptionRows({
                         key={i}
                         data-rendered-bs-option-row={i}
                         className={cn(
-                            "flex rounded-[10px] border has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-accent",
+                            "flex rounded-[8px] border has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-accent",
                             compact ? "flex-col" : "items-center",
-                            b === JUDGE_PICK ? "border-accent/55 bg-accent/8" : "border-edge-mid bg-background",
+                            b === JUDGE_PICK ? "border-accent/50 bg-accent/7" : "border-edge-mid bg-background",
                             locked == null && "has-[>button:hover]:border-edge-strong"
                         )}
                     >
@@ -204,17 +224,23 @@ export function OptionRows({
                             onClick={() => onPick(o.label)}
                             className={cn(
                                 "flex min-w-0 flex-1 cursor-pointer gap-3 border-0 bg-transparent text-left outline-none disabled:cursor-default disabled:opacity-50",
-                                compact ? "items-start px-[10px] py-2" : "items-center px-3 py-2.5"
+                                compact ? "items-start px-3 py-[9px]" : "items-center px-[14px] py-2.5"
                             )}
                         >
-                            <span
-                                className={cn(
-                                    "flex flex-none items-center justify-center rounded-[6px] border border-edge-strong font-mono font-semibold text-secondary",
-                                    compact ? "h-[20px] w-[20px] text-[10.5px]" : "h-[22px] w-[22px] text-[11px]"
-                                )}
-                            >
-                                {i + 1}
-                            </span>
+                            {i < OPTION_KEYS.length ? (
+                                <span
+                                    data-rendered-bs-key
+                                    className={cn(
+                                        "flex flex-none items-center justify-center rounded-[5px] border border-edge-strong font-mono text-[12px] text-secondary",
+                                        KEY_SIZE
+                                    )}
+                                >
+                                    {OPTION_KEYS[i]}
+                                </span>
+                            ) : (
+                                // no key reaches this row: a blank keeps its label in line with the others
+                                <span data-rendered-bs-no-key className={cn("flex-none", KEY_SIZE)} />
+                            )}
                             <span
                                 className={cn(
                                     "flex min-w-0 flex-1",
@@ -225,7 +251,7 @@ export function OptionRows({
                                     data-rendered-bs-option-label
                                     className={cn(
                                         "font-semibold leading-[1.4] text-primary",
-                                        compact ? "text-[12.5px]" : "max-w-[50%] flex-none text-[13.5px]"
+                                        compact ? "pt-0.5 text-[13px]" : "max-w-[50%] flex-none text-[13.5px]"
                                     )}
                                 >
                                     {o.label}
@@ -237,7 +263,7 @@ export function OptionRows({
                                         className={cn(
                                             "min-w-0 leading-[1.45]",
                                             n != null ? "text-muted" : "text-ink-mid",
-                                            compact ? "text-[12px]" : "text-[12.5px]"
+                                            compact ? "text-[12.5px]" : "text-[13px]"
                                         )}
                                     >
                                         {detail}
@@ -249,7 +275,7 @@ export function OptionRows({
                         {c != null ? (
                             <div
                                 data-rendered-bs-option-chip
-                                className={cn("flex-none", compact ? "pb-2 pl-[42px] pr-[10px]" : "pr-[10px]")}
+                                className={cn("flex-none", compact ? "pb-[9px] pl-[46px] pr-3" : "pr-[14px]")}
                             >
                                 {c}
                             </div>
@@ -258,6 +284,28 @@ export function OptionRows({
                 );
             })}
         </div>
+    );
+}
+
+// the picks hint with its keys drawn as keys
+export function PicksHint({ rows }: { rows: number }) {
+    return (
+        <span data-rendered-bs-picks-hint className="text-[12px] text-muted">
+            {picksHint(rows)
+                .split(/(\d+)/)
+                .map((part, i) =>
+                    i % 2 === 1 ? (
+                        <kbd
+                            key={i}
+                            className="rounded-[4px] border border-b-2 border-edge-strong px-1 font-mono text-[11.5px] text-secondary"
+                        >
+                            {part}
+                        </kbd>
+                    ) : (
+                        part
+                    )
+                )}
+        </span>
     );
 }
 
@@ -282,56 +330,42 @@ export function QuestionCard({
     const send = (a: BrainstormAction) =>
         void act.run(() => sendBrainstorm(agent, a, undefined, undefined, "transcript"));
     const clock = <JudgeClock model={model} agent={agent} s={s} />;
-    const head = q.part ? (
-        <>
-            <span className="whitespace-nowrap font-mono font-semibold">{q.n} →</span>
-            <button
-                type="button"
-                data-rendered-bs-part-link
-                onClick={() => openBrainstormAt(agent.id, { part: q.part })}
-                className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-warning hover:underline"
-            >
-                {partTitle(f, q.part)}
-            </button>
-        </>
-    ) : (
-        <span className="whitespace-nowrap font-mono font-semibold">Question {q.n}</span>
-    );
     return (
         <div className="flex flex-col gap-4">
-            {started != null && !row ? (
-                <StartedRow agent={agent} s={s} decisions={started.decisions} compact={compact} />
-            ) : null}
+            {started != null && !row ? <StartedRow s={s} decisions={started.decisions} compact={compact} /> : null}
             <CardFrame
                 agent={agent}
                 s={s}
                 f={f}
                 asking={true}
-                head={head}
                 title={q.text}
-                step={q.part ? `${q.n} →` : `Question ${q.n}`}
                 compact={compact}
                 attr="data-rendered-bs-question"
             >
-                <div className="flex flex-col gap-1.5">
+                <MetaLine
+                    agent={agent}
+                    lead={`Question ${q.n}`}
+                    part={q.part || null}
+                    title={q.part ? partTitle(f, q.part) : ""}
+                    compact={compact}
+                />
+                <span
+                    data-rendered-bs-q-text
+                    className={cn(
+                        "whitespace-pre-line font-semibold leading-[1.35] text-primary",
+                        compact ? "text-[15.5px]" : "text-[17px]"
+                    )}
+                >
+                    {q.text}
+                </span>
+                {q.why ? (
                     <span
-                        data-rendered-bs-q-text
-                        className={cn(
-                            "whitespace-pre-line font-semibold leading-[1.4] text-primary",
-                            compact ? "text-[15px]" : "text-[17px]"
-                        )}
+                        data-rendered-bs-q-why
+                        className={cn("leading-[1.5] text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}
                     >
-                        {q.text}
+                        {q.why}
                     </span>
-                    {q.why ? (
-                        <span
-                            data-rendered-bs-q-why
-                            className={cn("leading-[1.55] text-ink-mid", compact ? "text-[12.5px]" : "text-[13.5px]")}
-                        >
-                            {q.why}
-                        </span>
-                    ) : null}
-                </div>
+                ) : null}
                 {judging ? <JudgeStatus text={judgeStatus(q)} clock={clock} compact={compact} /> : null}
                 {rows.options.length > 0 || rows.work != null ? (
                     <ViewSwap swapKey={rows.state} className="flex flex-col gap-[14px]">
@@ -349,10 +383,10 @@ export function QuestionCard({
                 ) : null}
                 <div
                     data-rendered-bs-q-actions
-                    className={cn("flex gap-[10px]", compact ? "flex-col items-start" : "items-center")}
+                    className={cn("flex gap-2", compact ? "flex-col items-start" : "items-center")}
                 >
                     {actions.guess || actions.skip ? (
-                        <div className="flex flex-wrap items-center gap-[10px]">
+                        <div className="flex flex-wrap items-center gap-2">
                             {actions.guess ? (
                                 <button
                                     type="button"
@@ -376,22 +410,10 @@ export function QuestionCard({
                         </div>
                     ) : null}
                     {compact ? null : <span className="flex-1" />}
-                    <span data-rendered-bs-picks-hint className="text-[12px] text-muted">
-                        {picksHint(rows.options.length)}
-                    </span>
+                    <PicksHint rows={rows.options.length} />
                 </div>
                 <ErrorLine error={act.error} attrs={{ "data-rendered-bs-error": "" }} />
             </CardFrame>
-            {judging && !row ? (
-                <div
-                    data-rendered-bs-judge-wait
-                    className={cn("flex items-center gap-[10px] text-muted", compact ? "text-[12.5px]" : "text-[13px]")}
-                >
-                    <LoaderCircle size={13} strokeWidth={2.4} aria-hidden className={cn(SPIN, "text-success")} />
-                    <span>Waiting for the judge</span>
-                    {clock}
-                </div>
-            ) : null}
         </div>
     );
 }

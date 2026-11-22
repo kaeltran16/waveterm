@@ -1,6 +1,7 @@
 // Scenario rendered-bs-question: the question card at the end of the Rendered transcript through the FirstQuestion,
-// Judging, JudgePick, JudgeFailed and Answered boards; a pick sending the pane's line, recorded as picked here; and
-// the narrow column stacking the option rows. kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
+// Judging, JudgePick, JudgeFailed and Answered boards, and HardCases' ten options; the header row, the body's
+// `Question N → <part>` meta line opening the pane at its part; a pick sending the pane's line, recorded as picked
+// here; and the narrow column stacking the option rows. kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
 
 const NAME = "rendered-bs-question";
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
@@ -49,6 +50,8 @@ const JUDGED_OPTIONS = [
     { label: "Shared node_modules", detail: "one install for every verify tree" },
 ];
 const AGENT_OPTIONS = APPROACHES.map((a, i) => ({ label: a.name, detail: a.description, ...(i === 0 ? { pick: true } : {}) }));
+// HardCases: one more option than the keys reach
+const TEN_OPTIONS = Array.from({ length: 10 }, (_, i) => ({ label: `Option ${i + 1}`, detail: `detail ${i + 1}` }));
 const HISTORY_2 = [
     { kind: "question", n: 1, q: Q1.text, a: "Every run", into: ["what"] },
     { kind: "question", n: 2, q: "Which run does the queue serve first?", a: "The oldest", into: ["who"] },
@@ -78,6 +81,7 @@ const AT_Q3 = { parts: parts(["yours", "yours", "asked", "open", "open"]), histo
 const JUDGING = file({ ...AT_Q3, question: Q3, working: "The judge is weighing 5 approaches." });
 const JUDGE_PICK = file({ ...AT_Q3, question: { ...Q3, options: JUDGED_OPTIONS, judge: { added: [], dropped: DROPPED } } });
 const JUDGE_FAILED = file({ ...AT_Q3, question: { ...Q3, options: AGENT_OPTIONS, judge: { failed: FAILED_REASON } } });
+const TEN = file({ ...AT_Q3, question: { ...Q3, options: TEN_OPTIONS } });
 const ANSWERED = file({
     question: Q5,
     parts: parts(["yours", "yours", "yours", "yours", "asked"]),
@@ -89,12 +93,25 @@ const ANSWERED = file({
 });
 
 export default (kit) => {
-    const { scenario, writeFile, waitCard, narrow, widen, recordSends, waitSent, answerRecords, polishWaitFor, HOST } =
-        kit;
+    const {
+        scenario,
+        writeFile,
+        waitCard,
+        narrow,
+        widen,
+        recordSends,
+        waitSent,
+        answerRecords,
+        polishWaitFor,
+        polishNap,
+        closePaneTabs,
+        HOST,
+        PANE,
+    } = kit;
     const CARD = `${HOST}?.querySelector("[data-rendered-bs-question]")`;
 
-    // the card as drawn: its text pieces, its rows (label, detail, badge, enabled, detail under label), its buttons,
-    // the dropped approaches, and whether the action row is stacked
+    // the card as drawn: its header, meta line and text pieces, its rows (key, label, detail, badge, enabled, detail
+    // under label), its buttons, the dropped approaches, and whether the action row is stacked
     const readQ = (h) =>
         h.ev(`(() => {
             const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
@@ -106,6 +123,8 @@ export default (kit) => {
                 const l = r.querySelector("[data-rendered-bs-option-label]")?.getBoundingClientRect();
                 const d = r.querySelector("[data-rendered-bs-option-detail]")?.getBoundingClientRect();
                 return {
+                    key: flat(r.querySelector("[data-rendered-bs-key]")),
+                    noKey: r.querySelector("[data-rendered-bs-no-key]") != null,
                     label: flat(r.querySelector("[data-rendered-bs-option-label]")),
                     detail: flat(r.querySelector("[data-rendered-bs-option-detail]")),
                     badge: flat(r.querySelector("[data-rendered-bs-pick-badge]")),
@@ -125,10 +144,14 @@ export default (kit) => {
                 compact: host?.hasAttribute("data-compact") ?? null,
                 card: card != null,
                 text: flat(card),
+                head: flat(q("[data-rendered-bs-head]")),
+                pill: host?.querySelector("[data-needs-input]") != null,
+                meta: flat(q("[data-rendered-bs-q-meta]")),
                 status: flat(q("[data-rendered-bs-status]")),
                 started: flat(host?.querySelector("[data-rendered-bs-started]")),
+                startedOpen: host?.querySelector("[data-rendered-bs-started] button") != null,
                 judgeStatus: flat(q("[data-rendered-bs-judge-status]")),
-                wait: flat(host?.querySelector("[data-rendered-bs-judge-wait]")),
+                waitDrawn: host?.querySelector("[data-rendered-bs-judge-wait]") != null,
                 work: flat(q("[data-rendered-bs-judge-work]")),
                 hint: flat(q("[data-rendered-bs-picks-hint]")),
                 buttons: [...(actions?.querySelectorAll("button") ?? [])].map(flat),
@@ -142,10 +165,19 @@ export default (kit) => {
     // fmtDuration's words: "<1s", "4s", "1m 05s"
     const CLOCK = /^(<1s|\d+s|\d+m \d{2}s)$/;
     const clockOf = (text, lead) => text.replace(lead, "").trim().split(" ")[0];
+    // the boards' header row: wide it runs chip, status, Open; compact (Narrow), Open ends the first line and the chip
+    // and status take the second. No pill sits above the card
+    const asks = (r, topic, status) =>
+        !r.pill &&
+        r.head ===
+            (r.compact
+                ? `Brainstorm ${topic} Open brainstorm Needs your input ${status}`
+                : `Brainstorm ${topic} Needs your input ${status} Open brainstorm`);
+    const hintFor = (n) => `press 1–${n} to pick · or type your own answer below`;
 
     return [
         scenario(NAME, { noTab: true, file: FIRST }, async (h, ctx, step) => {
-            await step("FirstQuestion: the Started a brainstorm row over question 1, Guess for me and Skip the questions, 0 of 5 yours", async () => {
+            await step("FirstQuestion: the Started a brainstorm row (no Open) over question 1's card: the header, Question 1 → What counts, Guess for me and Skip the questions", async () => {
                 await waitCard(h, "question");
                 const r = await readQ(h);
                 await h.shot(SHOT(1, "first"));
@@ -153,30 +185,51 @@ export default (kit) => {
                     r.started.includes("Started a brainstorm") &&
                     r.started.includes(ctx.topic) &&
                     r.started.includes("· 5 decisions to talk through") &&
-                    r.started.includes("Open brainstorm") &&
-                    r.text.includes("1 → What counts") &&
+                    !r.started.includes("Open brainstorm") &&
+                    !r.startedOpen &&
+                    asks(r, ctx.topic, "Talking it through · 0 of 5 yours") &&
+                    r.meta === "Question 1 → What counts" &&
                     r.text.includes(Q1.text) &&
                     r.text.includes(Q1.why) &&
-                    r.status === "Talking it through · 0 of 5 yours" &&
                     JSON.stringify(r.buttons) === JSON.stringify(["Guess for me", "Skip the questions"]) &&
                     r.rows.length === 2 &&
                     r.rows[0].label === "Runs with a Final" &&
                     r.rows[1].detail === "workers and Finals alike" &&
-                    r.hint === "1–2 picks · or type your own answer below";
+                    r.hint === hintFor(2);
                 return [ok, r];
             });
 
-            await step("Judging: the 5 approaches answerable, no Guess for me, the judge's status with its clock, and the waiting line under the card", async () => {
+            await step("the meta line's part opens the Brainstorm tab at What counts, its row open", async () => {
+                const clicked = await h.ev(`(() => {
+                    const b = ${CARD}?.querySelector("[data-rendered-bs-q-meta] [data-rendered-bs-part-link]");
+                    if (!b) return false;
+                    b.click();
+                    return true;
+                })()`);
+                const sel = `${PANE}?.querySelector('[data-brainstorm-part="what"]')`;
+                const opened = await polishWaitFor(
+                    h,
+                    `${sel}?.querySelector("[data-brainstorm-row-toggle]")?.getAttribute("aria-expanded") === "true"`,
+                    kit.WAIT_MS
+                );
+                await polishNap(300);
+                await h.shot(SHOT(2, "part-opens-pane"));
+                const back = await closePaneTabs(h, ctx);
+                const card = await drawn(h, `card?.querySelector("[data-rendered-bs-q-meta]") != null`);
+                return [clicked && opened && back && card, { clicked, opened, back, card }];
+            });
+
+            await step("Judging: the 5 approaches answerable, no Guess for me, the judge's status with its clock, and no waiting line under the card", async () => {
                 writeFile(ctx, JUDGING);
                 await drawn(h, `card?.querySelector("[data-rendered-bs-judge-status]") != null`);
                 const r = await readQ(h);
-                await h.shot(SHOT(2, "judging"));
+                await h.shot(SHOT(3, "judging"));
                 const statusClock = clockOf(r.judgeStatus, "The judge is weighing 5 approaches");
-                const waitClock = clockOf(r.wait, "Waiting for the judge");
                 const ok =
                     r.kind === "question" &&
                     r.started === "" &&
-                    r.status === "Talking it through · 2 of 5 yours" &&
+                    asks(r, ctx.topic, "Talking it through · 2 of 5 yours") &&
+                    r.meta === "Question 3 → Approach" &&
                     r.rows.length === 5 &&
                     r.rows.every((x) => x.enabled && x.badge === "") &&
                     r.rows.map((x) => x.label).join("|") === APPROACHES.map((a) => a.name).join("|") &&
@@ -185,10 +238,9 @@ export default (kit) => {
                     r.judgeStatus.startsWith("The judge is weighing 5 approaches") &&
                     r.judgeStatus.endsWith("its pick shows here; you can pick first") &&
                     CLOCK.test(statusClock) &&
-                    r.wait.startsWith("Waiting for the judge") &&
-                    CLOCK.test(waitClock) &&
-                    r.hint === "1–5 picks · or type your own answer below";
-                return [ok, { statusClock, waitClock, ...r }];
+                    !r.waitDrawn &&
+                    r.hint === hintFor(5);
+                return [ok, { statusClock, ...r }];
             });
 
             await step("the file rewritten to JudgePick swaps the list in the same card: Judge's pick on option 1, 3 kept, the 2 dropped struck with reasons", async () => {
@@ -198,12 +250,14 @@ export default (kit) => {
                 const swapped = await drawn(h, `card?.querySelector('[data-view-swap="judged"]') != null`);
                 const same = await h.ev(`${CARD}?.__rbsSame === true`);
                 const r = await readQ(h);
-                await h.shot(SHOT(3, "judge-pick"));
+                await h.shot(SHOT(4, "judge-pick"));
                 const ok =
                     swapped &&
                     same &&
+                    asks(r, ctx.topic, "Talking it through · 2 of 5 yours") &&
+                    r.meta === "Question 3 → Approach" &&
                     r.judgeStatus === "" &&
-                    r.wait === "" &&
+                    !r.waitDrawn &&
                     r.rows.length === 3 &&
                     r.rows[0].badge === "Judge’s pick" &&
                     r.rows[1].badge === "" &&
@@ -215,7 +269,7 @@ export default (kit) => {
                     r.dropped[0].text === `${DROPPED[0].name} ${DROPPED[0].reason}` &&
                     r.dropped[1].text === `${DROPPED[1].name} ${DROPPED[1].reason}` &&
                     r.buttons.includes("Guess for me") &&
-                    r.hint === "1–3 picks · or type your own answer below";
+                    r.hint === hintFor(3);
                 return [ok, { swapped, same, ...r }];
             });
 
@@ -223,45 +277,66 @@ export default (kit) => {
                 writeFile(ctx, JUDGE_FAILED);
                 await drawn(h, `card?.querySelector('[data-view-swap="failed"]') != null`);
                 const r = await readQ(h);
-                await h.shot(SHOT(4, "judge-failed"));
+                await h.shot(SHOT(5, "judge-failed"));
                 const ok =
+                    asks(r, ctx.topic, "Talking it through · 2 of 5 yours") &&
+                    r.meta === "Question 3 → Approach" &&
                     r.rows.length === 5 &&
                     r.rows[0].badge === "Agent’s pick" &&
                     r.rows.slice(1).every((x) => x.badge === "") &&
                     r.rows[1].detail === APPROACHES[1].description &&
                     r.work === `Judge’s work: the judge failed, so the read and pick are the agent’s: ${FAILED_REASON}` &&
-                    r.dropped.length === 0;
+                    r.dropped.length === 0 &&
+                    r.hint === hintFor(5);
                 return [ok, r];
             });
 
-            await step("Answered's question 5: no options, and the hint says answer in the box below", async () => {
+            await step("Answered's question 5: the open question, no options, and the hint says answer in the box below", async () => {
                 writeFile(ctx, ANSWERED);
                 await drawn(h, `(card?.innerText ?? "").includes(${JSON.stringify(Q5.text)})`);
                 const r = await readQ(h);
-                await h.shot(SHOT(5, "answered-q5"));
+                await h.shot(SHOT(6, "answered-q5"));
                 const ok =
                     r.kind === "question" &&
-                    r.text.includes("5 → Banner") &&
+                    asks(r, ctx.topic, "Talking it through · 4 of 5 yours") &&
+                    r.meta === "Question 5 → Banner" &&
                     r.text.includes(Q5.why) &&
                     r.rows.length === 0 &&
-                    r.status === "Talking it through · 4 of 5 yours" &&
                     r.hint === "answer in the box below";
                 return [ok, r];
             });
 
-            await step("the narrow column renders the card compact with the option rows and the action row stacked", async () => {
+            await step("HardCases' ten options: keys 1-9 on the first nine rows, a blank on the tenth, and the hint names keys 1-9", async () => {
+                writeFile(ctx, TEN);
+                await drawn(h, `card?.querySelectorAll("[data-rendered-bs-option-row]").length === ${TEN_OPTIONS.length}`);
+                const r = await readQ(h);
+                await h.shot(SHOT(7, "ten-options"));
+                const ok =
+                    r.rows.length === 10 &&
+                    r.rows.slice(0, 9).every((x, i) => x.key === String(i + 1) && !x.noKey) &&
+                    r.rows[9].key === "" &&
+                    r.rows[9].noKey &&
+                    r.rows[9].label === "Option 10" &&
+                    r.hint === hintFor(9);
+                return [ok, r];
+            });
+
+            await step("the narrow column renders the card compact: the header wraps under Open, the option rows and the action row stacked", async () => {
                 writeFile(ctx, JUDGE_PICK);
                 await drawn(h, `card?.querySelector('[data-view-swap="judged"]') != null`);
                 const narrowed = await narrow(h);
                 const r = await readQ(h);
-                await h.shot(SHOT(6, "narrow"));
+                await h.shot(SHOT(8, "narrow"));
                 const widened = await widen(h);
                 const ok =
                     narrowed &&
                     r.compact === true &&
+                    asks(r, ctx.topic, "Talking it through · 2 of 5 yours") &&
+                    r.meta === "Question 3 → Approach" &&
                     r.rows.length === 3 &&
                     r.rows.every((x) => x.stacked === true) &&
                     r.actionsStacked === true &&
+                    r.hint === hintFor(3) &&
                     widened;
                 return [ok, { narrowed, widened, ...r }];
             });

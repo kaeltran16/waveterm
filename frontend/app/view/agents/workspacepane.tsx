@@ -5,7 +5,7 @@
 // resizable split, not a rail: it opens at the stored width, drags from its left edge, expands over the center and
 // collapses to a 44px strip. The surface renders it only while the agent has tabs (workspacestore.ts holds them).
 
-import { cardVariants, indicatorSlide, MOTION, popoverReveal } from "@/app/element/motiontokens";
+import { cardVariants, indicatorSlide, MOTION, popoverReveal, SHEET_SLIDE_PX } from "@/app/element/motiontokens";
 import { TickNumber } from "@/app/element/ticknumber";
 import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
@@ -15,6 +15,8 @@ import {
     ChevronRight,
     Code,
     File,
+    FileText,
+    Flag,
     LayoutDashboard,
     Lightbulb,
     Maximize2,
@@ -29,6 +31,7 @@ import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useBoardInfo } from "../boards/boardview";
+import { effortDetailAtom } from "../jarvis/effortstore";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { dismissWorkspaceTab } from "./autoopen";
@@ -41,8 +44,11 @@ import { useRunAsks } from "./runrailsections";
 import { WorkspaceBoardTab } from "./workspaceboardtab";
 import { WorkspaceCanvasTab } from "./workspacecanvastab";
 import { ChangesTab } from "./workspacechangestab";
+import { DocsTab } from "./workspacedocstab";
 import { FileTab } from "./workspacefiletab";
+import { InitiativeTab } from "./workspaceinitiativetab";
 import {
+    boardPaneWidth,
     DEFAULT_PANE_PX,
     iconOnlyTabs,
     paneShape,
@@ -62,6 +68,7 @@ import {
     activateWorkspaceTab,
     setWorkspaceCollapsed,
     setWorkspaceExpanded,
+    workspaceBoardWidthAtom,
     workspaceWidthAtom,
 } from "./workspacestore";
 
@@ -69,12 +76,17 @@ const TAB_ICON: Record<WorkspaceTab["kind"], LucideIcon> = {
     run: Workflow,
     changes: File,
     file: Code,
+    docs: FileText,
+    initiative: Flag,
     brainstorm: Lightbulb,
     canvas: LayoutDashboard,
     board: Shapes,
 };
 
 const MIDDLE_BUTTON = 1;
+
+const RESET_TITLE = `Drag to resize · double-click resets to ${DEFAULT_PANE_PX}px`;
+const BOARD_RESET_TITLE = "Drag to resize · double-click resets to full width";
 
 // a tab's box, shared by the tab and its hidden full-label copy so the measured width is the one it would draw
 const TAB_FACE = "flex items-center gap-[7px] pl-[10px] pr-[4px] text-[12.5px] font-semibold";
@@ -86,7 +98,9 @@ const DOT_CORNER = "absolute left-[20px] top-[6px] box-content h-[6px] w-[6px] r
 const DOT_TONE = { waiting: "bg-asking", unseen: "bg-accent" } as const;
 const DOT_LABEL = { waiting: "waiting on you", unseen: "new since you looked" } as const;
 
-// 6b on the horizontal axis: paneReveal's opacity and timing, with width in place of height
+// paneReveal's opacity and timing. The pane arrives and leaves at its full width, sliding like a sheet: growing its
+// width would narrow the transcript beside it every frame, rewrapping the whole feed. A change of shape (strip,
+// expanded) still tweens the width, since you asked for it
 const REVEAL = { duration: MOTION.durMacro, ease: MOTION.easeFluid };
 const LEAVE = { duration: MOTION.durExit, ease: MOTION.easeFluid };
 // a drag follows the pointer 1:1, never eased
@@ -105,19 +119,21 @@ export function WorkspacePane({
     availablePx: number | null;
 }) {
     const [stored, setStored] = useAtom(workspaceWidthAtom);
+    const [boardStored, setBoardStored] = useAtom(workspaceBoardWidthAtom);
     const [dragPx, setDragPx] = useState<number | null>(null);
     const room = availablePx ?? Number.POSITIVE_INFINITY;
     const shape = paneShape(ws);
-    const openPx = dragPx ?? paneWidth(stored, room);
+    const onBoard = ws.tabs.find((t) => tabKey(t) === ws.active)?.kind === "board";
+    const openPx = dragPx ?? (onBoard ? boardPaneWidth(boardStored, room) : paneWidth(stored, room));
     const target = shape === "strip" ? STRIP_PX : shape === "expanded" && availablePx != null ? availablePx : openPx;
     const waits = useWaitInput(agent);
     return (
         <motion.aside
             aria-label="Workspace"
             data-workspace-pane={shape}
-            initial={{ width: 0, opacity: 0 }}
-            animate={{ width: target, opacity: 1 }}
-            exit={{ width: 0, opacity: 0, transition: LEAVE }}
+            initial={{ width: target, opacity: 0, x: SHEET_SLIDE_PX }}
+            animate={{ width: target, opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: SHEET_SLIDE_PX, transition: LEAVE }}
             transition={dragPx != null ? UNEASED : REVEAL}
             className="relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border bg-surface"
         >
@@ -150,12 +166,13 @@ export function WorkspacePane({
                             <ResizeHandle
                                 widthPx={openPx}
                                 availablePx={room}
+                                resetTitle={onBoard ? BOARD_RESET_TITLE : RESET_TITLE}
                                 onDrag={setDragPx}
                                 onCommit={(px) => {
-                                    setStored(px);
+                                    (onBoard ? setBoardStored : setStored)(px);
                                     setDragPx(null);
                                 }}
-                                onReset={() => setStored(DEFAULT_PANE_PX)}
+                                onReset={() => (onBoard ? setBoardStored(null) : setStored(DEFAULT_PANE_PX))}
                             />
                         ) : null}
                         <TabStrip agentId={agent.id} ws={ws} waits={waits} />
@@ -184,12 +201,14 @@ function useWaitInput(agent: AgentVM): WaitInput {
 function ResizeHandle({
     widthPx,
     availablePx,
+    resetTitle,
     onDrag,
     onCommit,
     onReset,
 }: {
     widthPx: number;
     availablePx: number;
+    resetTitle: string;
     onDrag: (px: number | null) => void;
     onCommit: (px: number) => void;
     onReset: () => void;
@@ -226,14 +245,14 @@ function ResizeHandle({
             aria-orientation="vertical"
             aria-label="Resize the workspace pane"
             aria-valuenow={Math.round(widthPx)}
-            title="Drag to resize · double-click resets to 600px"
+            title={resetTitle}
             data-workspace-resize
             onPointerDown={down}
             onPointerMove={move}
             onPointerUp={up}
             onPointerCancel={up}
             onDoubleClick={onReset}
-            className="group absolute bottom-0 left-0 top-0 z-[2] flex w-[8px] cursor-col-resize items-center justify-center"
+            className="group absolute bottom-0 left-0 top-0 z-10 flex w-[8px] cursor-col-resize items-center justify-center"
         >
             <span className="h-[34px] w-[3px] rounded-[2px] bg-edge-mid group-hover:bg-edge-strong" aria-hidden />
         </div>
@@ -449,7 +468,8 @@ function TabButton({
     );
 }
 
-// what a tab's label names beyond its kind: the run's title, the brainstorm's or canvas's topic, or the board's name
+// what a tab's label names beyond its kind: the run's title, the brainstorm's or canvas's topic, the board's name or the
+// initiative's title
 function useTabName(agentId: string, tab: WorkspaceTab): string | undefined {
     const run = useRunInfo(tab.kind === "run" ? tab.runId : null).run;
     const brainstorm = useAtomValue(brainstormAtom(agentId));
@@ -458,7 +478,10 @@ function useTabName(agentId: string, tab: WorkspaceTab): string | undefined {
         tab.kind === "board" ? tab.channelId : null,
         tab.kind === "board" ? tab.boardId : null
     ).board;
+    const effort = useAtomValue(effortDetailAtom).get(tab.kind === "initiative" ? `effort:${tab.effortId}` : "");
     switch (tab.kind) {
+        case "initiative":
+            return effort?.title;
         case "run":
             return run?.title;
         case "brainstorm":
@@ -485,6 +508,10 @@ function TabBody({ model, agent, ws }: { model: AgentsViewModel; agent: AgentVM;
                 <ChangesTab model={model} agent={agent} tab={tab} />
             ) : tab.kind === "file" ? (
                 <FileTab model={model} agent={agent} tab={tab} />
+            ) : tab.kind === "docs" ? (
+                <DocsTab model={model} agent={agent} tab={tab} />
+            ) : tab.kind === "initiative" ? (
+                <InitiativeTab model={model} agent={agent} tab={tab} />
             ) : tab.kind === "brainstorm" ? (
                 <BrainstormPane model={model} agent={agent} inTab />
             ) : tab.kind === "board" ? (

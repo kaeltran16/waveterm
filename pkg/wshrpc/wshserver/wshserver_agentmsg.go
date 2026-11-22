@@ -6,6 +6,7 @@ package wshserver
 import (
 	"context"
 	"fmt"
+	"log"
 	"path"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/agentctl"
 	"github.com/wavetermdev/waveterm/pkg/agentmsg"
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
+	"github.com/wavetermdev/waveterm/pkg/agentworker"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -39,6 +41,7 @@ type agentTabFacts struct {
 	Status       baseds.AgentStatusData
 	OpenAsk      bool
 	HasStream    bool
+	ParentTab    string // the parent's tab id, for a worker an agent started
 }
 
 type agentRosterFacts struct {
@@ -51,6 +54,7 @@ type agentRosterFacts struct {
 type agentRow struct {
 	wshrpc.AgentInfo
 	blockId   string
+	parentTab string
 	status    baseds.AgentStatusData
 	hasStream bool
 	openAsk   bool
@@ -69,6 +73,12 @@ var typeAgentMessage = orchestrate.TypeToSession
 // blockTranscriptMeta is the transcript path a block's agent hook recorded on it. A var so tests need no block.
 var blockTranscriptMeta = readBlockTranscriptMeta
 
+// resumeWorker starts a stopped worker with a message as its turn's prompt. A var so tests need no process.
+var resumeWorker = agentworker.ResumeWorker
+
+// setNoticeOwed records that a worker owes its parent a notice. A var so tests need no store.
+var setNoticeOwed = agentworker.SetNoticeOwed
+
 // tabAgentBlock is the block a tab's agent runs in, "" for a tab that is gone. A var so tests need no store.
 var tabAgentBlock = readTabAgentBlock
 
@@ -78,6 +88,7 @@ type promptBlock struct {
 	Stored       bool
 	ShellRunning bool
 	HasStream    bool
+	WorkerTab    string // the block's tab, when it is a worker an agent started
 }
 
 // readPromptBlock reads a block's promptBlock facts. A var so tests need no store or controller.
@@ -88,12 +99,28 @@ func loadPromptBlock(ctx context.Context, blockId string) (promptBlock, error) {
 	if err != nil {
 		return promptBlock{}, fmt.Errorf("loading block %s: %w", blockId, err)
 	}
+	if block == nil {
+		return promptBlock{}, nil
+	}
 	rs := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
-	return promptBlock{
-		Stored:       block != nil,
+	pb := promptBlock{
+		Stored:       true,
 		ShellRunning: rs != nil && rs.ShellProcStatus == blockcontroller.Status_Running,
 		HasStream:    agentctl.Has(blockId),
-	}, nil
+	}
+	// a worker's agent block sits directly in its tab
+	parent, err := waveobj.ParseORef(block.ParentORef)
+	if err != nil || parent.OType != waveobj.OType_Tab {
+		return pb, nil
+	}
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, parent.OID)
+	if err != nil {
+		return promptBlock{}, fmt.Errorf("loading tab %s: %w", parent.OID, err)
+	}
+	if agentworker.ParentOf(tab) != "" {
+		pb.WorkerTab = parent.OID
+	}
+	return pb, nil
 }
 
 func readAgentRosterFacts(ctx context.Context) (*agentRosterFacts, error) {
@@ -116,19 +143,49 @@ func readAgentRosterFacts(ctx context.Context) (*agentRosterFacts, error) {
 		}
 		blockId := tab.BlockIds[0]
 		rs := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+		shellRunning := rs != nil && rs.ShellProcStatus == blockcontroller.Status_Running
 		status := orchestrate.LatestAgentStatus(blockId, tab.OID)
+		parentTab := agentworker.ParentOf(tab)
+		if parentTab != "" && !shellRunning {
+			if err := stoppedWorkerStatus(ctx, tab, blockId, &status); err != nil {
+				return nil, err
+			}
+		}
 		_, openAsk := agentask.GlobalRegistry.Get(waveobj.MakeORef(waveobj.OType_Block, blockId).String())
 		facts.Tabs = append(facts.Tabs, agentTabFacts{
 			Tab:          tab,
 			BlockId:      blockId,
-			ShellRunning: rs != nil && rs.ShellProcStatus == blockcontroller.Status_Running,
+			ShellRunning: shellRunning,
 			ProjectPath:  jarvis.MainCheckout(status.Cwd),
 			Status:       status,
 			OpenAsk:      openAsk,
 			HasStream:    agentctl.Has(blockId),
+			ParentTab:    parentTab,
 		})
 	}
 	return facts, nil
+}
+
+// stoppedWorkerStatus takes a stopped worker's harness, cwd and transcript from its tab and block, which outlive
+// its process and an app restart, where its status events do not.
+func stoppedWorkerStatus(ctx context.Context, tab *waveobj.Tab, blockId string, status *baseds.AgentStatusData) error {
+	block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
+	if err != nil {
+		return fmt.Errorf("loading block %s: %w", blockId, err)
+	}
+	if block == nil {
+		return nil
+	}
+	if harness := tab.Meta.GetString(waveobj.MetaKey_SessionAgent, ""); harness != "" {
+		status.Agent = harness
+	}
+	if cwd := block.Meta.GetString(waveobj.MetaKey_CmdCwd, ""); cwd != "" {
+		status.Cwd = cwd
+	}
+	if tpath := block.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, ""); tpath != "" {
+		status.TranscriptPath = tpath
+	}
+	return nil
 }
 
 func readTabAgentBlock(ctx context.Context, tabId string) string {
@@ -164,17 +221,31 @@ func agentsState(status string, openAsk bool) string {
 	return wshrpc.AgentsState_Working
 }
 
+// stoppedWorker is a worker an agent started whose process has stopped: a message resumes it.
+func stoppedWorker(tf agentTabFacts) bool {
+	return tf.ParentTab != "" && !tf.ShellRunning
+}
+
+// tabState is the state a caller acts on for a live tab.
+func tabState(tf agentTabFacts) string {
+	if stoppedWorker(tf) {
+		return wshrpc.AgentsState_Stopped
+	}
+	return agentsState(tf.Status.State, tf.OpenAsk)
+}
+
 // agentNotLive is why the roster leaves a tab out, "" for a live agent. A session that reported its end
 // exited back to its shell, where a typed send would land. A killed agent reports no end and still reads live.
+// A stopped worker stays listed, since a message resumes it.
 func agentNotLive(tf agentTabFacts) string {
 	switch {
-	case !tf.ShellRunning:
+	case !tf.ShellRunning && !stoppedWorker(tf):
 		return "its terminal has no running shell"
 	case tf.Status.Agent == "":
 		return "no claude or pi status has reached it since wavesrv started"
 	case !agentHarnesses[tf.Status.Agent]:
 		return fmt.Sprintf("it runs %s, and only claude and pi sessions can be messaged", tf.Status.Agent)
-	case tf.Status.Ended:
+	case tf.Status.Ended && tf.ShellRunning:
 		return "the session reported its end and its shell kept running"
 	}
 	return ""
@@ -193,11 +264,12 @@ func buildAgentRoster(facts *agentRosterFacts) []agentRow {
 				Name:        tf.Tab.Name,
 				ProjectPath: tf.ProjectPath,
 				Harness:     tf.Status.Agent,
-				State:       agentsState(tf.Status.State, tf.OpenAsk),
+				State:       tabState(tf),
 				Cwd:         tf.Status.Cwd,
 				Title:       tf.Status.Title,
 			},
 			blockId:   tf.BlockId,
+			parentTab: tf.ParentTab,
 			status:    tf.Status,
 			hasStream: tf.HasStream,
 			openAsk:   tf.OpenAsk,
@@ -311,15 +383,44 @@ func (ws *WshServer) AgentsSendCommand(ctx context.Context, data wshrpc.CommandA
 	if target.State == wshrpc.AgentsState_Asking && !target.hasStream {
 		return nil, fmt.Errorf("agent %q has a %s open in its terminal, and a typed message would answer it; send again once it is answered", target.Name, agentOpenPrompt(target))
 	}
-	agentmsg.NoteSent(senderBlock, target.blockId)
 	// the envelope's header is one line, and a tab name is whatever the user typed
 	senderName := strings.Join(strings.Fields(sender.Name), " ")
-	deliverAgentMessage(target.blockId, agentmsg.Envelope(senderName, sender.OID, text))
+	msg := agentmsg.Envelope(senderName, sender.OID, text)
+	stopped := target.State == wshrpc.AgentsState_Stopped
+	if err := sendToAgent(ctx, target, sender.OID, msg); err != nil {
+		return nil, err
+	}
+	agentmsg.NoteSent(senderBlock, target.blockId)
 	return &wshrpc.CommandAgentsSendRtnData{
 		TabId:   target.TabId,
 		SentTs:  time.Now().UnixMilli(),
-		MidTurn: target.State != wshrpc.AgentsState_Idle,
+		MidTurn: !stopped && target.State != wshrpc.AgentsState_Idle,
 	}, nil
+}
+
+// sendToAgent hands msg to the target's session, resuming a stopped worker with it as the turn's prompt. A message
+// from a worker's parent makes the worker owe its parent a notice when the turn ends.
+func sendToAgent(ctx context.Context, target *agentRow, senderTabId, msg string) error {
+	fromParent := target.parentTab != "" && target.parentTab == senderTabId
+	if target.State != wshrpc.AgentsState_Stopped {
+		if fromParent {
+			if err := setNoticeOwed(ctx, target.blockId, true); err != nil {
+				return fmt.Errorf("recording the notice worker %s owes: %w: nothing was sent", target.TabId, err)
+			}
+		}
+		deliverAgentMessage(target.blockId, msg)
+		return nil
+	}
+	if err := resumeWorker(ctx, target.TabId, msg); err != nil {
+		return fmt.Errorf("resuming worker %s: %w: nothing was sent", target.TabId, err)
+	}
+	if fromParent {
+		// the worker already runs the message, so failing the send now would have the parent send it twice
+		if err := setNoticeOwed(ctx, target.blockId, true); err != nil {
+			log.Printf("agents send: worker %s runs the parent's message, but its notice was not recorded as owed: %v", target.TabId, err)
+		}
+	}
+	return nil
 }
 
 // Claude Code's notification_type for a tool permission menu
@@ -347,7 +448,18 @@ func (ws *WshServer) AgentPromptCommand(ctx context.Context, data wshrpc.Command
 	if err := snapshotRefusesPrompt(ctx, data.BlockId); err != nil {
 		return err
 	}
-	if err := unreachablePrompt(ctx, data.BlockId); err != nil {
+	pb, err := readPromptBlock(ctx, data.BlockId)
+	if err != nil {
+		return fmt.Errorf("%w: nothing was sent", err)
+	}
+	// a stopped worker's process is gone, so its resume carries the text as the person's message
+	if pb.WorkerTab != "" && !pb.ShellRunning {
+		if err := resumeWorker(ctx, pb.WorkerTab, text); err != nil {
+			return fmt.Errorf("resuming worker %s: %w: nothing was sent", pb.WorkerTab, err)
+		}
+		return nil
+	}
+	if err := unreachablePrompt(pb, data.BlockId); err != nil {
 		return err
 	}
 	if data.Person {
@@ -405,11 +517,7 @@ func (ws *WshServer) AgentBashCommand(ctx context.Context, data wshrpc.CommandAg
 
 // unreachablePrompt refuses a block delivery cannot reach, which would otherwise fail later in a goroutine
 // that only logs: the caller would read the prompt as sent.
-func unreachablePrompt(ctx context.Context, blockId string) error {
-	pb, err := readPromptBlock(ctx, blockId)
-	if err != nil {
-		return fmt.Errorf("%w: nothing was sent", err)
-	}
+func unreachablePrompt(pb promptBlock, blockId string) error {
 	if !pb.Stored {
 		return fmt.Errorf("block %s no longer exists: nothing was sent", blockId)
 	}
@@ -476,7 +584,7 @@ func (ws *WshServer) AgentsExplainCommand(ctx context.Context, data wshrpc.Comma
 		NotLive:      agentNotLive(*tf),
 	}
 	if rtn.Live = rtn.NotLive == ""; rtn.Live {
-		rtn.State = agentsState(tf.Status.State, tf.OpenAsk)
+		rtn.State = tabState(*tf)
 	}
 	return rtn, nil
 }

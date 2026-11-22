@@ -1,6 +1,6 @@
 ---
 name: runs
-description: Use when you need to start an Arc run (quick, or orchestrator from a goal or a plan file), check on or cancel a run, or see what is waiting on the user — via `wsh runs`; or message a live agent tab and read its answer — via `wsh agents`; or clean up what runs left on disk (run trees, wave/* branches, Final outputs) — via `wsh storage`.
+description: Use when you need to start an Arc run (quick, or orchestrator from a goal or a plan file), check on or cancel a run, or see what is waiting on the user — via `wsh runs`; or message a live agent tab or start a worker agent in its own tab, and read its answer — via `wsh agents`; or clean up what runs left on disk (run trees, wave/* branches, Final outputs) — via `wsh storage`.
 ---
 
 # Arc runs from the command line
@@ -20,6 +20,10 @@ Message a live agent (claude or pi) with `wsh agents`:
 - `wsh agents list` shows the live agent tabs, with a tab prefix, each one's state, the folder it works in
   when that is not the project's checkout (a worktree), and its task title. `(you)` marks your own tab.
   Rows of one project can share a name: pick the target by folder and title, never by name alone.
+- `wsh agents start "<task>"` starts a worker: a claude or pi agent in its own tab, nested under yours, and
+  prints its tab id. Harness, model and permission mode default to yours; `--file <path>` reads the task from a
+  file, `--worktree <branch>` gives it a new worktree on a new branch off your HEAD. `wsh agents start --help`
+  lists the other options. Read its answer with `wsh agents read <tab>` or `wsh agents wait <tab>`.
 - `wsh agents send <tab> "<text>"` hands the agent a prompt; `--file <path>` reads the text from a file, `--wait` blocks until it has answered.
 - `wsh agents wait <tab>` blocks until the agent is idle (printing its answer) or asking the user; `--until idle|asking` waits for one of them.
 - `wsh agents read <tab>` prints the agent's last answer.
