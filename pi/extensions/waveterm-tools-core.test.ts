@@ -12,9 +12,9 @@ import {
 
 describe("waveterm-tools-core", () => {
     it.each([
-        ["a 1M window at 35%", { contextWindow: 1_000_000, percent: 35 }, true],
-        ["a 1M window below 35%", { contextWindow: 1_000_000, percent: 34.9 }, false],
-        ["a smaller window past 35%", { contextWindow: 400_000, percent: 80 }, false],
+        ["a 1M window at 20%", { contextWindow: 1_000_000, percent: 20 }, true],
+        ["a 1M window below 20%", { contextWindow: 1_000_000, percent: 19.9 }, false],
+        ["a smaller window past 20%", { contextWindow: 400_000, percent: 80 }, false],
         ["unknown usage after a compaction", { contextWindow: 1_000_000, percent: null }, false],
         ["no model", undefined, false],
     ])("auto-compacts %s: %s", (_name, usage, want) => {
