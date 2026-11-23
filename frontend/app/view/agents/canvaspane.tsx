@@ -60,11 +60,20 @@ import {
     detachCanvas,
     selectCanvasBoard,
     selectCanvasTab,
+    selectCanvasWindowTab,
     setMark,
     setMarking,
     type CanvasState,
 } from "./canvasstore";
-import { windowGridLayout } from "./canvaswindowmodel";
+import {
+    OTHER_TAB,
+    otherBoards,
+    windowGridLayout,
+    windowTab,
+    windowTabs,
+    type ScopeTab,
+    type WindowScope,
+} from "./canvaswindowmodel";
 import { routeDesign, tauriDesignAttach } from "./designroute";
 import { NOTE_CARD, NoteCardBody } from "./docreviewnotesview";
 
@@ -121,26 +130,37 @@ export async function openBuildRun(
 // tabLabels names a board's tab in place of its plain label, as a brainstorm's open question numbers its answers'
 // boards; boardActions draws a row under the toolbar for the one board shown, never under All or while marking. Either
 // marks a brainstorm's canvas, whose brainstorm owns the run launch, so it has no Build this. onClose makes it the
-// canvas window (canvaswindow.tsx): a Close button, the marking hint in the header, and All in rows of 3
+// canvas window (canvaswindow.tsx): a Close button, the marking hint in the header, and All in rows of 3. scope
+// (window only) replaces every board and All with the scope's tabs and Other boards, and band draws under the toolbar
+// for the shown scope tab; a scope is a brainstorm's, so it too has no Build this
 export function CanvasPane({
     model,
     agent,
     tabLabels,
     boardActions,
+    scope,
+    band,
     onClose,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
     tabLabels?: Record<string, string>;
     boardActions?: (board: string) => ReactNode;
+    scope?: WindowScope;
+    band?: (tab: ScopeTab, scope: WindowScope) => ReactNode;
     onClose?: () => void;
 }) {
     const s = useAtomValue(canvasStateAtom(agent.id));
     const now = useAtomValue(model.nowAtom);
     const [measureRef, scrollRef, rect] = useDimensionsWithCallbackRef<HTMLDivElement>();
     const selected = s != null ? shownBoard(s).name : null;
-    const tab = s != null ? currentTab(s) : "";
-    const stepDir = useStepDir(tab, s != null ? canvasTabs(s.boards) : []);
+    const tab = s == null ? "" : scope != null ? windowTab(scope, s) : currentTab(s);
+    // a board picked from the Other boards grid is a step of its own, though the tab stays Other boards
+    const step = s == null ? "" : scope != null ? (s.all ? OTHER_TAB : selected!) : tab;
+    const stepDir = useStepDir(
+        step,
+        s == null ? [] : scope != null ? scopeOrder(scope, s.boards) : canvasTabs(s.boards)
+    );
     const layoutRef = useRef<CanvasLayout | null>(null);
     // a tab, [ or ] can pick a board below the fold. Only its top edge is brought into view, label included:
     // scrollIntoView top-aligns any board taller than the pane, which scrolled the labels away on every pick. Read
@@ -167,7 +187,20 @@ export function CanvasPane({
     const pane = paneState(s);
     const board = shownBoard(s);
     const inWindow = onClose != null;
-    const shownList = shownBoards(s);
+    const grid = scope != null && s.all;
+    const shownList = grid ? otherBoards(scope, s.boards) : shownBoards(s);
+    const scopeTab = scope?.tabs.find((t) => t.board === tab);
+    const tabOptions =
+        scope != null
+            ? windowTabs(scope, s.boards).map((t) => {
+                  const label = t === OTHER_TAB ? "Other boards" : scope.tabs.find((x) => x.board === t)!.label;
+                  return { key: t, title: label, label: <span className="max-w-[260px] truncate">{label}</span> };
+              })
+            : canvasTabs(s.boards).map((t) => ({
+                  key: t,
+                  label: t === ALL_TAB ? "All" : (tabLabels?.[t] ?? boardLabel(t)),
+              }));
+    const select = (t: string) => (scope != null ? selectCanvasWindowTab(agent.id, t) : selectCanvasTab(agent.id, t));
     const layout =
         inWindow && shownList.length > 1
             ? windowGridLayout(shownList, rect?.width ?? 0)
@@ -189,9 +222,13 @@ export function CanvasPane({
                     inWindow ? "pr-[10px]" : "flex-wrap pr-[22px]"
                 )}
             >
-                <span className="flex-none whitespace-nowrap font-mono text-[12px] font-semibold text-secondary">
-                    {s.topic}
-                </span>
+                {scope != null ? (
+                    <ScopeSourceLabel scope={scope} />
+                ) : (
+                    <span className="flex-none whitespace-nowrap font-mono text-[12px] font-semibold text-secondary">
+                        {s.topic}
+                    </span>
+                )}
                 {s.boards.length > 0 ? (
                     <div
                         ref={tabsFade.ref}
@@ -206,12 +243,9 @@ export function CanvasPane({
                             role="tablist"
                             ariaLabel="Boards"
                             title={`Previous and next board (${formatChordString("[")} and ${formatChordString("]")})`}
-                            value={currentTab(s)}
-                            options={canvasTabs(s.boards).map((t) => ({
-                                key: t,
-                                label: t === ALL_TAB ? "All" : (tabLabels?.[t] ?? boardLabel(t)),
-                            }))}
-                            onChange={(tab) => selectCanvasTab(agent.id, tab)}
+                            value={tab}
+                            options={tabOptions}
+                            onChange={select}
                         />
                     </div>
                 ) : null}
@@ -228,7 +262,7 @@ export function CanvasPane({
                     type="button"
                     title={`Mark part of the board (${formatChordString("m")})`}
                     aria-pressed={marking}
-                    disabled={pane !== "board"}
+                    disabled={pane !== "board" || grid}
                     onClick={() => setMarking(agent.id, !s.marking)}
                     className={cn(
                         "flex cursor-pointer items-center gap-[6px] rounded-[8px] border px-[11px] py-[6px] text-[12.5px] font-semibold disabled:cursor-default disabled:opacity-50",
@@ -245,13 +279,14 @@ export function CanvasPane({
                         {s.base != null ? (
                             <button
                                 type="button"
+                                disabled={grid}
                                 onClick={() => getApi().openExternal(boardUrl(s.base!, s.topic, board.name))}
-                                className={CANVAS_BTN}
+                                className={cn(CANVAS_BTN, "disabled:cursor-default disabled:opacity-50")}
                             >
                                 Open in browser
                             </button>
                         ) : null}
-                        {s.boards.length > 0 && boardActions == null ? (
+                        {s.boards.length > 0 && boardActions == null && scope == null ? (
                             <button
                                 type="button"
                                 onClick={() => {
@@ -278,13 +313,23 @@ export function CanvasPane({
                     </button>
                 ) : null}
             </div>
-            <PaneReveal
-                open={boardActions != null && pane === "board" && !marking && tab !== ALL_TAB}
-                variants={composerReveal}
-                className="flex-none"
-            >
-                {boardActions?.(board.name)}
-            </PaneReveal>
+            {scope != null ? (
+                <PaneReveal
+                    open={band != null && scopeTab != null && pane === "board" && !marking}
+                    variants={composerReveal}
+                    className="flex-none"
+                >
+                    {scopeTab != null ? <ViewSwap swapKey={scopeTab.board}>{band?.(scopeTab, scope)}</ViewSwap> : null}
+                </PaneReveal>
+            ) : (
+                <PaneReveal
+                    open={boardActions != null && pane === "board" && !marking && tab !== ALL_TAB}
+                    variants={composerReveal}
+                    className="flex-none"
+                >
+                    {boardActions?.(board.name)}
+                </PaneReveal>
+            )}
             <ViewSwap swapKey={pane} className="flex min-h-0 flex-1 flex-col bg-surface-code">
                 {pane === "server-down" ? (
                     <ServerDown />
@@ -302,14 +347,14 @@ export function CanvasPane({
                         style={{ paddingTop: CANVAS_TOP_PAD }}
                     >
                         {/* keyed by agent: another agent's canvas is a different view, not the next board */}
-                        <StepSwap key={agent.id} stepKey={tab} dir={stepDir}>
+                        <StepSwap key={agent.id} stepKey={step} dir={stepDir}>
                             <div className="relative mx-auto" style={{ width: layout.width, height: layout.height }}>
                                 {layout.frames.map((f) => (
                                     <BoardFrameView
                                         key={f.board.name}
                                         frame={f}
                                         scale={scale}
-                                        selected={f.board.name === board.name}
+                                        selected={!grid && f.board.name === board.name}
                                         single={layout.frames.length === 1}
                                         src={
                                             pane === "board" && s.base != null
@@ -317,7 +362,11 @@ export function CanvasPane({
                                                 : null
                                         }
                                         reloadKey={s.reloadKey}
-                                        onSelect={() => selectCanvasBoard(agent.id, f.board.name)}
+                                        onSelect={() =>
+                                            grid
+                                                ? selectCanvasWindowTab(agent.id, f.board.name)
+                                                : selectCanvasBoard(agent.id, f.board.name)
+                                        }
                                     >
                                         {marking && f.board.name === board.name ? (
                                             <MarkLayer agentId={agent.id} mark={s.mark} hint={!inWindow} />
@@ -341,6 +390,27 @@ export function CanvasPane({
             </ViewSwap>
         </div>
     );
+}
+
+// the toolbar's name for where the window came from, in place of the canvas topic
+function ScopeSourceLabel({ scope }: { scope: WindowScope }) {
+    const src = scope.source;
+    const [lead, text] = src.kind === "question" ? [String(src.n), src.text] : ["Part", src.title];
+    return (
+        <span
+            data-canvas-scope-source
+            title={text}
+            className="flex min-w-0 max-w-[40%] flex-none items-baseline gap-[8px] text-[13px] font-semibold"
+        >
+            <span className="flex-none text-warning">{lead}</span>
+            <span className="truncate text-primary">{text}</span>
+        </span>
+    );
+}
+
+// the slide's order: the scope's tabs, then the boards Other boards shows alone
+function scopeOrder(scope: WindowScope, boards: CanvasBoard[]): string[] {
+    return [...windowTabs(scope, boards), ...otherBoards(scope, boards).map((b) => b.name)];
 }
 
 // the side a board switch slides toward: +1 when the new tab sits after the old one in the header, -1 before it

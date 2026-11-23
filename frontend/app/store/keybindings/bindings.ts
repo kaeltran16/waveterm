@@ -41,12 +41,15 @@ import {
 import { paneState, shownBoard } from "@/app/view/agents/canvasmodel";
 import {
     canvasWindowAtom,
+    canvasWindowScopeAtom,
     focusedCanvas,
     getCanvas,
     openCanvasWindow,
     selectCanvasBoard,
+    selectCanvasWindowDigit,
     setMarking,
     stepCanvasBoard,
+    stepCanvasWindow,
 } from "@/app/view/agents/canvasstore";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sendPendingComments } from "@/app/view/agents/commentsend";
@@ -2400,6 +2403,9 @@ export function buildCanvasWindowBindings(escape: () => void): Binding[] {
         const s = shown(ctx);
         return s != null && !s.marking && paneState(s) === "board";
     };
+    // the Other boards grid shows no one board to mark
+    const markable = (ctx: KeyContext) =>
+        ready(ctx) && !(globalStore.get(canvasWindowScopeAtom) != null && getCanvas(id()!)!.all);
     const bind = (name: string, keys: string, label: string, when: Binding["when"], run: () => void): Binding => ({
         id: `canvas-window:${name}`,
         keys,
@@ -2411,7 +2417,7 @@ export function buildCanvasWindowBindings(escape: () => void): Binding[] {
     });
     return [
         bind("escape", "Escape", "Drop the drawn mark, else close the window", (ctx) => shown(ctx) != null, escape),
-        bind("mark-start", "m", "Mark part of the board", ready, () => setMarking(id()!, true)),
+        bind("mark-start", "m", "Mark part of the board", markable, () => setMarking(id()!, true)),
         bind(
             "mark-stop",
             "m",
@@ -2419,8 +2425,18 @@ export function buildCanvasWindowBindings(escape: () => void): Binding[] {
             (ctx) => shown(ctx)?.marking === true,
             () => setMarking(id()!, false)
         ),
-        bind("prev", "[", "Previous board", ready, () => stepCanvasBoard(id()!, -1)),
-        bind("next", "]", "Next board", ready, () => stepCanvasBoard(id()!, 1)),
+        bind("prev", "[", "Previous board", ready, () => stepCanvasWindow(id()!, -1)),
+        bind("next", "]", "Next board", ready, () => stepCanvasWindow(id()!, 1)),
+        // an unscoped window has no answers to number, so its digits stay unclaimed
+        ...Array.from({ length: 9 }, (_, i) =>
+            bind(
+                `digit-${i + 1}`,
+                String(i + 1),
+                `Show answer ${i + 1}'s board, or a part's board ${i + 1}`,
+                (ctx) => ready(ctx) && globalStore.get(canvasWindowScopeAtom) != null,
+                () => selectCanvasWindowDigit(id()!, i)
+            )
+        ),
     ];
 }
 

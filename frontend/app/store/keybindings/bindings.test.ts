@@ -26,6 +26,7 @@ import { ALL_TAB, currentTab } from "@/app/view/agents/canvasmodel";
 import {
     attachCanvas,
     canvasWindowAtom,
+    canvasWindowScopeAtom,
     detachCanvas,
     getCanvas,
     openCanvasWindow,
@@ -35,6 +36,7 @@ import {
     updateCanvas,
 } from "@/app/view/agents/canvasstore";
 import { escapeCanvasWindow } from "@/app/view/agents/canvaswindow";
+import { OTHER_TAB, windowTab, type WindowScope } from "@/app/view/agents/canvaswindowmodel";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { registerCommentSend } from "@/app/view/agents/commentsend";
 import { compareCwd, refreshCompare } from "@/app/view/agents/comparestore";
@@ -1649,6 +1651,52 @@ describe("canvas window bindings", () => {
         expect(tab()).toBe("States.dc.html");
     });
 
+    const answerTab = (board: string, index: number): WindowScope["tabs"][number] => ({
+        board,
+        label: board,
+        band: { kind: "answers", answers: [{ index, label: "", detail: "", pick: false, pros: [], cons: [] }] },
+    });
+    const SCOPE: WindowScope = {
+        source: { kind: "question", n: 2, text: "Which layout?", judging: false, judged: false },
+        tabs: [answerTab("Main.dc.html", 0), answerTab("States.dc.html", 1)],
+    };
+
+    it("with a scope, [ ] walk its tabs and Other boards, and a digit shows its answer's tab", () => {
+        updateCanvas("a1", (s) => ({
+            ...s,
+            boards: [...s.boards, { name: "X.dc.html", x: 0, y: 0, w: 1440, h: 900 }],
+        }));
+        openCanvasWindow("a1", { board: "Main.dc.html", scope: SCOPE });
+        const tab = () => windowTab(SCOPE, getCanvas("a1")!);
+        press("]");
+        expect(tab()).toBe("States.dc.html");
+        press("]");
+        expect(tab()).toBe(OTHER_TAB);
+        press("]");
+        expect(tab()).toBe("Main.dc.html");
+        press("[");
+        expect(tab()).toBe(OTHER_TAB);
+        press("2");
+        expect(tab()).toBe("States.dc.html");
+        press("1");
+        expect(tab()).toBe("Main.dc.html");
+    });
+
+    it("m stands down on the Other boards grid, which shows no one board to mark", () => {
+        const extra = ["X", "Y"].map((n) => ({ name: `${n}.dc.html`, x: 0, y: 0, w: 1440, h: 900 }));
+        updateCanvas("a1", (s) => ({ ...s, boards: [...s.boards, ...extra] }));
+        openCanvasWindow("a1", { board: "States.dc.html", scope: SCOPE });
+        press("]");
+        expect(getCanvas("a1")!.all).toBe(true);
+        expect(claim("m")).toBeNull();
+    });
+
+    it("with no scope, the digits are left alone", () => {
+        for (const k of ["1", "2", "9"]) {
+            expect(claim(k)?.id ?? null, k).toBeNull();
+        }
+    });
+
     it("[ ] stand down while marking, and m does nothing while the canvas is not served", () => {
         setMarking("a1", true);
         expect([claim("["), claim("]")]).toEqual([null, null]);
@@ -1671,10 +1719,13 @@ describe("canvas window bindings", () => {
                 seen.set(b.keys, b.id);
             }
         };
-        for (const marking of [false, true]) {
-            setMarking("a1", marking);
-            for (const c of [under, inNote, { ...under, leader: "g" }]) {
-                check(c);
+        for (const scope of [null, SCOPE]) {
+            globalStore.set(canvasWindowScopeAtom, scope);
+            for (const marking of [false, true]) {
+                setMarking("a1", marking);
+                for (const c of [under, inNote, { ...under, leader: "g" }]) {
+                    check(c);
+                }
             }
         }
     });

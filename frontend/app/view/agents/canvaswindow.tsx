@@ -14,7 +14,14 @@ import { createPortal } from "react-dom";
 import type { AgentsViewModel } from "./agents";
 import { useBrainstormBoards } from "./brainstormpane";
 import { CanvasPane } from "./canvaspane";
-import { canvasStateAtom, canvasWindowAtom, closeCanvasWindow, getCanvas, setMark } from "./canvasstore";
+import {
+    canvasStateAtom,
+    canvasWindowAtom,
+    canvasWindowScopeAtom,
+    closeCanvasWindow,
+    getCanvas,
+    setMark,
+} from "./canvasstore";
 import { canvasEscape } from "./canvaswindowmodel";
 
 // the window's one Esc handler: the Escape binding calls it, and so does ModalShell's onClose (Esc the binding's gates
@@ -34,6 +41,7 @@ const WINDOW_BINDINGS = buildCanvasWindowBindings(escapeCanvasWindow);
 
 export function CanvasWindow({ model }: { model: AgentsViewModel }) {
     const id = useAtomValue(canvasWindowAtom);
+    const scope = useAtomValue(canvasWindowScopeAtom);
     const surface = useAtomValue(model.surfaceAtom);
     const agents = useAtomValue(model.agentsAtom);
     const canvas = useAtomValue(canvasStateAtom(id ?? ""));
@@ -59,6 +67,7 @@ export function CanvasWindow({ model }: { model: AgentsViewModel }) {
                         agent={agent}
                         tabLabels={brainstorm?.tabLabels}
                         boardActions={brainstorm?.boardActions}
+                        scope={scope ?? undefined}
                         onClose={closeCanvasWindow}
                     />
                 </div>

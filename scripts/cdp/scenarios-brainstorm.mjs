@@ -2126,18 +2126,59 @@ const BSAB_TABS = `(() => {
     };
 })()`;
 
-// ] as the user presses it; a keydown on the document when CDP keys do not reach the page
-async function bsabNextBoard(h) {
+const BSAB_NEXT_KEY = { key: "]", code: "BracketRight", vk: 221 };
+const BSAB_ONE_KEY = { key: "1", code: "Digit1", vk: 49 };
+
+// a key as the user presses it; a keydown on the document when CDP keys do not reach the page
+async function bsabPress(h, { key, code, vk }) {
     if (await bsKeysArrive(h)) {
-        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key: "]", code: "BracketRight", text: "]", windowsVirtualKeyCode: 221 });
-        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key: "]", code: "BracketRight", windowsVirtualKeyCode: 221 });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code, text: key, windowsVirtualKeyCode: vk });
+        await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk });
         await polishNap(300);
         return "keys";
     }
-    await h.ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "]", code: "BracketRight", bubbles: true, cancelable: true }))`);
+    await h.ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: ${JSON.stringify(key)}, code: ${JSON.stringify(code)}, bubbles: true, cancelable: true }))`);
     await polishNap(300);
     return "event";
 }
+
+// a scope literal over the scenario's canvas, as the brainstorm's opener builds one: answer 1's Left-rail and answer
+// 2's Top-strip get tabs, so Left-rail-failed and Run-sheet-today sit behind Other boards as a grid of two
+const bsabAnswer = (index) => ({ index, label: BSAB_FILE.question.options[index].label, detail: "", pick: false, pros: [], cons: [] });
+const BSAB_SCOPE = {
+    source: { kind: "question", n: BSAB_FILE.question.n, text: BSAB_FILE.question.text, judging: false, judged: false },
+    tabs: [
+        { board: BSAB_RAIL, label: `1 · ${BSAB_FILE.question.options[0].label}`, band: { kind: "answers", answers: [bsabAnswer(0)] } },
+        { board: BSAB_STRIP, label: `2 · ${BSAB_FILE.question.options[1].label}`, band: { kind: "answers", answers: [bsabAnswer(1)] } },
+    ],
+};
+const BSAB_SCOPE_TABS_WANT = [...BSAB_SCOPE.tabs.map((t) => t.label), "Other boards"];
+
+const bsabOpenScoped = (ctx) => `(async () => {
+    ${APP_MOD}
+    const C = await mod("app/view/agents/canvasstore.ts");
+    const id = [${JSON.stringify(ctx.tabId)}, ${JSON.stringify(ctx.blockId)}].find((k) => k && C.getCanvas(k) != null);
+    if (id == null) return "no canvas";
+    C.openCanvasWindow(id, { board: ${JSON.stringify(BSAB_RAIL)}, scope: ${JSON.stringify(BSAB_SCOPE)} });
+    return "opened";
+})()`;
+
+// the scoped window as drawn: its tabs, where it came from, the boards on show and whether Mark can act
+const BSAB_SCOPED = `(() => {
+    const win = ${BS_WIN};
+    const tabs = [...(win?.querySelectorAll('[role="tab"]') ?? [])];
+    const mark = [...(win?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === "Mark");
+    const source = win?.querySelector("[data-canvas-scope-source]");
+    return {
+        canvas: !!win,
+        labels: tabs.map((t) => (t.textContent ?? "").trim()),
+        titles: tabs.map((t) => t.getAttribute("title")),
+        selected: (tabs.find((t) => t.getAttribute("aria-selected") === "true")?.textContent ?? "").trim(),
+        source: [...(source?.children ?? [])].map((c) => (c.textContent ?? "").trim()),
+        frames: [...(win?.querySelectorAll("[data-canvas-frame]") ?? [])].map((f) => f.getAttribute("data-canvas-frame")),
+        markEnabled: mark != null && !mark.disabled,
+    };
+})()`;
 
 export const brainstormAnswerBoards = {
     name: "brainstorm-answer-boards",
@@ -2224,7 +2265,7 @@ export const brainstormAnswerBoards = {
         await polishWaitFor(h, `${BS_WIN}?.querySelectorAll('[role="tab"]').length === ${BSAB_TABS_WANT.length}`, BS_POLL_WAIT_MS);
         const opened = await h.ev(BSAB_TABS);
         await h.shot("cdp-shots/brainstorm-answer-boards-4-full-size.png");
-        const via = await bsabNextBoard(h);
+        const via = await bsabPress(h, BSAB_NEXT_KEY);
         const stepped = await h.ev(BSAB_TABS);
         await h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
         await polishNap(300);
@@ -2323,6 +2364,51 @@ export const brainstormAnswerBoards = {
                 jBacked === "clicked" &&
                 jBack,
             { opened: jOpened, backed: jBacked, back: jBack }
+        );
+
+        // 7. the window opened with a scope: its tabs, Other boards' grid, a board picked from it, a digit back
+        // a board switch slides the old frames out before the new ones mount, so each read waits for the frames it wants
+        const framesAre = (boards) =>
+            polishWaitFor(h, `JSON.stringify(${BSAB_SCOPED}.frames) === ${JSON.stringify(JSON.stringify(boards))}`, 3000);
+        const scopedOpen = await h.ev(bsabOpenScoped(ctx));
+        await polishWaitFor(h, `${BS_WIN}?.querySelectorAll('[role="tab"]').length === ${BSAB_SCOPE_TABS_WANT.length}`, BS_POLL_WAIT_MS);
+        await framesAre([BSAB_RAIL]);
+        const scoped = await h.ev(BSAB_SCOPED);
+        await h.shot("cdp-shots/brainstorm-answer-boards-7-scoped.png");
+        const sVia = await bsabPress(h, BSAB_NEXT_KEY);
+        await framesAre([BSAB_STRIP]);
+        const sStepped = await h.ev(BSAB_SCOPED);
+        await h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === "Other boards")?.click()`);
+        await framesAre([BSAB_RAIL_FAILED, BSAB_TODAY]);
+        await polishNap(400);
+        const sGrid = await h.ev(BSAB_SCOPED);
+        await h.shot("cdp-shots/brainstorm-answer-boards-7b-other-boards.png");
+        await h.ev(`${BS_WIN}?.querySelector('button[aria-label="Select ${BSAB_TODAY.replace(".dc.html", "")}"]')?.click()`);
+        await framesAre([BSAB_TODAY]);
+        const sAlone = await h.ev(BSAB_SCOPED);
+        await bsabPress(h, BSAB_ONE_KEY);
+        await framesAre([BSAB_RAIL]);
+        const sDigit = await h.ev(BSAB_SCOPED);
+        const sBacked = await bsCloseWindow(h);
+        rec(
+            `7. (Scoped window) opened with a question's scope, the toolbar names question 2 and shows its answers' tabs then Other boards; ] steps to answer 2's tab; Other boards shows Left-rail-failed and Run-sheet-today as a grid with Mark disabled; a click on Run-sheet-today shows it alone with Mark enabled, the tab staying Other boards; 1 returns to answer 1's tab (${sVia === "keys" ? "real keys" : "keydowns on the document: CDP keys did not reach the page"})`,
+            scopedOpen === "opened" &&
+                JSON.stringify(scoped.labels) === JSON.stringify(BSAB_SCOPE_TABS_WANT) &&
+                JSON.stringify(scoped.titles) === JSON.stringify(BSAB_SCOPE_TABS_WANT) &&
+                JSON.stringify(scoped.source) === JSON.stringify([String(BSAB_FILE.question.n), BSAB_FILE.question.text]) &&
+                scoped.selected === BSAB_SCOPE_TABS_WANT[0] &&
+                JSON.stringify(scoped.frames) === JSON.stringify([BSAB_RAIL]) &&
+                sStepped.selected === BSAB_SCOPE_TABS_WANT[1] &&
+                JSON.stringify(sStepped.frames) === JSON.stringify([BSAB_STRIP]) &&
+                sGrid.selected === "Other boards" &&
+                JSON.stringify(sGrid.frames) === JSON.stringify([BSAB_RAIL_FAILED, BSAB_TODAY]) &&
+                !sGrid.markEnabled &&
+                sAlone.selected === "Other boards" &&
+                JSON.stringify(sAlone.frames) === JSON.stringify([BSAB_TODAY]) &&
+                sAlone.markEnabled &&
+                sDigit.selected === BSAB_SCOPE_TABS_WANT[0] &&
+                sBacked === "clicked",
+            { scopedOpen, scoped, stepped: sStepped, grid: sGrid, alone: sAlone, digit: sDigit, backed: sBacked }
         );
         return steps;
     },

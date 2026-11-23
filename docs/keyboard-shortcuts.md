@@ -172,7 +172,8 @@ The canvas window opens over the Rendered view on one board, or on every board w
 
 | Keys | Action |
 |---|---|
-| `[` / `]` | Previous / next board, All included |
+| `[` / `]` | Previous / next board, All included; opened from a brainstorm's answer or part, its tabs with Other boards included |
+| `1`…`9` | Opened from a brainstorm's answer: show that answer's board; from a part: show its Nth board |
 | `m` | Mark part of the board; in mark mode, stop marking |
 | `Esc` | Drop the drawn mark; with none drawn, close the window. In the mark's note, `Esc` drops the mark only |
 
