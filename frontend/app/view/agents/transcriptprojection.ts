@@ -366,10 +366,17 @@ function queuedEntry(rec: any): AgentEntry | null {
     return handBack != null ? { ...handBack, ...ts } : { kind: "user", text: unwrapPasted(prompt), queued: true, ...ts };
 }
 
+// a slash command's user record; the meta record right after it is the command's expansion (a skill body)
+function isCommandRecord(rec: any): boolean {
+    const content = rec?.type === "user" ? rec.message?.content : undefined;
+    return typeof content === "string" && parseCommand(content) != null;
+}
+
 // A text the arc mod held while the agent worked and joined to the turn at a tool result: a meta record of the arc
-// plugin, read at the step where it was written. Who wrote it is not recorded, so it draws by its text.
-function joinedEntries(rec: any): AgentEntry[] {
-    if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN) {
+// plugin, read at the step where it was written. Who wrote it is not recorded, so it draws by its text. A slash command
+// the mod delivered carries the same origin on its expansion, which is plumbing like any other skill body.
+function joinedEntries(rec: any, prev: any): AgentEntry[] {
+    if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN || isCommandRecord(prev)) {
         return [];
     }
     const content = rec.message?.content;
@@ -450,8 +457,8 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
     const replied = repliedMessages(records);
     // the message the last thought came from, so its next thinking block joins that thought
     let thoughtFrom: string | undefined;
-    for (const r of records) {
-        const rec: any = r;
+    for (let i = 0; i < records.length; i++) {
+        const rec: any = records[i];
         if (rec == null) {
             continue;
         }
@@ -540,7 +547,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
         if (rec.type === "user") {
             if (rec.isMeta === true) {
                 // every other meta record (a skill body, a caveat) is plumbing
-                entries.push(...joinedEntries(rec));
+                entries.push(...joinedEntries(rec, records[i - 1]));
                 continue;
             }
             if (rec.isCompactSummary === true) {

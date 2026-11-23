@@ -1790,6 +1790,17 @@ describe("projectTranscript texts the arc mod joined mid-turn", () => {
         expect(out).toEqual([]);
     });
 
+    it("skips the skill body of a slash command the mod delivered, though it carries the arc origin", () => {
+        const command = L({
+            type: "user",
+            origin: ARC,
+            message: { content: "<command-name>/arc:design</command-name>\n<command-args>show me</command-args>" },
+        });
+        const out = projectTranscript([command, joined([{ type: "text", text: "Base directory for this skill: x" }])]);
+        expect(out).toMatchObject([{ kind: "command", name: "/arc:design", args: "show me" }]);
+        expect(out).toHaveLength(1);
+    });
+
     it("draws nothing for the mod's read mid-turn notice", () => {
         const out = projectTranscript([
             L({ type: "system", subtype: "informational", content: "read mid-turn: also check b", level: "info" }),

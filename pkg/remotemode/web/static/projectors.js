@@ -419,8 +419,12 @@ function queuedEntry(rec) {
   const handBack = att.origin?.kind === "peer" ? parseHandBack(prompt, att.origin.name) : null;
   return handBack != null ? { ...handBack, ...ts } : { kind: "user", text: unwrapPasted(prompt), queued: true, ...ts };
 }
-function joinedEntries(rec) {
-  if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN) {
+function isCommandRecord(rec) {
+  const content = rec?.type === "user" ? rec.message?.content : void 0;
+  return typeof content === "string" && parseCommand(content) != null;
+}
+function joinedEntries(rec, prev) {
+  if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN || isCommandRecord(prev)) {
     return [];
   }
   const content = rec.message?.content;
@@ -473,8 +477,8 @@ function projectTranscriptRecords(records) {
   const actionById = /* @__PURE__ */ new Map();
   const replied = repliedMessages(records);
   let thoughtFrom;
-  for (const r of records) {
-    const rec = r;
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i];
     if (rec == null) {
       continue;
     }
@@ -553,7 +557,7 @@ function projectTranscriptRecords(records) {
     }
     if (rec.type === "user") {
       if (rec.isMeta === true) {
-        entries.push(...joinedEntries(rec));
+        entries.push(...joinedEntries(rec, records[i - 1]));
         continue;
       }
       if (rec.isCompactSummary === true) {
