@@ -623,8 +623,11 @@ function PermissionMarkRow({ text, compact }: { text: string; compact: boolean }
 // copy on select, as in the claude code TUI. the mouseup listener is on window so a drag released outside the
 // transcript still copies; the flag keeps a nested timeline (a subagent's) and its host from copying twice.
 let selectionCopyArmed = false;
+// a press on a control is a click, not a drag: a selection left over from before would otherwise be copied over what
+// the control writes (a code block's Copy). a file link stays out of this list, since a drag across one selects.
+const NOT_A_SELECTION = "button, input, textarea, select";
 function armSelectionCopy(e: React.MouseEvent<HTMLElement>) {
-    if (e.button !== 0 || selectionCopyArmed) return;
+    if (e.button !== 0 || selectionCopyArmed || (e.target as Element).closest(NOT_A_SELECTION)) return;
     selectionCopyArmed = true;
     const root = e.currentTarget;
     window.addEventListener(
