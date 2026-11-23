@@ -76,6 +76,24 @@ const FED_ANSWER = [
 const ARROW_END_MAX_GAP = 20;
 const START_SHAPES = FIRST_DRAWING.length + SECOND_DRAWING.length;
 const QUESTION = "What happens when a landing fails?";
+const DRAG_PX = 60;
+const DRAG_STEPS = 6;
+
+// the drawings row's board: three drawings landed as the drawer's answers, each a row of three boxes so a fitted
+// drawing fills most of the view; then new drawings fed to the open canvas, and one landing while it is closed
+const SLIDES_BOARD = "Landing, slide by slide";
+const OLD_BOARD = "Landing notes";
+const EARLIER = "Earlier drawings";
+const row3 = (a, b, c) => [box(0, 0, a), box(260, 0, b), box(520, 0, c)];
+const SLIDES = [
+    { title: "How a run lands", add: row3("wavesrv", "orchestrate", "land") },
+    { title: "The merge queue", add: row3("queue", "rebase", "merge") },
+    { title: "Retrying a landing", add: row3("fail", "retry", "rebase") },
+];
+const FOLLOWED = { title: "Where a review waits", add: row3("task", "review", "verdict") };
+const MISSED = { title: "Who judges a rerun", add: row3("rerun", "judge", "land") };
+const WHILE_CLOSED = { title: "A crashed worker", add: row3("worker", "restart", "resume") };
+const FOLLOW_UP = "Make it simpler";
 
 const SURFACE = `document.querySelector("[data-boards-surface]")`;
 const HEADER = `${SURFACE}?.querySelector("[data-surface-toolbar]")`;
@@ -118,14 +136,35 @@ const PAGE = `
         const ids = app()?.state?.selectedElementIds;
         return ids == null ? null : Object.keys(ids).filter((id) => ids[id]).sort();
     };
-    // the canvas's shapes: bound text is part of its container, as the header counts
+    // the canvas's shapes: bound text is part of its container and a drawing's frame is not a shape, as the header counts
     const shapes = () =>
-        (app()?.scene.getNonDeletedElements() ?? []).filter((e) => !(e.type === "text" && e.containerId != null));
+        (app()?.scene.getNonDeletedElements() ?? []).filter((e) => e.type !== "frame" && !(e.type === "text" && e.containerId != null));
     const feed = async (data) => {
         const W = await mod("app/store/wps.ts");
         W.handleWaveEvent({ event: "board:update", data: { channelid: fx.channelId, ...data } });
     };
     const record = (name, data) => (fx.calls[name] ??= []).push(data);
+    // the drawings row: each chip's frame id, number, title, and whether it is current or marked new
+    const row = () =>
+        [...(document.querySelector("[data-boards-surface] [data-board-drawings]")?.querySelectorAll("[data-board-drawing]") ?? [])].map((b) => ({
+            id: b.getAttribute("data-board-drawing"),
+            n: b.querySelector("[data-board-drawing-n]")?.textContent ?? "",
+            title: b.querySelector("[data-board-drawing-title]")?.textContent ?? "",
+            current: b.getAttribute("aria-current") === "true",
+            fresh: !!b.querySelector("[data-board-drawing-new]"),
+        }));
+    // the view as Excalidraw holds it, and whether a frame lies wholly inside the visible canvas
+    const viewport = () => {
+        const s = app()?.state;
+        return s == null ? null : { scrollX: s.scrollX, scrollY: s.scrollY, zoom: s.zoom.value };
+    };
+    const inside = (id) => {
+        const a = app(), s = a?.state;
+        const f = a?.scene.getNonDeletedElements().find((e) => e.id === id);
+        if (f == null) return false;
+        const z = s.zoom.value, left = (f.x + s.scrollX) * z, top = (f.y + s.scrollY) * z;
+        return left >= 0 && top >= 0 && left + f.width * z <= s.width && top + f.height * z <= s.height;
+    };
 `;
 const page = (h, body) => lookEval(h, `${PAGE} ${body}`);
 
@@ -277,6 +316,55 @@ const patchTurn = (h, boardId, turnId, patch) =>
         await feed({ boardid: ${q(boardId)}, what: "talk" });
         return true;`);
 
+// a real board whose drawings landed one by one as new-drawing answers, each a numbered frame, with an empty talk
+async function makeSlides(h, ctx, name, slides) {
+    const info = await page(
+        h,
+        `const C = await mod("app/view/boards/boardconvert.ts");
+        let scene = { arc: {}, elements: [], appState: {}, files: {} };
+        for (const s of ${q(slides)}) {
+            scene = C.landAnswer(scene, { add: JSON.stringify(s.add), title: s.title }, Date.now()).scene;
+        }
+        return RpcApi.BoardStartCommand(TabRpcClient, {
+            channelid: fx.channelId, name: ${q(name)}, about: ${q(PROJECT_ABOUT)}, elements: JSON.stringify(scene.elements),
+        });`
+    );
+    ctx.boardDir ??= dirname(info.path);
+    await setTalk(h, info.id, { turns: [] });
+    return info;
+}
+
+// the drawer's answer, fed through the page's applier as wavesrv delivers one; waits for its ack
+async function feedAnswer(h, boardId, turnId, answer) {
+    const answerId = randomUUID();
+    await page(
+        h,
+        `fx.answers.push({
+            id: ${q(answerId)}, channelid: fx.channelId, boardid: ${q(boardId)}, turnid: ${q(turnId)},
+            add: ${q(JSON.stringify(answer.add))}, title: ${q(answer.title ?? "")}, drawingid: ${q(answer.drawingid ?? "")},
+            ts: Date.now(), turn: { route: "draw", title: ${q(answer.title ?? "")}, added: ${answer.add.length} },
+        });
+        await feed({ boardid: ${q(boardId)}, what: "answer" });
+        return true;`
+    );
+    if (!(await polishWaitFor(h, `(window.__boardsAskFx?.calls.ack ?? []).some((a) => a.answerid === ${q(answerId)})`, WAIT_MS))) {
+        throw new Error(`the answer to ${turnId} never landed`);
+    }
+    await polishNap(600);
+}
+
+const readRow = (h) => page(h, `return row();`);
+
+// clicks the row's chip for that drawing and waits for it to read current
+async function pickChip(h, drawingId) {
+    const chip = `${SURFACE}?.querySelector('[data-board-drawing="${drawingId}"]')`;
+    await h.ev(`${chip}?.click()`);
+    if (!(await polishWaitFor(h, `${chip}?.getAttribute("aria-current") === "true"`, 5000))) {
+        throw new Error(`drawing ${drawingId} never became current`);
+    }
+    await polishNap(300);
+}
+
 // opens a board as a landing does, and waits for its talk and, unless it won't open, its canvas
 async function openBoard(h, ctx, boardId, { canvas = true } = {}) {
     await page(h, `await B.loadBoardList(fx.channelId); B.selectBoard(fx.channelId, ${q(boardId)}); return true;`);
@@ -296,6 +384,39 @@ const pressEscapeOn = (h, focusExpr) =>
         (${focusExpr})?.focus?.();
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true }));
     })()`);
+
+// the board's mode as drawn: Excalidraw's view mode, its drawing toolbar and style panel, the Edit switch, the ask hint
+const readMode = (h, boardId) =>
+    page(h, `const c = ${canvasOf(boardId)};
+        return {
+            viewMode: app()?.state?.viewModeEnabled ?? null,
+            toolbar: !!c?.querySelector(".App-toolbar"),
+            panel: !!c?.querySelector(".selected-shape-actions"),
+            edit: ${SURFACE}?.querySelector("[data-board-edit]")?.getAttribute("aria-pressed") ?? null,
+            hint: ${text(`${ASK_BOX}?.querySelector("[data-board-ask-hint]")`)},
+        };`);
+
+// presses the strip's Edit under scope and waits for it to read on (or off)
+async function pressEdit(h, scopeExpr, on) {
+    const edit = `${scopeExpr}?.querySelector("[data-board-edit]")`;
+    await h.ev(`${edit}?.click()`);
+    if (!(await polishWaitFor(h, `${edit}?.getAttribute("aria-pressed") === ${q(String(on))}`, 5000))) {
+        throw new Error(`Edit never turned ${on ? "on" : "off"}`);
+    }
+    await polishNap(300);
+}
+
+// a left-button drag from a point by px right and px down, as a pointer would
+async function dragBy(h, from, px) {
+    const to = { x: from.x + px, y: from.y + px };
+    await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: from.x, y: from.y });
+    await h.cdp("Input.dispatchMouseEvent", { type: "mousePressed", x: from.x, y: from.y, button: "left", buttons: 1, clickCount: 1 });
+    for (let i = 1; i <= DRAG_STEPS; i++) {
+        const p = { x: from.x + (px * i) / DRAG_STEPS, y: from.y + (px * i) / DRAG_STEPS };
+        await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...p, button: "left", buttons: 1 });
+    }
+    await h.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...to, button: "left", buttons: 0, clickCount: 1 });
+}
 
 const toastWith = (needle) =>
     `[...document.querySelectorAll("[data-notification-toast]")].find((t) => t.textContent.includes(${q(needle)}))`;
@@ -431,13 +552,15 @@ export const boardsAsk = {
                 !started.question &&
                 ctx.boards.empty != null &&
                 talk.startsWith("Nothing asked on this board yet") &&
+                talk.includes("press Edit") &&
                 canvas.startsWith("Nothing on this board yet") &&
+                canvas.includes("Press Edit") &&
                 new RegExp(`^empty · created ${HHMM}$`).test(facts) &&
                 name === EMPTY_BOARD;
             return { ok, detail: q({ started, talk, canvas, facts, name }) };
         });
 
-        await run("4. B1 talk: About, two drawn questions on wavesrv, each a card with no words; Show selects the card's shapes; a selection names itself; Ask sends it; a fed answer lands live, is acked with its shapes, and one undo takes it back", async () => {
+        await run("4. B1 talk: About, and two drawn questions on wavesrv, each a card with no words", async () => {
             const now = Date.now();
             const made = await makeBoard(h, ctx, TALK_BOARD, {
                 drawings: [FIRST_DRAWING, SECOND_DRAWING],
@@ -457,27 +580,81 @@ export const boardsAsk = {
                 }),
             });
             ctx.boards.talk = made.info;
+            ctx.talkMade = made;
             await openBoard(h, ctx, made.info.id);
-            const id = made.info.id;
             const about = await h.ev(text(`${TALK}?.querySelector("[data-board-about]")`));
             const questions = await h.ev(`${itemsOf("question")}.map((e) => e.textContent.replace(/\\s+/g, " ").trim())`);
             const cards = await h.ev(`[...(${TALK}?.querySelectorAll("[data-board-card]") ?? [])].map((e) => e.textContent.replace(/\\s+/g, " ").trim())`);
-            const factsBefore = await h.ev(text(`${SURFACE}?.querySelector("[data-board-facts]")`));
+            const facts = await h.ev(text(`${SURFACE}?.querySelector("[data-board-facts]")`));
+            const ok =
+                about === `Aboutthe ${PROJECT} code` &&
+                q(questions) === q(["How does a run land?on wavesrv", "Where do merges wait?on wavesrv"]) &&
+                cards.length === 2 &&
+                new RegExp(`^How a run landsdrew ${FIRST_DRAWING.length} shapes · ${HHMM}Show$`).test(cards[0]) &&
+                new RegExp(`^The merge queueadded ${SECOND_DRAWING.length} shapes · ${HHMM}Show$`).test(cards[1]) &&
+                // its frameless shapes open as one drawing, Earlier drawings, and the facts count the row's drawings
+                new RegExp(`^1 drawing · ${START_SHAPES} shapes · drawn ${HHMM}$`).test(facts);
+            return { ok, detail: q({ about, questions, cards, facts }) };
+        });
 
-            // Show selects exactly the card's shapes; again, it clears
+        await run("4a. board opens in view mode: no drawing toolbar, Edit not pressed, the input says Press Edit to ask about shapes, and a drag across a shape pans without moving it", async () => {
+            const id = ctx.boards.talk.id;
+            const before = await readMode(h, id);
+            // a drag from the middle of "orchestrate", as a pointer would
+            const from = await page(h, `const a = app(), s = a.state;
+                const el = shapes().find((e) => e.id === ${q(ctx.talkMade.byLabel.orchestrate)});
+                const x = (el.x + el.width / 2 + s.scrollX) * s.zoom.value + s.offsetLeft;
+                const y = (el.y + el.height / 2 + s.scrollY) * s.zoom.value + s.offsetTop;
+                return { x, y, at: [el.x, el.y], scroll: [s.scrollX, s.scrollY], hit: document.elementFromPoint(x, y)?.className ?? null };`);
+            await dragBy(h, from, DRAG_PX);
+            await polishNap(400);
+            const after = await page(h, `const s = app().state;
+                const el = shapes().find((e) => e.id === ${q(ctx.talkMade.byLabel.orchestrate)});
+                return { at: [el.x, el.y], scroll: [s.scrollX, s.scrollY] };`);
+            await h.shot(SHOT("B1", "view-mode"));
+            const ok =
+                before.viewMode === true &&
+                !before.toolbar &&
+                before.edit === "false" &&
+                before.hint === "Press Edit to ask about shapes" &&
+                q(after.at) === q(from.at) &&
+                q(after.scroll) !== q(from.scroll);
+            return { ok, detail: q({ before, from, after }) };
+        });
+
+        await run("4b. Show outlines in view mode: Show selects exactly the card's shapes while view mode holds, with no style panel and no Selected chip; again, it clears", async () => {
+            const made = ctx.talkMade;
+            const id = ctx.boards.talk.id;
             await h.ev(`${TALK}?.querySelector('[data-board-show="t2"]')?.click()`);
             await polishNap(500);
             const shown = await page(h, `return selection();`);
             const pressed = await h.ev(`${TALK}?.querySelector('[data-board-show="t2"]')?.getAttribute("aria-pressed")`);
+            const mode = await readMode(h, id);
             await h.shot(SHOT("B1", "show"));
             await h.ev(`${TALK}?.querySelector('[data-board-show="t2"]')?.click()`);
             await polishNap(400);
             const cleared = await page(h, `return selection();`);
+            const ok =
+                q(shown) === q([...made.ids[1]].sort()) &&
+                pressed === "true" &&
+                mode.viewMode === true &&
+                !mode.panel &&
+                mode.hint === "Press Edit to ask about shapes" &&
+                q(cleared) === "[]";
+            return { ok, detail: q({ shown, want: made.ids[1], pressed, mode, cleared }) };
+        });
+
+        await run("4c. Edit brings the tools back: Edit shows the drawing toolbar, a selection names itself and Ask sends its ids; Edit again returns to view mode with nothing selected", async () => {
+            const made = ctx.talkMade;
+            const id = ctx.boards.talk.id;
+            await pressEdit(h, SURFACE, true);
+            const editing = await readMode(h, id);
 
             // a shape selected on the canvas names itself in the ask box
             await page(h, `app().updateScene({ appState: { selectedElementIds: { ${q(made.byLabel.wavesrv)}: true } }, captureUpdate: "NEVER" }); return true;`);
             await polishWaitFor(h, `${text(`${ASK_BOX}?.querySelector("[data-board-ask-hint]")`)}.startsWith("Selected")`, 5000);
             const hint = await h.ev(text(`${ASK_BOX}?.querySelector("[data-board-ask-hint]")`));
+            await h.shot(SHOT("B1", "edit"));
 
             // Ask sends the question, the selection's label and its ids
             await h.ev(setTextareaExpr(`${ASK_BOX}?.querySelector("textarea")`, QUESTION));
@@ -485,6 +662,27 @@ export const boardsAsk = {
             await polishWaitFor(h, `${itemsOf("working")}.length === 1`, WAIT_MS);
             const asked = (await calls(h, "ask")).at(-1);
 
+            await pressEdit(h, SURFACE, false);
+            await polishNap(400);
+            const viewing = await readMode(h, id);
+            const selected = await page(h, `return selection();`);
+            const ok =
+                editing.viewMode === false &&
+                editing.toolbar &&
+                editing.edit === "true" &&
+                hint === "Selectedwavesrv" &&
+                asked?.question === QUESTION &&
+                asked.on === "wavesrv" &&
+                q(asked.selectedids) === q([made.byLabel.wavesrv]) &&
+                viewing.viewMode === true &&
+                !viewing.toolbar &&
+                viewing.edit === "false" &&
+                q(selected) === "[]";
+            return { ok, detail: q({ editing, hint, asked, viewing, selected }) };
+        });
+
+        await run("4d. B1 a fed answer lands live in view mode, is acked with its shapes, and with Edit on one undo takes it back", async () => {
+            const id = ctx.boards.talk.id;
             // the drawer's answer, fed to the page's own applier: it lands live and is acked with its shapes
             const answerId = randomUUID();
             const turnId = "asked-1";
@@ -518,11 +716,15 @@ export const boardsAsk = {
                     gapTo(pt(arrow.points.at(-1)), arrow.endBinding?.elementId),
                 ];
                 return { shapes: ids.size, acked: ${q(ack?.shapeids ?? [])}.every((id) => ids.has(id)), arrowGaps };`);
+            // the counts roll (moment 12); read them once settled
+            const factsWant = `^2 drawings · ${START_SHAPES + FED_ANSWER.length} shapes · drawn ${HHMM}$`;
+            await polishWaitFor(h, `new RegExp(${q(factsWant)}).test(${text(`${SURFACE}?.querySelector("[data-board-facts]")`)})`, WAIT_MS);
             const factsAfter = await h.ev(text(`${SURFACE}?.querySelector("[data-board-facts]")`));
             const lastCard = await h.ev(text(`${TALK}?.querySelector('[data-board-card="${turnId}"]')`));
             await h.shot(SHOT("B1", "talk"));
 
-            // one undo takes the whole answer back
+            // one undo takes the whole answer back; undo is one of the tools Edit brings back
+            await pressEdit(h, SURFACE, true);
             await h.ev(`${canvasOf(id)}?.querySelector('[data-testid="button-undo"]')?.click()`);
             await polishNap(600);
             const undone = await page(h, `const ids = new Set(shapes().map((e) => e.id));
@@ -530,19 +732,6 @@ export const boardsAsk = {
             await h.shot(SHOT("B1", "undo"));
 
             const ok =
-                about === `Aboutthe ${PROJECT} code` &&
-                q(questions) === q(["How does a run land?on wavesrv", "Where do merges wait?on wavesrv"]) &&
-                cards.length === 2 &&
-                new RegExp(`^How a run landsdrew ${FIRST_DRAWING.length} shapes · ${HHMM}Show$`).test(cards[0]) &&
-                new RegExp(`^The merge queueadded ${SECOND_DRAWING.length} shapes · ${HHMM}Show$`).test(cards[1]) &&
-                new RegExp(`^2 drawings · ${START_SHAPES} shapes · drawn ${HHMM}$`).test(factsBefore) &&
-                q(shown) === q([...made.ids[1]].sort()) &&
-                pressed === "true" &&
-                q(cleared) === "[]" &&
-                hint === "Selectedwavesrv" &&
-                asked?.question === QUESTION &&
-                asked.on === "wavesrv" &&
-                q(asked.selectedids) === q([made.byLabel.wavesrv]) &&
                 ack?.answerid === answerId &&
                 ack.turnid === turnId &&
                 ack.shapeids?.length === FED_ANSWER.length &&
@@ -550,14 +739,11 @@ export const boardsAsk = {
                 landed.arrowGaps?.length === 2 &&
                 landed.arrowGaps.every((g) => g != null && g > 0 && g < ARROW_END_MAX_GAP) &&
                 landed.shapes === START_SHAPES + FED_ANSWER.length &&
-                new RegExp(`^3 drawings · ${START_SHAPES + FED_ANSWER.length} shapes · drawn ${HHMM}$`).test(factsAfter) &&
+                new RegExp(factsWant).test(factsAfter) &&
                 new RegExp(`^Retrying a landingadded ${FED_ANSWER.length} shapes · ${HHMM}Show$`).test(lastCard) &&
                 undone.gone &&
                 undone.shapes === START_SHAPES;
-            return {
-                ok,
-                detail: q({ about, questions, cards, factsBefore, shown, want: made.ids[1], pressed, cleared, hint, asked, ack, landed, factsAfter, lastCard, undone }),
-            };
+            return { ok, detail: q({ ack, landed, factsAfter, lastCard, undone }) };
         });
 
         await run("5. B4 answering: Answering N s under the question, and Stop in Ask's place until the answer lands", async () => {
@@ -787,7 +973,7 @@ export const boardsAsk = {
             await polishWaitFor(h, `${text(SWITCHER)} === ${q(HANDOFF_BOARD)}`, 20_000);
             const started = (await calls(h, "start")).at(-1);
             const copied = JSON.parse(started?.elements ?? "[]");
-            const copiedShapes = copied.filter((e) => !(e.type === "text" && e.containerId != null)).length;
+            const copiedShapes = copied.filter((e) => e.type !== "frame" && !(e.type === "text" && e.containerId != null)).length;
             ctx.boards.handoff = (await h.rpc("boardlist", { channelid: ctx.channelId }))?.boards?.find((b) => b.name === HANDOFF_BOARD);
             const ok =
                 title === `New board from ${TALK_BOARD}` &&
@@ -1005,7 +1191,7 @@ export const boardsAsk = {
                 q(seen.askButtons) === q(["Ask"]) &&
                 seen.placeholder === "Ask the board" &&
                 seen.chip === `Agent${AGENT_NAME}` &&
-                new RegExp(`^2 drawings · ${START_SHAPES} shapes · drawn ${HHMM}$`).test(seen.facts) &&
+                new RegExp(`^1 drawing · ${START_SHAPES} shapes · drawn ${HHMM}$`).test(seen.facts) &&
                 q(reroute.map((r) => [r.boardid, r.turnid])) === q([[made.info.id, "r2"], [made.info.id, "r3"]]) &&
                 q(picker) === q([{ id: AGENT_ID, current: "true" }, { id: PI_ID, current: "false" }]) &&
                 setagent.length === 1 &&
@@ -1016,6 +1202,149 @@ export const boardsAsk = {
                 surface === "Boards" &&
                 dialogClosed;
             return { ok, detail: q({ seen, reroute, picker, setagent, pickerClosed, dialog, surface, dialogClosed }) };
+        });
+
+        await run("15. drawings row: a board with three drawings shows three chips numbered 1-3 with their titles, the newest current as it first opens; clicking chip 1 fits drawing 1 and marks it current", async () => {
+            const info = await makeSlides(h, ctx, SLIDES_BOARD, SLIDES);
+            ctx.boards.slides = info;
+            await openBoard(h, ctx, info.id);
+            await polishWaitFor(h, `${SURFACE}?.querySelectorAll("[data-board-drawing]").length === ${SLIDES.length}`, WAIT_MS);
+            const opened = await readRow(h);
+            ctx.slideIds = opened.map((c) => c.id);
+            await h.shot(SHOT("D1", "row"));
+            await pickChip(h, ctx.slideIds[0]);
+            const picked = await readRow(h);
+            const fitted = await page(h, `return inside(${q(ctx.slideIds[0])});`);
+            await h.shot(SHOT("D1", "picked"));
+            const ok =
+                q(opened.map((c) => [c.n, c.title])) === q(SLIDES.map((s, i) => [String(i + 1), s.title])) &&
+                q(opened.map((c) => c.current)) === q([false, false, true]) &&
+                q(picked.map((c) => c.current)) === q([true, false, false]) &&
+                fitted;
+            return { ok, detail: q({ opened, picked, fitted }) };
+        });
+
+        await run("16. a new drawing is fitted: with the newest drawing in view, a fed new-drawing answer adds chip 4, marks it current, and its frame is wholly inside the visible canvas", async () => {
+            const id = ctx.boards.slides.id;
+            await pickChip(h, ctx.slideIds.at(-1));
+            await feedAnswer(h, id, "fed-followed", FOLLOWED);
+            await polishWaitFor(h, `${SURFACE}?.querySelectorAll("[data-board-drawing]").length === 4`, WAIT_MS);
+            const chips = await readRow(h);
+            const added = chips.at(-1);
+            const fitted = await page(h, `return inside(${q(added?.id ?? "")});`);
+            await h.shot(SHOT("D2", "fitted"));
+            const ok =
+                chips.length === 4 &&
+                added.n === "4" &&
+                added.title === FOLLOWED.title &&
+                added.current &&
+                !added.fresh &&
+                chips.filter((c) => c.current).length === 1 &&
+                fitted;
+            return { ok, detail: q({ chips, fitted }) };
+        });
+
+        await run("17. the view stays on an earlier drawing: with chip 1 current, a fed new-drawing answer leaves the viewport as it was and marks the new chip new; clicking it clears the mark", async () => {
+            const id = ctx.boards.slides.id;
+            await pickChip(h, ctx.slideIds[0]);
+            const before = await page(h, `return viewport();`);
+            await feedAnswer(h, id, "fed-missed", MISSED);
+            await polishWaitFor(h, `${SURFACE}?.querySelectorAll("[data-board-drawing]").length === 5`, WAIT_MS);
+            const after = await page(h, `return viewport();`);
+            const chips = await readRow(h);
+            const added = chips.at(-1);
+            await h.shot(SHOT("D3", "marked-new"));
+            await pickChip(h, added.id);
+            const picked = (await readRow(h)).at(-1);
+            ctx.missedId = added.id;
+            const ok =
+                q(after) === q(before) &&
+                chips[0].current &&
+                added.n === "5" &&
+                added.fresh &&
+                !added.current &&
+                chips.filter((c) => c.fresh).length === 1 &&
+                picked.current &&
+                !picked.fresh;
+            return { ok, detail: q({ before, after, chips, picked }) };
+        });
+
+        await run("18. a follow-up edits the drawing in view: an ask sends drawingid = the current drawing; a fed edit answer for it adds a shape to that drawing and no chip", async () => {
+            const id = ctx.boards.slides.id;
+            const drawingId = ctx.missedId;
+            await h.ev(setTextareaExpr(`${ASK_BOX}?.querySelector("textarea")`, FOLLOW_UP));
+            await h.ev(`[...(${ASK_BOX}?.querySelectorAll("button") ?? [])].find((b) => b.textContent.trim() === "Ask")?.click()`);
+            await polishWaitFor(h, `(window.__boardsAskFx?.calls.ask ?? []).some((a) => a.question === ${q(FOLLOW_UP)})`, WAIT_MS);
+            const asked = (await calls(h, "ask")).at(-1);
+            const childrenOf = `app().scene.getNonDeletedElements().filter((e) => e.frameId === ${q(drawingId)} && !(e.type === "text" && e.containerId != null)).length`;
+            // under the drawing, in board coordinates as an edit's are
+            const at = await page(h, `const f = app().scene.getNonDeletedElements().find((e) => e.id === ${q(drawingId)});
+                return { x: f.x + 40, y: f.y + f.height, children: ${childrenOf} };`);
+            const turnId = `asked-${(await calls(h, "ask")).length}`;
+            await feedAnswer(h, id, turnId, { title: "Simpler", drawingid: drawingId, add: [box(at.x, at.y, "skip")] });
+            const children = await page(h, `return ${childrenOf};`);
+            const chips = await readRow(h);
+            await h.shot(SHOT("D4", "edited"));
+            const ok =
+                asked?.question === FOLLOW_UP &&
+                asked.drawingid === drawingId &&
+                children === at.children + 1 &&
+                chips.length === 5 &&
+                chips.at(-1).id === drawingId &&
+                chips.at(-1).current;
+            return { ok, detail: q({ asked, at, children, chips }) };
+        });
+
+        await run("19. reopening: a board left following fits its newest drawing, one that landed while it was closed; one left on an earlier drawing returns to its viewport", async () => {
+            const id = ctx.boards.slides.id;
+            // left following (drawing 5, the newest, is current); drawing 6 lands while another board is open
+            await openBoard(h, ctx, ctx.boards.talk.id);
+            await feedAnswer(h, id, "fed-closed", WHILE_CLOSED);
+            await openBoard(h, ctx, id);
+            await polishWaitFor(h, `${SURFACE}?.querySelectorAll("[data-board-drawing]").length === 6`, WAIT_MS);
+            const followed = await readRow(h);
+            const fitted = await page(h, `return inside(${q(followed.at(-1)?.id ?? "")});`);
+            await h.shot(SHOT("D5", "reopened-following"));
+            // left on drawing 2, panned a little off its fit
+            await pickChip(h, ctx.slideIds[1]);
+            await page(h, `const s = app().state;
+                app().updateScene({ appState: { scrollX: s.scrollX + ${DRAG_PX}, scrollY: s.scrollY + ${DRAG_PX} }, captureUpdate: "NEVER" });
+                return true;`);
+            await polishNap(300);
+            const left = await page(h, `return viewport();`);
+            await openBoard(h, ctx, ctx.boards.talk.id);
+            await openBoard(h, ctx, id);
+            const back = await page(h, `return viewport();`);
+            const earlier = await readRow(h);
+            await h.shot(SHOT("D5", "reopened-earlier"));
+            const ok =
+                followed.length === 6 &&
+                followed.at(-1).title === WHILE_CLOSED.title &&
+                followed.at(-1).current &&
+                fitted &&
+                q(back) === q(left) &&
+                earlier[1].current;
+            return { ok, detail: q({ followed, fitted, left, back, earlier }) };
+        });
+
+        await run("20. an old board opens as Earlier drawings: a board made with frameless shapes opens with one chip, Earlier drawings, and its saved file holds that frame", async () => {
+            const made = await makeBoard(h, ctx, OLD_BOARD, { drawings: [FIRST_DRAWING], talk: () => ({ turns: [] }) });
+            await openBoard(h, ctx, made.info.id);
+            await polishWaitFor(h, `${SURFACE}?.querySelectorAll("[data-board-drawing]").length === 1`, WAIT_MS);
+            const chips = await readRow(h);
+            let saved = null;
+            for (let waited = 0; waited < WAIT_MS && saved == null; waited += 250) {
+                const frames = JSON.parse(readFileSync(made.info.path, "utf8")).elements.filter((e) => e.type === "frame" && !e.isDeleted);
+                if (frames.length > 0) saved = frames.map((f) => ({ id: f.id, name: f.name }));
+                else await polishNap(250);
+            }
+            await h.shot(SHOT("D6", "earlier"));
+            const ok =
+                chips.length === 1 &&
+                chips[0].title === EARLIER &&
+                chips[0].n === "1" &&
+                q(saved) === q([{ id: chips[0].id, name: EARLIER }]);
+            return { ok, detail: q({ chips, saved }) };
         });
 
         return steps;

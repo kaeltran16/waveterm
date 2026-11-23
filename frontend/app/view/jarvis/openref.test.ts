@@ -526,18 +526,23 @@ describe("a newer open", () => {
         expect(pushToast).not.toHaveBeenCalled();
     });
 
-    it("supersedes a run landing while its channel streams load, leaving the newer sheet alone", async () => {
+    it("supersedes a run landing while it selects its channel, leaving the newer sheet alone", async () => {
         const model = makeModel();
         objects.set("run:r1", { oid: "r1", channeloid: "c1" });
-        objects.set("channel:c1", { oid: "c1" });
-        const streams = deferred<{ messages: [] }>();
-        rpc.GetChannelMessagesCommand.mockImplementation(() => streams.promise);
+        // the first channel load is the lookup, the second is selectChannel's: hold only the select
+        const channel = deferred<unknown>();
+        let channelLoads = 0;
+        loadAndPin.mockImplementation((oref: string) =>
+            oref === "channel:c1" && ++channelLoads === 2
+                ? channel.promise
+                : Promise.resolve(oref === "channel:c1" ? { oid: "c1" } : (objects.get(oref) ?? null))
+        );
         rpc.EffortGetCommand.mockResolvedValue({ effort: { oid: "e-1" } });
         const first = openTarget(model, { kind: "run", runId: "r1" });
-        await vi.waitFor(() => expect(rpc.GetChannelMessagesCommand).toHaveBeenCalled());
+        await vi.waitFor(() => expect(channelLoads).toBe(2));
         expect(await openAddress(model, "effort:e-1")).toEqual({ ok: true });
 
-        streams.resolve({ messages: [] });
+        channel.resolve({ oid: "c1" });
         expect(await first).toEqual({ ok: false, reason: "superseded", message: "" });
         expect(globalStore.get(activeSubjectAtom)).toEqual({ kind: "effort", id: "e-1" });
         expect(globalStore.get(activeRunIdAtom)["c1"]).toBeUndefined();

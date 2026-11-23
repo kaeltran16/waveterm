@@ -3,8 +3,8 @@
 
 // The Boards surface's state, kept at module level because the surface unmounts on a switch (and the router
 // writes the selection before it switches here): which project and board are open, each project's board list,
-// each open board's talk and viewport, and the open canvas's live-apply and Escape hooks. A board:update event
-// reloads whatever is loaded.
+// each open board's talk, viewport, drawings and Edit switch, and the open canvas's live-apply and Escape hooks. A
+// board:update event reloads whatever is loaded.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
@@ -17,6 +17,14 @@ export interface BoardViewport {
     scrollX: number;
     scrollY: number;
     zoom: number;
+    following: boolean; // the newest drawing is the one in view, so a new one is fitted as it lands
+}
+
+// what the open canvas shows of its board's drawings, for the drawings row and the ask
+export interface BoardDrawings {
+    drawings: { id: string; n: number; title: string }[];
+    inView: string | null;
+    fresh: string[]; // landed while the view was on an earlier drawing, and not yet in view
 }
 
 // the surface's explicit project, until a switcher change made while Boards shows; null = the cockpit's current one
@@ -33,6 +41,13 @@ export const boardTalkAtom = atomFamily(
 export const boardViewportAtom = atomFamily(
     (_boardId: string) => atom<BoardViewport | null>(null) as PrimitiveAtom<BoardViewport | null>
 );
+// null until a canvas of the board has loaded
+export const boardDrawingsAtom = atomFamily(
+    (_boardId: string) => atom<BoardDrawings | null>(null) as PrimitiveAtom<BoardDrawings | null>
+);
+// Edit, per board and shared by every view of it: in memory only, so each board opens in view mode when Arc starts,
+// and only the Edit button changes it
+export const boardEditingAtom = atomFamily((_boardId: string) => atom<boolean>(false) as PrimitiveAtom<boolean>);
 
 // the open canvas has a selection or an active tool, or an ask form is open, so Escape is the board's before it
 // is the shell's

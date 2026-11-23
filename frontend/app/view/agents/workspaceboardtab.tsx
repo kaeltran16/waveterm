@@ -19,6 +19,7 @@ import { useId, useState, type KeyboardEvent, type ReactNode } from "react";
 import { BoardAgentChip } from "../boards/boardagentpicker";
 import { boardFormAtom } from "../boards/boardformrequest";
 import { selectBoard } from "../boards/boardstore";
+import { BoardStrip } from "../boards/boardstrip";
 import { BoardTalk, RerouteButton, TEXT_BTN } from "../boards/boardtalk";
 import {
     aboutTitle,
@@ -104,6 +105,7 @@ export function WorkspaceBoardTab({
                 />
             ) : null}
             <div className="flex min-w-0 flex-1 flex-col">
+                {!loadError ? <BoardStrip boardId={boardId} onPick={view.onPickDrawing} /> : null}
                 <section
                     aria-label={`Board: ${name}`}
                     className="relative min-h-0 flex-1 overflow-hidden bg-background"
@@ -132,7 +134,7 @@ export function WorkspaceBoardTab({
                     {/* the turns column shows every turn when expanded, so the line is the beside layout's */}
                     {!expanded ? <TurnLine line={barLine(talk, now)} view={view} onChoice={onChoice} /> : null}
                     <AskBar
-                        ask={askBox(talk, view.selection.label, view.asking, !!loadError)}
+                        ask={askBox(talk, view.selection.label, view.asking, !!loadError, view.editing)}
                         view={view}
                         chip={
                             talk != null ? (
@@ -149,7 +151,7 @@ export function WorkspaceBoardTab({
                             loadError ? (
                                 "won't open"
                             ) : board != null && view.shapes != null ? (
-                                <Facts text={boardFacts(board, view.shapes, now)} />
+                                <Facts text={boardFacts(board, view.shapes, now, view.drawings)} />
                             ) : null
                         }
                     />

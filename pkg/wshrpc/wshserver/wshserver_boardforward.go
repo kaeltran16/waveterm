@@ -335,7 +335,8 @@ func (ws *WshServer) BoardRerouteCommand(ctx context.Context, data wshrpc.Comman
 		return errors.New("an agent's own request is not sent the other way")
 	case t.State == boarddrawer.StateForwarded:
 		_, err := boardDrawer.Ask(b, wshrpc.BoardTurn{
-			Question: t.Question, On: t.On, SelectedIds: t.SelectedIds, Route: boarddrawer.RouteDraw, From: t.ID,
+			Question: t.Question, On: t.On, SelectedIds: t.SelectedIds, DrawingId: t.DrawingId, Route: boarddrawer.RouteDraw,
+			From: t.ID,
 		})
 		return err
 	case t.State != boarddrawer.StateAnswered:
@@ -347,7 +348,7 @@ func (ws *WshServer) BoardRerouteCommand(ctx context.Context, data wshrpc.Comman
 	}
 	sent := wshrpc.BoardTurn{
 		ID: uuid.NewString(), Ts: time.Now().UnixMilli(), Question: t.Question, On: t.On, SelectedIds: t.SelectedIds,
-		State: boarddrawer.StateForwarded, Route: boarddrawer.RouteAgent, From: t.ID,
+		DrawingId: t.DrawingId, State: boarddrawer.StateForwarded, Route: boarddrawer.RouteAgent, From: t.ID,
 	}
 	_, err = boardstore.UpdateTalk(dir, b.BoardId, func(talk *wshrpc.BoardTalk) error {
 		talk.Turns = append(talk.Turns, sent)

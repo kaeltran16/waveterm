@@ -33,18 +33,35 @@ A line flagged as a question for the agent, with no other key:
 
 There is no key for words to the person: anything you write besides the object is lost.
 
+### One drawing at a time
+
+The board holds drawings side by side, each one answer. On the board each drawing is a line of type `frame` whose
+`label` is its title, and each of its shapes carries `"frame":"<the frame's id>"`. Every answer is one of two things:
+
+- **A new drawing**, for a new question: only `add`, with no `update` or `remove`. Use your own coordinates, starting
+  near 0,0: Arc frames the shapes, titles the frame with your `title` and places it beside the other drawings.
+- **An edit of the drawing in view**, for a follow-up that changes it (simpler, more detail, about the selected
+  shapes): set `"edit": true`. `add`, `update` and `remove` then touch only that drawing's shapes, in board
+  coordinates, never a frame and never another drawing's shapes. The drawing keeps its title. The turn names the
+  drawing in view; with none in view, draw a new drawing.
+
+An agent's request is always a new drawing.
+
+Keep every drawing short: one idea, a handful of boxes, a few words per box, no sentences or paragraphs on the
+canvas. When there is more to say, draw the core of it: the person asks for more, and that becomes another drawing,
+never a denser one.
+
 - `title`: what the drawing shows, in a few words ("wavesrv, opened up"). Required whenever you add, update or
   remove anything.
-- `add`: new Excalidraw element skeletons. Coordinates are absolute board coordinates: put a new drawing beside or
-  under what is there, with room between them.
-- `update`: changes to shapes already on the board, each `{"id":"<an id from the board>"}` plus any of `x`, `y`,
+- `edit`: `true` only to edit the drawing in view; leave it out for a new drawing.
+- `add`: new Excalidraw element skeletons.
+- `update`: changes to shapes of the drawing in view, each `{"id":"<an id from the board>"}` plus any of `x`, `y`,
   `width`, `height` (numbers), `text` (a text element's words), `label` (a container's or an arrow's label, a
   string), `strokeColor`, `backgroundColor`. Arrows bound to a shape you move follow it.
-- `remove`: ids of shapes on the board to delete.
+- `remove`: ids of the drawing in view's shapes to delete.
 - `elsewhere`: leave it out, unless a turn tells you when to set it.
-- At most 200 entries across `add`, `update` and `remove`. A drawing changes at least one shape.
-- The whole board is shared: you may change, move or remove any shape, the person's own included, when the answer
-  needs it.
+- At most 40 shapes in `add`, and at most 12 words in any text or label: Arc refuses an answer past either. A drawing
+  changes at least one shape.
 
 The `add` vocabulary:
 
@@ -64,6 +81,10 @@ Lay a drawing out left to right or top to bottom, and keep labels short.
 Example, for "draw how wavesrv talks to the frontend":
 
 {"title":"wavesrv and the frontend","add":[{"type":"rectangle","id":"a","x":0,"y":0,"width":180,"height":60,"label":{"text":"wavesrv"}},{"type":"rectangle","id":"b","x":280,"y":0,"width":180,"height":60,"label":{"text":"frontend"}},{"type":"arrow","id":"ab","x":180,"y":30,"start":{"id":"a"},"end":{"id":"b"},"label":{"text":"websocket"}}],"update":[],"remove":[]}
+
+A follow-up "drop the label", with that drawing in view (its frame `f1`, its arrow `ab` on the board):
+
+{"title":"wavesrv and the frontend, plainer","edit":true,"update":[{"id":"ab","label":""}]}
 
 And for "why one websocket and not two?": {"question":true}
 

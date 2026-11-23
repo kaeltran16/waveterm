@@ -358,8 +358,15 @@ export interface AskState {
     selected: string | null; // the selection the next ask is about
 }
 
-// one box, one Ask: the drawer draws the line or flags it for the agent
-export function askBox(talk: BoardTalk | null, selection: string | null, busy: boolean, wontOpen: boolean): AskState {
+// one box, one Ask: the drawer draws the line or flags it for the agent. In view mode a selection (Show's) is not
+// what the ask is about, so it shows no chip
+export function askBox(
+    talk: BoardTalk | null,
+    selection: string | null,
+    busy: boolean,
+    wontOpen: boolean,
+    editing: boolean
+): AskState {
     const placeholder = "Ask the board";
     if (wontOpen) {
         return {
@@ -374,6 +381,9 @@ export function askBox(talk: BoardTalk | null, selection: string | null, busy: b
     const stoppable = (talk?.turns ?? []).some((t) => t.state === "answering");
     if (busy || turnInFlight(talk)) {
         return { disabled: true, hint: "You can ask once this answer lands", placeholder, stoppable, selected: null };
+    }
+    if (!editing) {
+        return { disabled: false, hint: "Press Edit to ask about shapes", placeholder, stoppable, selected: null };
     }
     const selected = selection || null;
     const hint = selected != null ? `Selected ${selected}` : "Select shapes to ask about them";
@@ -395,9 +405,10 @@ export function askInput(ask: AskState): {
     };
 }
 
-// "3 drawings · 14 shapes · drawn 15:20" (decision 13)
-export function boardFacts(info: BoardInfo, shapes: number, now: number): string {
-    const drawings = info.drawings ?? 0;
+// "3 drawings · 14 shapes · drawn 15:20" (decision 13). canvasDrawings is the drawings row's count once the canvas has
+// loaded, so the facts agree with the row; null reads the list's count
+export function boardFacts(info: BoardInfo, shapes: number, now: number, canvasDrawings: number | null = null): string {
+    const drawings = canvasDrawings ?? info.drawings ?? 0;
     if ((info.questions ?? 0) === 0 && drawings === 0 && shapes === 0) {
         return `empty · created ${talkTime(info.createdts, now)}`;
     }

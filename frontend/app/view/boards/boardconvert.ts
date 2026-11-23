@@ -52,6 +52,5 @@ function measure(elements: readonly ExcalidrawElement[], textIds: readonly strin
 
 export function landAnswer(scene: BoardScene, answer: BoardAnswer, now: number): AnswerResult {
     const added = answer.add ? convertSkeleton(answer.add) : [];
-    const result = applyAnswer(scene, answer, added, now);
-    return { ...result, scene: { ...result.scene, elements: measure(result.scene.elements, result.textIds) } };
+    return applyAnswer(scene, answer, added, now, measure);
 }
