@@ -110,6 +110,11 @@ describe("buildEditDiff", () => {
         expect(f).toMatchObject({ adds: 2, dels: 0 });
         expect(f.lines.map((l) => l.sign + l.text)).toEqual(["a", "+b", "+c", "z"]);
     });
+    it("counts no line after a text's final newline", () => {
+        const f = buildEditDiff("/p/sum.js", "", "a\nb\n");
+        expect(f).toMatchObject({ adds: 2, dels: 0 });
+        expect(f.lines.map((l) => l.sign + l.text)).toEqual(["+a", "+b"]);
+    });
 });
 
 describe("editFromPatch", () => {

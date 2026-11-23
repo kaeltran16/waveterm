@@ -773,7 +773,7 @@ export function canSubmitAsk(
 }
 
 /** Pure: the single muted footer hint for an ask, so one consistent line always renders.
- *  - one single-select question, no typed text: prompt to answer (mentions 1–9 only when the picker is numbered)
+ *  - one single-select question, no typed text: prompt to answer (mentions 1–N only when the picker is numbered)
  *  - a typed answer in any question: "press Enter to send" (replaces "press Enter to submit" when both apply)
  *  - one multi-select question: "press Enter to submit" (multi-select needs a confirm)
  *  - multiple questions: "N/M answered" (typed text counts as answered), plus "press Enter to submit"/"press
@@ -791,7 +791,9 @@ export function answerHint(
     const hasTyped = questions.some((_, qi) => (texts[qi] ?? "").trim() !== "");
     const needsConfirm = questions.some((q) => q.multiSelect) || hasTyped;
     if (total === 1 && !needsConfirm) {
-        return numbered ? "Press 1–9 or click to answer" : "Click to answer";
+        // only digits 1–9 pick, so a longer list names 9
+        const keys = Math.min(questions[0].options.length, 9);
+        return numbered && keys > 0 ? `Press ${keys === 1 ? "1" : `1–${keys}`} or click to answer` : "Click to answer";
     }
     const parts: string[] = [];
     if (total > 1) {

@@ -1,7 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ComponentType } from "react";
+import { Mermaid } from "@/app/element/mermaid";
+import { createElement, type ComponentType } from "react";
 import type { ActionDetail, AgentActionEntry, EditFile } from "./agentsviewmodel";
 import { ChartCard } from "./chartcard";
 import { parseTestOutput, type TestSummary } from "./testoutput";
@@ -14,7 +15,10 @@ import { parseUnifiedDiff } from "./unifieddiff";
 
 export type BlockRenderer = ComponentType<{ raw: string }>;
 
-export const BLOCK_RENDERERS: Record<string, BlockRenderer> = { chart: ChartCard };
+export const BLOCK_RENDERERS: Record<string, BlockRenderer> = {
+    chart: ChartCard,
+    mermaid: ({ raw }) => createElement(Mermaid, { chart: raw }),
+};
 
 export function blockRendererFor(lang?: string): BlockRenderer | undefined {
     return lang && Object.prototype.hasOwnProperty.call(BLOCK_RENDERERS, lang) ? BLOCK_RENDERERS[lang] : undefined;

@@ -10,7 +10,7 @@ import { stateRpcTimeoutMs } from "@/app/view/jarvis/briefingstore";
 import { chunkTone, type ChunkTone } from "@/app/view/jarvis/effortmodel";
 import { openOrPeek } from "@/app/view/jarvis/openref";
 import { cn, fireAndForget } from "@/util/util";
-import { ArrowUpRight, Check, ChevronDown, Flag, Pencil, Plus } from "lucide-react";
+import { Check, ChevronDown, Flag, Pencil, Plus } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import {
@@ -146,8 +146,8 @@ function OpenLink({ ctx, effortId, compact }: { ctx: TranscriptContext; effortId
                 compact ? "text-[11.5px]" : "text-[12px]"
             )}
         >
+            {/* no arrow: the call's facts button beside it already draws one */}
             Open
-            <ArrowUpRight size={11} strokeWidth={2.2} aria-hidden />
         </button>
     );
 }

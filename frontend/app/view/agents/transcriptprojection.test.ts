@@ -1377,20 +1377,22 @@ describe("projectTranscript malformed and mistyped records", () => {
                 kind: "action",
                 verb: "glob",
                 target: "*.ts",
-                summary: "2 lines",
+                summary: "2 files",
                 detail: { kind: "read", snippet: "a.ts\nb.ts", truncated: false },
             },
         ]);
     });
 
-    it("summarizes a one-line Glob result as 1 line", () => {
+    it("summarizes a Glob result by its files, not its lines", () => {
         const out = projectTranscript([
             asst([{ type: "tool_use", id: "gl", name: "Glob", input: { pattern: "*.ts" } }]),
             result("gl", "a.ts"),
             asst([{ type: "tool_use", id: "gl2", name: "Glob", input: { pattern: "*.zz" } }]),
             result("gl2", "No files found"),
+            asst([{ type: "tool_use", id: "gl3", name: "Glob", input: { pattern: "**/*" } }]),
+            result("gl3", "a.ts\nb.ts\n(Results are truncated. Consider using a more specific path or pattern.)"),
         ]);
-        expect(out.map((e: any) => e.summary)).toEqual(["1 line", "1 line"]);
+        expect(out.map((e: any) => e.summary)).toEqual(["1 file", "no files", "2 files"]);
     });
 
     it("records exit 1 on a failed Bash result that has output", () => {
@@ -1408,6 +1410,14 @@ describe("projectTranscript malformed and mistyped records", () => {
                 detail: { kind: "bash", command: "false", output: "Exit code 1\nboom", exit: 1 },
             },
         ]);
+    });
+
+    it("records a failed Bash result's own exit code", () => {
+        const out = projectTranscript([
+            asst([{ type: "tool_use", id: "b", name: "Bash", input: { command: "git push" } }]),
+            result("b", "Exit code 128\nfatal: no remote", true),
+        ]);
+        expect(out[0]).toMatchObject({ outcome: "fail", detail: { kind: "bash", exit: 128 } });
     });
 
     it("drops a Bash command that is not a string from the bash detail", () => {
@@ -1663,6 +1673,33 @@ describe("projectTranscript queued attachments", () => {
         const recordTs = "2026-05-01T10:00:00.000Z";
         const out = projectTranscript([queued({ commandMode: "prompt", prompt: "go" }, recordTs)]);
         expect(out[0]).toMatchObject({ kind: "user", ts: Date.parse(recordTs) });
+    });
+
+    it("projects a subagent's hand-back as its notice with the report dedented, queued or idle", () => {
+        const frame =
+            '<agent-message from="a6de436f3d960b3e4">\n[Subagent hand-back] The text below is the final report. The report follows:\n  ## Found\n    nested\n  done\n</agent-message>';
+        const out = projectTranscript([
+            queued({ commandMode: "prompt", prompt: frame, origin: { kind: "peer", name: "general-purpose" }, isMeta: true }),
+            L({ type: "user", timestamp: "2026-05-01T10:05:00.000Z", message: { role: "user", content: frame } }),
+        ]);
+        expect(out).toStrictEqual([
+            {
+                kind: "notification",
+                summary: 'Agent "general-purpose" reported',
+                result: "## Found\n  nested\ndone",
+                notice: true,
+                source: "subagent",
+                ts: Date.parse("2026-05-01T10:00:00.000Z"),
+            },
+            {
+                kind: "notification",
+                summary: "Agent reported",
+                result: "## Found\n  nested\ndone",
+                notice: true,
+                source: "subagent",
+                ts: Date.parse("2026-05-01T10:05:00.000Z"),
+            },
+        ]);
     });
 
     it("unwraps pasted content in a queued prompt", () => {

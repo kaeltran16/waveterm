@@ -115,6 +115,25 @@ export function bashNeverRan(body: string): boolean {
     return t !== "" && !/^Exit code \d+/.test(t) && !/^(Interrupted\b|\[Tool call interrupted)/.test(t);
 }
 
+// a failed command's exit code from its result's opening "Exit code N"; one with none (stopped mid-run) reads 1, since
+// every reader only compares the code to 0
+function failedExit(body: string): number {
+    const m = /^Exit code (\d+)/.exec(body.trimStart());
+    return m ? Number(m[1]) : 1;
+}
+
+function plural(n: number, noun: string): string {
+    return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+// Glob's result lists one path per line, or says it found none; a capped list ends with a note that is no path
+function globSummary(body: string): string {
+    if (body.trim() === "No files found") {
+        return "no files";
+    }
+    return plural(body.split("\n").filter((l) => l !== "" && !l.startsWith("(Results are truncated")).length, "file");
+}
+
 // Claude Code's words when the user rejects a call at its permission prompt. Each refusal opens the result, so a
 // command that ran and printed one is no refusal
 const USER_REJECTED_RE = /^(?:The user doesn't want to proceed with this tool use|The tool use was rejected)\b/;
@@ -295,6 +314,26 @@ function parseNotice(prompt: string): NotificationEntry | null {
     return summary !== "" ? { kind: "notification", summary, notice: true, ...notificationSource(summary) } : null;
 }
 
+// A subagent's report as Claude Code 2.1.330+ hands it back, a message from a peer session: the frame's tag, one
+// "[Subagent hand-back]" preamble line, then the report with each line indented two spaces
+const HAND_BACK_RE = /^<agent-message from="[^"]*">\n\[Subagent hand-back\][^\n]*\n([^]*?)\n?<\/agent-message>$/;
+
+// a hand-back as the subagent's notice, its report dedented; name is the subagent's type when the record carries it
+function parseHandBack(text: string, name: unknown): NotificationEntry | null {
+    const m = HAND_BACK_RE.exec(text.trim());
+    if (m == null) {
+        return null;
+    }
+    const result = m[1].replace(/^ {2}/gm, "");
+    return {
+        kind: "notification",
+        summary: typeof name === "string" && name !== "" ? `Agent "${name}" reported` : "Agent reported",
+        ...(result.trim() !== "" ? { result } : {}),
+        notice: true,
+        source: "subagent",
+    };
+}
+
 // the tag claude code wraps a long typed or pasted message in; pastedContentRe in pkg/agentsessions/humanprompts.go
 const PASTED_CONTENT_RE = /<pasted_content id="[^"]+">\n?([^]*?)\n?<\/pasted_content id="[^"]+">/g;
 
@@ -322,7 +361,9 @@ function queuedEntry(rec: any): AgentEntry | null {
     if (att.commandMode !== "prompt" || prompt.trim() === "") {
         return null;
     }
-    return { kind: "user", text: unwrapPasted(prompt), queued: true, ...recTs({ timestamp: att.timestamp ?? rec.timestamp }) };
+    const ts = recTs({ timestamp: att.timestamp ?? rec.timestamp });
+    const handBack = att.origin?.kind === "peer" ? parseHandBack(prompt, att.origin.name) : null;
+    return handBack != null ? { ...handBack, ...ts } : { kind: "user", text: unwrapPasted(prompt), queued: true, ...ts };
 }
 
 // A text the arc mod held while the agent worked and joined to the turn at a tool result: a meta record of the arc
@@ -539,8 +580,11 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     entries.push({ kind: "interrupted" });
                 } else {
                     const cmd = parseCommand(content);
+                    const handBack = cmd == null ? parseHandBack(content, rec.origin?.name) : null;
                     if (cmd != null) {
                         entries.push({ kind: "command", ...cmd, ...recTs(rec) });
+                    } else if (handBack != null) {
+                        entries.push({ ...handBack, ...recTs(rec) });
                     } else if (content.trim() !== "") {
                         entries.push({ kind: "user", text: unwrapPasted(content), ...recTs(rec) });
                     }
@@ -609,8 +653,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                             ? { path: relativePath(input.file_path, cwd) }
                             : {}),
                     };
-                    const lineCount = body.split("\n").length;
-                    action.summary = `${lineCount} line${lineCount === 1 ? "" : "s"}`;
+                    action.summary = tool === "Glob" ? globSummary(body) : plural(body.split("\n").length, "line");
                 } else if (shell && raw) {
                     // a background launch's result is only a harness line: the call keeps its command panel
                     const ran = !blocked && declined == null;
@@ -619,7 +662,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                         command: action.command,
                         // a call that never ran has no output; its reason is the error
                         output: ran ? body : "",
-                        exit: !ran ? null : failed ? 1 : 0,
+                        exit: !ran ? null : failed ? failedExit(body) : 0,
                     };
                 } else if (action.detail?.kind === "edit") {
                     // the file's own hunks, numbered; the tool_use's old/new strings stay when the result has none

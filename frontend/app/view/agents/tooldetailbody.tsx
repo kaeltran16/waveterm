@@ -61,8 +61,20 @@ export function TurnChevron({
     );
 }
 
+// the nearest ancestor that scrolls vertically
+function scrollerOf(el: HTMLElement): HTMLElement | null {
+    for (let p = el.parentElement; p != null; p = p.parentElement) {
+        const overflow = getComputedStyle(p).overflowY;
+        if ((overflow === "auto" || overflow === "scroll") && p.scrollHeight > p.clientHeight) {
+            return p;
+        }
+    }
+    return null;
+}
+
 // what an inline body's line cap left out, as the button that lifts the cap in place; expanded, it puts the cap back.
-// A body that fits draws nothing.
+// A body that fits draws nothing. Collapsing from a long body's end would leave the reader far past it, so the button
+// keeps its place in the viewport across the collapse.
 export function MoreLines({
     hidden,
     label,
@@ -76,16 +88,35 @@ export function MoreLines({
     onToggle: () => void;
     className?: string;
 }) {
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    // the button's viewport top when Show less was pressed, until the collapse lays out
+    const collapseTopRef = useRef<number | null>(null);
+    useLayoutEffect(() => {
+        const top = collapseTopRef.current;
+        const button = buttonRef.current;
+        collapseTopRef.current = null;
+        const scroller = top != null && button != null ? scrollerOf(button) : null;
+        if (scroller != null) {
+            scroller.scrollTop += button.getBoundingClientRect().top - top;
+        }
+    }, [expanded]);
     if (hidden <= 0) {
         return null;
     }
+    const toggle = () => {
+        if (expanded) {
+            collapseTopRef.current = buttonRef.current?.getBoundingClientRect().top ?? null;
+        }
+        onToggle();
+    };
     return (
         <div className={className}>
             <button
+                ref={buttonRef}
                 type="button"
                 data-more-lines
                 aria-expanded={expanded}
-                onClick={onToggle}
+                onClick={toggle}
                 className={cn(BODY_BUTTON, "-ml-1.5")}
             >
                 <TurnChevron open={expanded} size={12} strokeWidth={2.2} flip />

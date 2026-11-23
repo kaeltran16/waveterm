@@ -14,7 +14,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, SquareTerminal } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { AgentComposerHandle } from "./agentcomposer";
@@ -37,12 +37,20 @@ import { footList, piFootList, type FootItem } from "./queuedprompts";
 import { NeedsInputPill, RenderedBrainstorm } from "./renderedbrainstorm";
 import { PinnedRow, useEntryRowView, useRenderedEntryRow } from "./renderedbsrows";
 import { RenderedComposer } from "./renderedcomposer";
-import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip, shouldUnflipAtBoundary } from "./renderedmode";
+import {
+    askDocked,
+    isPickerCommand,
+    pickerFlipAtom,
+    shouldUnflip,
+    shouldUnflipAtBoundary,
+    toggleViewMode,
+} from "./renderedmode";
 import type { ReplyFileLink } from "./replyfilelinks";
 import { getLastHookAtom, getPromptBoundaryAtom } from "./session-models/agentstatusstore";
 import { ShowEarlier } from "./showearlier";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { stopAgent } from "./stopsend";
+import { BODY_BUTTON } from "./tooldetailbody";
 import { useTranscriptContext, type TranscriptContext } from "./transcriptcontext";
 import { lastCanvasReveal } from "./transcriptlayout";
 import { TranscriptSkeleton } from "./transcriptskeleton";
@@ -356,11 +364,23 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                                 <TranscriptSkeleton />
                             </div>
                         ) : (
+                            // claude reports nothing before its folder-trust prompt is answered, so nothing says
+                            // whether the terminal waits on one: the hint names the chance and opens the terminal
                             <div
                                 data-rendered-empty="no-transcript"
-                                className="flex flex-1 items-center justify-center text-[13px] text-muted"
+                                className="flex flex-1 flex-col items-center justify-center gap-1.5 text-[13px] text-muted"
                             >
-                                No transcript for this session yet.
+                                <span>No transcript for this session yet.</span>
+                                <span>Its terminal may be waiting for input.</span>
+                                <button
+                                    type="button"
+                                    data-rendered-show-terminal
+                                    onClick={() => toggleViewMode(agent.id)}
+                                    className={BODY_BUTTON}
+                                >
+                                    <SquareTerminal size={13} aria-hidden />
+                                    Show terminal
+                                </button>
                             </div>
                         )}
                         {/* after the timeline, whose working line hides while the agent asks */}
