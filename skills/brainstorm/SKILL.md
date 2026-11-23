@@ -389,8 +389,8 @@ choice is a trade-off; a question whose answers need no weighing leaves them and
 
 An option may also carry `boards`: the file names of the mockups that show this answer, as on a part
 (under the canvas's `project/`), and `spikes`: the live spike pages that show it, as on a part (paths
-under the canvas folder). Arc draws them inside that answer's row, the boards as thumbnails and each
-spike as a link, so the user sees what they would pick. Leave them out of an answer with no mockup,
+under the canvas folder). Arc draws them inside that answer's row, each board as a name chip that opens
+the canvas window and each spike as a link, so the user sees what they would pick. Leave them out of an answer with no mockup,
 and never pair a board or spike with an answer by order or by count: only the names you write on the
 option count. An open question (a story, a moment, a number only the user knows) has no
 `options`. An approach question is the exception: the judge writes its options, pick and `read`
@@ -486,13 +486,19 @@ decisions. A `guess` or a note is rewritten in place. When you rewrite a part th
 make it a `guess`. It stays a guess until they keep or restore it.
 
 **Mockups.** Draw them as `arc:design` boards under `.superpowers/design/<canvas>/project/`, set
-`canvas`, and list each board's file name in `boards` on the part it illustrates. Arc draws it as a
-thumbnail in the part, under its body when the user opens it, in the talk and in the builder check's
-review alike. The run's prototype is the first board any part lists.
+`canvas`, and list each board's file name in `boards` on the part it illustrates. Arc draws each as a
+name chip in the part, under its body when the user opens it, in the talk and in the builder check's
+review alike. A chip opens the canvas window: an answer's or a part's boards are its tabs, so the user
+flips between the answers' boards there and picks. The run's prototype is the first board any part
+lists.
 
 A board that shows one answer is also named in `boards` on that answer's option (or on its approach),
 and still listed on the part: the part's `boards` stays the full set. A board that is for every
 answer goes on the part only.
+
+**Like for like.** The boards of one question's answers show the same screen, at the same moment, with
+the same data, so flipping between them shows only what the answer changes. A board carries no banner
+restating its option: the window's band above the board already names the answer, its pros and cons.
 
 A spike is a throwaway live page for what a board cannot show, such as motion or a drag: a plain
 HTML file under the canvas folder, e.g. `.superpowers/design/<canvas>/spike/motion.html`. List its
