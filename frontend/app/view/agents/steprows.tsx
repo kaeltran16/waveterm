@@ -3,41 +3,27 @@
 
 import { CrossFade } from "@/app/element/crossfade";
 import { DrawCheck } from "@/app/element/drawcheck";
-import { MOTION, composerReveal, microFade, turnTransition } from "@/app/element/motiontokens";
+import { MOTION, composerReveal, microFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { atoms } from "@/app/store/global";
 import { cn } from "@/util/util";
-import { ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useAtomValue } from "jotai";
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { ImageThumbs, toolZoomImages } from "./imagethumbs";
 import { MarkdownMessage } from "./markdownmessage";
-import { InStepBody, RecordedOutput } from "./recordedoutput";
+import { RecordedOutput } from "./recordedoutput";
 import { toolRendererKey } from "./renderregistry";
 import { fmtDuration } from "./runcompletion";
-import { BODY_BUTTON, BODY_FOOTER, CODE_TEXT, OpenFullView, PassedOverNote, ToolDetailBody } from "./tooldetailbody";
+import { BODY_BUTTON, CODE_TEXT, PassedOverNote, ToolDetailBody, TurnChevron } from "./tooldetailbody";
 import { formatDuration } from "./tooldetail";
 import { ToolOutputRenderer } from "./toolrenderers";
 import type { TranscriptContext } from "./transcriptcontext";
 import { actionCommand, stepRows, stepTitle, type Step, type Thought } from "./transcriptlayout";
 import { isCardKey } from "./wshcall";
 import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps, type WshStepSummary } from "./wshrenderers";
-
-// a disclosure chevron that turns as its pane opens: right to down, or with `flip` down to up
-export function TurnChevron({ open, size, strokeWidth, flip }: { open: boolean; size: number; strokeWidth: number; flip?: boolean }) {
-    const Icon = flip ? ChevronDown : ChevronRight;
-    return (
-        <Icon
-            size={size}
-            strokeWidth={strokeWidth}
-            aria-hidden
-            style={turnTransition}
-            className={cn("transition-transform motion-reduce:transition-none", open && (flip ? "rotate-180" : "rotate-90"))}
-        />
-    );
-}
 
 function Affordance({ open }: { open: boolean }) {
     return (
@@ -162,7 +148,7 @@ function StepTitle({ step, compact, open, gap }: { step: Step; compact: boolean;
     );
 }
 
-// a quicker step's time is noise on the row; the full view still shows it
+// a quicker step's time is noise on the row
 const STEP_DURATION_MIN_MS = 1000;
 
 // a call that did not finish, which the row names in one word
@@ -260,33 +246,26 @@ function WshViewBody({
     View,
     ctx,
     compact,
-    openFull,
 }: {
     step: Step;
     View: ComponentType<WshRendererProps>;
     ctx: TranscriptContext;
     compact: boolean;
-    openFull: ReactNode;
 }) {
     const [raw, setRaw] = useState(false);
     const { action, wsh } = step;
     const output = action.detail?.kind === "bash" ? action.detail.output : "";
     return (
         <div data-wsh-view={wsh!.key} className="mt-2.5">
-            {/* the footer below holds the view's "Open full view", so a load failure inside it does not add one */}
-            <InStepBody.Provider value={true}>
-                <View call={wsh!.call} wshKey={wsh!.key} action={action} ctx={ctx} compact={compact} />
-            </InStepBody.Provider>
-            <div className="mt-2 flex items-center gap-2">
-                {output.trim() ? (
+            <View call={wsh!.call} wshKey={wsh!.key} action={action} ctx={ctx} compact={compact} />
+            {output.trim() ? (
+                <div className="mt-2 flex items-center">
                     <button type="button" aria-pressed={raw} onClick={() => setRaw((v) => !v)} className={BODY_BUTTON}>
                         <TurnChevron open={raw} size={12} strokeWidth={2.2} />
                         Raw output
                     </button>
-                ) : null}
-                <div className="flex-1" />
-                {openFull}
-            </div>
+                </div>
+            ) : null}
             <PaneReveal open={raw}>
                 <div data-step-raw className="mt-1.5 overflow-hidden rounded-[6px] border border-edge-faint bg-surface">
                     <RecordedOutput output={output} compact={compact} />
@@ -313,17 +292,15 @@ function StepBody({
     cardCollapsed: boolean;
 }) {
     const { action, status } = step;
-    const openFull = <OpenFullView action={action} ctx={ctx} />;
     if (hasBodyCard(action)) {
-        // the card header's own raw toggle offers the output, so the footer, inside the card, holds only the full view
         return (
             <div data-step-card className="mt-2.5">
-                <ToolOutputRenderer action={action} collapsed={cardCollapsed} footer={openFull} />
+                <ToolOutputRenderer action={action} collapsed={cardCollapsed} />
             </div>
         );
     }
     if (View && step.wsh) {
-        return <WshViewBody step={step} View={View} ctx={ctx} compact={compact} openFull={openFull} />;
+        return <WshViewBody step={step} View={View} ctx={ctx} compact={compact} />;
     }
     const { detail, error } = action;
     const bare = isBareCommand(action);
@@ -364,7 +341,6 @@ function StepBody({
             {noteUnder ? null : note}
             {detail ? <ToolDetailBody detail={detail} variant="inline" capped hideCommand={bare} /> : null}
             {noteUnder ? note : null}
-            <div className={BODY_FOOTER}>{openFull}</div>
         </div>
     );
 }
@@ -372,8 +348,8 @@ function StepBody({
 // a step row's gap-2 / gap-2.5, in px, for the spinner's collapse to take back
 const HEAD_GAP_PX = { compact: 8, full: 10 };
 
-// One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, cut to whole lines
-// ("Open full view" holds the rest in the modal); a step with neither a body nor a wsh view is a plain row.
+// One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, cut to whole lines that
+// expand in place; a step with neither a body nor a wsh view is a plain row.
 // latest: the step is in the live or latest turn (or outside any fold)
 function StepRow({
     step,

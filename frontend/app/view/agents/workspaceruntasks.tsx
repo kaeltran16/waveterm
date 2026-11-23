@@ -21,7 +21,8 @@ import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { runFinished, type RunInfo } from "./runlineage";
 import { loadRunTranscriptPath, runTranscriptPathsAtom } from "./runlineagestore";
-import { AddsDels, StepBox, TurnChevron } from "./steprows";
+import { AddsDels, StepBox } from "./steprows";
+import { TurnChevron } from "./tooldetailbody";
 import type { RunViewProps } from "./workspaceruntab";
 import {
     finalRow,

@@ -401,7 +401,7 @@ async function stepsOpenStep(h) {
     const s = await h.ev(STEPS_OPEN_STATE);
     await h.shot("cdp-shots/transcript-base-steps-open.png");
     return {
-        step: "StepsOpen: grep matches grouped by file, test card with Open full view and no Raw output label, command output with no exit 0 chip, the fold line's 1 failed",
+        step: "StepsOpen: grep matches grouped by file, test card with no Open full view and no Raw output label, command output with no exit 0 chip, the fold line's 1 failed",
         ok:
             s != null &&
             grep === true &&
@@ -421,7 +421,7 @@ async function stepsOpenStep(h) {
             s.failures[0].includes("expected at least 200 ms") &&
             !(s.cardFooter ?? "").includes("Raw output") &&
             s.steps.every((t) => !/\b1 lines\b/.test(t)) &&
-            s.full === 1 &&
+            s.full === 0 &&
             (s.cmd ?? "").includes("$git log -1 --oneline") &&
             (s.cmd ?? "").includes("085ead4") &&
             !(s.cmd ?? "").includes("exit 0"),

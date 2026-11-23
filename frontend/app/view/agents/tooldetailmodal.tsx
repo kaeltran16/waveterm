@@ -32,10 +32,10 @@ function isPassedOver(action: AgentActionEntry): boolean {
     return action.outcome === "blocked" || action.outcome === "declined";
 }
 
-// Viewport-level full-detail view for one tool call. Pushed via
-// modalsModel.pushModal("AgentToolDetailModal", { action }). The card is overflow-hidden, so detail
-// that exceeds the inline budget escalates here where there is room: wide, with long lines whole and scrolled
-// sideways. Reuses ToolDetailBody (shared with the inline view), the outcome word and the step row's title and
+// Viewport-level full-detail view for one tool call: a wsh card's "Show the command" (wshchangerow.tsx), whose card
+// draws what the call did rather than the command and output it ran. Pushed via
+// modalsModel.pushModal("AgentToolDetailModal", { action }); wide, with long lines whole and scrolled sideways. A step
+// body never opens it: its capped lines expand in place. Reuses ToolDetailBody (shared with the inline view), the outcome word and the step row's title and
 // command, so the modal reads as that row opened. A failed call leads with its error.
 // Rides the shared ModalShell chrome (scrim, motion, Esc), like every modal; the body runs edge to edge
 // inside it rather than as a second framed box.

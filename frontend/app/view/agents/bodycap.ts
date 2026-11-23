@@ -1,11 +1,12 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The one cap on an inline tool body (bash output, read, grep, diff, ask options, recorded output, wsh fallback): a
-// count of whole lines, so a body never ends on a half-clipped line, and the rest is reported as "N more lines". The
-// modal draws the body uncapped.
+// The one cap on an inline tool body (bash output, read, grep, diff, ask options, recorded output, wsh fallback, a Tests
+// card's failures): a count of whole lines, so a body never ends on a half-clipped line. The rest is one click away, the
+// "N more lines" button that expands the body in place; the modal draws the body uncapped.
 
 import type { EditFile } from "./agentsviewmodel";
+import type { TestFailure } from "./testoutput";
 import type { GrepGroup } from "./tooldetailmodel";
 
 export const BODY_LINES_MAX = 20;
@@ -90,4 +91,34 @@ export function capDiffFiles(files: EditFile[], max = BODY_LINES_MAX): { files: 
         max
     );
     return { files: groups, hidden };
+}
+
+// a test failure's message shows at most this many whole lines while its card is collapsed
+export const FAILURE_MESSAGE_LINES = 3;
+
+function messageLines(message: string): number {
+    return message ? message.replace(/\n+$/, "").split("\n").length : 0;
+}
+
+// a failure's lines collapsed: its name line and its clamped message
+function shownLines(f: TestFailure): number {
+    return 1 + Math.min(FAILURE_MESSAGE_LINES, messageLines(f.message));
+}
+
+// A Tests card's failures collapsed: whole failures while their shown lines fit, the first always. more counts the
+// failures cut; hidden counts every line left out, a clamped message's included, so a card whose only cut is a clamp
+// still offers its expand button.
+export function capFailures(
+    failures: TestFailure[],
+    max = BODY_LINES_MAX
+): { failures: TestFailure[]; more: number; hidden: number } {
+    const { items, hidden: more } = capWeighted(failures, shownLines, max);
+    const all = failures.reduce((n, f) => n + 1 + messageLines(f.message), 0);
+    const shown = items.reduce((n, f) => n + shownLines(f), 0);
+    return { failures: items, more, hidden: all - shown };
+}
+
+// what a collapsed Tests card's button names: the failures it cut, else the lines its clamped messages cut
+export function moreFailuresLabel({ more, hidden }: { more: number; hidden: number }): string {
+    return more > 0 ? `${more} more ${more === 1 ? "failure" : "failures"}` : moreLinesLabel(hidden);
 }
