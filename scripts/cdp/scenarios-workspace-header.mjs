@@ -396,13 +396,22 @@ export const workspaceHeader = {
         });
 
         await step("no docs link: an agent that wrote no Markdown has no docs link in its subline", async () => {
-            // the clean agent is focused: give its Docs read time to land, so an empty list is the answer, not a pending read
+            // the clean agent is focused: wait for its Docs read to land, so an empty list is the answer, not a pending
+            // or failed read
+            const C = JSON.stringify(ctx.cleanId);
+            const readOf = () =>
+                page(h, `const S = await mod("app/view/agents/workspacedocsstore.ts"); return globalStore.get(S.agentDocsReadAtom(${C}));`);
+            let read = await readOf();
+            for (let waited = 0; !read?.loaded && waited < WAIT_MS; waited += 250) {
+                await polishNap(250);
+                read = await readOf();
+            }
             await polishNap(SETTLE_MS);
             const r = await page(
                 h,
                 `return { link: ${DOCS_LINK} != null, subline: flat(header()?.querySelector("[data-agent-subline]")) };`
             );
-            return [!r.link && !/\bdocs?\b/.test(r.subline), r];
+            return [read?.loaded && read.failure == null && !r.link && !/\bdocs?\b/.test(r.subline), { read, ...r }];
         });
 
         await step("docs link: an agent that wrote two Markdown files shows 2 docs, and a click opens the Docs tab on the newest", async () => {

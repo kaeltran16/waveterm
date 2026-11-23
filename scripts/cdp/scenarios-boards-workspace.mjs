@@ -143,13 +143,18 @@ const PAGE = `
         await new Promise((r) => setTimeout(r, 50));
         input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
     };
-    // every frame for ms after fn runs, in one evaluation: a CDP round trip per frame is slower than the motion
-    const sample = async (ms, fn, read) => {
+    // every painted frame for ms after fn runs, or until stop(), in one evaluation: a CDP round trip per frame is slower
+    // than the motion, and a timer can skip a micro motion's few frames when a render holds the thread; the timeout
+    // keeps a window that paints nothing from stalling it
+    const sample = async (ms, fn, read, stop = () => false) => {
         const frames = [];
         await fn();
-        for (const end = performance.now() + ms; performance.now() < end; ) {
+        for (const end = performance.now() + ms; performance.now() < end && !stop(); ) {
             frames.push(read());
-            await new Promise((r) => setTimeout(r, 16));
+            await new Promise((r) => {
+                requestAnimationFrame(r);
+                setTimeout(r, 50);
+            });
         }
         return frames;
     };
@@ -563,7 +568,8 @@ export const boardsWorkspace = {
             await page(h, `fx.calls.choice = []; return true;`);
             const frames = await page(
                 h,
-                `return sample(${SAMPLE_MS}, () => ${LINE}?.querySelector('[data-board-choice="keep"]')?.click(), readLine);`
+                // until the line is gone, however late the choice's re-render starts its collapse
+                `return sample(${WAIT_MS}, () => ${LINE}?.querySelector('[data-board-choice="keep"]')?.click(), readLine, () => !${LINE});`
             );
             const cleared = await polishWaitFor(h, `!${LINE}`, WAIT_MS);
             const choice = await page(h, `return fx.calls.choice;`);
