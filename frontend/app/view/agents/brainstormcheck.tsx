@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The builder check: the main area asks the talk question, then the builder's questions, then reviews what the
-// check changed; the rail beside it says what the builder asked, and Approve sits under the main area.
+// check changed; the rail beside it (narrow, a summary line over the main area) says what the builder asked, and Approve
+// sits under the main area.
 
-import { composerReveal } from "@/app/element/motiontokens";
+import { composerReveal, turnTransition } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { TickNumber } from "@/app/element/ticknumber";
 import { ViewSwap } from "@/app/element/viewswap";
@@ -14,9 +15,12 @@ import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
 import {
     approveBlocker,
+    CHECK_INTRO,
     checkAsk,
     checkMain,
     checkRailLine,
+    checkReview,
+    checkSummaryLine,
     checkUnder,
     lineBox,
     partTitle,
@@ -27,7 +31,7 @@ import {
     type BrainstormQuestion,
     type TrackSegment,
 } from "./brainstormmodel";
-import { AnsweredRail, CheckReview, ReviewHints } from "./brainstormreview";
+import { AnsweredRail, AnsweredSection, CheckReview, ReviewHints } from "./brainstormreview";
 import { approveAndOpenRun, openRunLauncher, sendBrainstorm } from "./brainstormsend";
 import { clearPartTarget, openBrainstormDesign, setReviewCursor, type BrainstormState } from "./brainstormstore";
 import {
@@ -84,7 +88,8 @@ export function Check({
     s: BrainstormState;
     f: BrainstormFile;
 }) {
-    // the hints bar would take a row of the tab's 600px; the keys work without it
+    // narrow, the hints bar would take a row of the tab's 600px (the keys work without it), and the rail gives way to
+    // the summary line
     const narrow = useBsNarrow();
     const linePending = s.sent != null;
     const main = checkMain(f, s.designOpen, linePending);
@@ -113,6 +118,9 @@ export function Check({
         <>
             <Toolbar topic={s.topic} f={f} progress={false} />
             <StaleBanner s={s} />
+            {narrow && f.check != null ? (
+                <CheckSummary f={f} agent={agent} review={main === "review"} goTo={goTo} />
+            ) : null}
             <div className={BS_SPLIT}>
                 <div ref={mainRef} className="flex min-w-0 flex-1 flex-col bg-background">
                     {under !== "review" ? (
@@ -150,7 +158,11 @@ export function Check({
                     ) : null}
                     <ApproveBar model={model} agent={agent} s={s} f={f} />
                 </div>
-                {main === "review" ? <AnsweredRail f={f} agent={agent} /> : <AskRail f={f} goTo={goTo} />}
+                {narrow ? null : main === "review" ? (
+                    <AnsweredRail f={f} agent={agent} />
+                ) : (
+                    <AskRail f={f} goTo={goTo} />
+                )}
             </div>
             {main === "review" && !narrow ? <ReviewHints /> : null}
         </>
@@ -249,88 +261,176 @@ function AskRail({ f, goTo }: { f: BrainstormFile; goTo: (id: string) => void })
                     {checkRailLine(ask.questions)}
                 </p>
             </div>
-            {ask.total > 0 ? (
-                <section aria-label="For you" className="flex flex-col">
-                    <RailHead
-                        title={
-                            <>
-                                For you · <TickNumber value={ask.total} />
-                            </>
-                        }
-                        caption="only you can answer"
-                    />
-                    {ask.queue.map((y, i) => (
-                        <div
-                            key={i}
-                            data-brainstorm-queue={y.state}
-                            className={cn(
-                                "flex items-start gap-[10px] rounded-[7px] px-[10px] py-[8px]",
-                                y.state === "now" && "bg-warning/12"
-                            )}
-                        >
-                            <span className={cn(DOT, "mt-[6px] box-border", QUEUE_DOT[y.state])} />
-                            <span className={cn("text-[13px] leading-[1.45]", QUEUE_TEXT[y.state])}>{y.label}</span>
-                        </div>
-                    ))}
-                </section>
-            ) : null}
-            {ask.calls > 0 ? (
-                <section aria-label="The agent decided" className="flex flex-col">
-                    <RailHead
-                        title={
-                            <>
-                                The agent decided · <TickNumber value={ask.calls} />
-                            </>
-                        }
-                        caption="you review them with the changes"
-                    />
-                    {ask.callGroups.map((g) => (
-                        <div
-                            key={g.part ?? ""}
-                            data-brainstorm-call-group={g.part ?? ""}
-                            className="flex flex-col gap-[5px] border-t border-edge-faint py-[9px]"
-                        >
-                            {g.part != null ? (
-                                <button
-                                    type="button"
-                                    onClick={() => goTo(g.part!)}
-                                    className={cn(
-                                        LINK,
-                                        "self-start border-0 bg-transparent p-0 text-left text-[12px] font-semibold"
-                                    )}
-                                >
-                                    {g.title}
-                                </button>
-                            ) : (
-                                <span className="text-[12px] font-semibold text-ink-mid">{g.title}</span>
-                            )}
-                            {g.calls.map((c, i) => (
-                                <span key={i} className="text-[12.5px] leading-[1.5] text-ink-mid">
-                                    {c}
-                                </span>
-                            ))}
-                        </div>
-                    ))}
-                </section>
-            ) : null}
-            {ask.already.length === 0 ? (
-                <span data-brainstorm-already className="text-[12px] text-muted">
-                    Nothing the builder asked was already in the design.
-                </span>
-            ) : (
-                <section data-brainstorm-already aria-label="Already in the design" className="flex flex-col">
-                    <RailHead title={`Already in the design · ${ask.already.length}`} />
-                    {ask.already.map((a, i) => (
-                        <div
-                            key={i}
-                            className="border-t border-edge-faint py-[8px] text-[12.5px] leading-[1.5] text-ink-mid"
-                        >
-                            {a}
-                        </div>
-                    ))}
-                </section>
-            )}
+            {ask.total > 0 ? <ForYouSection ask={ask} /> : null}
+            <DecidedSection ask={ask} goTo={goTo} />
+            <AlreadySection already={ask.already} />
         </aside>
+    );
+}
+
+// the narrow check's rail: one line of counts under the stepper, opening onto the rail's sections. Closed on mount
+function CheckSummary({
+    f,
+    agent,
+    review,
+    goTo,
+}: {
+    f: BrainstormFile;
+    agent: AgentVM;
+    review: boolean;
+    goTo: (id: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const line = checkSummaryLine(f);
+    const ask = checkAsk(f);
+    return (
+        <div data-brainstorm-check-summary className="flex flex-none flex-col border-b border-edge-faint bg-surface">
+            <button
+                type="button"
+                aria-expanded={open}
+                onClick={() => setOpen(!open)}
+                className="flex w-full cursor-pointer items-center gap-[10px] border-0 bg-transparent px-[22px] py-[9px] text-left text-[12.5px] text-ink-mid @max-[480px]/bs:items-start @max-[480px]/bs:pr-[16px] @max-[480px]/bs:leading-[1.45]"
+            >
+                <span data-brainstorm-check-summary-line className="min-w-0 flex-1">
+                    {line.lead}
+                    <span className="font-semibold text-primary">{line.yours}</span>
+                    {line.rest}
+                </span>
+                <span className="flex flex-none items-center gap-[6px] text-accent-soft">
+                    {open ? "Hide" : "Show"}
+                    <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 10 10"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        aria-hidden="true"
+                        style={turnTransition}
+                        className={cn("transition-transform motion-reduce:transition-none", open && "rotate-180")}
+                    >
+                        <path d="M2 3.5l3 3 3-3" />
+                    </svg>
+                </span>
+            </button>
+            <div data-brainstorm-check-summary-panel>
+                <PaneReveal open={open}>
+                    <div className="flex max-h-[300px] flex-col gap-[14px] overflow-y-auto px-[22px] pb-[12px] *:flex-none">
+                        {review ? (
+                            <AnsweredSection answered={checkReview(f).answered} agent={agent} titled />
+                        ) : (
+                            <>
+                                <p className="m-0 text-[12.5px] leading-[1.5] text-muted">{CHECK_INTRO}</p>
+                                {/* one question is the one on screen, so its queue would only repeat it */}
+                                {ask.total > 1 ? <ForYouSection ask={ask} /> : null}
+                                <DecidedSection ask={ask} goTo={goTo} />
+                            </>
+                        )}
+                        <AlreadySection already={ask.already} />
+                    </div>
+                </PaneReveal>
+            </div>
+        </div>
+    );
+}
+
+function ForYouSection({ ask }: { ask: AskModel }) {
+    return (
+        <section aria-label="For you" className="flex flex-col">
+            <RailHead
+                title={
+                    <>
+                        For you · <TickNumber value={ask.total} />
+                    </>
+                }
+                caption="only you can answer"
+            />
+            {ask.queue.map((y, i) => (
+                <div
+                    key={i}
+                    data-brainstorm-queue={y.state}
+                    className={cn(
+                        "flex items-start gap-[10px] rounded-[7px] px-[10px] py-[8px]",
+                        y.state === "now" && "bg-warning/12"
+                    )}
+                >
+                    <span className={cn(DOT, "mt-[6px] box-border", QUEUE_DOT[y.state])} />
+                    <span className={cn("text-[13px] leading-[1.45]", QUEUE_TEXT[y.state])}>{y.label}</span>
+                </div>
+            ))}
+        </section>
+    );
+}
+
+// the agent's calls under the part each is about; a part's title moves the review cursor to it
+function DecidedSection({ ask, goTo }: { ask: AskModel; goTo: (id: string) => void }) {
+    if (ask.calls === 0) {
+        return null;
+    }
+    return (
+        <section aria-label="The agent decided" className="flex flex-col">
+            <RailHead
+                title={
+                    <>
+                        The agent decided · <TickNumber value={ask.calls} />
+                    </>
+                }
+                caption="you review them with the changes"
+            />
+            {ask.callGroups.map((g) => (
+                <div
+                    key={g.part ?? ""}
+                    data-brainstorm-call-group={g.part ?? ""}
+                    className="flex flex-col gap-[5px] border-t border-edge-faint py-[9px]"
+                >
+                    {g.part != null ? (
+                        <button
+                            type="button"
+                            onClick={() => goTo(g.part!)}
+                            className={cn(
+                                LINK,
+                                "self-start border-0 bg-transparent p-0 text-left text-[12px] font-semibold"
+                            )}
+                        >
+                            {g.title}
+                        </button>
+                    ) : (
+                        <span className="text-[12px] font-semibold text-ink-mid">{g.title}</span>
+                    )}
+                    {g.calls.map((c, i) => (
+                        <span key={i} className="text-[12.5px] leading-[1.5] text-ink-mid">
+                            {c}
+                        </span>
+                    ))}
+                </div>
+            ))}
+        </section>
+    );
+}
+
+function AlreadySection({ already }: { already: string[] }) {
+    if (already.length === 0) {
+        return (
+            <span data-brainstorm-already className="text-[12px] text-muted">
+                Nothing the builder asked was already in the design.
+            </span>
+        );
+    }
+    return (
+        <section data-brainstorm-already aria-label="Already in the design" className="flex flex-col">
+            <RailHead
+                title={
+                    <>
+                        Already in the design · <TickNumber value={already.length} />
+                    </>
+                }
+            />
+            {already.map((a, i) => (
+                <div key={i} className="border-t border-edge-faint py-[8px] text-[12.5px] leading-[1.5] text-ink-mid">
+                    {a}
+                </div>
+            ))}
+        </section>
     );
 }
 
@@ -357,6 +457,7 @@ function ApproveBar({
     const act = useAction();
     const working = f.working != null;
     const blocker = approveBlocker(f);
+    const narrow = useBsNarrow();
     // hidden until the lookup answers, so a click cannot beat it
     const [showChange, setShowChange] = useState(false);
     useEffect(() => {
@@ -368,7 +469,7 @@ function ApproveBar({
     }, [agent.blockId]);
     // the two buttons stay together: beside the text while they fit, else on a row of their own under it. The text
     // wraps rather than truncating, since the run line names where the run starts. The blocker, which can be long, takes
-    // a row of its own below
+    // a row of its own below; narrow it stays the button's title only, as the summary line and main area say what waits
     return (
         <div
             data-brainstorm-approve-bar
@@ -421,7 +522,7 @@ function ApproveBar({
                     </button>
                 </div>
             </div>
-            <PaneReveal open={blocker != null} variants={composerReveal}>
+            <PaneReveal open={blocker != null && !narrow} variants={composerReveal}>
                 <span data-brainstorm-approve-reason className="block text-[12px] leading-[1.45] text-warning">
                     {blocker}
                 </span>

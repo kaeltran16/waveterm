@@ -899,12 +899,19 @@ export default function (kit) {
                 await h.cdp("Emulation.setDeviceMetricsOverride", NARROW);
                 try {
                     await polishNap(400);
+                    // the pane is narrow at this size, so the summary line stands in for the rail; the main column holds Approve
                     const geo = await h.ev(`(() => ({
-                        main: Math.round(${RAIL}?.previousElementSibling?.getBoundingClientRect().width ?? 0),
-                        rail: Math.round(${RAIL}?.getBoundingClientRect().width ?? 0),
+                        main: Math.round(${BS_PANE}?.querySelector("[data-brainstorm-approve-bar]")?.parentElement?.getBoundingClientRect().width ?? 0),
+                        rail: ${RAIL} != null,
+                        summary: ${BS_PANE}?.querySelector("[data-brainstorm-check-summary]") != null,
+                        narrow: ${BS_PANE}?.hasAttribute("data-brainstorm-narrow") ?? null,
                     }))()`);
                     await h.shot("cdp-shots/brainstorm-builder-check-narrow.png");
-                    rec("4c. at 1000x700 the check's main column is wider than 400px", geo.main > MIN_MAIN, geo);
+                    rec(
+                        "4c. at 1000x700 the pane is narrow: the summary line stands in for the rail and the check's main column is wider than 400px",
+                        geo.narrow === true && geo.summary && !geo.rail && geo.main > MIN_MAIN,
+                        geo
+                    );
                 } finally {
                     await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_WIDE).catch(() => {});
                 }

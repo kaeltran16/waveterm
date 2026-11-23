@@ -33,6 +33,66 @@ const REVIEW_FILE = bsFile({
 });
 const RUN_FILE = bsFile({ done: true, parts: BS_HANDOFF_PARTS, history: BS_HISTORY_Q4, check: BS_CHECK, run: MISSING_RUN });
 
+// the Main board's check: the one question for you, no calls, three lines already in the design
+const ALREADY = [...BS_CHECK.answered, "Who owns the runbook? The enrichment team, from the recon."];
+const MAIN_FILE = { ...BS_HANDOFF, check: { ...BS_CHECK, calls: [], answered: ALREADY } };
+// the A2 board's check: three questions for you, the first answered, and one call on each of two parts. Thresholds is a
+// review row (changed), so its link lands the cursor on a row
+const A2_FILE = bsFile({
+    done: true,
+    parts: REVIEW_FILE.parts,
+    history: BS_HISTORY_Q4,
+    check: {
+        yours: [
+            { ...BS_CHECK.yours[0], label: "Hold the autoscaler on a page?", a: BS_BUILDER_A, into: "anti" },
+            { q: "Which partitions count toward the 15-minute line?", label: "Partitions behind the 15-minute line" },
+            { q: "Does a planned replay silence the heads-up too?", label: "Replays and the heads-up" },
+        ],
+        calls: [BS_CHECK.calls[0], BS_CHECK.calls[2]],
+        answered: ALREADY,
+        touched: ["goals"],
+    },
+});
+// REVIEW_FILE's Approve blocker: Thresholds changed, Anti-goals a guess, Constraints asked with no question open
+const REVIEW_BLOCKER = "Review 1 change, confirm 1 guess, 1 decision still open";
+const CHECK_INTRO = "A fresh agent checked whether it could plan from this without coming back to you.";
+
+const SUMMARY = `${BS_IN_TAB}?.querySelector("[data-brainstorm-check-summary]")`;
+// the summary's state, and what its panel holds by section
+const READ_SUMMARY = `(() => {
+    const flat = (el) => (el ? el.textContent.replace(/\\s+/g, " ").trim() : null);
+    const s = ${SUMMARY};
+    const panel = s?.querySelector("[data-brainstorm-check-summary-panel]");
+    const head = (label) => flat(panel?.querySelector('section[aria-label="' + label + '"] h3'));
+    return {
+        rail: ${BS_IN_TAB}?.querySelector('aside[aria-label="The builder check"]') != null,
+        line: flat(s?.querySelector("[data-brainstorm-check-summary-line]")),
+        expanded: s?.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded") ?? null,
+        toggle: flat(s?.querySelector("button[aria-expanded]")?.lastElementChild),
+        height: Math.round(panel?.getBoundingClientRect().height ?? -1),
+        intro: [...(panel?.querySelectorAll("p") ?? [])].map(flat),
+        forYou: head("For you"),
+        queue: [...(panel?.querySelectorAll("[data-brainstorm-queue]") ?? [])].map((q) => q.getAttribute("data-brainstorm-queue")),
+        decided: head("The agent decided"),
+        answered: head("You answered"),
+        already: head("Already in the design"),
+    };
+})()`;
+const toggleSummary = (h) => h.ev(`(${SUMMARY}?.querySelector("button[aria-expanded]")?.click(), true)`);
+const panelHeight = `Math.round(${SUMMARY}?.querySelector("[data-brainstorm-check-summary-panel]")?.getBoundingClientRect().height ?? -1)`;
+// opens the summary and waits out PaneReveal's grow
+const openSummary = async (h) => {
+    await toggleSummary(h);
+    const grown = await polishWaitFor(h, `${panelHeight} > 0`, WAIT_MS);
+    await polishNap(SETTLE_MS);
+    return grown;
+};
+const closeSummary = async (h) => {
+    await toggleSummary(h);
+    return polishWaitFor(h, `${panelHeight} === 0`, WAIT_MS);
+};
+const reviewCursor = `${BS_IN_TAB}?.querySelector("[data-brainstorm-review-row][data-cursor]")?.getAttribute("data-brainstorm-review-row") ?? null`;
+
 const IN_REVIEW = `${BS_IN_TAB}?.querySelector("[data-brainstorm-review]")`;
 const IN_RUN = `${BS_IN_TAB}?.querySelector("[data-brainstorm-run]")`;
 
@@ -66,6 +126,64 @@ export const workspaceBrainstormCheck = wbsScenario(NAME, async (h, ctx, step) =
         })()`);
         await h.shot("cdp-shots/workspace-brainstorm-check-builder.png");
         return [shown && sizes.h1 === "20px" && sizes.why === "13px" && sizes.head === "12.5px", { shown, ...sizes }];
+    });
+
+    await step("the check's rail is one closed summary line; Show opens the intro and what was already in the design (Main)", async () => {
+        writeFile(ctx, MAIN_FILE);
+        const line = "A builder read the design: 4 questions, 1 for you, 3 already in the design";
+        const shown = await polishWaitFor(h, `${SUMMARY}?.querySelector("[data-brainstorm-check-summary-line]")?.textContent === ${JSON.stringify(line)}`, BS_POLL_WAIT_MS);
+        const closed = await h.ev(READ_SUMMARY);
+        const grown = await openSummary(h);
+        const opened = await h.ev(READ_SUMMARY);
+        await h.shot("cdp-shots/workspace-brainstorm-check-summary-main.png");
+        const shut = await closeSummary(h);
+        const ok =
+            shown &&
+            !closed.rail &&
+            closed.expanded === "false" &&
+            closed.toggle === "Show" &&
+            closed.height === 0 &&
+            grown &&
+            opened.expanded === "true" &&
+            opened.toggle === "Hide" &&
+            opened.height > 0 &&
+            JSON.stringify(opened.intro) === JSON.stringify([CHECK_INTRO]) &&
+            opened.already === "Already in the design · 3" &&
+            opened.forYou == null &&
+            opened.decided == null &&
+            shut;
+        return [ok, { shown, closed, opened, shut }];
+    });
+
+    await step("with three questions for you the open summary holds their queue and the agent's calls, whose part link moves the review cursor (A2)", async () => {
+        writeFile(ctx, A2_FILE);
+        const shown = await polishWaitFor(h, `${SUMMARY}?.querySelector("[data-brainstorm-check-summary-line]")?.textContent.includes("3 for you") === true`, BS_POLL_WAIT_MS);
+        const grown = await openSummary(h);
+        const opened = await h.ev(READ_SUMMARY);
+        await h.shot("cdp-shots/workspace-brainstorm-check-summary-a2.png");
+        const clicked = await h.ev(`(() => {
+            const b = ${SUMMARY}?.querySelector('[data-brainstorm-call-group="thresholds"] button');
+            if (!b) return "missing";
+            b.click();
+            return "clicked";
+        })()`);
+        const moved = await polishWaitFor(h, `(${reviewCursor}) === "thresholds"`, BS_POLL_WAIT_MS);
+        // closed and back on the question, so the review step after this waits on its own file
+        const shut = await closeSummary(h);
+        await h.ev(`(${BS_IN_TAB}?.querySelector("[data-brainstorm-back]")?.click(), true)`);
+        const back = await polishWaitFor(h, `${IN_REVIEW} == null`, BS_POLL_WAIT_MS);
+        const ok =
+            shown &&
+            grown &&
+            opened.forYou === "For you · 3" &&
+            JSON.stringify(opened.queue) === JSON.stringify(["answered", "now", "waiting"]) &&
+            opened.decided === "The agent decided · 2" &&
+            opened.already === "Already in the design · 3" &&
+            clicked === "clicked" &&
+            moved &&
+            shut &&
+            back;
+        return [ok, { shown, grown, opened, clicked, moved, shut, back }];
     });
 
     await step("the review's rows stack their body under the title, and the key hints are not drawn", async () => {
@@ -120,6 +238,39 @@ export const workspaceBrainstormCheck = wbsScenario(NAME, async (h, ctx, step) =
         const ok =
             bar.title != null && bar.line != null && !bar.title.clipped && !bar.line.clipped && bar.overlap === false;
         return [ok && bar.line.text.includes("this design attached"), bar];
+    });
+
+    await step("on the review the summary says all answered and opens onto what you answered, whose Changed link moves the cursor; the approve bar draws no reason row (A3)", async () => {
+        const shown = await polishWaitFor(h, `${SUMMARY}?.querySelector("[data-brainstorm-check-summary-line]")?.textContent.includes("1 for you, all answered") === true`, BS_POLL_WAIT_MS);
+        const read = await h.ev(READ_SUMMARY);
+        const grown = await openSummary(h);
+        const opened = await h.ev(READ_SUMMARY);
+        const approve = await h.ev(`(() => {
+            const b = ${BS_IN_TAB}?.querySelector("[data-brainstorm-approve]");
+            return { disabled: b?.disabled ?? null, title: b?.title ?? null, reason: ${BS_IN_TAB}?.querySelector("[data-brainstorm-approve-reason]") != null };
+        })()`);
+        await h.shot("cdp-shots/workspace-brainstorm-check-summary-a3.png");
+        const clicked = await h.ev(`(() => {
+            const b = ${SUMMARY}?.querySelector('[data-brainstorm-answered-link="anti"]');
+            if (!b) return "missing";
+            b.click();
+            return "clicked";
+        })()`);
+        const moved = await polishWaitFor(h, `(${reviewCursor}) === "anti"`, BS_POLL_WAIT_MS);
+        const shut = await closeSummary(h);
+        const ok =
+            shown &&
+            read.expanded === "false" &&
+            grown &&
+            opened.answered === "You answered · 1" &&
+            opened.already === "Already in the design · 2" &&
+            approve.disabled === true &&
+            approve.title === REVIEW_BLOCKER &&
+            approve.reason === false &&
+            clicked === "clicked" &&
+            moved &&
+            shut;
+        return [ok, { read, opened, approve, clicked, moved, shut }];
     });
 
     await step("in the Terminal center at 1600px the review keeps its key hints", async () => {
