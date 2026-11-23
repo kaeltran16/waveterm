@@ -3,8 +3,56 @@
 
 // The canvas window's pure half: what Esc does, and how its All tab lays the boards out.
 
-import { fitScale, type CanvasBoard, type CanvasLayout } from "./canvasmodel";
+import { fitScale, shownBoard, type CanvasBoard, type CanvasLayout } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
+
+// the tab that shows the boards outside a scope's tabs: never a board name, which always ends in .dc.html
+export const OTHER_TAB = "other";
+
+// index is the answer's 0-based position in the question, the number a digit key names
+export type BandAnswer = {
+    index: number;
+    label: string;
+    detail: string;
+    pick: boolean;
+    pros: string[];
+    cons: string[];
+};
+export type ScopeBand =
+    | { kind: "answers"; answers: BandAnswer[] }
+    | { kind: "every" }
+    | { kind: "part"; title: string; gist: string };
+// board doubles as the tab's key
+export type ScopeTab = { board: string; label: string; band: ScopeBand };
+export type ScopeSource =
+    | { kind: "question"; n: number; text: string; judging: boolean; judged: boolean }
+    | { kind: "part"; id: string; title: string };
+// a snapshot taken when the window opens, so the tabs stay put while the brainstorm moves on
+export type WindowScope = { source: ScopeSource; tabs: ScopeTab[] };
+
+export function windowTabs(scope: WindowScope, boards: CanvasBoard[]): string[] {
+    const onCanvas = new Set(boards.map((b) => b.name));
+    const tabs = scope.tabs.map((t) => t.board).filter((b) => onCanvas.has(b));
+    return otherBoards(scope, boards).length > 0 ? [...tabs, OTHER_TAB] : tabs;
+}
+
+export function otherBoards(scope: WindowScope, boards: CanvasBoard[]): CanvasBoard[] {
+    const inTabs = new Set(scope.tabs.map((t) => t.board));
+    return boards.filter((b) => !inTabs.has(b.name));
+}
+
+export function windowTab(scope: WindowScope, s: CanvasState): string {
+    const shown = shownBoard(s).name;
+    return !s.all && scope.tabs.some((t) => t.board === shown) ? shown : OTHER_TAB;
+}
+
+export function digitTab(scope: WindowScope, digit: number): string | null {
+    if (scope.source.kind === "part") {
+        return scope.tabs[digit]?.board ?? null;
+    }
+    const tab = scope.tabs.find((t) => t.band.kind === "answers" && t.band.answers.some((a) => a.index === digit));
+    return tab?.board ?? null;
+}
 
 const GRID_COLS = 3;
 // the design skill's gaps between frames, in board px before scaling

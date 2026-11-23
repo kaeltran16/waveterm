@@ -18,9 +18,6 @@ const CANVAS = "lag-page";
 const PAGE = "Page.dc.html";
 const TREND = "Page-trend.dc.html";
 const PAGE_SIZE = { w: 760, h: 640 };
-// Thumbnails' fallback for a board canvas.json does not list, and THUMB_W_TURN in brainstormui.tsx
-const DEFAULT_BOARD_W = 1440;
-const THUMB_W_TURN = 220;
 const TURN_AGO_MS = 102_000;
 const FILE_AGO_MS = 10 * 60_000;
 const WAIT_MS = 10_000;
@@ -47,17 +44,13 @@ const file = (over) => ({
 const ASKING = file({});
 const BACKGROUND_FILE = file({ question: null, working: BACKGROUND });
 
-// a light page, so a scaled thumbnail reads against the dark theme in the shots
+// a light page, so a board reads against the dark theme in the shots
 const board = (title) =>
     `<!doctype html><title>${title}</title><body style="margin:0;padding:40px;background:#fff"><h1 style="font:96px sans-serif">${title}</h1></body>`;
 const elapsedMs = (t) => {
     const m = ELAPSED.exec(t ?? "");
     return m ? (Number(m[1]) * 60 + Number(m[2])) * 1000 : null;
 };
-// the style serializes the scale to 6 digits
-const SCALE_EPSILON = 1e-5;
-const scaleOf = (transform) => Number(/scale\(([\d.]+)\)/.exec(transform ?? "")?.[1] ?? NaN);
-
 export default function (kit) {
     const { bsArrangeAgent, bsShowFile, bsTeardownAgent, bsWrite, bsOpenDesign, bsCloseDesign, polishNap, skipStep, BS_PANE } =
         kit;
@@ -100,7 +93,8 @@ export default function (kit) {
             const boards = working?.querySelector("[data-brainstorm-turn-boards]");
             const note = pane?.querySelector("[data-brainstorm-working-note]");
             // a board opened full size draws in the canvas window, over the pane
-            const canvas = document.querySelector("[data-canvas-window] [data-canvas-pane]");
+            const win = document.querySelector("[data-canvas-window]");
+            const canvas = win?.querySelector("[data-canvas-pane]");
             return {
                 view: pane?.getAttribute("data-brainstorm-view") ?? null,
                 working: working ? flat(working) : null,
@@ -108,17 +102,12 @@ export default function (kit) {
                 boards: boards
                     ? {
                           head: text(boards.firstElementChild),
-                          thumbs: [...boards.querySelectorAll("[data-brainstorm-thumb]")].map((t) => {
-                              const frame = t.querySelector("iframe");
-                              const caption = t.parentElement?.querySelector("[data-brainstorm-thumb-caption]");
-                              return {
-                                  name: t.getAttribute("data-brainstorm-thumb"),
-                                  latest: caption?.hasAttribute("data-brainstorm-thumb-latest") ?? false,
-                                  frameW: frame?.style.width ?? null,
-                                  transform: frame?.style.transform ?? null,
-                                  drawnW: frame ? Math.round(frame.getBoundingClientRect().width) : null,
-                              };
-                          }),
+                          chips: [...boards.querySelectorAll("[data-brainstorm-board-chip]")].map((c) => ({
+                              name: c.getAttribute("data-brainstorm-board-chip"),
+                              label: flat(c),
+                              latest: c.hasAttribute("data-brainstorm-board-chip-latest"),
+                          })),
+                          frames: boards.querySelectorAll("iframe").length,
                       }
                     : null,
                 note: note
@@ -126,13 +115,16 @@ export default function (kit) {
                           text: text(note),
                           inner: flat(note),
                           step: stepOf(note),
-                          thumbs: note.querySelectorAll("[data-brainstorm-thumb]").length,
+                          chips: note.querySelectorAll("[data-brainstorm-board-chip]").length,
                       }
                     : null,
                 canvas: canvas
                     ? {
                           topic: text(canvas.querySelector("span.font-mono")),
                           board: canvas.querySelector("[data-canvas-board]")?.getAttribute("data-canvas-frame") ?? null,
+                          tabs: [...win.querySelectorAll('[role="tab"]')].map(flat),
+                          scoped: !!win.querySelector("[data-canvas-scope-source]"),
+                          band: !!win.querySelector("[data-brainstorm-band]"),
                       }
                     : null,
             };
@@ -185,59 +177,55 @@ export default function (kit) {
             r2
         );
 
-        // 3. two board writes: the step is the last, both boards drawn in write order, the last one marked
+        // 3. two board writes: the step is the last, both boards as chips in write order, the last one marked
         append(
             ctx,
             ...call("toolu_write1", "Write", { file_path: boardPath(ctx, PAGE), content: board(PAGE) }, "File created"),
             ...call("toolu_write2", "Write", { file_path: boardPath(ctx, TREND), content: board(TREND) }, "File created")
         );
-        const r3 = await until(
-            h,
-            (r) =>
-                r.step?.verb === "wrote" &&
-                r.boards?.thumbs.length === 2 &&
-                r.boards.thumbs.find((t) => t.name === PAGE)?.frameW === `${PAGE_SIZE.w}px`
-        );
+        const r3 = await until(h, (r) => r.step?.verb === "wrote" && r.boards?.chips.length === 2);
         await h.shot("cdp-shots/brainstorm-working-3-boards.png");
-        const trend = r3.boards?.thumbs.find((t) => t.name === TREND);
         rec(
-            "3. two board writes: step wrote Page-trend.dc.html, Boards made this turn · 2, Page then Page-trend, the latest mark on Page-trend only, Page-trend at the default 1440 wide scaled to 220",
+            "3. two board writes: step wrote Page-trend.dc.html, Boards made this turn · 2, Page then Page-trend as chips by name with no iframe, the latest mark on Page-trend only",
             r3.ok &&
                 r3.step.target === TREND &&
                 r3.boards.head === "Boards made this turn · 2" &&
-                JSON.stringify(r3.boards.thumbs.map((t) => t.name)) === JSON.stringify([PAGE, TREND]) &&
-                JSON.stringify(r3.boards.thumbs.filter((t) => t.latest).map((t) => t.name)) === JSON.stringify([TREND]) &&
-                trend?.frameW === `${DEFAULT_BOARD_W}px` &&
-                Math.abs(scaleOf(trend.transform) - THUMB_W_TURN / DEFAULT_BOARD_W) < SCALE_EPSILON &&
-                Math.abs(trend.drawnW - THUMB_W_TURN) <= 1,
+                JSON.stringify(r3.boards.chips.map((c) => c.name)) === JSON.stringify([PAGE, TREND]) &&
+                JSON.stringify(r3.boards.chips.map((c) => c.label)) === JSON.stringify(["Page", "Page-trend"]) &&
+                JSON.stringify(r3.boards.chips.filter((c) => c.latest).map((c) => c.name)) === JSON.stringify([TREND]) &&
+                r3.boards.frames === 0,
             r3
         );
 
-        // 4. Open full size opens the canvas window on that board; Close returns to the Working view. The design's note
-        await h.ev(
-            `${BS_PANE}?.querySelector('[data-brainstorm-turn-boards] [data-brainstorm-thumb="${PAGE}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
-        );
+        // 4. (WinToday) a chip opens today's unscoped window on that board; Close returns to the Working view. The
+        // design's note
+        await h.ev(`${BS_PANE}?.querySelector('[data-brainstorm-turn-boards] [data-brainstorm-board-chip="${PAGE}"]')?.click()`);
         const r4 = await until(h, (r) => r.canvas?.board === PAGE);
         await h.shot("cdp-shots/brainstorm-working-4-full-size.png");
         await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
         const r4b = await until(h, (r) => r.canvas == null && r.working != null && r.boards != null);
         rec(
-            "4. Open full size on Page.dc.html opens the canvas window on it, and its Close returns to the Working view",
-            r4.ok && r4.canvas.topic === CANVAS && r4b.ok,
+            "4. (WinToday) the Page chip opens today's unscoped canvas window on it: every board by name with All, no scope and no band; its Close returns to the Working view",
+            r4.ok &&
+                r4.canvas.topic === CANVAS &&
+                JSON.stringify(r4.canvas.tabs) === JSON.stringify(["All", "Page", "Page-trend"]) &&
+                !r4.canvas.scoped &&
+                !r4.canvas.band &&
+                r4b.ok,
             { canvas: r4.canvas, view: r4.view, back: r4b.view }
         );
         const opened = await bsOpenDesign(h);
         const r4d = await until(h, (r) => r.note?.step != null);
         await h.shot("cdp-shots/brainstorm-working-4-design-note.png");
         rec(
-            "4b. the design's note starts with the step (wrote Page-trend.dc.html) and ends with Confirm, edit and keep open again when it asks its next question., no thumbnails",
+            "4b. the design's note starts with the step (wrote Page-trend.dc.html) and ends with Confirm, edit and keep open again when it asks its next question., no board chips",
             opened &&
                 r4d.ok &&
                 r4d.note.step.verb === "wrote" &&
                 r4d.note.step.target === TREND &&
                 r4d.note.text.startsWith(`wrote${TREND}`) &&
                 r4d.note.text.endsWith(NOTE_TAIL) &&
-                r4d.note.thumbs === 0,
+                r4d.note.chips === 0,
             { opened, note: r4d.note }
         );
         await bsCloseDesign(h);
@@ -279,7 +267,7 @@ export default function (kit) {
                     mkdirSync(project, { recursive: true });
                     writeFileSync(
                         join(project, "canvas.json"),
-                        JSON.stringify({ boards: { [PAGE]: PAGE_SIZE }, order: [PAGE] })
+                        JSON.stringify({ boards: { [PAGE]: PAGE_SIZE, [TREND]: PAGE_SIZE }, order: [PAGE, TREND] })
                     );
                     writeFileSync(join(project, PAGE), board(PAGE));
                     writeFileSync(join(project, TREND), board(TREND));

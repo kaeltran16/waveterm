@@ -250,7 +250,7 @@ export const workspaceBrainstormQuestion = wbsScenario(NAME, async (h, ctx, step
                 badges: rows.map((r) => r.querySelector("[data-brainstorm-option] > span")?.textContent.trim() ?? null),
                 tagInLine: !!t && !!l && tm >= l.top && tm <= l.bottom && t.left >= l.right - 1,
                 chips: rows.map((r) => [...r.querySelectorAll("[data-brainstorm-board-chip]")].map((c) => c.getAttribute("data-brainstorm-board-chip"))),
-                thumbs: pane?.querySelectorAll("[data-brainstorm-thumb]").length ?? null,
+                thumbs: pane?.querySelectorAll("[data-brainstorm-question] iframe").length ?? null,
                 sideways: (${SIDEWAYS})(pane),
             };
         })()`);
@@ -263,20 +263,35 @@ export const workspaceBrainstormQuestion = wbsScenario(NAME, async (h, ctx, step
         return [ok, { bar, ...q }];
     });
 
-    await step("Main board: row 1's chip opens its board in the canvas window over the pane, and the question comes back", async () => {
+    await step("Main board: row 1's chip opens the canvas window over the pane, scoped to the question on its board with answer 1's band, and the question comes back", async () => {
         const clicked = await h.ev(`(() => {
             const c = ${BS_IN_TAB}?.querySelector('[data-brainstorm-board-chip="${BS_BOARDS[0]}"]');
             if (!c) return false;
             c.click();
             return true;
         })()`);
-        const opened = await polishWaitFor(h, `${VIEW_IS("design")} && !!document.querySelector("[data-canvas-window] [data-canvas-pane]")`, WAIT_MS);
+        const opened = await polishWaitFor(h, `${VIEW_IS("design")} && !!document.querySelector("[data-canvas-window] [data-brainstorm-band]")`, WAIT_MS);
         const board = await store(h, ctx, `const C = await mod("app/view/agents/canvasstore.ts"); return C.getCanvas(id)?.board ?? null;`);
         await polishNap(SETTLE_MS);
+        const win = await h.ev(`(() => {
+            const w = document.querySelector("[data-canvas-window]");
+            const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
+            return {
+                source: flat(w?.querySelector("[data-canvas-scope-source] > span")),
+                tab: flat(w?.querySelector('[role="tab"][aria-selected="true"]')),
+                answers: [...(w?.querySelectorAll("[data-brainstorm-band-answer]") ?? [])].map((a) => a.getAttribute("data-brainstorm-band-answer")),
+                pick: flat(w?.querySelector("[data-brainstorm-band-pick]")),
+            };
+        })()`);
         await h.shot(SHOT(2, "chip-board"));
         await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
         const back = await polishWaitFor(h, `!document.querySelector("[data-canvas-window]") && ${VIEW_IS("design")} && !!${BS_IN_TAB}?.querySelector("[data-brainstorm-question]")`, WAIT_MS);
-        return [clicked && opened && board === BS_BOARDS[0] && back, { clicked, opened, board, back }];
+        const scoped =
+            win.source === String(BS_Q4.n) &&
+            win.tab === `1 · ${BS_Q4_OPTIONS[0].label}` &&
+            JSON.stringify(win.answers) === JSON.stringify(["0"]) &&
+            win.pick === "Pick 1";
+        return [clicked && opened && board === BS_BOARDS[0] && scoped && back, { clicked, opened, board, win, back }];
     });
 
     await step("LA1 board: question 9's long why and five long answers are one scroll that reaches the last answer and the answer box", async () => {

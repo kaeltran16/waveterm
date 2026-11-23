@@ -50,7 +50,7 @@ const readAdded = `(() => { window.__mlObs?.disconnect(); return window.__mlAdde
 // the text watchAdded records for a node reading text
 const addedText = (text) => text.slice(0, ADDED_TEXT_CHARS);
 
-// reads expr (a function body returning a value) every animation frame until stopped
+// reads expr (a function body returning a value) now and then every animation frame until stopped
 const startFrames = (expr) => `(() => {
     const f = { on: true, values: [] };
     window.__mlFrames = f;
@@ -59,7 +59,8 @@ const startFrames = (expr) => `(() => {
         f.values.push(read());
         if (f.on) requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    // the first reading is synchronous so an action in the same frame cannot land before it
+    tick();
     return true;
 })()`;
 const stopFrames = `(() => { window.__mlFrames.on = false; return window.__mlFrames.values; })()`;
@@ -126,7 +127,8 @@ export const motionLens = {
         await h.ev(startFrames(checkDrawn("Sonnet patterns")));
         await wfsSeed(h, ctx, "scanning", scanAt(ctx, { state: "scanning", stage: "recount" }));
         const recounted = await polishWaitFor(h, `!!document.querySelector('[data-workflow-detail="recount"]')`, 5000);
-        await settle();
+        await polishWaitFor(h, `(() => { ${checkDrawn("Sonnet patterns")} })() === 1`, SAMPLER_END_WAIT_MS);
+        await polishNap(REST_FRAME_MS);
         const draw = distinct(await h.ev(stopFrames));
         const survivors = wfsScan(ctx).survivors;
         await wfsSeed(h, ctx, "scanning", scanAt(ctx, { state: "scanning", stage: "checking", verdicts: [], survivors: survivors.slice(0, 3) }));
@@ -475,44 +477,48 @@ async function canvasSteps(h, ctx) {
     return steps;
 }
 
-// brainstorm-answer-boards' question: a board an answer names draws its pick row under the canvas toolbar, which All
-// hides; stepping back from All onto the board reveals the row
+// brainstorm-answer-boards' question: a chip opens the canvas window scoped to the question, whose answer band shows
+// under the toolbar on an answer's tab and hides on Other boards; stepping back from Other boards reveals the band
 async function boardActionsSteps(h, ctx) {
     const steps = [];
     const rec = (step, ok, detail) => steps.push({ step, ok: !!ok, detail: JSON.stringify(detail) });
     ctx.board = await brainstormAnswerBoards.arrange(h);
     const missing = await bsShowFile(h, ctx.board);
     if (missing != null) {
-        rec("8a. the board actions row reveals when a board that names an answer is shown", false, { missing });
+        rec("8a. the answer band reveals when an answer's tab is shown", false, { missing });
         return steps;
     }
-    const OPEN = `${BS_PANE}?.querySelector("[data-brainstorm-row-boards] [data-brainstorm-open-board]")`;
+    const CHIP = `${BS_PANE}?.querySelector("[data-brainstorm-row-boards] [data-brainstorm-board-chip]")`;
     const WIN = `document.querySelector("[data-canvas-window]")`;
-    const PICKS = `${WIN}?.querySelector("[data-brainstorm-board-picks]")`;
+    const BAND = `${WIN}?.querySelector("[data-brainstorm-band]")`;
+    // the band's content swaps inside its reveal, so the reveal is the swap's parent
+    const REVEAL = `${BAND}?.closest("[data-view-swap]")?.parentElement`;
     const TAB = (label) =>
         `[...(${WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === ${label})`;
-    await polishWaitFor(h, `!!${OPEN}`, BS_POLL_WAIT_MS);
-    await h.ev(`${OPEN}?.click()`);
-    const shown = await polishWaitFor(h, `!!${PICKS}`, BS_POLL_WAIT_MS);
+    await polishWaitFor(h, `!!${CHIP}`, BS_POLL_WAIT_MS);
+    await h.ev(`${CHIP}?.click()`);
+    const shown = await polishWaitFor(h, `!!${BAND}`, BS_POLL_WAIT_MS);
     const board = await h.ev(
         `(${WIN}?.querySelector('[role="tab"][aria-selected="true"]')?.textContent ?? "").trim()`
     );
-    await h.ev(`${TAB(JSON.stringify("All"))}?.click()`);
-    const hidden = await polishWaitFor(h, `!${PICKS}`, 3000);
+    await h.ev(`${TAB(JSON.stringify("Other boards"))}?.click()`);
+    const hidden = await polishWaitFor(h, `!${BAND}`, 3000);
     await polishNap(SETTLE_MS);
-    await h.ev(watchAdded(`[data-brainstorm-board-picks]`, "return getComputedStyle(el.parentElement).opacity;"));
-    await h.ev(startFrames(`return ${PICKS}?.parentElement?.offsetHeight ?? null;`));
+    await h.ev(
+        watchAdded(`[data-brainstorm-band]`, `return getComputedStyle(el.closest("[data-view-swap]").parentElement).opacity;`)
+    );
+    await h.ev(startFrames(`return ${REVEAL}?.offsetHeight ?? null;`));
     await h.ev(`${TAB(JSON.stringify(board))}?.click()`);
-    await polishWaitFor(h, `(() => { const p = ${PICKS}?.parentElement; return !!p && getComputedStyle(p).opacity === "1"; })()`, SAMPLER_END_WAIT_MS);
+    await polishWaitFor(h, `(() => { const p = ${REVEAL}; return !!p && getComputedStyle(p).opacity === "1"; })()`, SAMPLER_END_WAIT_MS);
     await polishNap(REST_FRAME_MS);
     const grow = distinct(await h.ev(stopFrames));
     const added = await h.ev(readAdded);
-    const settled = await h.ev(`(() => { const p = ${PICKS}?.parentElement; return p ? getComputedStyle(p).opacity : null; })()`);
+    const settled = await h.ev(`(() => { const p = ${REVEAL}; return p ? getComputedStyle(p).opacity : null; })()`);
     await h.shot("cdp-shots/motion-lens-board-actions.png");
     await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
     rec(
-        "8a. stepping from All back onto a board that names an answer reveals its pick row from opacity 0 through intermediate heights, settling at 1",
-        shown && board !== "" && hidden && added[0]?.value === "0" && grewOpen(grow) && settled === "1",
+        "8a. stepping from Other boards back onto an answer's tab reveals the answer band from opacity 0 through intermediate heights, settling at 1",
+        shown && board !== "" && board !== "Other boards" && hidden && added[0]?.value === "0" && grewOpen(grow) && settled === "1",
         { shown, board, hidden, added, grow, settled }
     );
     await brainstormAnswerBoards.teardown(h, ctx.board);

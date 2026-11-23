@@ -15,6 +15,7 @@ import {
     brainstormFilePath,
     brainstormWait,
     builderCheckView,
+    judgeWait,
     samePath,
     seenMark,
     shownFile,
@@ -24,8 +25,10 @@ import {
     type SeenMark,
     type SentLine,
 } from "./brainstormmodel";
+import { questionScope } from "./brainstormwindowmodel";
 import { canvasDir, type CanvasBoard } from "./canvasmodel";
 import { attachCanvas, openCanvasWindow } from "./canvasstore";
+import type { WindowScope } from "./canvaswindowmodel";
 import { closeWorkspaceTab, openWorkspaceTab } from "./workspacestore";
 
 export type BrainstormState = {
@@ -52,10 +55,6 @@ export type BrainstormState = {
     boards: CanvasBoard[];
     // where wavesrv serves the project's design folder; null until the poller has asked it to
     base: string | null;
-    // the boards this turn wrote, sized from their canvas.json: `canvases` holds canvas.json's boards for each canvas
-    // the turn wrote on, and `read` the board keys (`<canvas>/<name>`) they were read for, so the poller does IO only
-    // when the turn writes a board it has not read. Apart from `boards`, which stays the file's own canvas.
-    turn: { read: string[]; canvases: Record<string, CanvasBoard[]> };
     // the last line Arc sent, until the agent has taken it (the poller settles it)
     sent: SentLine | null;
     // keep, put back and confirm picks not sent yet: here, not in the pane, so they survive a surface switch
@@ -163,7 +162,6 @@ export function attachBrainstorm(
         historyOpen: false,
         boards: [],
         base: null,
-        turn: { read: [], canvases: {} },
         sent: null,
         picks: {},
         sentCheckAt: null,
@@ -207,14 +205,38 @@ export function stampBrainstormViewed(agentId: string, now: number): void {
     updateBrainstorm(agentId, (s) => ({ ...s, lastViewedMs: now }));
 }
 
-// a board of the brainstorm's canvas full size: the canvas window, as every canvas opens a board in full
-export function openBrainstormBoard(agentId: string, canvas: string, board: string, now: number = Date.now()): void {
+// a board of the brainstorm's canvas full size: the canvas window, as every canvas opens a board in full. scope gives
+// the window the tabs of the question or part it was opened from
+export function openBrainstormBoard(
+    agentId: string,
+    canvas: string,
+    board: string,
+    now: number = Date.now(),
+    scope?: WindowScope
+): void {
     const s = getBrainstorm(agentId);
     if (s == null) {
         return;
     }
     attachCanvas(agentId, { topic: canvas, dir: canvasDir(s.cwd, canvas), projectDir: s.cwd, board }, now);
-    openCanvasWindow(agentId, { board });
+    openCanvasWindow(agentId, { board, scope });
+}
+
+// a chip on the open question: the window scoped to the question, on the chip's board. Unscoped when no scope applies
+// (the agent writing over the question outside the judge's wait) or the board has no tab in it (not on the canvas)
+export function openQuestionBoard(agentId: string, board: string, now: number = Date.now()): void {
+    const s = getBrainstorm(agentId);
+    const f = shownBrainstormFile(s);
+    if (s == null || f?.canvas == null) {
+        return;
+    }
+    const scope = questionScope(
+        f,
+        s.boards.map((b) => b.name),
+        judgeWait(f, s.sent != null)
+    );
+    const tabbed = scope?.tabs.some((t) => t.board === board) === true;
+    openBrainstormBoard(agentId, f.canvas, board, now, tabbed ? scope! : undefined);
 }
 
 export function openBrainstormDesign(agentId: string, open: boolean): void {

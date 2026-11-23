@@ -26,6 +26,7 @@ import { ALL_TAB, currentTab } from "@/app/view/agents/canvasmodel";
 import {
     attachCanvas,
     canvasWindowAtom,
+    canvasWindowScopeAtom,
     detachCanvas,
     getCanvas,
     openCanvasWindow,
@@ -35,6 +36,7 @@ import {
     updateCanvas,
 } from "@/app/view/agents/canvasstore";
 import { escapeCanvasWindow } from "@/app/view/agents/canvaswindow";
+import { OTHER_TAB, windowTab, type WindowScope } from "@/app/view/agents/canvaswindowmodel";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { registerCommentSend } from "@/app/view/agents/commentsend";
 import { compareCwd, refreshCompare } from "@/app/view/agents/comparestore";
@@ -1649,6 +1651,52 @@ describe("canvas window bindings", () => {
         expect(tab()).toBe("States.dc.html");
     });
 
+    const answerTab = (board: string, index: number): WindowScope["tabs"][number] => ({
+        board,
+        label: board,
+        band: { kind: "answers", answers: [{ index, label: "", detail: "", pick: false, pros: [], cons: [] }] },
+    });
+    const SCOPE: WindowScope = {
+        source: { kind: "question", n: 2, text: "Which layout?", judging: false, judged: false },
+        tabs: [answerTab("Main.dc.html", 0), answerTab("States.dc.html", 1)],
+    };
+
+    it("with a scope, [ ] walk its tabs and Other boards, and a digit shows its answer's tab", () => {
+        updateCanvas("a1", (s) => ({
+            ...s,
+            boards: [...s.boards, { name: "X.dc.html", x: 0, y: 0, w: 1440, h: 900 }],
+        }));
+        openCanvasWindow("a1", { board: "Main.dc.html", scope: SCOPE });
+        const tab = () => windowTab(SCOPE, getCanvas("a1")!);
+        press("]");
+        expect(tab()).toBe("States.dc.html");
+        press("]");
+        expect(tab()).toBe(OTHER_TAB);
+        press("]");
+        expect(tab()).toBe("Main.dc.html");
+        press("[");
+        expect(tab()).toBe(OTHER_TAB);
+        press("2");
+        expect(tab()).toBe("States.dc.html");
+        press("1");
+        expect(tab()).toBe("Main.dc.html");
+    });
+
+    it("m stands down on the Other boards grid, which shows no one board to mark", () => {
+        const extra = ["X", "Y"].map((n) => ({ name: `${n}.dc.html`, x: 0, y: 0, w: 1440, h: 900 }));
+        updateCanvas("a1", (s) => ({ ...s, boards: [...s.boards, ...extra] }));
+        openCanvasWindow("a1", { board: "States.dc.html", scope: SCOPE });
+        press("]");
+        expect(getCanvas("a1")!.all).toBe(true);
+        expect(claim("m")).toBeNull();
+    });
+
+    it("with no scope, the digits are left alone", () => {
+        for (const k of ["1", "2", "9"]) {
+            expect(claim(k)?.id ?? null, k).toBeNull();
+        }
+    });
+
     it("[ ] stand down while marking, and m does nothing while the canvas is not served", () => {
         setMarking("a1", true);
         expect([claim("["), claim("]")]).toEqual([null, null]);
@@ -1671,10 +1719,13 @@ describe("canvas window bindings", () => {
                 seen.set(b.keys, b.id);
             }
         };
-        for (const marking of [false, true]) {
-            setMarking("a1", marking);
-            for (const c of [under, inNote, { ...under, leader: "g" }]) {
-                check(c);
+        for (const scope of [null, SCOPE]) {
+            globalStore.set(canvasWindowScopeAtom, scope);
+            for (const marking of [false, true]) {
+                setMarking("a1", marking);
+                for (const c of [under, inNote, { ...under, leader: "g" }]) {
+                    check(c);
+                }
             }
         }
     });
@@ -3504,5 +3555,145 @@ describe("Rendered ask dock keys", () => {
         expect(byId("agent:permission-choice-1").run(nav)).toBe(false);
         expect(byId("agent:ask-submit").run(nav)).toBe(false);
         expect(model.toggleAnswer).not.toHaveBeenCalled();
+    });
+});
+
+describe("brainstorm o opens the canvas window", () => {
+    const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+    const RAIL = "Rail.dc.html";
+    const STRIP = "Strip.dc.html";
+    const PAGE = "Page.dc.html";
+    const asked: BrainstormFile = {
+        v: 1,
+        title: "Lag",
+        spec: "",
+        canvas: "lag-canvas",
+        question: {
+            n: 2,
+            text: "Which layout?",
+            part: "layout",
+            options: [
+                { label: "Rail", detail: "", boards: [RAIL] },
+                { label: "Strip", detail: "", boards: [STRIP] },
+            ],
+        },
+        working: null,
+        parts: [{ id: "layout", title: "Layout", state: "asked", body: "" }],
+        history: [],
+        done: false,
+        check: null,
+        run: null,
+    };
+    // the check's review: grain has a board, torch none
+    const checked: BrainstormFile = {
+        ...asked,
+        question: null,
+        parts: [
+            { id: "grain", title: "Forecast grain", state: "guess", was: "Daily.", body: "Hourly.", boards: [PAGE] },
+            { id: "torch", title: "The move to PyTorch", state: "guess", body: "A shared torch base." },
+        ],
+        done: true,
+        check: { yours: [{ q: "Grain?", a: "hourly", into: ["grain"] }], calls: [], answered: [], touched: ["grain"] },
+    };
+    let model: any;
+    const all = () => [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+    const claiming = (c: KeyContext = nav) =>
+        all()
+            .filter((b) => b.keys === "o" && b.when?.(c) !== false)
+            .map((b) => b.id);
+    const press = () =>
+        all()
+            .find((b) => b.id === "agent:brainstorm-window")!
+            .run(nav);
+    const arrange = (file: BrainstormFile) =>
+        updateBrainstorm("a1", (s) => ({
+            ...s,
+            file,
+            boards: [RAIL, STRIP, PAGE].map((name) => ({ name, x: 0, y: 0, w: 1440, h: 900 })),
+        }));
+    // the answer row a digit focused: data-brainstorm-option's index
+    const focusAnswer = (i: number | null) =>
+        vi.stubGlobal("document", {
+            activeElement:
+                i == null
+                    ? null
+                    : {
+                          closest: () => ({
+                              getAttribute: (a: string) => (a === "data-brainstorm-option" ? String(i) : null),
+                          }),
+                      },
+            querySelector: () => null,
+        });
+    const scope = () => globalStore.get(canvasWindowScopeAtom);
+
+    beforeEach(() => {
+        focusAnswer(null);
+        model = {
+            ...stubModel("a1"),
+            surfaceAtom: atom<SurfaceKey>("agent"),
+            agentsAtom: atom([{ id: "a1", name: "Agent", blockId: "b1" }]),
+        };
+        attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0);
+        arrange(asked);
+        setBrainstormMode("a1", "brainstorm", 1);
+    });
+
+    afterEach(() => {
+        globalStore.set(canvasWindowAtom, null);
+        globalStore.set(canvasWindowScopeAtom, null);
+        detachBrainstorm("a1");
+        detachCanvas("a1");
+        vi.unstubAllGlobals();
+    });
+
+    it("on the shown question opens the window scoped to it, on the focused answer's board", () => {
+        focusAnswer(1);
+        expect(claiming()).toEqual(["agent:brainstorm-window"]);
+        press();
+        expect(globalStore.get(canvasWindowAtom)).toBe("a1");
+        expect(scope()?.source).toMatchObject({ kind: "question", n: 2 });
+        expect(scope()?.tabs.map((t) => t.board)).toEqual([RAIL, STRIP]);
+        expect(getCanvas("a1")).toMatchObject({ topic: "lag-canvas", board: STRIP, all: false });
+    });
+
+    it("with no answer focused it opens on the scope's first tab", () => {
+        press();
+        expect(getCanvas("a1")?.board).toBe(RAIL);
+    });
+
+    it("in the review it opens the window scoped to the cursor part's boards", () => {
+        arrange(checked);
+        setReviewCursor("a1", "grain");
+        press();
+        expect(scope()?.source).toEqual({ kind: "part", id: "grain", title: "Forecast grain" });
+        expect(scope()?.tabs.map((t) => t.board)).toEqual([PAGE]);
+        expect(getCanvas("a1")?.board).toBe(PAGE);
+    });
+
+    it.each([
+        ["the question closed", () => arrange({ ...asked, question: null })],
+        ["the agent writing over it", () => arrange({ ...asked, working: "Writing it up." })],
+        [
+            "no board to show",
+            () => arrange({ ...asked, question: { ...asked.question!, options: [{ label: "Rail", detail: "" }] } }),
+        ],
+        ["the design list", () => openBrainstormDesign("a1", true)],
+        [
+            "a cursor part without boards",
+            () => {
+                arrange(checked);
+                setReviewCursor("a1", "torch");
+            },
+        ],
+        ["the brainstorm not shown", () => setBrainstormMode("a1", "terminal", 2)],
+    ])("does nothing with %s", (_, setup) => {
+        setup();
+        expect(claiming()).toEqual([]);
+        expect(press()).toBe(false);
+        expect(globalStore.get(canvasWindowAtom)).toBeNull();
+    });
+
+    it("does nothing while a field is focused", () => {
+        expect(claiming({ ...nav, editable: true })).toEqual([]);
     });
 });

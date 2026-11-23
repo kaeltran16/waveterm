@@ -133,8 +133,8 @@ which opens the design with those notes open. Coming back from the design clears
 whose state alone changed (a confirm) is not new. The skill puts a summary of any report in the
 question's `why` too, since the link says only how many notes there are.
 
-A part's mockups draw under its body when its row opens: each board a scaled live thumbnail with
-Open full size (the canvas), each of its `spikes` (a throwaway live page under the canvas folder, for
+A part's mockups draw under its body when its row opens: each board a name chip that opens the canvas
+window scoped to the part (its boards as tabs, a band with its title and gist), each of its `spikes` (a throwaway live page under the canvas folder, for
 motion a board cannot show) a link that opens it in the browser from the same served folder.
 `PartMockups` in `brainstormui.tsx` draws both, from `partBoards` and `partSpikes`.
 
