@@ -756,6 +756,35 @@ async function fstPublishMemoryHeld(h, ctx, role) {
         data: { channelid: ctx.channelId, runid: ctx.runId, event },
     });
 }
+// a fast-track stage's end review, seeded on the dag's Check and Verify: reviewing beside a running Verify, or the
+// stage failed by its findings alone. fasttrack stays unset, so the engine leaves the seeded end review alone
+const FST_ER_FINDING = "t-2's test asserts nothing the task changed";
+async function fstShowEndReview(h, ctx, state) {
+    const now = Date.now();
+    const final =
+        state === "reviewing"
+            ? {
+                  state: "checking",
+                  round: 1,
+                  step: "verify",
+                  stepts: now - 60_000,
+                  startedts: now - 120_000,
+                  endreview: { state, startedts: now - 100_000 },
+              }
+            : { state: "failed", round: 1, detail: `[End review] ${FST_ER_FINDING}`, endreview: { state, text: FST_ER_FINDING } };
+    const print = (dag) =>
+        JSON.stringify([dag?.final?.state ?? "", dag?.final?.endreview?.state ?? "", dag?.finalcmd ?? "", dag?.fasttrack === true]);
+    const nudge = await seedDag(
+        h,
+        ctx,
+        (dag) => {
+            const { final: _final, pastfinals: _past, finalcmd: _cmd, fasttrack: _fast, ...rest } = dag;
+            return { ...rest, final };
+        },
+        print
+    );
+    return { nudge };
+}
 const fstStates = (steps) => (steps ?? []).map((s) => s.state);
 const fstRepeat = (state, n) => Array(n).fill(state);
 const fstFlat = (text) => text.replace(/\s+/g, " ").trim();
@@ -1151,6 +1180,32 @@ export const finalStageScenario = {
             "B3b. a running Check held at the memory gate reads waiting for memory · 2.1 GB free, 3.5 GB needed on its step in the DAG peek card, the pane and the rail",
             () => heldPeek === FST_MEMORY_TEXT && heldPane === FST_MEMORY_TEXT && heldRail === FST_MEMORY_TEXT,
             { heldPeek, heldPane, heldRail }
+        );
+
+        wait = await fstShowEndReview(h, ctx, "reviewing");
+        const endReviewIs = (s, state) => s.pane?.steps.some((p) => p.key === "review" && p.state === state);
+        a = await fstAgent(h, (s) => endReviewIs(s, "running") && s.rows[0]?.sub.endsWith("end review alongside"), wait);
+        await shot("b3c-end-review-alongside");
+        rec(
+            "B3c. the end review beside a running Verify: the pane lists End review running before the Verifier, and the row's activity names the end review alongside",
+            () =>
+                fstSame(a.pane.steps.map((s) => s.key), ["tree", "check", "verify", "review", "verifier"]) &&
+                fstSame(fstStates(a.pane.steps), ["passed", "passed", "running", "running", "waiting"]) &&
+                a.pane.text.includes("End review") &&
+                /^Verify · \S.* · end review alongside$/.test(a.rows[0].sub),
+            { row: a?.rows, pane: a?.pane?.steps }
+        );
+
+        wait = await fstShowEndReview(h, ctx, "failed");
+        a = await fstAgent(h, (s) => endReviewIs(s, "failed") && s.rows[0]?.tone === "fail", wait);
+        await shot("b3d-end-review-failed");
+        rec(
+            "B3d. a stage whose detail is only the end review's: End review failed, the Verifier and the commands not failed, the findings in the pane",
+            () =>
+                a.rows[0].sub === "failed at End review · round 1" &&
+                fstSame(fstStates(a.pane.steps), ["passed", "passed", "passed", "failed", "passed"]) &&
+                a.pane.text.includes(FST_ER_FINDING),
+            { row: a?.rows, pane: a?.pane?.steps }
         );
 
         wait = await fstShow(h, ctx, "reviewing");

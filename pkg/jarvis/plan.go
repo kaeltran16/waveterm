@@ -22,6 +22,9 @@ const PlanFormat = planFormatIntro + planFocusedTestsRule + planFormatRules + pl
 // planFormatPlan is the arc:plan contract's format: its worker picks the tests, so a task lists none.
 const planFormatPlan = planFormatIntro + planFormatRules + planTaskBodyPlan + planFormatExampleTail
 
+// FastTrackMaxTasks is the most tasks a plan-file dag can have and still take the fast track.
+const FastTrackMaxTasks = 4
+
 // PlanFormatFor is the plan format of a run's plan skill, as stored on the run or dag.
 func PlanFormatFor(planSkill string) string {
 	if EffectivePlanSkill(planSkill) == PlanSkill_Plan {

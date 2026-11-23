@@ -1083,6 +1083,7 @@ const STAGE_OUTCOME_DOT: Record<Exclude<StageOutcome, "passed">, string> = {
     unverified: "bg-warning",
     failed: "bg-error",
     accepted: "bg-muted",
+    amended: "bg-muted",
 };
 
 // a builder check's or judge's record, drawn as a stage's verdict: an answered one is its session's work done

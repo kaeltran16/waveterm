@@ -138,10 +138,14 @@ const DROPPED = new Set(["skipped", "cancelled"]);
 
 type StageAgent = { agent: AgentVM; stageRole: string };
 
-// accepted: the human accepted a failed plan review, so its every session reads as that, not as its own verdict
-export type StageOutcome = "passed" | "failed" | "unverified" | "accepted";
+// accepted: the human accepted a failed plan review, so its every session reads as that, not as its own verdict.
+// amended: the same for a light review the lead answered by amending the plan, which the human never decided
+export type StageOutcome = "passed" | "failed" | "unverified" | "accepted" | "amended";
 
-const STAGE_VERDICT_TEXT: Partial<Record<StageOutcome, string>> = { accepted: "accepted by you" };
+const STAGE_VERDICT_TEXT: Partial<Record<StageOutcome, string>> = {
+    accepted: "accepted by you",
+    amended: "amended by the lead",
+};
 
 /** Pure: the words a stage row's second line gives its outcome. */
 export function stageVerdictText(outcome: StageOutcome | undefined): string | undefined {
@@ -149,11 +153,19 @@ export function stageVerdictText(outcome: StageOutcome | undefined): string | un
 }
 
 const FINAL_OUTCOMES: Record<string, StageOutcome> = { passed: "passed", unverified: "unverified", failed: "failed" };
+const END_REVIEWER_ROLE = "end-reviewer";
+// FinalEndReview.state: lost twice reads as failed, and one a human stopped as unverified
+const END_REVIEW_OUTCOMES: Record<string, StageOutcome> = {
+    passed: "passed",
+    failed: "failed",
+    lost: "failed",
+    stopped: "unverified",
+};
 
 /** Pure: a stage session's verdict, or undefined while it is still judging. A plan reviewer reads its own verdict
- *  from its round's reviewers, a final verifier its stage's. A session from an earlier round the dag does not keep
- *  (every final round, and a plan review stored before past rounds were kept) reads as failed: a stage gets another
- *  round only after one fails. A session the engine replaced within a round is stopped with its tab, so it has no
+ *  from its round's reviewers, a final verifier its stage's, an end reviewer its stage's end review. A session from
+ *  an earlier round the dag does not keep (every final round, and a plan review stored before past rounds were
+ *  kept) reads as failed: a stage gets another round only after one fails. A session the engine replaced within a round is stopped with its tab, so it has no
  *  row to misread. */
 export function stageOutcome(
     run: RunInfo,
@@ -172,10 +184,16 @@ export function stageOutcome(
             return reviewer.verdict ?? "failed";
         }
         if (review.state === "accepted") {
-            return "accepted";
+            return review.amended ? "amended" : "accepted";
         }
         if (reviewer != null) {
             return reviewer.verdict;
+        }
+    } else if (stageRole === END_REVIEWER_ROLE) {
+        const er = run.dag.final.endreview;
+        if (er?.runid === agentRunId) {
+            // a pass that could not verify everything, as its step reads
+            return er.state === "passed" && er.unverified ? "unverified" : END_REVIEW_OUTCOMES[er.state];
         }
     } else if (run.dag.final.verifierrunid === agentRunId) {
         return FINAL_OUTCOMES[run.dag.final.state];

@@ -69,6 +69,8 @@ func TestResMonResolverLabels(t *testing.T) {
 	seedWorkerRun(t, lead.ChannelOID, reviewTab, waveobj.Run{TaskId: "2", Review: true, DagORef: lead.DagORef})
 	verifierBlock, verifierTab := seedResMonTab(t, "verifier tab", "claude")
 	seedWorkerRun(t, lead.ChannelOID, verifierTab, waveobj.Run{StageRole: jarvis.UsageRole_Verifier, DagORef: lead.DagORef})
+	endReviewBlock, endReviewTab := seedResMonTab(t, "end review tab", "claude")
+	seedWorkerRun(t, lead.ChannelOID, endReviewTab, waveobj.Run{StageRole: jarvis.UsageRole_EndReviewer, DagORef: lead.DagORef})
 	quick := seedUsageRun(t, "", waveobj.Run{Mode: "quick", Goal: "fix the cache\nthen tidy"})
 	goneRun := uuid.NewString()
 
@@ -82,6 +84,7 @@ func TestResMonResolverLabels(t *testing.T) {
 		{"run worker", blockOwner(workerBlock), resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_RunWorker, Label: "cache-miss notice", RunId: lead.ID, Role: "Task 2", Runtime: "pi", Agent: true}},
 		{"task reviewer", blockOwner(reviewBlock), resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_RunWorker, Label: "cache-miss notice", RunId: lead.ID, Role: "Task 2 review", Runtime: "claude", Agent: true}},
 		{"final verifier", blockOwner(verifierBlock), resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_RunWorker, Label: "cache-miss notice", RunId: lead.ID, Role: "Verifier", Runtime: "claude", Agent: true}},
+		{"end reviewer", blockOwner(endReviewBlock), resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_RunWorker, Label: "cache-miss notice", RunId: lead.ID, Role: "End reviewer", Runtime: "claude", Agent: true}},
 		{"run lead", blockOwner(leadBlock), resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_RunWorker, Label: "cache-miss notice", RunId: lead.ID, Role: "Lead", Runtime: "pi", Agent: true}},
 		{"run command", jobobject.Owner{Kind: jobobject.OwnerKind_RunCmd, Id: lead.ID, Cmd: "Verify"},
 			resmon.OwnerInfo{Kind: wshrpc.ResMonOwner_RunCmd, Label: "cache-miss notice", RunId: lead.ID, Role: "Verify"}},

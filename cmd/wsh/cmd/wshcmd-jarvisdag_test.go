@@ -898,6 +898,14 @@ func failedPlanReviewDag(round int) *waveobj.TaskGroup {
 	}
 }
 
+// amendedDag is a fast-track dag whose light review failed and whose lead's amended resubmit dispatched.
+func amendedDag() *waveobj.TaskGroup {
+	g := failedPlanReviewDag(1)
+	g.Status = orchestrate.DagStatus_Running
+	g.PlanReview.State, g.PlanReview.Amended = orchestrate.PlanReviewState_Accepted, true
+	return g
+}
+
 func reviewingDag(round int) *waveobj.TaskGroup {
 	g := failedPlanReviewDag(round)
 	g.PlanReview = &waveobj.PlanReviewStage{State: orchestrate.PlanReviewState_Reviewing, Round: round}
@@ -917,6 +925,8 @@ func TestDagSubmitTimeoutRereadsTheDag(t *testing.T) {
 	}{
 		{name: "a resubmit that landed", before: failedPlanReviewDag(1), after: reviewingDag(2),
 			want: []string{"got no reply within", rpcTimeoutText, "but the plan landed; do not resend", "plan review  reviewing  round=2"}},
+		{name: "an amended resubmit that dispatched", before: failedPlanReviewDag(1), after: amendedDag(),
+			want: []string{"but the plan landed; do not resend", "plan review  accepted  round=1"}},
 		{name: "a resubmit that did not land", before: failedPlanReviewDag(1), after: failedPlanReviewDag(1), wantErr: true,
 			want: []string{"the plan did not land: its plan review is still round 1, failed", "resending the same command is safe"}},
 		{name: "a first submit that landed", before: nil, after: reviewingDag(1),
@@ -1021,6 +1031,22 @@ func TestDagStatusTellsAFailedPlanReviewFromOneInProgress(t *testing.T) {
 	}
 	if strings.Contains(status(failed), "at work") || strings.Contains(status(reviewing), "waiting on the lead") {
 		t.Fatal("a failed plan review must not read like one in progress")
+	}
+}
+
+func TestPlanReviewLineTellsTheLightReview(t *testing.T) {
+	now := time.Now().UnixMilli()
+	accepted := amendedDag().PlanReview
+	accepted.Amended = false
+	if amended := planReviewLine(amendedDag().PlanReview, now); amended == planReviewLine(accepted, now) {
+		t.Fatalf("an amended review must not read as the human's accept, both read %q", amended)
+	}
+	// a light round is never the last: two light rounds still leave the full review its rounds
+	light := failedPlanReviewDag(orchestrate.MaxPlanReviewRounds).PlanReview
+	light.Reviewers = []waveobj.PlanReviewer{{Lens: orchestrate.PlanReviewLens_Light, State: orchestrate.PlanReviewerState_Failed}}
+	light.PastRounds = []waveobj.PlanReviewRound{{Round: 1, Reviewers: []waveobj.PlanReviewer{{Lens: orchestrate.PlanReviewLens_Light, State: orchestrate.PlanReviewerState_Lost}}}}
+	if got, last := planReviewLine(light, now), planReviewLine(failedPlanReviewDag(orchestrate.MaxPlanReviewRounds).PlanReview, now); got == last {
+		t.Fatalf("a failed light round must not read as the last round, got %q", got)
 	}
 }
 

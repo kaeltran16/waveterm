@@ -663,6 +663,26 @@ func TestRunsShowLinesAutonomous(t *testing.T) {
 	}
 }
 
+func TestRunsShowLinesFastTrack(t *testing.T) {
+	ch := &waveobj.Channel{OID: "ch-1", Name: "waveterm"}
+	run := &waveobj.Run{ID: "r-1", Goal: "g", Status: "executing", Mode: "orchestrator", Runtime: "claude", CreatedTs: 1}
+	digest := &wshrpc.CommandDagStatusRtnData{Group: &waveobj.TaskGroup{}}
+	if out := strings.Join(runsShowLines(ch, run, digest, 2, nil), "\n"); strings.Contains(out, "fast track") {
+		t.Fatalf("a full-track run shows fast track:\n%s", out)
+	}
+	digest.Group.FastTrack = true
+	if lines := runsShowLines(ch, run, digest, 2, nil); !slices.Contains(lines, "route    claude  fast track") {
+		t.Fatalf("a fast-track run's route line does not end fast track:\n%s", strings.Join(lines, "\n"))
+	}
+	run.Autonomous = true
+	if lines := runsShowLines(ch, run, digest, 2, nil); !slices.Contains(lines, "route    claude  autonomous  fast track") {
+		t.Fatalf("autonomous then fast track expected:\n%s", strings.Join(lines, "\n"))
+	}
+	if lines := runsShowLines(ch, run, &wshrpc.CommandDagStatusRtnData{}, 2, nil); slices.ContainsFunc(lines, func(l string) bool { return strings.Contains(l, "fast track") }) {
+		t.Fatalf("a digest with no group shows fast track")
+	}
+}
+
 func TestRunsStartData_OriginBlock(t *testing.T) {
 	d, err := runsStartData(runsStartOpts{goal: "g", originBlock: "blk-1"})
 	if err != nil {

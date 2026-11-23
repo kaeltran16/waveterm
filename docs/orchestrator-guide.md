@@ -618,7 +618,13 @@ Both flows submit a plan file, and the engine reviews it before any worker start
 `plan-review`, and the scheduler dispatches nothing until the review passes or the lead accepts it. A dag
 submitted as JSON, with no plan file, and a fix round skip it.
 
-Every reviewer is a fresh session in the tree where lanes land. It reads the spec (or, with no spec, the plan's
+**Which review a plan gets.** A plan file of 4 tasks or fewer (`FastTrackMaxTasks`) takes the **fast track**: one
+[light review](#the-light-review) instead of the two rounds below, no review of each task
+([A task's review](#a-tasks-review)), and one [end review](#the-final-stage) in the final stage. The track is
+decided once, at the first plan-file submit, and stored on the dag (`fasttrack`); a later fix round's tasks never
+change it. A JSON dag never takes it, and a plan of 5 tasks or more gets the full review below.
+
+Every full-review reviewer is a fresh session in the tree where lanes land. It reads the spec (or, with no spec, the plan's
 design canvas), the plan and the files they name. The full checklist is that:
 
 - every requirement in the spec has a task;
@@ -644,7 +650,7 @@ A reviewer also reports gaps in the spec and places where the spec and plan cont
 and ends with `wsh jarvis dag planreview pass "<summary>"` or `wsh jarvis dag planreview fail "<findings>"`. A
 reviewer that ends without a verdict, or runs past 20 minutes, is replaced once; one that is lost twice is **lost**.
 
-**Round 1 runs two reviewers at the same time,** each on the whole checklist, neither seeing the other's work. The
+**On the full path, round 1 runs two reviewers at the same time,** each on the whole checklist, neither seeing the other's work. The
 **Full review** runs on the reviewer route and is the only one that picks models ([Model picks](#model-picks)). The
 **Second pass** runs on the Light reviewers route. A second independent pass catches what one reviewer misses;
 splitting the checklist into narrower lenses, as an earlier build did, cost as much as the full reviewer and rarely
@@ -695,6 +701,57 @@ follow-up fails the round.
 
 A lead's resubmit replaces the plan, not your settings: the run's workers setting and both reviewer routes stay, a
 change you made in the run sheet before it included, and on Reviewer picks the follow-up is asked for picks again.
+
+### The light review
+
+A fast-track plan gets one reviewer, titled **Light review** (lens `light`), instead of two rounds. It starts with
+a brief the engine builds in code, so the lead's reasoning stays out of it. The pack, in this order:
+
+- the plan's commands (Setup, Verify, Check, Final), `none` for one the plan does not give;
+- each task's id, title and full text;
+- the dependency edges the engine parsed, the same lines the full reviewers get;
+- the spec inline, or with no spec the Prototype canvas's path;
+- the contents of every file the tasks' `**Files:**` lines name, as they are in the landing tree. A path that does
+  not exist yet is listed as `(new: it does not exist yet)`. A file is cut at 1000 lines and the whole pack at 5000
+  lines; past a cap the path stays, with a line saying how many lines were left out and that the reviewer reads
+  the rest from the tree.
+
+The pack leaves out the plan's path and its header prose. The reviewer can still read the repository, so a file the
+pack misses can be found. Its checklist is six of the full checklist's items, worded as the full review words them:
+
+- every task that changes a view, a visual state or an interaction names the scenario step that shows it, and
+  Final runs that scenario (with a Prototype, every board has one);
+- no two tasks edit the same file without a Depends between them, and each Depends reason holds;
+- the plan's claims about what calls what hold in the tree, and every file and caller a task changes is on its
+  Files line;
+- the spec and plan do not contradict each other, and the spec has no gap the plan falls into.
+
+It ends with `wsh jarvis dag planreview pass` or `fail`, the way a full reviewer does, and is replaced once if it
+ends without a verdict or runs past 20 minutes.
+
+**Picks.** On a Reviewer picks run the light review runs on the reviewer route and picks each task's model, as the
+full reviewer does ([Model picks](#model-picks)). On every other run it runs on the Light reviewers route and
+picks nothing.
+
+**A lost reviewer is replaced.** With no second round, a plan never dispatches without a verdict. A light reviewer
+lost after its one respawn is replaced by a fresh light reviewer in the same round, up to `MaxLightReviewers` (3) a
+round; the lost rows stay visible in the Agent tree. After the third loss the round settles as lost: the lead is
+woken to run `wsh jarvis dag submit` again with the same plan, which opens a fresh light round. If the route keeps
+failing it puts that to you, and `wsh jarvis dag planreview accept "<your reason>"` dispatches the plan unreviewed.
+
+**Pass:** the workers start, as on the full path.
+
+**Findings:** the lead wakes with them. It revises the plan file and runs `wsh jarvis dag submit` again. With 4 tasks
+or fewer, the resubmit replaces the tasks and **dispatches with no second review**. The plan review reads
+`accepted` with the stored marker `Amended` set, and its `plan-reviewed` event carries `amended: true`. Every
+surface that would say the human accepted it says `amended by the lead` instead: the tree row, the sessions row,
+the lead card, `dag status`'s plan review line (`the light review failed, then the lead amended the plan and it
+dispatched`), and the verifier's brief, which lists the light review's findings so it checks each against the tree.
+`wsh jarvis dag planreview accept "<why>"` still works, to proceed on the plan unchanged when no finding holds; it
+leaves `Amended` unset. A resubmit of more than 4 tasks leaves the fast track and opens the full round 1 (Full
+review and Second pass, with no follow-up prior); if that round fails, the Round-2 follow-up comes next, as above.
+Light rounds do not count toward `MaxPlanReviewRounds`: the engine reads which rounds were light from their
+reviewers' lenses.
 
 ### Model picks
 
@@ -757,7 +814,15 @@ Open a run from **Waiting on you**, **Sessions**, or right after **Start run**. 
   child run** for a finished one, **Open DAG ↗** for one blocked on a merge. Then a `next:` line saying what
   the run is waiting for.
 - **▸ timeline**: every run event, newest first. **open the full timeline ↗** opens it in the DAG view.
-- **Settings line**: `engine · orchestrator · lead … · parallelism … · workers …` with **Adjust**.
+- **Settings line**: `engine · orchestrator · lead … · parallelism … · workers …` with **Adjust**. A
+  fast-track run ends it with a `fast track` chip, tinted as a mode, after the approvals word. `wsh runs show`
+  ends the same run's route line with `  fast track`, and the run card's route text with `· fast track`.
+- **Timeline and tree on a fast-track run:** the plan review's one reviewer reads **Light review**, a lost one's
+  replacements as further **Light review** rows; the review's row reads `amended by the lead` when the lead's
+  resubmit cleared it. Tasks go from running to done with no **Reviewing** state. The final stage's steps include
+  **End review** (step key `review`, with a `final-step` event of that step in the timeline), and its end reviewer
+shows as a stage session in the Agent tree and the run's sessions, titled **End review** (the timeline's session
+row reads **End reviewer started**).
 - **Dock**: **Open DAG**, **Open lead ↗**, **Ask Jarvis**, **Cancel run**.
 
 A 13-task run a minute after its plan went in — every task listed with the reason it is not running yet
@@ -797,7 +862,8 @@ working · 0/13 done"). The lead stops there; the engine wakes it when it needs 
 
 ![The lead after submitting its plan](images/orchestrator-guide/22-agent-tree-executing.png)
 
-A landing doesn't wake the lead. Each task that passes review queues a line (`t-4 passed review: …`) that rides on
+A landing doesn't wake the lead. Each task that passes review queues a line (`t-4 passed review: …`, on the fast
+track the line its merge posts) that rides on
 the lead's next wake, and the run-finished wake carries whatever is left, so the lead learns what landed without a
 turn per task. A wake reads its action first, then the questions, then `Unverified:` (what passed reviews could
 not verify), and the recaps last under `Since your last wake:`. `wsh jarvis dag status` shows each task's result and latest review. While the lead
@@ -848,16 +914,31 @@ order: `## Done`, `## Differs from plan`, `## Not verified`, `## For later tasks
 `--report`, or with a report that doesn't parse, and prints the template in the refusal; leads, spikes, reviewers and
 the final verifier are not held to it. A report written before this format falls back to being read whole.
 
-Each section reaches the reader that acts on it: the lead's review-pass wake carries Differs from plan, Not verified
-and Found not fixed (and For later tasks only when nothing unfinished follows the task), later tasks get For later
+Each section reaches the reader that acts on it: the lead's review-pass wake (a fast-track task's merge lines) carries
+Differs from plan, Not verified and Found not fixed (and For later tasks only when nothing unfinished follows the task), later tasks get For later
 tasks by plan edge, and the final stage lists each landed task's Not verified. A section over 2500 characters is cut
 at a line and ends `… <N> more characters: wsh jarvis dag report <task> <section>`; that command (sections `done`,
 `differs`, `not-verified`, `for-later`, `found-not-fixed`) reads the rest. At the lead's seal the engine records the
 tasks' sections, the counts, the told messages and the worktrees left behind; `wsh runs show` and the run sidebar
 render that record.
 
-When a worker finishes with a commit, the task goes to **reviewing** and the engine starts a reviewer in the
-task's lane worktree, on the reviewer route (the lead's unless you picked one, see [Routes](#4-routes)). The
+**On the fast track there is no per-task review.** A task whose worker finishes with a commit goes straight to
+done and merges; it never reaches **reviewing**, a fix round's tasks included, and the Review fields on its node stay
+empty. Its code is judged once, by the [end review](#the-final-stage) over the whole merged diff. The review's other
+duties move to the merge, none dropped:
+
+- the lines a review pass posts reach the lead when the merge lands the task instead: the quiet line naming the task
+  as merged, and one caveat line each for the worker's Differs from plan, Not verified and Found not fixed. They
+  ride on the lead's next wake and wake nothing themselves. A dag that merges nothing (outside git) posts them when
+  the task is done. The task's For later tasks section goes to the lead only when no unfinished task follows it,
+  as on the full path;
+- a task's For later tasks reaches its dependents with no routing at merge: a dependent can only dispatch after the
+  task is done, and every dispatch reads each done ancestor's section;
+- a worker's Not verified still becomes one of the final stage's unverified reasons;
+- the task's goalpost findings go into the end review's brief, which must pass or fail each by name.
+
+The rest of this section is the full path. When a worker finishes with a commit, the task goes to **reviewing** and
+the engine starts a reviewer in the task's lane worktree, on the reviewer route (the lead's unless you picked one, see [Routes](#4-routes)). The
 reviewer reads the task, the spec, the worker's whole report and `git diff` of the task's commits. It checks the
 change against what the task asked for (missing requirements, contradictions of the spec, cut corners, changes
 outside the task), and ends with one command. The engine lists in its brief every path the task's commits change
@@ -1054,7 +1135,8 @@ no landing tree (see [Where a run lands](#2-where-a-run-lands)) gets no final ch
 unverified.
 
 **The steps.** Check, Verify and Final run one after another; the verifier runs after them when the plan has a
-Final line, and alongside Check and Verify when it has none:
+Final line, and alongside Check and Verify when it has none. On a fast-track dag the end review (step 5) runs
+beside all of them:
 
 1. **Check**, the plan's Check line, on the merged result (20-minute limit). A non-zero exit fails the stage,
    unless Check already failed on the base at submit: then the stage goes on and reports it as unverified.
@@ -1086,6 +1168,30 @@ Final line, and alongside Check and Verify when it has none:
    `wsh jarvis dag final fail "<defects: each, where, the fix>"`. A verifier silent past 20 minutes, or ending
    without a verdict, is replaced once. One lost twice adds the unverified reason
    `the verifier did not finish: <why>`.
+
+5. **The end review**, on a fast-track dag only. With no per-task review, one fresh session on the reviewer route
+   (spawned as `end reviewer`, a stage session tracked on the stage and kept across a restart) reads the whole merged
+   diff, `git diff <base>..<head>` of the run. Its brief has the spec and plan paths, every landed task's text with
+   the paths its lane's merge changed that the task's Files lines do not list, the worker's Differs from plan and
+   Not verified, and every goalpost finding, which it must pass or fail by name. It looks for real bugs, weak or
+   missing tests, acceptance criteria not met or not proved, edits outside a task's files, and mismatches with the
+   spec (a difference the spec's Deviations section lists is allowed). It only reads, does not run the plan's
+   commands, and gives its verdict with the verifier's command, `wsh jarvis dag final pass "<summary>"
+   [--unverified "<what, and why>"]` or `wsh jarvis dag final fail "<findings>"`: the server routes it to the end
+   review when the caller's run id is the end review's. It has 20 minutes to give it; a session that gives none is
+   replaced once.
+
+**When the end review starts and ends.** It starts as soon as the stage's tree exists: on the landing tree at once
+when the plan has no Check, Verify or Final line, otherwise as the tree step ends, so it runs alongside Check, Verify
+and Final. The stage then waits for its verdict: while it waits alone the run's row reads `final: end review reviewing`, and
+beside a running step it reads `· end review alongside` or `· verifier and end review alongside`. A Check, Verify or Final
+failure stops a verifier working alongside, but not the end review, so every failure reaches the lead in one fix
+round. A failed end review's findings join the stage's Detail after any command or verifier detail, as a block opened
+by `[End review] `, so the lead's fix plan covers them with the rest. A pass's `--unverified` note becomes the
+unverified reason `end review: <note>`; an end review lost twice adds `the end review did not finish: <why>`. When it
+settles it records a `final-step` event with step `review` (its `ms` runs from the stage's start). A rerun of a
+failed stage and every fix round run the end review again, over the whole run's merged diff, so a fix is judged in
+context and no fix-round code lands unreviewed. Ending the stage by hand stops a reviewing end review.
 
 **When the verifier starts.** With a Final line it starts only once Final is done, unless a step failed, since
 it reads Final's screenshots and reports. With no Final line it starts on the merged tree as soon as the tree is
@@ -1132,7 +1238,8 @@ once the rerun passes or ends unverified, unless you dismissed that hold. A done
 Setup when the stage makes its own, then `check`, `verify`, `final`), with when it started and its output tail,
 published at most every 10 seconds as merge Verify's is. Status adds `step=<step> (<elapsed>)` to the stage line.
 In the cockpit the run's row reads `final: running Verify`, `final: running Final`, `final: verifier reviewing`
-(with `· verifier alongside` while a verifier works beside Check and Verify). From the moment the dag is
+(with `· verifier alongside` while a verifier works beside Check and Verify; a fast-track stage adds `end review`
+as in the steps above, and reads `final: end review reviewing` while it waits on that alone). From the moment the dag is
 finalizing the Agents tree has a **Final verification** row under the run, before any verifier session exists:
 focused, its pane shows the step pipeline, the running command, the output's last lines and End final stage, and
 its rail the round, commit, tree, reviewers route and step list; when the verifier starts, the same row becomes
@@ -1151,7 +1258,8 @@ ends with a line saying whether one is. The fix plan's tasks are appended as `t-
 own numbers and Depends mapped on. Each description opens with `Fix round N: this is task K of the fix plan at
 <path>`, so its worker reads the fix plan, not the run's. The dag keeps its Verify, Setup, Check, Final and
 Prototype. On a branch-landed run the fix plan is committed to `wave/<runId>` first, and the new tasks cut from
-the landing tree's head. A fix round skips the plan review, but each of its tasks is reviewed. When its tasks
+the landing tree's head. A fix round skips the plan review, and each of its tasks is reviewed on the full path; on the fast track they
+are not, and the end review judges the round's fix in the next final stage. When its tasks
 land, the final stage runs again as the next round. The final stage runs at most three times on its own
 (`MaxFinalRounds`): the first round and two fix rounds. `--round` is refused, with the reason, while the stage is
 still running or when no round is left. After round 3 fails, the wake tells the lead to put it to you, with

@@ -461,7 +461,12 @@ function planReviewRow(input: LeadCardInput): TaskRowVM | undefined {
         case "passed":
             return { ...base, kind: "done", tone: "ok", sub: "passed" };
         case "accepted":
-            return { ...base, kind: "done", tone: "muted", sub: "accepted by you" };
+            return {
+                ...base,
+                kind: "done",
+                tone: "muted",
+                sub: pr.amended ? "amended by the lead" : "accepted by you",
+            };
     }
     const atWork = (pr.reviewers ?? []).filter((r) => r.state === "reviewing").map((r) => planReviewLensTitle(r.lens));
     return { ...base, sub: atWork.join(", ") || "reviewing" };

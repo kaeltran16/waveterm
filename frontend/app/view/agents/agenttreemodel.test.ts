@@ -1370,6 +1370,36 @@ describe("stageOutcome", () => {
         expect(stageOutcome(r, "verifier", "ver")).toBe("passed");
     });
 
+    it("reads an end reviewer by the stage's end review when its run id matches", () => {
+        const verdict = (state: string, runid = "er") =>
+            stageOutcome(
+                stageRun({
+                    final: { state: "verifying", round: 1, verifierrunid: "ver", endreview: { state, runid } },
+                }),
+                "end-reviewer",
+                "er"
+            );
+        expect(verdict("passed")).toBe("passed");
+        expect(verdict("failed")).toBe("failed");
+        expect(verdict("lost")).toBe("failed");
+        expect(verdict("reviewing")).toBeUndefined();
+        expect(verdict("passed", "other")).toBeUndefined();
+    });
+
+    it("reads an amended plan review as the lead's amendment, and a plain accept as accepted by you", () => {
+        const review = (amended: boolean): PlanReviewStage => ({
+            state: "accepted",
+            round: 1,
+            amended,
+            reviewers: [{ lens: "light", state: "failed", runid: "rv" }],
+        });
+        const text = (amended: boolean) =>
+            stageVerdictText(stageOutcome(stageRun({ planreview: review(amended) }), "plan-reviewer", "rv"));
+        expect(text(true)).toBeDefined();
+        expect(text(true)).not.toBe("accepted by you");
+        expect(text(false)).toBe("accepted by you");
+    });
+
     it("reads a verifier from an earlier final round as failed, and a first-round stranger as none", () => {
         const later = stageRun({ final: { state: "verifying", round: 2, verifierrunid: "v2" } });
         expect(stageOutcome(later, "verifier", "v1")).toBe("failed");

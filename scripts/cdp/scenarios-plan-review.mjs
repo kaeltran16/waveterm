@@ -2,6 +2,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
     MODELS_PLAN,
     MODELS_VIEWPORT,
@@ -16,8 +17,11 @@ import {
 import { RV_WIDE, RV_MODAL, rvFact } from "./scenarios-runs.mjs";
 
 // --- new-run-window, model-picks: a model per task (docs/superpowers/specs/2026-09-29-worker-reviewer-models-design.md)
-// Both read one three-task plan of noops: Task 1 has a Model line, Tasks 2 and 3 are left to the plan reviewer.
+// model-picks reads a five-task plan of noops, past the fast track so the full review picks: Task 1 has a Model
+// line, Tasks 2 to 5 are left to the plan reviewer.
 const MODELS_RPC = { timeout: 30000 };
+const MODELS_PLAN_FULL = fileURLToPath(new URL("./fixtures/models-plan-full.md", import.meta.url));
+const FULL_PLAN_TASKS = 5;
 
 const PICKS_BANNER = `document.querySelector('[data-dag-modal-kind] [data-model-picks-banner]')`;
 // the pick row lives in the selected task's peek card, so only the selected task's row is ever on screen
@@ -34,10 +38,12 @@ const cardTagExpr = (id) =>
 const DAG_RAIL_ROUTE = `document.querySelector('${PICKS_PEEK} [data-dag-node-route]')`;
 const peekRouteExpr = (id) => `document.querySelector('[data-dag-modal-kind] [data-dag-task-peek="${id}"] [data-dag-node-route]')`;
 const railExpr = `({ route: ${DAG_RAIL_ROUTE}?.getAttribute('data-dag-node-route') ?? null, text: ${flatText(DAG_RAIL_ROUTE)} })`;
-// Task 1's Model line leaves it off the picks; one sonnet pick and one lead pick make the banner "1 of 3"
+// Task 1's Model line leaves it off the picks; one sonnet pick and the rest lead picks make the banner "1 of 5"
 const MODEL_PICKS = [
     { taskid: "t-2", model: "sonnet", reason: "a noop needs no deep reasoning" },
     { taskid: "t-3", model: "lead", reason: "kept on the lead, so its rail must show no pick" },
+    { taskid: "t-4", model: "lead", reason: "kept on the lead" },
+    { taskid: "t-5", model: "lead", reason: "kept on the lead" },
 ];
 
 async function dagTask(h, ctx, id) {
@@ -165,12 +171,12 @@ export const modelPicks = {
             ctx.runId = created.run.id;
             await h.rpc(
                 "dagsubmit",
-                { channelid: ctx.channelId, runid: ctx.runId, parallelism: 1, planpath: MODELS_PLAN },
+                { channelid: ctx.channelId, runid: ctx.runId, parallelism: 1, planpath: MODELS_PLAN_FULL },
                 MODELS_RPC
             );
             // the two reviewers are real sessions, spawned after the submit returns: the second pass's pass, then
             // the full reviewer's with the picks
-            const pass = { verdict: "pass", notes: "verify model-picks: three noops" };
+            const pass = { verdict: "pass", notes: "verify model-picks: five noops" };
             await recordPlanReviewRound(h, ctx, 1, {
                 second: pass,
                 full: { ...pass, picks: MODEL_PICKS },
@@ -202,11 +208,11 @@ export const modelPicks = {
         if (sheet) await h.ev(`${openDag}.click()`);
         const graph = await polishWaitFor(
             h,
-            `!!document.querySelector('[data-dag-modal-kind="live"]') && document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]:not([data-dag-node="final"])').length === 3`,
+            `!!document.querySelector('[data-dag-modal-kind="live"]') && document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]:not([data-dag-node="final"])').length === ${FULL_PLAN_TASKS}`,
             10000
         );
         rec(
-            "0. the run's graph opened with its 3 tasks",
+            `0. the run's graph opened with its ${FULL_PLAN_TASKS} tasks`,
             ctx.opened?.ok === true && sheet && graph,
             JSON.stringify({ runId: ctx.runId, opened: ctx.opened, sheet, graph })
         );
@@ -215,7 +221,8 @@ export const modelPicks = {
         await polishWaitFor(h, `!!${PICKS_BANNER}`, 5000);
         const banner = await h.ev(flatText(PICKS_BANNER));
         await h.shot("cdp-shots/model-picks-1-banner.png");
-        rec("1. the banner reads `1 of 3 tasks on sonnet`", banner.includes("1 of 3 tasks on sonnet"), `banner=${JSON.stringify(banner)}`);
+        const wantBanner = `1 of ${FULL_PLAN_TASKS} tasks on sonnet`;
+        rec(`1. the banner reads \`${wantBanner}\``, banner.includes(wantBanner), `banner=${JSON.stringify(banner)}`);
 
         await h.ev(`${dagCardExpr("t-3")}?.click()`);
         const leadCard = await polishWaitFor(h, `!!${peekRouteExpr("t-3")}`, 3000);
@@ -342,8 +349,8 @@ const ROUNDS_GOAL =
 const PLAN_REVIEW_TITLE = "Plan review · ";
 
 // the agent tree's plan-reviewer rows, with the run's finished reviews unfolded first: a stage with a verdict
-// folds under "N reviews"
-const PLAN_REVIEW_TREE_ROWS = `(async () => {
+// folds under "N reviews". It waits for want rows.
+const planReviewTreeRows = (want) => `(async () => {
     const flat = (el) => (el?.textContent ?? '').replace(/\\s+/g, ' ').trim();
     const tree = () => document.querySelector('[data-agent-tree]');
     const folds = () => [...(tree()?.querySelectorAll('div.cursor-pointer') ?? [])].filter(
@@ -352,18 +359,18 @@ const PLAN_REVIEW_TREE_ROWS = `(async () => {
     const titles = () => [...(tree()?.querySelectorAll('div') ?? [])].filter(
         (d) => d.children.length === 0 && flat(d).startsWith(${JSON.stringify(PLAN_REVIEW_TITLE)})
     );
-    for (let i = 0; i < 40 && folds().length === 0 && titles().length < ${ROUND_ONE_LENSES.length}; i++) {
+    for (let i = 0; i < 40 && folds().length === 0 && titles().length < ${want}; i++) {
         await new Promise((r) => setTimeout(r, 250));
     }
     folds().forEach((f) => f.click());
-    for (let i = 0; i < 20 && titles().length < ${ROUND_ONE_LENSES.length}; i++) await new Promise((r) => setTimeout(r, 250));
+    for (let i = 0; i < 20 && titles().length < ${want}; i++) await new Promise((r) => setTimeout(r, 250));
     return {
         tree: tree() != null,
         rows: titles().map((t) => ({ title: flat(t), sub: flat(t.nextElementSibling) })),
     };
 })()`;
 
-async function openRunGraph(h, ctx) {
+async function openRunGraph(h, ctx, tasks) {
     await polishReload(h);
     await h.cdp("Emulation.setDeviceMetricsOverride", MODELS_VIEWPORT);
     const opened = await h.ev(`(async () => {
@@ -378,7 +385,7 @@ async function openRunGraph(h, ctx) {
     if (sheet) await h.ev(`${openDag}.click()`);
     const graph = await polishWaitFor(
         h,
-        `!!document.querySelector('[data-dag-modal-kind="live"]') && document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]:not([data-dag-node="final"])').length === 3`,
+        `!!document.querySelector('[data-dag-modal-kind="live"]') && document.querySelectorAll('[data-dag-modal-kind] [data-dag-node]:not([data-dag-node="final"])').length === ${tasks}`,
         10000
     );
     return { ok: opened?.ok === true && sheet && graph, opened, sheet, graph };
@@ -394,7 +401,7 @@ export const planReviewRounds = {
         try {
             // the lead the failed round launches works in cwd, so it reads this copy rather than the repo's fixture
             ctx.planPath = join(cwd, "plan.md");
-            writeFileSync(ctx.planPath, readFileSync(MODELS_PLAN));
+            writeFileSync(ctx.planPath, readFileSync(MODELS_PLAN_FULL));
             const wslist = await h.rpc("workspacelist", null);
             const ch = await h.rpc("createchannel", { name: "verify-plan-review-rounds", projectpath: cwd });
             ctx.channelId = ch.oid;
@@ -419,12 +426,12 @@ export const planReviewRounds = {
                 { channelid: ctx.channelId, runid: ctx.runId, parallelism: 1, planpath: ctx.planPath },
                 MODELS_RPC
             );
-            const pass = { verdict: "pass", notes: "verify plan-review-rounds: three noops" };
+            const pass = { verdict: "pass", notes: "verify plan-review-rounds: five noops" };
             await recordPlanReviewRound(h, ctx, 1, {
                 second: { verdict: "fail", notes: ROUNDS_FINDING },
                 full: pass,
             });
-            ctx.graph = await openRunGraph(h, ctx);
+            ctx.graph = await openRunGraph(h, ctx, FULL_PLAN_TASKS);
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
         }
@@ -437,7 +444,7 @@ export const planReviewRounds = {
             rec("0. round 1's two reviewers recorded their verdicts, the second pass failing", false, ctx.arrangeError);
             return steps;
         }
-        rec("0. the run's graph opened with its 3 tasks", ctx.graph.ok, JSON.stringify({ runId: ctx.runId, ...ctx.graph }));
+        rec(`0. the run's graph opened with its ${FULL_PLAN_TASKS} tasks`, ctx.graph.ok, JSON.stringify({ runId: ctx.runId, ...ctx.graph }));
         if (!ctx.graph.ok) return steps;
 
         await polishWaitFor(h, `${PLAN_REVIEWER_CHIPS}.filter((c) => c.state !== 'reviewing').length === ${ROUND_ONE_LENSES.length}`, 5000);
@@ -477,7 +484,7 @@ export const planReviewRounds = {
         );
 
         await h.goto("agent");
-        const tree = await h.ev(PLAN_REVIEW_TREE_ROWS);
+        const tree = await h.ev(planReviewTreeRows(ROUND_ONE_LENSES.length));
         await h.shot("cdp-shots/plan-review-rounds-4-tree.png");
         const wantRows = ROUND_ONE_LENSES.map((l) => ({
             title: `${PLAN_REVIEW_TITLE}${LENS_TITLE[l]}`,
@@ -504,7 +511,7 @@ export const planReviewRounds = {
             if (round2?.round === 2 && round2.reviewers?.length === 1 && round2.reviewers[0].runid) break;
             await polishNap(1000);
         }
-        const graph2 = await openRunGraph(h, ctx);
+        const graph2 = await openRunGraph(h, ctx, FULL_PLAN_TASKS);
         await polishWaitFor(h, `${PLAN_REVIEWER_CHIPS}.length === 1`, 5000);
         const reviewing = await h.ev(PLAN_REVIEWER_CHIPS);
         await h.shot("cdp-shots/plan-review-rounds-5-round-2.png");
@@ -546,6 +553,149 @@ export const planReviewRounds = {
             console.error(`plan-review-rounds teardown: clear the viewport override failed: ${e?.message ?? e}`);
         });
         await teardownFixtureRun(h, ctx, "plan-review-rounds");
+    },
+};
+
+// --- plan-review-light: a plan of 3 tasks takes the fast track: one light reviewer, failed here over RPC, then the
+// same plan resubmitted, which dispatches as the lead's amendment
+// (docs/superpowers/specs/2026-11-23-orchestrator-quick-track-design.md). The failed round wakes a real lead on
+// haiku, whose finding tells it to leave the plan alone, so the scenario's resubmit is the only one.
+const LIGHT_FINDING =
+    "verify plan-review-light: a UI check drives this review; leave the plan as it is, do not resubmit it, and stop";
+const LIGHT_GOAL =
+    "verify plan-review-light: a UI check drives this run; do nothing, make no file changes, submit no plan, and stop";
+const LIGHT_TASKS = 3;
+const LIGHT_TITLE = "Light review";
+const LIGHT_DISPATCH_WAIT_MS = 30000;
+// the tree row's verdict words: the lead's amendment, and the human's accept it must not read as
+const LIGHT_AMENDED = "amended by the lead";
+const LIGHT_ACCEPTED = "accepted by you";
+
+export const planReviewLight = {
+    name: "plan-review-light",
+    surface: "jarvis",
+    async arrange(h) {
+        const cwd = mkdtempSync(join(tmpdir(), "verify-plan-review-light-"));
+        const ctx = { cwd };
+        // a throw past this point still returns ctx, so teardown removes whatever was already made
+        try {
+            // the lead the failed round launches works in cwd, so it reads this copy rather than the repo's fixture
+            ctx.planPath = join(cwd, "plan.md");
+            writeFileSync(ctx.planPath, readFileSync(MODELS_PLAN));
+            const wslist = await h.rpc("workspacelist", null);
+            const ch = await h.rpc("createchannel", { name: "verify-plan-review-light", projectpath: cwd });
+            ctx.channelId = ch.oid;
+            const created = await h.rpc("createrun", {
+                channelid: ctx.channelId,
+                workspaceid: wslist[0].workspacedata.oid,
+                goal: LIGHT_GOAL,
+                runtime: "claude",
+                model: "haiku",
+                mode: "orchestrator",
+                deferstart: true,
+                // owned here, so the profile cannot make the light reviewer's verdict need picks
+                reviewerpicks: false,
+                reviewerroute: HAIKU_ROUTE,
+                lightreviewerroute: HAIKU_ROUTE,
+                parallelism: 1,
+            });
+            ctx.runId = created.run.id;
+            await h.rpc(
+                "dagsubmit",
+                { channelid: ctx.channelId, runid: ctx.runId, parallelism: 1, planpath: ctx.planPath },
+                MODELS_RPC
+            );
+            await recordPlanReviewRound(h, ctx, 1, { light: { verdict: "fail", notes: LIGHT_FINDING } });
+            ctx.graph = await openRunGraph(h, ctx, LIGHT_TASKS);
+        } catch (e) {
+            ctx.arrangeError = String(e?.message ?? e);
+        }
+        return ctx;
+    },
+    async assert(h, ctx) {
+        const steps = [];
+        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+        if (ctx.arrangeError != null) {
+            rec("0. the light reviewer recorded its fail", false, ctx.arrangeError);
+            return steps;
+        }
+        rec(`0. the run's graph opened with its ${LIGHT_TASKS} tasks`, ctx.graph.ok, JSON.stringify({ runId: ctx.runId, ...ctx.graph }));
+        if (!ctx.graph.ok) return steps;
+
+        await polishWaitFor(h, `${PLAN_REVIEWER_CHIPS}.filter((c) => c.state === 'failed').length === 1`, 5000);
+        const chips = await h.ev(PLAN_REVIEWER_CHIPS);
+        await h.shot("cdp-shots/plan-review-light-1-chip.png");
+        rec(
+            `1. the graph shows one plan reviewer chip, titled ${LIGHT_TITLE}`,
+            chips.length === 1 && chips[0].lens === "light" && chips[0].state === "failed" && chips[0].line.includes(LIGHT_TITLE),
+            JSON.stringify(chips)
+        );
+
+        const reviewed = await h.ev(railGroupExpr("Plan reviewed"));
+        await h.shot("cdp-shots/plan-review-light-2-plan-reviewed.png");
+        rec(
+            `2. the timeline's Plan reviewed row lists one reviewer, ${LIGHT_TITLE} · failed`,
+            reviewed.found && reviewed.reviewers.length === 1 && reviewed.reviewers[0].text === `${LIGHT_TITLE} · failed`,
+            JSON.stringify(reviewed)
+        );
+
+        await h.goto("agent");
+        const tree = await h.ev(planReviewTreeRows(1));
+        await h.shot("cdp-shots/plan-review-light-3-tree.png");
+        rec(
+            `3. the agent tree's plan reviewer row reads ${PLAN_REVIEW_TITLE}${LIGHT_TITLE}`,
+            tree.rows.length === 1 && tree.rows[0].title === `${PLAN_REVIEW_TITLE}${LIGHT_TITLE}`,
+            tree.rows.length === 0
+                ? `no plan-reviewer rows in the tree: the run's reviewer tab was reaped or never joined the roster (${JSON.stringify(tree)})`
+                : JSON.stringify(tree)
+        );
+
+        // the same plan again: on the fast track the resubmit after a light fail dispatches with no second round
+        let resubmitted = "ok";
+        try {
+            await h.rpc(
+                "dagsubmit",
+                { channelid: ctx.channelId, runid: ctx.runId, parallelism: 1, planpath: ctx.planPath },
+                MODELS_RPC
+            );
+        } catch (e) {
+            resubmitted = String(e?.message ?? e);
+        }
+        let g = null;
+        const dispatched = () => g?.status !== "plan-review" && !!(g?.tasks ?? []).find((t) => t.id === "t-1")?.runid;
+        for (let waited = 0; waited < LIGHT_DISPATCH_WAIT_MS && !dispatched(); waited += 1000) {
+            g = (await h.rpc("dagstatus", { channelid: ctx.channelId, runid: ctx.runId })).group;
+            if (!dispatched()) await polishNap(1000);
+        }
+        const graph2 = await openRunGraph(h, ctx, LIGHT_TASKS);
+        await h.shot("cdp-shots/plan-review-light-4-dispatched.png");
+        const t1 = (g?.tasks ?? []).find((t) => t.id === "t-1");
+        rec(
+            "4. after the resubmit the dag leaves plan-review and t-1 dispatches",
+            resubmitted === "ok" && dispatched() && g?.planreview?.state === "accepted" && g?.planreview?.amended === true && graph2.ok,
+            JSON.stringify({ resubmitted, status: g?.status, planreview: { state: g?.planreview?.state, amended: g?.planreview?.amended, round: g?.planreview?.round }, t1: t1 && { state: t1.state, runid: t1.runid ?? "" }, graph: graph2.ok })
+        );
+
+        await h.ev(PEEKS_ESC);
+        await h.goto("agent");
+        const amendedTree = await h.ev(planReviewTreeRows(1));
+        await h.shot("cdp-shots/plan-review-light-5-amended-tree.png");
+        rec(
+            `5. after the resubmit the agent tree's ${LIGHT_TITLE} row reads the lead's amendment, not ${LIGHT_ACCEPTED}`,
+            amendedTree.rows.length === 1 &&
+                amendedTree.rows[0].title === `${PLAN_REVIEW_TITLE}${LIGHT_TITLE}` &&
+                amendedTree.rows[0].sub.startsWith(LIGHT_AMENDED) &&
+                !amendedTree.rows[0].sub.includes(LIGHT_ACCEPTED),
+            JSON.stringify(amendedTree)
+        );
+        return steps;
+    },
+    async teardown(h, ctx) {
+        await h.ev(PEEKS_ESC).catch(() => {});
+        await h.cdp("Emulation.clearDeviceMetricsOverride").catch((e) => {
+            console.error(`plan-review-light teardown: clear the viewport override failed: ${e?.message ?? e}`);
+        });
+        await teardownFixtureRun(h, ctx, "plan-review-light");
     },
 };
 
@@ -625,7 +775,7 @@ async function planReviewEnded(h, ctx, rec) {
     } catch (e) {
         seeded = String(e?.message ?? e);
     }
-    const graph = (await h.ev(`!!${RV_MODAL}`)) ? { ok: true } : await openRunGraph(h, ctx);
+    const graph = (await h.ev(`!!${RV_MODAL}`)) ? { ok: true } : await openRunGraph(h, ctx, FULL_PLAN_TASKS);
     const skippedShown = `(${RV_MODAL}?.querySelector("[data-dag-progress]")?.textContent ?? "").includes("skipped")`;
     for (let i = 0; i < 5 && !(await polishWaitFor(h, skippedShown, 2000)); i++) {
         if (nudge) await nudge().catch(() => {});

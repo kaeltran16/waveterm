@@ -164,7 +164,7 @@ import {
     runSheetPolish,
     runTimingScenario,
 } from "./scenarios-runs.mjs";
-import { modelPicks, planReviewRounds } from "./scenarios-plan-review.mjs";
+import { modelPicks, planReviewLight, planReviewRounds } from "./scenarios-plan-review.mjs";
 import { finalRerunScenario, finalShotsScenario, finalStageScenario } from "./scenarios-final.mjs";
 import { dagLifecycle, dagMotionScenario, dagObservability, dagPeekScenario } from "./scenarios-dag.mjs";
 import {
@@ -357,6 +357,7 @@ export const SCENARIOS = [
     paletteReviewFixes,
     modelPicks,
     planReviewRounds,
+    planReviewLight,
     canvasSwap,
     brainstormMode,
     brainstormAnswerBoards,

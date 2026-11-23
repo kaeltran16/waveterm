@@ -345,8 +345,25 @@ describe("stage sessions", () => {
         const status = (r: PlanReviewStage) =>
             runView({ group, dag: { ...dag, planreview: r } }).members.find((m) => m.key === "plan-reviewer")?.status;
         expect(status(review)).toEqual({ key: "muted", text: "accepted by you" });
+        // the lead amended the plan after a light review: not the human's call
+        expect(status({ ...review, amended: true }).text).not.toBe("accepted by you");
         // until it is accepted the reviewer's own verdict shows
         expect(status({ ...review, state: "failed" })).toEqual({ key: "failed", text: "failed" });
+    });
+
+    it("lists the end reviewer as its own stage member, read by the stage's end review", () => {
+        const group = groupRunSessions([
+            mk({ id: "lead", runid: "r1", role: "lead" }),
+            mk({ id: "er", runid: "r1", role: "end-reviewer", stagerunid: "er-run" }),
+        ]).runs[0];
+        const member = (state: string) =>
+            runView({
+                group,
+                dag: { ...dag, final: { state: "failed", round: 1, endreview: { state, runid: "er-run" } } },
+            }).members.find((m) => m.key === "end-reviewer");
+        expect(member("passed")).toMatchObject({ label: "End review", status: { key: "done", text: "passed" } });
+        expect(member("lost")?.status).toEqual({ key: "failed", text: "failed" });
+        expect(memberOfSession({ role: "end-reviewer" })).toBe("end-reviewer");
     });
 
     it("leaves the run's task counts and needs-you rows to its tasks", () => {

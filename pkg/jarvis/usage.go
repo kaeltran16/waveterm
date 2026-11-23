@@ -26,6 +26,8 @@ const (
 	UsageRole_PlanReviewer = "plan-reviewer"
 	// UsageRole_Verifier is a run's StageRole as well: the engine's final verifier on the merged result.
 	UsageRole_Verifier = "verifier"
+	// UsageRole_EndReviewer is a run's StageRole as well: a fast-track dag's review of the whole merged diff.
+	UsageRole_EndReviewer = "end-reviewer"
 	// UsageRole_BuilderCheck is a run's StageRole as well: the one-shot reviewer of a brainstorm's builder check.
 	UsageRole_BuilderCheck = "builder-check"
 	// UsageRole_BrainstormJudge is a run's StageRole as well: the one-shot judge of a brainstorm's approach question.
