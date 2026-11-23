@@ -3557,3 +3557,143 @@ describe("Rendered ask dock keys", () => {
         expect(model.toggleAnswer).not.toHaveBeenCalled();
     });
 });
+
+describe("brainstorm o opens the canvas window", () => {
+    const nav: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+    const RAIL = "Rail.dc.html";
+    const STRIP = "Strip.dc.html";
+    const PAGE = "Page.dc.html";
+    const asked: BrainstormFile = {
+        v: 1,
+        title: "Lag",
+        spec: "",
+        canvas: "lag-canvas",
+        question: {
+            n: 2,
+            text: "Which layout?",
+            part: "layout",
+            options: [
+                { label: "Rail", detail: "", boards: [RAIL] },
+                { label: "Strip", detail: "", boards: [STRIP] },
+            ],
+        },
+        working: null,
+        parts: [{ id: "layout", title: "Layout", state: "asked", body: "" }],
+        history: [],
+        done: false,
+        check: null,
+        run: null,
+    };
+    // the check's review: grain has a board, torch none
+    const checked: BrainstormFile = {
+        ...asked,
+        question: null,
+        parts: [
+            { id: "grain", title: "Forecast grain", state: "guess", was: "Daily.", body: "Hourly.", boards: [PAGE] },
+            { id: "torch", title: "The move to PyTorch", state: "guess", body: "A shared torch base." },
+        ],
+        done: true,
+        check: { yours: [{ q: "Grain?", a: "hourly", into: ["grain"] }], calls: [], answered: [], touched: ["grain"] },
+    };
+    let model: any;
+    const all = () => [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildAgentBindings(model)];
+    const claiming = (c: KeyContext = nav) =>
+        all()
+            .filter((b) => b.keys === "o" && b.when?.(c) !== false)
+            .map((b) => b.id);
+    const press = () =>
+        all()
+            .find((b) => b.id === "agent:brainstorm-window")!
+            .run(nav);
+    const arrange = (file: BrainstormFile) =>
+        updateBrainstorm("a1", (s) => ({
+            ...s,
+            file,
+            boards: [RAIL, STRIP, PAGE].map((name) => ({ name, x: 0, y: 0, w: 1440, h: 900 })),
+        }));
+    // the answer row a digit focused: data-brainstorm-option's index
+    const focusAnswer = (i: number | null) =>
+        vi.stubGlobal("document", {
+            activeElement:
+                i == null
+                    ? null
+                    : {
+                          closest: () => ({
+                              getAttribute: (a: string) => (a === "data-brainstorm-option" ? String(i) : null),
+                          }),
+                      },
+            querySelector: () => null,
+        });
+    const scope = () => globalStore.get(canvasWindowScopeAtom);
+
+    beforeEach(() => {
+        focusAnswer(null);
+        model = {
+            ...stubModel("a1"),
+            surfaceAtom: atom<SurfaceKey>("agent"),
+            agentsAtom: atom([{ id: "a1", name: "Agent", blockId: "b1" }]),
+        };
+        attachBrainstorm("a1", { topic: "lag", cwd: "/p" }, 0);
+        arrange(asked);
+        setBrainstormMode("a1", "brainstorm", 1);
+    });
+
+    afterEach(() => {
+        globalStore.set(canvasWindowAtom, null);
+        globalStore.set(canvasWindowScopeAtom, null);
+        detachBrainstorm("a1");
+        detachCanvas("a1");
+        vi.unstubAllGlobals();
+    });
+
+    it("on the shown question opens the window scoped to it, on the focused answer's board", () => {
+        focusAnswer(1);
+        expect(claiming()).toEqual(["agent:brainstorm-window"]);
+        press();
+        expect(globalStore.get(canvasWindowAtom)).toBe("a1");
+        expect(scope()?.source).toMatchObject({ kind: "question", n: 2 });
+        expect(scope()?.tabs.map((t) => t.board)).toEqual([RAIL, STRIP]);
+        expect(getCanvas("a1")).toMatchObject({ topic: "lag-canvas", board: STRIP, all: false });
+    });
+
+    it("with no answer focused it opens on the scope's first tab", () => {
+        press();
+        expect(getCanvas("a1")?.board).toBe(RAIL);
+    });
+
+    it("in the review it opens the window scoped to the cursor part's boards", () => {
+        arrange(checked);
+        setReviewCursor("a1", "grain");
+        press();
+        expect(scope()?.source).toEqual({ kind: "part", id: "grain", title: "Forecast grain" });
+        expect(scope()?.tabs.map((t) => t.board)).toEqual([PAGE]);
+        expect(getCanvas("a1")?.board).toBe(PAGE);
+    });
+
+    it.each([
+        ["the question closed", () => arrange({ ...asked, question: null })],
+        ["the agent writing over it", () => arrange({ ...asked, working: "Writing it up." })],
+        [
+            "no board to show",
+            () => arrange({ ...asked, question: { ...asked.question!, options: [{ label: "Rail", detail: "" }] } }),
+        ],
+        ["the design list", () => openBrainstormDesign("a1", true)],
+        [
+            "a cursor part without boards",
+            () => {
+                arrange(checked);
+                setReviewCursor("a1", "torch");
+            },
+        ],
+        ["the brainstorm not shown", () => setBrainstormMode("a1", "terminal", 2)],
+    ])("does nothing with %s", (_, setup) => {
+        setup();
+        expect(claiming()).toEqual([]);
+        expect(press()).toBe(false);
+        expect(globalStore.get(canvasWindowAtom)).toBeNull();
+    });
+
+    it("does nothing while a field is focused", () => {
+        expect(claiming({ ...nav, editable: true })).toEqual([]);
+    });
+});

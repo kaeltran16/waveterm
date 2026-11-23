@@ -218,25 +218,25 @@ const bsRead = (h, ctx) =>
             rail: flat(pane?.querySelector("[data-brainstorm-rail] h2")),
             railText: flat(pane?.querySelector("[data-brainstorm-rail]")),
             why: flat(pane?.querySelector("[data-brainstorm-why]")),
-            // the question view's mockups: each thumbnail, its caption, whether it sits above the answers (the first
+            // the question view's mockups: each board chip, its label, whether it sits above the answers (the first
             // answer row, or the answer box on a question with none), the shared block's heading, and the row holding it
-            qBoards: [...(pane?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb]") ?? [])].map((t) => {
+            qBoards: [...(pane?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-board-chip]") ?? [])].map((t) => {
                 const first =
                     pane.querySelector("[data-brainstorm-question] [data-brainstorm-option]") ??
                     pane.querySelector("[data-brainstorm-question] [data-brainstorm-answer]");
                 const shared = t.closest("[data-brainstorm-shared-boards]");
                 const row = t.closest("[data-brainstorm-row-boards]")?.parentElement?.querySelector("[data-brainstorm-option]");
                 return {
-                    name: t.getAttribute("data-brainstorm-thumb"),
-                    frame: !!t.querySelector("iframe"),
-                    label: flat(t.parentElement?.querySelector("[data-brainstorm-thumb-caption]")),
-                    open: flat(t.parentElement?.querySelector("[data-brainstorm-open-board]")),
+                    name: t.getAttribute("data-brainstorm-board-chip"),
+                    label: flat(t),
                     aboveAnswers: first ? t.getBoundingClientRect().bottom <= first.getBoundingClientRect().top : null,
                     shared: shared != null,
                     head: flat(shared?.querySelector("h2")),
                     row: row ? Number(row.getAttribute("data-brainstorm-option")) : null,
                 };
             }),
+            // what the question draws that loads a board: none, now that every board is a chip
+            qFrames: pane?.querySelectorAll("[data-brainstorm-question] iframe").length ?? 0,
             options: [...(pane?.querySelectorAll("[data-brainstorm-option]") ?? [])].map((o) => ({
                 text: flat(o),
                 pick: o.hasAttribute("data-pick"),
@@ -257,13 +257,20 @@ const bsRead = (h, ctx) =>
             compacted: flat(document.querySelector("[data-brainstorm-compacted]")),
             terminal: term ? !term.classList.contains("hidden") : null,
             treeLine: flat(${BS_TREE_LINE}),
-            // the canvas window a board opens in full: its picked tab and its buttons' labels; null while closed
+            // the canvas window a board opens in full: its picked tab, its buttons' labels, where a scoped one came from
+            // and its band; null while closed
             win: (() => {
                 const w = ${BS_WIN};
                 if (!w) return null;
+                const band = w.querySelector("[data-brainstorm-band]");
                 return {
                     tab: flat(w.querySelector('[role="tablist"] [aria-selected="true"]')),
+                    tabs: [...w.querySelectorAll('[role="tab"]')].map(flat),
                     buttons: [...w.querySelectorAll("button")].map((b) => flat(b) || b.getAttribute("aria-label")),
+                    source: [...(w.querySelector("[data-canvas-scope-source]")?.children ?? [])].map(flat),
+                    band: band?.getAttribute("data-brainstorm-band") ?? null,
+                    bandText: flat(band),
+                    bandPicks: band?.querySelectorAll("[data-brainstorm-band-pick]").length ?? 0,
                 };
             })(),
         };
@@ -747,13 +754,15 @@ export const brainstormMode = {
         // the design behind its button: the decisions one line each, what stands before the check, the mockups
         const opened2 = await bsOpenDesign(h);
         const pageOpened = await bsOpenRow(h, "page");
-        await polishWaitFor(h, `${bsPartSel("page")}?.querySelectorAll("[data-brainstorm-thumb] iframe").length === 2`, BS_POLL_WAIT_MS);
-        const thumbs = await h.ev(`(() => {
+        await polishWaitFor(h, `${bsPartSel("page")}?.querySelectorAll("[data-brainstorm-board-chip]").length === 2`, BS_POLL_WAIT_MS);
+        const partChips = await h.ev(`(() => {
             const p = ${bsPartSel("page")};
             return {
-                frames: p?.querySelectorAll("[data-brainstorm-thumb] iframe").length ?? 0,
-                labels: [...(p?.querySelectorAll("[data-brainstorm-open-board]") ?? [])]
-                    .map((b) => (b.previousElementSibling?.textContent ?? "").trim()),
+                frames: p?.querySelectorAll("iframe").length ?? 0,
+                chips: [...(p?.querySelectorAll("[data-brainstorm-board-chip]") ?? [])].map((c) => ({
+                    name: c.getAttribute("data-brainstorm-board-chip"),
+                    label: (c.innerText ?? "").trim(),
+                })),
             };
         })()`);
         const s2d = await bsRead(h, ctx);
@@ -799,10 +808,29 @@ export const brainstormMode = {
             Object.keys(states2c).length === want2c.length && want2c.every(([id, state]) => states2c[id] === state),
             { states: states2c, want: BS_MID_STATES }
         );
+        // a part's chip opens the window scoped to the part: its boards as tabs, the part in the toolbar and the band
+        await h.ev(`${bsPartSel("page")}?.querySelector("[data-brainstorm-board-chip]")?.click()`);
+        const s2p = await bsUntil(h, ctx, (s) => s.win?.band === "part", 3000);
+        await h.shot("cdp-shots/brainstorm-mode-2-part-window.png");
+        const partClose = await bsCloseWindow(h);
+        const s2pb = await bsUntil(h, ctx, (s) => s.win == null && s.view === "design" && s.parts.length > 0, 3000);
+        const pageGist = BS_PART.page.body.split(". ")[0];
         rec(
-            "2d. the page part, opened, shows both mockups, the first labelled with its plain file name",
-            pageOpened && thumbs.frames === 2 && thumbs.labels[0] === "Page.dc.html",
-            { pageOpened, ...thumbs }
+            "2d. the page part, opened in the design, shows both its boards as chips by name and no iframe; a chip opens the canvas window with the part's boards as tabs, Part and its title in the toolbar, and the band's title and gist with no Pick; Close returns to the design",
+            pageOpened &&
+                partChips.frames === 0 &&
+                JSON.stringify(partChips.chips.map((c) => c.name)) === JSON.stringify(BS_BOARDS) &&
+                JSON.stringify(partChips.chips.map((c) => c.label)) === JSON.stringify(BS_BOARDS.map((b) => b.replace(/\.dc\.html$/, ""))) &&
+                s2p.ok &&
+                JSON.stringify(s2p.win.tabs) === JSON.stringify(BS_BOARDS.map((b) => b.replace(/\.dc\.html$/, ""))) &&
+                s2p.win.tab === "Page" &&
+                JSON.stringify(s2p.win.source) === JSON.stringify(["Part", BS_PART.page.title]) &&
+                s2p.win.bandText.includes(BS_PART.page.title) &&
+                s2p.win.bandText.includes(pageGist) &&
+                s2p.win.bandPicks === 0 &&
+                partClose === "clicked" &&
+                s2pb.ok,
+            { pageOpened, ...partChips, win: s2p.win, partClose, back: bsBrief(s2pb) }
         );
 
         let mark = await bsMark(h, ctx, "brainstorm: confirm every guess");
@@ -987,47 +1015,57 @@ export const brainstormMode = {
         );
 
         // the asked part's mockups in the question: question 4's part (When it pages) lists none, question 5's two
-        const QB = `${BS_PANE}?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb] iframe").length === 2`;
+        const QB = `${BS_PANE}?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-board-chip]").length === 2`;
         await polishWaitFor(h, QB, BS_POLL_WAIT_MS);
         const s2q = await bsRead(h, ctx);
         await h.shot("cdp-shots/brainstorm-mode-2-question-boards.png");
-        // no option names a board (a file from before answers named them), so every board is shared and unlettered
-        const sharedOnce = (boards) =>
-            JSON.stringify(boards.map((b) => b.name)) === JSON.stringify(BS_BOARDS) &&
-            JSON.stringify(boards.map((b) => b.label)) === JSON.stringify(BS_BOARDS) &&
-            boards.every((b) => b.frame && b.open === "Open full size" && b.shared && b.row == null && b.aboveAnswers === true);
+        // no option names a board (a file from before answers named them), so every board is shared and unnumbered
+        const sharedOnce = (s) =>
+            JSON.stringify(s.qBoards.map((b) => b.name)) === JSON.stringify(BS_BOARDS) &&
+            JSON.stringify(s.qBoards.map((b) => b.label)) === JSON.stringify(BS_BOARDS.map((b) => b.replace(/\.dc\.html$/, ""))) &&
+            s.qBoards.every((b) => b.shared && b.row == null && b.aboveAnswers === true) &&
+            s.qFrames === 0;
         rec(
-            "2l2. a question whose part lists boards shows them: question 5 for What on-call sees, which offers no answers, draws both thumbnails once, above the answer box, unlettered and with no For every answer heading, each with Open full size; question 4, whose part lists none, drew none",
-            s2.qBoards.length === 0 && sharedOnce(s2q.qBoards) && s2q.qBoards.every((b) => b.head === ""),
-            { q4: s2.qBoards, q5: s2q.qBoards }
+            "2l2. a question whose part lists boards shows them: question 5 for What on-call sees, which offers no answers, draws both boards once as chips above the answer box, no iframe, with no For every answer heading; question 4, whose part lists none, drew none",
+            s2.qBoards.length === 0 && sharedOnce(s2q) && s2q.qBoards.every((b) => b.head === ""),
+            { q4: s2.qBoards, q5: s2q.qBoards, frames: s2q.qFrames }
         );
         bsWrite(ctx, BS_FILES.layout);
-        const s2o = await bsUntil(
-            h,
-            ctx,
-            (s) => s.question.includes(BS_Q5_LAYOUT.text) && s.options.length === 2 && s.qBoards.filter((b) => b.frame).length === 2
-        );
+        const s2o = await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5_LAYOUT.text) && s.options.length === 2 && s.qBoards.length === 2);
         await h.shot("cdp-shots/brainstorm-mode-2-layout-question.png");
         rec(
-            "2l3. a question between the part's layouts whose answers name no board: the two answers, and above them, once, under For every answer, the two boards unnumbered",
+            "2l3. a question between the part's layouts whose answers name no board: the two answers, and above them, once, under For every answer, the two boards as chips, no iframe",
             s2o.ok &&
                 JSON.stringify(s2o.options.map((o) => o.text)) === JSON.stringify(BS_Q5_LAYOUT.options.map(optionText)) &&
-                sharedOnce(s2o.qBoards) &&
+                sharedOnce(s2o) &&
                 s2o.qBoards.every((b) => b.head === "For every answer"),
-            { ...bsBrief(s2o), options: s2o.options, boards: s2o.qBoards }
+            { ...bsBrief(s2o), options: s2o.options, boards: s2o.qBoards, frames: s2o.qFrames }
         );
-        await h.ev(`${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-open-board]")?.click()`);
-        const s2f = await bsUntil(h, ctx, (s) => s.win != null, 3000);
+        const Q_CHIP = `${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-board-chip]")`;
+        await h.ev(`${Q_CHIP}?.click()`);
+        const s2f = await bsUntil(h, ctx, (s) => s.win?.band != null, 3000);
         await h.shot("cdp-shots/brainstorm-mode-2-full-size-window.png");
         const fullClose = await bsCloseWindow(h);
         const s2r = await bsUntil(h, ctx, (s) => s.win == null && s.view === "design" && s.question.includes(BS_Q5_LAYOUT.text), 3000);
+        const everyTabs = BS_BOARDS.map((b) => `Every answer · ${b.replace(/\.dc\.html$/, "")}`);
         rec(
-            "2l4. Open full size from the question opens the canvas window over it, the pane left on the question; Close returns to the question",
-            s2f.ok && s2f.view === "design" && s2f.question.includes(BS_Q5_LAYOUT.text) && fullClose === "clicked" && s2r.ok && s2r.qBoards.length === 2,
+            "2l4. a chip on the question opens the canvas window scoped to it: question 5 in the toolbar, its boards as Every answer tabs, the band saying the board applies to every answer with no Pick, the pane left on the question; Close returns to the question",
+            s2f.ok &&
+                JSON.stringify(s2f.win.source) === JSON.stringify(["5", BS_Q5_LAYOUT.text]) &&
+                JSON.stringify(s2f.win.tabs) === JSON.stringify(everyTabs) &&
+                s2f.win.tab === everyTabs[0] &&
+                s2f.win.band === "every" &&
+                s2f.win.bandText === "This board applies to every answer." &&
+                s2f.win.bandPicks === 0 &&
+                s2f.view === "design" &&
+                s2f.question.includes(BS_Q5_LAYOUT.text) &&
+                fullClose === "clicked" &&
+                s2r.ok &&
+                s2r.qBoards.length === 2,
             { win: s2f.win, view: s2f.view, fullClose, back: bsBrief(s2r) }
         );
         // Esc closes the window; on the question there is no step left, so a second Esc changes nothing
-        await bsMouseClick(h, `${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-open-board]")`);
+        await bsMouseClick(h, Q_CHIP);
         const s2e = await bsUntil(h, ctx, (s) => s.win != null, 3000);
         const escVia = await bsEscape(h);
         const s2eq = await bsUntil(h, ctx, (s) => s.win == null && s.view === "design" && s.question.includes(BS_Q5_LAYOUT.text), 3000);
@@ -1036,18 +1074,19 @@ export const brainstormMode = {
         await polishNap(500);
         const s2stay = await bsRead(h, ctx);
         rec(
-            `2l5. Esc on the window opened from the question closes it on the question, and a second Esc there leaves it be (${escVia === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            `2l5. Esc on the window a question chip opened closes it on the question, and a second Esc there leaves it be (${escVia === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
             s2e.ok && s2eq.ok && s2eq.qBoards.length === 2 && s2stay.view === "design" && s2stay.question.includes(BS_Q5_LAYOUT.text),
             { win: s2e.win, via: escVia, back: bsBrief(s2eq), again: bsBrief(s2stay) }
         );
         bsWrite(ctx, BS_FILES.answered);
         await bsUntil(h, ctx, (s) => s.question.includes(BS_Q5.text));
 
-        // 3. open full size, from the design
+        // 3. a part's chip, from the design
+        const PART_CHIP = `${bsPartSel("page")}?.querySelector("[data-brainstorm-board-chip]")`;
         await bsOpenDesign(h);
         await bsOpenRow(h, "page");
-        await polishWaitFor(h, `!!${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`, 3000);
-        await h.ev(`${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")?.click()`);
+        await polishWaitFor(h, `!!${PART_CHIP}`, 3000);
+        await h.ev(`${PART_CHIP}?.click()`);
         const s3 = await bsUntil(h, ctx, (s) => s.win != null, 3000);
         await h.shot("cdp-shots/brainstorm-mode-3.png");
         const buttons = s3.win?.buttons ?? [];
@@ -1056,14 +1095,14 @@ export const brainstormMode = {
         await bsCloseWindow(h);
         const s3back = await bsUntil(h, ctx, (s) => s.win == null && s.view === "design" && s.parts.length > 0, 3000);
         rec(
-            "3. Open full size from the design opens the canvas window with Mark and Close and no Build this; closing it returns to the design, not the question",
+            "3. a part's chip in the design opens the canvas window with Mark and Close and no Build this; closing it returns to the design, not the question",
             s3.ok && board.mark && board.close && !board.build && s3back.ok && s3back.back === "Back to question 5",
             { win: s3.win, ...board, back: s3back.view, parts: s3back.parts.length, backBtn: s3back.back }
         );
         // Esc, one level per press: the window closes on the design, then the design steps back to the question
         await bsOpenRow(h, "page");
-        await polishWaitFor(h, `!!${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`, 3000);
-        await bsMouseClick(h, `${bsPartSel("page")}?.querySelector("[data-brainstorm-open-board]")`);
+        await polishWaitFor(h, `!!${PART_CHIP}`, 3000);
+        await bsMouseClick(h, PART_CHIP);
         const s3e = await bsUntil(h, ctx, (s) => s.win != null, 3000);
         const esc3 = await bsEscape(h);
         const s3d = await bsUntil(h, ctx, (s) => s.win == null && s.view === "design" && s.back === "Back to question 5" && s.parts.length > 0, 3000);
@@ -1072,7 +1111,7 @@ export const brainstormMode = {
         const s3q = await bsUntil(h, ctx, (s) => s.view === "design" && s.back === "" && s.question.includes(BS_Q5.text), 3000);
         await h.shot("cdp-shots/brainstorm-mode-3-esc-design-to-question.png");
         rec(
-            `3b. Esc steps back one level per press: the window opened off the design closes on the design, then the design steps back to question 5 (${esc3 === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            `3b. Esc steps back one level per press: the window a part's chip opened off the design closes on the design, then the design steps back to question 5 (${esc3 === "keys" ? "a real Esc key" : "a keydown on the document: CDP keys did not reach the page"})`,
             s3e.ok && s3d.ok && s3q.ok,
             { win: s3e.win, via: esc3, design: { ...bsBrief(s3d), back: s3d.back }, question: { ...bsBrief(s3q), back: s3q.back } }
         );
@@ -2001,8 +2040,9 @@ export const brainstormRailReasons = bsBoardScenario("brainstorm-rail-reasons", 
     );
 });
 
-// --- brainstorm answer boards: an answer's mockups inside its row, the part's other boards once above the rows, and
-// the full-size canvas's tabs lettered by answer. The question mirrors the A-mismatch board of
+// --- brainstorm answer boards: an answer's mockups as chips inside its row, the part's other boards once above the
+// rows, and the canvas window a chip opens, scoped to the question with the answer band. The question mirrors the
+// A-mismatch board of
 // .superpowers/design/brainstorm-canvas-connection: A names a board not on the part and has long reasons
 // (Long-A-rows), B names one not on disk, C names none ---------------------------------------------------------------
 const BSAB_TOPIC = "run-sheet-status";
@@ -2010,8 +2050,11 @@ const BSAB_RAIL = "Left-rail.dc.html";
 const BSAB_RAIL_FAILED = "Left-rail-failed.dc.html";
 const BSAB_STRIP = "Top-strip.dc.html";
 const BSAB_TODAY = "Run-sheet-today.dc.html";
-// canvas order, which the full-size tabs follow
-const BSAB_BOARDS = [BSAB_RAIL, BSAB_RAIL_FAILED, BSAB_STRIP, BSAB_TODAY];
+// the canvas's boards outside the question: an earlier question's and today's screen, which sit behind Other boards
+const BSAB_EARLIER = "Earlier-question.dc.html";
+const BSAB_SCREEN = "Today-screen.dc.html";
+// canvas order, which Other boards' grid follows
+const BSAB_BOARDS = [BSAB_RAIL, BSAB_RAIL_FAILED, BSAB_STRIP, BSAB_TODAY, BSAB_EARLIER, BSAB_SCREEN];
 const BSAB_FILE = bsFile({
     title: "Run sheet status",
     canvas: BSAB_TOPIC,
@@ -2045,7 +2088,10 @@ const BSAB_FILE = bsFile({
     },
     parts: [{ id: "status", title: "Run sheet status", state: "asked", body: "", boards: [BSAB_TODAY, BSAB_RAIL, BSAB_STRIP] }],
 });
-const BSAB_TABS_WANT = ["All", "1 · Left-rail", "1 · Left-rail-failed", "2 · Top-strip", "Every answer · Run-sheet-today"];
+const [BSAB_A, BSAB_B] = BSAB_FILE.question.options;
+// the header's label rules: answer 1's two boards by board name, answer 2's one board by its label (Gone.dc.html is not
+// on disk), the part's board no answer names as Every answer, then the canvas's other boards
+const BSAB_TABS_WANT = ["1 · Left-rail", "1 · Left-rail-failed", `2 · ${BSAB_B.label}`, "Every answer", "Other boards"];
 // the same question while the judge weighs it: the approaches carry the boards, so the rows and tabs follow them
 const BSAB_JUDGING = {
     ...BSAB_FILE,
@@ -2061,22 +2107,27 @@ const BSAB_JUDGING = {
         ],
     },
 };
-const BSAB_JUDGING_TABS_WANT = ["All", "3 · Left-rail", "3 · Left-rail-failed", "1 · Top-strip", "Every answer · Run-sheet-today"];
+const BSAB_JUDGING_TABS_WANT = [
+    `1 · ${BSAB_JUDGING.question.approaches[0].name}`,
+    "3 · Left-rail",
+    "3 · Left-rail-failed",
+    "Every answer",
+    "Other boards",
+];
+const bsabLabel = (board) => board.replace(/\.dc\.html$/, "");
 
-// the question's rows (the Answers group, or Approaches during the judge's wait) and the boards in and above them,
-// with where each thumbnail sits
+// the question's rows (the Answers group, or Approaches during the judge's wait) and the board chips in and above
+// them, with where each chip sits, and anything in the question that loads a board
 const bsabRead = (group = "Answers") => `(() => {
     const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
     const box = (el) => el.getBoundingClientRect();
     const pane = ${BS_PANE};
     const q = pane?.querySelector("[data-brainstorm-question]");
-    const thumb = (t) => {
+    const chip = (t) => {
         const r = box(t);
         return {
-            name: t.getAttribute("data-brainstorm-thumb"),
-            frame: !!t.querySelector("iframe"),
-            caption: flat(t.parentElement?.querySelector("[data-brainstorm-thumb-caption]")),
-            open: flat(t.parentElement?.querySelector("[data-brainstorm-open-board]")),
+            name: t.getAttribute("data-brainstorm-board-chip"),
+            label: flat(t),
             top: Math.round(r.top),
             bottom: Math.round(r.bottom),
             left: Math.round(r.left),
@@ -2086,16 +2137,13 @@ const bsabRead = (group = "Answers") => `(() => {
     const answers = q?.querySelector('[role="group"][aria-label="${group}"]');
     const rows = [...(answers?.children ?? [])].map((row) => {
         const btn = row.querySelector("[data-brainstorm-option]");
-        const reasons = row.querySelector("[data-brainstorm-proscons]");
-        const thumbs = [...row.querySelectorAll("[data-brainstorm-row-boards] [data-brainstorm-thumb]")].map(thumb);
+        const chips = [...row.querySelectorAll("[data-brainstorm-row-boards] [data-brainstorm-board-chip]")].map(chip);
         const rr = box(row);
         return {
             slot: !!row.querySelector("[data-brainstorm-row-boards]"),
-            thumbs,
-            inRow: thumbs.every((t) => t.left >= rr.left && t.right <= rr.right && t.top >= rr.top && t.bottom <= rr.bottom),
-            rightOfLabel: btn != null && thumbs.every((t) => t.left >= box(btn).right - 1),
-            belowLabel: btn != null && thumbs.every((t) => t.top >= box(btn).bottom - 1),
-            belowReasons: reasons ? thumbs.every((t) => t.top >= box(reasons).bottom - 1) : null,
+            chips,
+            inRow: chips.every((t) => t.left >= rr.left && t.right <= rr.right && t.top >= rr.top && t.bottom <= rr.bottom),
+            rightOfLabel: btn != null && chips.every((t) => t.left >= box(btn).right - 1),
             overflow: row.scrollWidth > row.clientWidth,
         };
     });
@@ -2106,28 +2154,64 @@ const bsabRead = (group = "Answers") => `(() => {
         view: pane?.getAttribute("data-brainstorm-view") ?? null,
         question: !!q,
         rows,
-        shared: [...(shared?.querySelectorAll("[data-brainstorm-thumb]") ?? [])].map(thumb),
+        shared: [...(shared?.querySelectorAll("[data-brainstorm-board-chip]") ?? [])].map(chip),
         sharedHead: flat(shared?.querySelector("h2")),
         sharedAbove: shared != null && answers != null && box(shared).bottom <= box(answers).top,
-        thumbCount: q?.querySelectorAll("[data-brainstorm-thumb]").length ?? 0,
+        frames: q?.querySelectorAll("iframe").length ?? 0,
         overflow:
-            rows.some((r) => r.overflow || r.thumbs.some((t) => t.right > paneRight)) ||
+            rows.some((r) => r.overflow || r.chips.some((t) => t.right > paneRight)) ||
             scrollers.some((el) => el.scrollWidth > el.clientWidth),
     };
 })()`;
 
-const BSAB_TABS = `(() => {
-    const tabs = [...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])];
+// the window as drawn: its tabs, where it came from, the boards on show, whether Mark can act, and the band: its kind,
+// the tab its content is keyed on, and each answer it shows
+const BSAB_WIN = `(() => {
+    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+    const win = ${BS_WIN};
+    const tabs = [...(win?.querySelectorAll('[role="tab"]') ?? [])];
+    const mark = [...(win?.querySelectorAll("button") ?? [])].find((b) => flat(b) === "Mark");
+    const band = win?.querySelector("[data-brainstorm-band]");
+    const list = (ul) => [...(ul?.querySelectorAll("li") ?? [])].map((li) => flat(li.lastElementChild));
     return {
-        canvas: !!${BS_WIN},
-        picks: [...(${BS_WIN}?.querySelectorAll("[data-brainstorm-board-pick]") ?? [])].map((b) => (b.textContent ?? "").replace(/\\s+/g, " ").trim()),
-        labels: tabs.map((t) => (t.textContent ?? "").trim()),
-        selected: (tabs.find((t) => t.getAttribute("aria-selected") === "true")?.textContent ?? "").trim(),
+        canvas: !!win,
+        labels: tabs.map(flat),
+        selected: flat(tabs.find((t) => t.getAttribute("aria-selected") === "true")),
+        source: [...(win?.querySelector("[data-canvas-scope-source]")?.children ?? [])].map(flat),
+        frames: [...(win?.querySelectorAll("[data-canvas-frame]") ?? [])].map((f) => f.getAttribute("data-canvas-frame")),
+        markEnabled: mark != null && !mark.disabled,
+        band:
+            band == null
+                ? null
+                : {
+                      kind: band.getAttribute("data-brainstorm-band"),
+                      swap: band.closest("[data-view-swap]")?.getAttribute("data-view-swap") ?? null,
+                      text: flat(band),
+                      picks: band.querySelectorAll("[data-brainstorm-band-pick]").length,
+                      answers: [...band.querySelectorAll("[data-brainstorm-band-answer]")].map((a) => {
+                          const lists = a.querySelectorAll("[data-brainstorm-band-proscons] ul");
+                          return {
+                              index: Number(a.getAttribute("data-brainstorm-band-answer")),
+                              label: flat(a.querySelector("[data-brainstorm-band-label]")),
+                              pickMark: flat(a.querySelector("[data-brainstorm-band-pickmark]")),
+                              detail: flat(a.querySelector("[data-brainstorm-band-detail]")),
+                              pros: list(lists[0]),
+                              cons: list(lists[1]),
+                              pick: flat(a.querySelector("[data-brainstorm-band-pick]")),
+                          };
+                      }),
+                  },
     };
 })()`;
+const bsabWaitWin = (h, cond, ms = 3000) => polishWaitFor(h, `(() => { const w = ${BSAB_WIN}; return ${cond}; })()`, ms);
+const bsabClickTab = (h, label) =>
+    h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === ${JSON.stringify(label)})?.click()`);
+const bsabChip = (board, rows = "") =>
+    `${BS_PANE}?.querySelector('${rows}[data-brainstorm-row-boards] [data-brainstorm-board-chip="${board}"]')`;
 
 const BSAB_NEXT_KEY = { key: "]", code: "BracketRight", vk: 221 };
-const BSAB_ONE_KEY = { key: "1", code: "Digit1", vk: 49 };
+const BSAB_TWO_KEY = { key: "2", code: "Digit2", vk: 50 };
+const BSAB_O_KEY = { key: "o", code: "KeyO", vk: 79 };
 
 // a key as the user presses it; a keydown on the document when CDP keys do not reach the page
 async function bsabPress(h, { key, code, vk }) {
@@ -2141,44 +2225,6 @@ async function bsabPress(h, { key, code, vk }) {
     await polishNap(300);
     return "event";
 }
-
-// a scope literal over the scenario's canvas, as the brainstorm's opener builds one: answer 1's Left-rail and answer
-// 2's Top-strip get tabs, so Left-rail-failed and Run-sheet-today sit behind Other boards as a grid of two
-const bsabAnswer = (index) => ({ index, label: BSAB_FILE.question.options[index].label, detail: "", pick: false, pros: [], cons: [] });
-const BSAB_SCOPE = {
-    source: { kind: "question", n: BSAB_FILE.question.n, text: BSAB_FILE.question.text, judging: false, judged: false },
-    tabs: [
-        { board: BSAB_RAIL, label: `1 · ${BSAB_FILE.question.options[0].label}`, band: { kind: "answers", answers: [bsabAnswer(0)] } },
-        { board: BSAB_STRIP, label: `2 · ${BSAB_FILE.question.options[1].label}`, band: { kind: "answers", answers: [bsabAnswer(1)] } },
-    ],
-};
-const BSAB_SCOPE_TABS_WANT = [...BSAB_SCOPE.tabs.map((t) => t.label), "Other boards"];
-
-const bsabOpenScoped = (ctx) => `(async () => {
-    ${APP_MOD}
-    const C = await mod("app/view/agents/canvasstore.ts");
-    const id = [${JSON.stringify(ctx.tabId)}, ${JSON.stringify(ctx.blockId)}].find((k) => k && C.getCanvas(k) != null);
-    if (id == null) return "no canvas";
-    C.openCanvasWindow(id, { board: ${JSON.stringify(BSAB_RAIL)}, scope: ${JSON.stringify(BSAB_SCOPE)} });
-    return "opened";
-})()`;
-
-// the scoped window as drawn: its tabs, where it came from, the boards on show and whether Mark can act
-const BSAB_SCOPED = `(() => {
-    const win = ${BS_WIN};
-    const tabs = [...(win?.querySelectorAll('[role="tab"]') ?? [])];
-    const mark = [...(win?.querySelectorAll("button") ?? [])].find((b) => (b.textContent ?? "").trim() === "Mark");
-    const source = win?.querySelector("[data-canvas-scope-source]");
-    return {
-        canvas: !!win,
-        labels: tabs.map((t) => (t.textContent ?? "").trim()),
-        titles: tabs.map((t) => t.getAttribute("title")),
-        selected: (tabs.find((t) => t.getAttribute("aria-selected") === "true")?.textContent ?? "").trim(),
-        source: [...(source?.children ?? [])].map((c) => (c.textContent ?? "").trim()),
-        frames: [...(win?.querySelectorAll("[data-canvas-frame]") ?? [])].map((f) => f.getAttribute("data-canvas-frame")),
-        markEnabled: mark != null && !mark.disabled,
-    };
-})()`;
 
 export const brainstormAnswerBoards = {
     name: "brainstorm-answer-boards",
@@ -2208,207 +2254,190 @@ export const brainstormAnswerBoards = {
         if (missing != null) return [skipStep(name, `could not verify: ${missing}`)];
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
-        // every thumbnail waits on canvas.json: the answer rows draw only boards it lists
-        await polishWaitFor(h, `${BS_PANE}?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-thumb] iframe").length === 4`, BS_POLL_WAIT_MS);
+        const keyVia = (via) => (via === "keys" ? "real keys" : "keydowns on the document: CDP keys did not reach the page");
+        // every chip waits on canvas.json: the answer rows draw only boards it lists
+        await polishWaitFor(h, `${BS_PANE}?.querySelectorAll("[data-brainstorm-question] [data-brainstorm-row-boards] [data-brainstorm-board-chip]").length === 3`, BS_POLL_WAIT_MS);
         const r = await h.ev(bsabRead());
         const [a, b, c] = r.rows;
-        const names = (row) => row?.thumbs.map((t) => t.name) ?? [];
-        const aRail = a?.thumbs.find((t) => t.name === BSAB_RAIL);
-
-        await h.shot("cdp-shots/brainstorm-answer-boards-1-in-row.png");
+        const names = (row) => row?.chips.map((t) => t.name) ?? [];
+        await h.shot("cdp-shots/brainstorm-answer-boards-1-chips.png");
         rec(
-            "1. (In-row) A's row holds the Left-rail thumbnail with Open full size, inside the row and under its label; B's row holds Top-strip only, Gone.dc.html (not on disk) left out",
-            r.rows.length === 3 &&
-                aRail != null &&
-                aRail.frame &&
-                aRail.open === "Open full size" &&
-                a.inRow &&
-                a.belowLabel &&
+            "1. (TodayWide's replacement) the wide question draws no thumbnail and no iframe: A's row holds Left-rail and Left-rail-failed as chips, B's row Top-strip only (Gone.dc.html, not on disk, left out), C's row no slot; Run-sheet-today shows once as a chip above the rows under For every answer; nothing overflows",
+            r.frames === 0 &&
+                r.rows.length === 3 &&
+                JSON.stringify(names(a)) === JSON.stringify([BSAB_RAIL, BSAB_RAIL_FAILED]) &&
+                JSON.stringify(a.chips.map((t) => t.label)) === JSON.stringify([BSAB_RAIL, BSAB_RAIL_FAILED].map(bsabLabel)) &&
                 JSON.stringify(names(b)) === JSON.stringify([BSAB_STRIP]) &&
-                b.thumbs[0].frame &&
-                b.thumbs[0].open === "Open full size" &&
-                b.thumbs[0].caption === "" &&
-                b.inRow &&
-                b.rightOfLabel,
-            { a, b }
-        );
-
-        await h.shot("cdp-shots/brainstorm-answer-boards-2-mismatch.png");
-        const [rail, failed] = a?.thumbs ?? [];
-        rec(
-            "2. (A-mismatch) A's row holds two thumbnails side by side, captioned Left-rail and Left-rail-failed; C's row has no thumbnail and no slot; Run-sheet-today shows once, above the rows, under For every answer, unlettered",
-            JSON.stringify(names(a)) === JSON.stringify([BSAB_RAIL, BSAB_RAIL_FAILED]) &&
-                Math.abs(rail.top - failed.top) <= 1 &&
-                failed.left >= rail.right &&
-                JSON.stringify(a.thumbs.map((t) => t.caption)) === JSON.stringify(["Left-rail", "Left-rail-failed"]) &&
+                [a, b].every((row) => row.inRow && row.rightOfLabel) &&
                 c != null &&
                 !c.slot &&
-                c.thumbs.length === 0 &&
                 JSON.stringify(r.shared.map((t) => t.name)) === JSON.stringify([BSAB_TODAY]) &&
-                r.shared[0].caption === BSAB_TODAY &&
-                r.shared[0].open === "Open full size" &&
+                r.shared[0].label === bsabLabel(BSAB_TODAY) &&
                 r.sharedHead === "For every answer" &&
                 r.sharedAbove &&
-                r.thumbCount === 4,
-            { a: a?.thumbs, c, shared: r.shared, sharedHead: r.sharedHead, sharedAbove: r.sharedAbove, thumbCount: r.thumbCount }
+                !r.overflow,
+            r
         );
 
+        // 2. a chip opens the window scoped to the question, on that board, with answer 1's band
+        await h.ev(`${bsabChip(BSAB_RAIL)}?.click()`);
+        await bsabWaitWin(h, `w.band?.swap === ${JSON.stringify(BSAB_RAIL)} && w.labels.length === ${BSAB_TABS_WANT.length}`, BS_POLL_WAIT_MS);
+        const opened = await h.ev(BSAB_WIN);
+        await h.shot("cdp-shots/brainstorm-answer-boards-2-band.png");
+        const band1 = opened.band?.answers ?? [];
         rec(
-            "3. (Long-A-rows) A's two thumbnails sit under its pros and cons, so the text keeps the row's width, and nothing overflows the pane's width",
-            a?.belowReasons === true && !r.overflow,
-            { belowReasons: a?.belowReasons, overflow: r.overflow }
-        );
-
-        await h.ev(
-            `${BS_PANE}?.querySelector('[data-brainstorm-row-boards] [data-brainstorm-thumb="${BSAB_RAIL}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
-        );
-        await polishWaitFor(h, `${BS_WIN}?.querySelectorAll('[role="tab"]').length === ${BSAB_TABS_WANT.length}`, BS_POLL_WAIT_MS);
-        const opened = await h.ev(BSAB_TABS);
-        await h.shot("cdp-shots/brainstorm-answer-boards-4-full-size.png");
-        const via = await bsabPress(h, BSAB_NEXT_KEY);
-        const stepped = await h.ev(BSAB_TABS);
-        await h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
-        await polishNap(300);
-        const all = await h.ev(BSAB_TABS);
-        const backed = await bsCloseWindow(h);
-        const back = await polishWaitFor(h, `!${BS_WIN} && !!${BS_PANE}?.querySelector("[data-brainstorm-question] [data-brainstorm-row-boards]")`, 3000);
-        const tabsHold = (t) => JSON.stringify(t.labels) === JSON.stringify(BSAB_TABS_WANT);
-        rec(
-            `4. (Open-full-answer) Open full size on 1's Left-rail opens the canvas window on it, the tabs numbered by answer in canvas order; ] steps to the next board and All keeps the labels; Close returns to the question (${via === "keys" ? "a real ] key" : "a keydown on the document: CDP keys did not reach the page"})`,
+            "2. (Prototype) a chip on 1's Left-rail opens the window scoped to question 2 on that board, the tabs in the header's label rules and order ending in Other boards; the band shows 1's number and label, the agent's pick mark, its detail, pros, cons and Pick 1",
             opened.canvas &&
-                tabsHold(opened) &&
-                opened.selected === "1 · Left-rail" &&
-                tabsHold(stepped) &&
-                stepped.selected === "1 · Left-rail-failed" &&
-                tabsHold(all) &&
-                all.selected === "All" &&
-                backed === "clicked" &&
-                back,
-            { opened, stepped, all, backed, back }
+                JSON.stringify(opened.labels) === JSON.stringify(BSAB_TABS_WANT) &&
+                opened.selected === BSAB_TABS_WANT[0] &&
+                JSON.stringify(opened.source) === JSON.stringify([String(BSAB_FILE.question.n), BSAB_FILE.question.text]) &&
+                JSON.stringify(opened.frames) === JSON.stringify([BSAB_RAIL]) &&
+                opened.band?.kind === "answers" &&
+                band1.length === 1 &&
+                band1[0].index === 0 &&
+                band1[0].label === `1 · ${BSAB_A.label}` &&
+                band1[0].pickMark === "Agent’s pick" &&
+                band1[0].detail === BSAB_A.detail &&
+                JSON.stringify(band1[0].pros) === JSON.stringify(BSAB_A.pros) &&
+                JSON.stringify(band1[0].cons) === JSON.stringify(BSAB_A.cons) &&
+                band1[0].pick === "Pick 1",
+            opened
         );
 
-        // 4b. a board one answer names picks that answer from full size; All picks nothing
-        await h.ev(BS_TYPED_INSTALL);
-        const STRIP_LABEL = BSAB_FILE.question.options[1].label;
-        const RAIL_LABEL = BSAB_FILE.question.options[0].label;
-        await h.ev(
-            `${BS_PANE}?.querySelector('[data-brainstorm-row-boards] [data-brainstorm-thumb="${BSAB_RAIL}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
+        // 3. ] flips to the next tab and the band swaps with it; a digit jumps to that answer
+        const nextVia = await bsabPress(h, BSAB_NEXT_KEY);
+        await bsabWaitWin(h, `w.band?.swap === ${JSON.stringify(BSAB_RAIL_FAILED)}`);
+        const stepped = await h.ev(BSAB_WIN);
+        await bsabPress(h, BSAB_TWO_KEY);
+        await bsabWaitWin(h, `w.band?.swap === ${JSON.stringify(BSAB_STRIP)}`);
+        const digit = await h.ev(BSAB_WIN);
+        const band2 = digit.band?.answers ?? [];
+        rec(
+            `3. (WinStrip) ] flips to 1's Left-rail-failed and the band swaps with the tab, still answer 1; 2 jumps to answer 2's tab, its band 2's label with no pick mark, pros or cons, and Pick 2 (${keyVia(nextVia)})`,
+            stepped.selected === BSAB_TABS_WANT[1] &&
+                JSON.stringify(stepped.frames) === JSON.stringify([BSAB_RAIL_FAILED]) &&
+                stepped.band?.swap === BSAB_RAIL_FAILED &&
+                JSON.stringify(stepped.band.answers.map((x) => x.index)) === JSON.stringify([0]) &&
+                digit.selected === BSAB_TABS_WANT[2] &&
+                JSON.stringify(digit.frames) === JSON.stringify([BSAB_STRIP]) &&
+                band2.length === 1 &&
+                band2[0].label === `2 · ${BSAB_B.label}` &&
+                band2[0].pickMark === "" &&
+                band2[0].pros.length === 0 &&
+                band2[0].cons.length === 0 &&
+                band2[0].pick === "Pick 2",
+            { stepped, digit }
         );
-        await polishWaitFor(h, `!!${BS_WIN}?.querySelector("[data-brainstorm-board-pick]")`, BS_POLL_WAIT_MS);
-        const railPicks = await h.ev(BSAB_TABS);
-        await h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === "All")?.click()`);
-        await polishNap(300);
-        const allPicks = await h.ev(BSAB_TABS);
-        await h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === "2 · Top-strip")?.click()`);
-        await polishNap(300);
-        const stripPicks = await h.ev(BSAB_TABS);
-        await h.shot("cdp-shots/brainstorm-answer-boards-4b-pick.png");
-        const pickMark = await bsMark(h, ctx, STRIP_LABEL);
-        await h.ev(`${BS_WIN}?.querySelector("[data-brainstorm-board-pick]")?.click()`);
-        const pickTyped = await bsTyped(h, ctx, pickMark, STRIP_LABEL);
+
+        // 4. the Every answer tab
+        await bsabClickTab(h, "Every answer");
+        // the band swaps at once, the board only once the old one has slid out
+        await bsabWaitWin(h, `w.band?.kind === "every" && JSON.stringify(w.frames) === ${JSON.stringify(JSON.stringify([BSAB_TODAY]))}`);
+        const every = await h.ev(BSAB_WIN);
+        await h.shot("cdp-shots/brainstorm-answer-boards-4-every-answer.png");
+        rec(
+            "4. the Every answer tab shows Run-sheet-today, its band saying the board applies to every answer, with no Pick",
+            every.selected === "Every answer" &&
+                JSON.stringify(every.frames) === JSON.stringify([BSAB_TODAY]) &&
+                every.band?.text === "This board applies to every answer." &&
+                every.band.picks === 0,
+            every
+        );
+
+        // 5. Other boards: the grid, then one board alone, never a band
+        await bsabClickTab(h, "Other boards");
+        await bsabWaitWin(h, `w.band == null && JSON.stringify(w.frames) === ${JSON.stringify(JSON.stringify([BSAB_EARLIER, BSAB_SCREEN]))}`);
+        await polishNap(400);
+        const grid = await h.ev(BSAB_WIN);
+        await h.shot("cdp-shots/brainstorm-answer-boards-5-other-boards.png");
+        await h.ev(`${BS_WIN}?.querySelector('button[aria-label="Select ${bsabLabel(BSAB_SCREEN)}"]')?.click()`);
+        await bsabWaitWin(h, `JSON.stringify(w.frames) === ${JSON.stringify(JSON.stringify([BSAB_SCREEN]))}`);
+        await polishNap(400);
+        const alone = await h.ev(BSAB_WIN);
+        rec(
+            "5. Other boards shows the earlier question's board and today's screen as a grid with no band and Mark disabled; a click on Today-screen shows it alone, the tab staying Other boards, with no band and Mark enabled",
+            grid.selected === "Other boards" &&
+                JSON.stringify(grid.frames) === JSON.stringify([BSAB_EARLIER, BSAB_SCREEN]) &&
+                grid.band == null &&
+                !grid.markEnabled &&
+                alone.selected === "Other boards" &&
+                JSON.stringify(alone.frames) === JSON.stringify([BSAB_SCREEN]) &&
+                alone.band == null &&
+                alone.markEnabled,
+            { grid, alone }
+        );
+
+        // 5b. o on the question opens the window on the focused answer's board, with that answer's band
+        await bsCloseWindow(h);
+        await polishWaitFor(h, `!${BS_WIN}`, 3000);
+        const focusVia = await bsabPress(h, BSAB_TWO_KEY);
+        const focused = await polishWaitFor(
+            h,
+            `document.activeElement?.closest?.("[data-brainstorm-option]")?.getAttribute("data-brainstorm-option") === "1"`,
+            2000
+        );
+        await bsabPress(h, BSAB_O_KEY);
+        await bsabWaitWin(h, `w.band?.swap === ${JSON.stringify(BSAB_STRIP)}`);
+        const byKey = await h.ev(BSAB_WIN);
+        const bandO = byKey.band?.answers ?? [];
+        rec(
+            `5b. with answer 2 focused by its digit, o opens the window scoped to question 2 on 2's Top-strip, with 2's band and Pick 2 (${keyVia(focusVia)})`,
+            focused &&
+                byKey.canvas &&
+                JSON.stringify(byKey.labels) === JSON.stringify(BSAB_TABS_WANT) &&
+                byKey.selected === BSAB_TABS_WANT[2] &&
+                JSON.stringify(byKey.source) === JSON.stringify([String(BSAB_FILE.question.n), BSAB_FILE.question.text]) &&
+                JSON.stringify(byKey.frames) === JSON.stringify([BSAB_STRIP]) &&
+                bandO.length === 1 &&
+                bandO[0].label === `2 · ${BSAB_B.label}` &&
+                bandO[0].pick === "Pick 2",
+            { focused, byKey }
+        );
+
+        // 6. Pick 2 answers the question and the window closes on the agent writing it up
+        await h.ev(BS_TYPED_INSTALL);
+        await bsabClickTab(h, BSAB_TABS_WANT[2]);
+        await bsabWaitWin(h, `w.band?.picks === 1 && w.band.swap === ${JSON.stringify(BSAB_STRIP)}`);
+        const pickMark = await bsMark(h, ctx, BSAB_B.label);
+        await h.ev(`${BS_WIN}?.querySelector('[data-brainstorm-band-pick="1"]')?.click()`);
+        const pickTyped = await bsTyped(h, ctx, pickMark, BSAB_B.label);
         const leftBoard = await polishWaitFor(h, `!${BS_WIN} && !!${BS_PANE}?.querySelector("[data-brainstorm-working]")`, 3000);
         await h.ev(BS_TYPED_REMOVE);
         rec(
-            "4b. (Pick from full size) 1's Left-rail offers Pick 1 with its label, All offers none, 2's Top-strip offers Pick 2; clicking it sends 2's label as the answer and closes the window on the agent writing it up",
-            JSON.stringify(railPicks.picks) === JSON.stringify([`Pick 1· ${RAIL_LABEL}`]) &&
-                allPicks.picks.length === 0 &&
-                JSON.stringify(stripPicks.picks) === JSON.stringify([`Pick 2· ${STRIP_LABEL}`]) &&
-                pickTyped.ok &&
-                leftBoard,
-            { rail: railPicks.picks, all: allPicks.picks, strip: stripPicks.picks, typed: pickTyped.detail, leftBoard }
+            "6. Pick 2 in the band sends 2's label as the answer and closes the window on the agent writing it up",
+            pickTyped.ok && leftBoard,
+            { typed: pickTyped.detail, leftBoard }
         );
 
+        // 7. during the judge's wait a chip opens the approaches' scope
         bsWrite(ctx, BSAB_JUDGING);
         await polishWaitFor(
             h,
-            `${BS_PANE}?.querySelectorAll("[data-brainstorm-judging] [data-brainstorm-row-boards] [data-brainstorm-thumb] iframe").length === 3`,
+            `${BS_PANE}?.querySelectorAll("[data-brainstorm-judging] [data-brainstorm-row-boards] [data-brainstorm-board-chip]").length === 3`,
             BS_POLL_WAIT_MS
         );
-        const j = await h.ev(bsabRead("Approaches"));
-        await h.shot("cdp-shots/brainstorm-answer-boards-5-judging.png");
-        const [ja, jb, jc] = j.rows;
-        rec(
-            "5. (Judge wait) the approach rows hold their own boards: A's Top-strip uncaptioned, B none and no slot, C's two captioned side by side, all inside their rows, A's right of its label and C's under it; Run-sheet-today shows once above, under For every answer",
-            j.rows.length === 3 &&
-                JSON.stringify(names(ja)) === JSON.stringify([BSAB_STRIP]) &&
-                ja.thumbs[0].frame &&
-                ja.thumbs[0].caption === "" &&
-                !jb.slot &&
-                JSON.stringify(names(jc)) === JSON.stringify([BSAB_RAIL, BSAB_RAIL_FAILED]) &&
-                JSON.stringify(jc.thumbs.map((t) => t.caption)) === JSON.stringify(["Left-rail", "Left-rail-failed"]) &&
-                [ja, jc].every((row) => row.inRow) &&
-                ja.rightOfLabel &&
-                jc.belowLabel &&
-                JSON.stringify(j.shared.map((t) => t.name)) === JSON.stringify([BSAB_TODAY]) &&
-                j.sharedHead === "For every answer" &&
-                j.sharedAbove &&
-                !j.overflow,
-            { rows: j.rows, shared: j.shared, sharedHead: j.sharedHead, overflow: j.overflow }
-        );
-
-        await h.ev(
-            `${BS_PANE}?.querySelector('[data-brainstorm-judging] [data-brainstorm-row-boards] [data-brainstorm-thumb="${BSAB_RAIL}"]')?.parentElement?.querySelector("[data-brainstorm-open-board]")?.click()`
-        );
-        await polishWaitFor(h, `${BS_WIN}?.querySelectorAll('[role="tab"]').length === ${BSAB_JUDGING_TABS_WANT.length}`, BS_POLL_WAIT_MS);
-        const jOpened = await h.ev(BSAB_TABS);
-        await h.shot("cdp-shots/brainstorm-answer-boards-6-judging-full-size.png");
-
+        await h.ev(`${bsabChip(BSAB_RAIL, "[data-brainstorm-judging] ")}?.click()`);
+        await bsabWaitWin(h, `w.band?.swap === ${JSON.stringify(BSAB_RAIL)} && w.labels.length === ${BSAB_JUDGING_TABS_WANT.length}`, BS_POLL_WAIT_MS);
+        const judging = await h.ev(BSAB_WIN);
+        await h.shot("cdp-shots/brainstorm-answer-boards-7-judging-band.png");
         const jBacked = await bsCloseWindow(h);
         const jBack = await polishWaitFor(h, `!${BS_WIN} && !!${BS_PANE}?.querySelector("[data-brainstorm-judging] [data-brainstorm-row-boards]")`, 3000);
+        const approach = BSAB_JUDGING.question.approaches[2];
+        const jBand = judging.band?.answers ?? [];
         rec(
-            "6. (Judge wait full size) Open full size on 3's Left-rail opens the canvas window on it with the tabs numbered by approach and Pick 3 for that approach; Close returns to the judge's wait",
-            jOpened.canvas &&
-                JSON.stringify(jOpened.labels) === JSON.stringify(BSAB_JUDGING_TABS_WANT) &&
-                jOpened.selected === "3 · Left-rail" &&
-                JSON.stringify(jOpened.picks) === JSON.stringify([`Pick 3· ${BSAB_JUDGING.question.approaches[2].name}`]) &&
+            "7. (Judge wait) a chip on 3's Left-rail opens the approaches' scope on it, tabs numbered by approach; the band shows the approach's name and description, no pros or cons, and Pick 3; Close returns to the judge's wait",
+            JSON.stringify(judging.labels) === JSON.stringify(BSAB_JUDGING_TABS_WANT) &&
+                judging.selected === "3 · Left-rail" &&
+                jBand.length === 1 &&
+                jBand[0].label === `3 · ${approach.name}` &&
+                jBand[0].detail === approach.description &&
+                jBand[0].pros.length === 0 &&
+                jBand[0].cons.length === 0 &&
+                jBand[0].pickMark === "" &&
+                jBand[0].pick === "Pick 3" &&
                 jBacked === "clicked" &&
                 jBack,
-            { opened: jOpened, backed: jBacked, back: jBack }
-        );
-
-        // 7. the window opened with a scope: its tabs, Other boards' grid, a board picked from it, a digit back
-        // a board switch slides the old frames out before the new ones mount, so each read waits for the frames it wants
-        const framesAre = (boards) =>
-            polishWaitFor(h, `JSON.stringify(${BSAB_SCOPED}.frames) === ${JSON.stringify(JSON.stringify(boards))}`, 3000);
-        const scopedOpen = await h.ev(bsabOpenScoped(ctx));
-        await polishWaitFor(h, `${BS_WIN}?.querySelectorAll('[role="tab"]').length === ${BSAB_SCOPE_TABS_WANT.length}`, BS_POLL_WAIT_MS);
-        await framesAre([BSAB_RAIL]);
-        const scoped = await h.ev(BSAB_SCOPED);
-        await h.shot("cdp-shots/brainstorm-answer-boards-7-scoped.png");
-        const sVia = await bsabPress(h, BSAB_NEXT_KEY);
-        await framesAre([BSAB_STRIP]);
-        const sStepped = await h.ev(BSAB_SCOPED);
-        await h.ev(`[...(${BS_WIN}?.querySelectorAll('[role="tab"]') ?? [])].find((t) => t.textContent.trim() === "Other boards")?.click()`);
-        await framesAre([BSAB_RAIL_FAILED, BSAB_TODAY]);
-        await polishNap(400);
-        const sGrid = await h.ev(BSAB_SCOPED);
-        await h.shot("cdp-shots/brainstorm-answer-boards-7b-other-boards.png");
-        await h.ev(`${BS_WIN}?.querySelector('button[aria-label="Select ${BSAB_TODAY.replace(".dc.html", "")}"]')?.click()`);
-        await framesAre([BSAB_TODAY]);
-        const sAlone = await h.ev(BSAB_SCOPED);
-        await bsabPress(h, BSAB_ONE_KEY);
-        await framesAre([BSAB_RAIL]);
-        const sDigit = await h.ev(BSAB_SCOPED);
-        const sBacked = await bsCloseWindow(h);
-        rec(
-            `7. (Scoped window) opened with a question's scope, the toolbar names question 2 and shows its answers' tabs then Other boards; ] steps to answer 2's tab; Other boards shows Left-rail-failed and Run-sheet-today as a grid with Mark disabled; a click on Run-sheet-today shows it alone with Mark enabled, the tab staying Other boards; 1 returns to answer 1's tab (${sVia === "keys" ? "real keys" : "keydowns on the document: CDP keys did not reach the page"})`,
-            scopedOpen === "opened" &&
-                JSON.stringify(scoped.labels) === JSON.stringify(BSAB_SCOPE_TABS_WANT) &&
-                JSON.stringify(scoped.titles) === JSON.stringify(BSAB_SCOPE_TABS_WANT) &&
-                JSON.stringify(scoped.source) === JSON.stringify([String(BSAB_FILE.question.n), BSAB_FILE.question.text]) &&
-                scoped.selected === BSAB_SCOPE_TABS_WANT[0] &&
-                JSON.stringify(scoped.frames) === JSON.stringify([BSAB_RAIL]) &&
-                sStepped.selected === BSAB_SCOPE_TABS_WANT[1] &&
-                JSON.stringify(sStepped.frames) === JSON.stringify([BSAB_STRIP]) &&
-                sGrid.selected === "Other boards" &&
-                JSON.stringify(sGrid.frames) === JSON.stringify([BSAB_RAIL_FAILED, BSAB_TODAY]) &&
-                !sGrid.markEnabled &&
-                sAlone.selected === "Other boards" &&
-                JSON.stringify(sAlone.frames) === JSON.stringify([BSAB_TODAY]) &&
-                sAlone.markEnabled &&
-                sDigit.selected === BSAB_SCOPE_TABS_WANT[0] &&
-                sBacked === "clicked",
-            { scopedOpen, scoped, stepped: sStepped, grid: sGrid, alone: sAlone, digit: sDigit, backed: sBacked }
+            { judging, backed: jBacked, back: jBack }
         );
         return steps;
     },
@@ -2460,6 +2489,8 @@ export const BS_KIT = {
     RUN_SHEET_POLISH_TASKS,
     UI_ROUTE,
     BS_PANE,
+    BS_WIN,
+    bsCloseWindow,
     BS_SWITCH,
     BS_TREE_LINE,
     BS_ANSWER,

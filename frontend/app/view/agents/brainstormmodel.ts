@@ -6,7 +6,7 @@
 
 import type { NewRunPrefill } from "@/app/view/jarvis/newrun";
 import type { AgentVM } from "./agentsviewmodel";
-import { boardLabel, canvasDir, canvasProjectDir, join } from "./canvasmodel";
+import { canvasDir, canvasProjectDir, join } from "./canvasmodel";
 
 export const BRAINSTORM_POLL_MS = 3000;
 export const BUILDER_PART = "builder";
@@ -846,8 +846,6 @@ export type QuestionBoardLayout = {
     shared: string[];
 };
 
-const SHARED_TAB = "Every answer";
-
 function askedPartBoards(f: BrainstormFile): string[] {
     const id = f.question?.part;
     return [...new Set((id ? f.parts.find((x) => x.id === id)?.boards : undefined) ?? [])];
@@ -924,42 +922,6 @@ export function hiddenMockups(f: BrainstormFile, base: string | null, judging = 
     const what =
         spikes.size === 0 ? capitalize(boardWord) : boards.size === 0 ? spikeWord : `${spikeWord} and ${boardWord}`;
     return { parts: parts.map((p) => p.id), label: `${what} in ${plural(parts.length, "part", "parts")}` };
-}
-
-// the canvas tab of each board an answer names or the asked part shares; a board not in the map keeps its plain name
-export function boardTabLabels(f: BrainstormFile, judging = false): Record<string, string> | null {
-    const options = f.question != null ? answerRows(f.question, judging) : [];
-    if (options.length === 0) {
-        return null;
-    }
-    const numbers: Record<string, string[]> = {};
-    options.forEach((o, i) => {
-        for (const b of o.boards ?? []) {
-            (numbers[b] ??= []).push(optionNumber(i));
-        }
-    });
-    const labels: Record<string, string> = {};
-    for (const [b, ns] of Object.entries(numbers)) {
-        labels[b] = `${[...new Set(ns)].join(", ")} · ${boardLabel(b)}`;
-    }
-    for (const b of askedPartBoards(f)) {
-        labels[b] ??= `${SHARED_TAB} · ${boardLabel(b)}`;
-    }
-    return labels;
-}
-
-export type BoardPick = { index: number; label: string };
-
-// the answers a board opened full size can be picked as: each row of the open question that names it. Only while the
-// user can answer: a question the agent is not writing over, or the judge's wait (judging), where the rows are the
-// approaches
-export function boardPicks(f: BrainstormFile, board: string, judging: boolean): BoardPick[] {
-    const q = f.question;
-    if (q == null || (f.working != null && !judging)) {
-        return [];
-    }
-    const rows = judging ? (q.approaches ?? []).map((a) => ({ label: a.name, boards: a.boards })) : (q.options ?? []);
-    return rows.flatMap((r, index) => ((r.boards ?? []).includes(board) ? [{ index, label: r.label }] : []));
 }
 
 export type HistoryRow = {

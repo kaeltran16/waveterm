@@ -21,8 +21,6 @@ import type { AgentsViewModel } from "./agents";
 import { type AgentVM } from "./agentsviewmodel";
 import { Check } from "./brainstormcheck";
 import {
-    boardPicks,
-    boardTabLabels,
     bodyBeyondGist,
     brainstormGoneText,
     builderCheckView,
@@ -36,7 +34,6 @@ import {
     foldedHistory,
     historyRows,
     isNote,
-    judgeWait,
     leftPanel,
     lineBox,
     mainView,
@@ -49,7 +46,6 @@ import {
     pickCount,
     reviewHead,
     unseenSince,
-    type BoardPick,
     type BrainstormAction,
     type BrainstormFile,
     type BrainstormPart,
@@ -91,6 +87,7 @@ import {
     DOT_OPEN,
     DOT_YOURS,
     ERROR_LINE,
+    ErrorLine,
     FIELD,
     JudgingMain,
     LineBar,
@@ -101,6 +98,7 @@ import {
     PartMockups,
     PickButton,
     QuestionMain,
+    ReasonList,
     SaidLine,
     SECTION_HEAD,
     SMALL_DOT,
@@ -113,9 +111,11 @@ import {
     WorkingMain,
     WorkingStepLine,
 } from "./brainstormui";
+import { bandPickable } from "./brainstormwindowmodel";
 import type { WorkingTurn } from "./brainstormworking";
 import { CANVAS_BTN, CANVAS_PRIMARY_BTN, EdgeState, EXPLAINER } from "./canvaspane";
 import { closeCanvasWindow } from "./canvasstore";
+import type { ScopeTab, WindowScope } from "./canvaswindowmodel";
 
 export const NO_RUN: Atom<Run | undefined> = atom(undefined as Run | undefined);
 
@@ -135,61 +135,111 @@ function scrollToPart(root: RefObject<HTMLElement>, id: string): void {
         ?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
-// a board an answer names picks that answer from full size; once it is sent the window closes on the agent writing
-// it up. A send that fails stays on the board with its reason
-function BoardPicks({ agent, picks }: { agent: AgentVM; picks: BoardPick[] }) {
+const BAND_TITLE = "text-[15px] font-semibold leading-[1.35] text-primary";
+const BAND_DETAIL = "text-[13px] leading-[1.5] text-ink-mid";
+
+// The canvas window's band over a scope tab's board: the answers it shows, each with its reasoning and Pick, the line
+// that it shows every answer, or the part it belongs to. Pick answers the live question, so it shows only while the
+// scope's question is still the one asked (bandPickable); sent, the window closes on the agent writing it up, and a
+// send that fails stays open with its reason
+function ScopeBandView({ agent, tab, scope }: { agent: AgentVM; tab: ScopeTab; scope: WindowScope }) {
+    const s = useAtomValue(brainstormAtom(agent.id));
     const ans = useAnswer(agent);
-    if (picks.length === 0) {
-        return null;
-    }
-    const pick = async (p: BoardPick) => {
-        if (await ans.sendText(p.label)) {
+    const f = shownBrainstormFile(s);
+    const band = tab.band;
+    const pickable = f != null && bandPickable(f, scope.source, s?.sent != null);
+    const pickMark = scope.source.kind === "question" && scope.source.judged ? "Judge’s pick" : "Agent’s pick";
+    const pick = async (label: string) => {
+        if (await ans.sendText(label)) {
             closeCanvasWindow();
         }
     };
     return (
         <div
-            data-brainstorm-board-picks
-            className="flex flex-none flex-wrap items-center gap-[10px] border-b border-edge-faint bg-surface px-[22px] py-[8px]"
+            data-brainstorm-band={band.kind}
+            className="flex max-h-[40vh] flex-col gap-[12px] overflow-y-auto border-b border-edge-faint bg-surface-raised px-[22px] py-[12px]"
         >
-            <span className="text-[12.5px] text-ink-mid">
-                {picks.length === 1 ? "This board shows an answer" : "This board shows answers"}
-            </span>
-            {picks.map((p) => (
-                <button
-                    key={p.index}
-                    type="button"
-                    data-brainstorm-board-pick={p.index}
-                    title={p.label}
-                    disabled={ans.act.busy}
-                    onClick={() => void pick(p)}
-                    className={cn(CANVAS_PRIMARY_BTN, "min-w-0 max-w-[480px]")}
-                >
-                    <span className="flex-none">Pick {optionNumber(p.index)}</span>
-                    <span className="min-w-0 truncate font-normal">· {p.label}</span>
-                </button>
-            ))}
-            {ans.act.error != null ? <span className={ERROR_LINE}>{ans.act.error}</span> : null}
+            {band.kind === "every" ? (
+                <span className={BAND_DETAIL}>This board applies to every answer.</span>
+            ) : band.kind === "part" ? (
+                <div className="flex min-w-0 flex-col gap-[4px]">
+                    <span className={BAND_TITLE}>{band.title}</span>
+                    {band.gist ? <span className={BAND_DETAIL}>{band.gist}</span> : null}
+                </div>
+            ) : (
+                band.answers.map((a) => (
+                    <div key={a.index} data-brainstorm-band-answer={a.index} className="flex items-start gap-[24px]">
+                        <div className="flex min-w-0 flex-1 flex-col gap-[4px]">
+                            <span className="flex flex-wrap items-baseline gap-x-[10px]">
+                                <span data-brainstorm-band-label className={BAND_TITLE}>
+                                    {optionNumber(a.index)} · {a.label}
+                                </span>
+                                {a.pick ? (
+                                    <span
+                                        data-brainstorm-band-pickmark
+                                        className="text-[12px] font-semibold text-accent-soft"
+                                    >
+                                        {pickMark}
+                                    </span>
+                                ) : null}
+                            </span>
+                            {a.detail ? (
+                                <span data-brainstorm-band-detail className={BAND_DETAIL}>
+                                    {a.detail}
+                                </span>
+                            ) : null}
+                        </div>
+                        {a.pros.length > 0 || a.cons.length > 0 ? (
+                            <div data-brainstorm-band-proscons className="flex w-[40%] flex-none flex-col gap-[6px]">
+                                <ReasonList
+                                    label={`${a.label}: for`}
+                                    mark="+"
+                                    tone="text-success"
+                                    items={a.pros}
+                                    compact={true}
+                                />
+                                <ReasonList
+                                    label={`${a.label}: against`}
+                                    mark="−"
+                                    tone="text-error"
+                                    items={a.cons}
+                                    compact={true}
+                                />
+                            </div>
+                        ) : null}
+                        {pickable ? (
+                            <button
+                                type="button"
+                                data-brainstorm-band-pick={a.index}
+                                title={a.label}
+                                disabled={ans.act.busy}
+                                onClick={() => void pick(a.label)}
+                                className={cn(CANVAS_PRIMARY_BTN, "flex-none")}
+                            >
+                                Pick {optionNumber(a.index)}
+                            </button>
+                        ) : null}
+                    </div>
+                ))
+            )}
+            <ErrorLine error={ans.act.error} attrs={{ "data-brainstorm-band-error": "" }} />
         </div>
     );
 }
 
-// what the canvas window adds while it shows the agent's brainstorm's own canvas: the answers' numbers on their boards'
-// tabs and a row to pick an answer from its board. null for any other canvas
+// what the canvas window adds while it shows the agent's brainstorm's own canvas: the band over a scope tab's board.
+// Its presence also marks the canvas as the brainstorm's, whose brainstorm owns the run launch. null for any other
+// canvas
 export function useBrainstormBoards(
     agent: AgentVM | undefined,
     topic: string | undefined
-): { tabLabels?: Record<string, string>; boardActions: (board: string) => ReactNode } | null {
+): ((tab: ScopeTab, scope: WindowScope) => ReactNode) | null {
     const s = useAtomValue(brainstormAtom(agent?.id ?? ""));
     const f = s != null ? shownBrainstormFile(s) : null;
     if (agent == null || f?.canvas == null || f.canvas !== topic) {
         return null;
     }
-    const wait = judgeWait(f, s.sent != null);
-    return {
-        tabLabels: boardTabLabels(f, wait) ?? undefined,
-        boardActions: (board) => <BoardPicks agent={agent} picks={boardPicks(f, board, wait)} />,
-    };
+    return (tab, scope) => <ScopeBandView agent={agent} tab={tab} scope={scope} />;
 }
 
 // inTab: the pane is the workspace's Brainstorm tab, not the Terminal center, so its copy names the tab

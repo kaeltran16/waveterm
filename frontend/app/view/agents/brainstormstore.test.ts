@@ -22,12 +22,13 @@ import {
     openBrainstormAt,
     openBrainstormDesign,
     openBrainstormHistory,
+    openQuestionBoard,
     setBrainstormMode,
     setReviewCursor,
     toggleReviewRow,
     updateBrainstorm,
 } from "./brainstormstore";
-import { canvasWindowAtom, detachCanvas, getCanvas } from "./canvasstore";
+import { canvasWindowAtom, canvasWindowScopeAtom, detachCanvas, getCanvas } from "./canvasstore";
 import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "./workspacestore";
 
 const IDS = ["a1", "a2"];
@@ -283,6 +284,78 @@ describe("openBrainstormAt", () => {
         openBrainstormAt("a2", { part: "intent" });
         expect(getBrainstorm("a2")).toBeNull();
         expect(globalStore.get(workspaceAtom("a2")).tabs).toEqual([]);
+    });
+
+    describe("openQuestionBoard", () => {
+        const RAIL = "Rail.dc.html";
+        const STRIP = "Strip.dc.html";
+        const ASKED: BrainstormFile = {
+            ...TALK,
+            question: {
+                ...TALK.question!,
+                options: [
+                    { label: "Rail", detail: "", boards: [RAIL] },
+                    { label: "Strip", detail: "", boards: [STRIP] },
+                ],
+            },
+        };
+        const WEIGHING: BrainstormFile = {
+            ...ASKED,
+            working: "The judge is weighing 2 approaches.",
+            question: {
+                ...ASKED.question!,
+                approaches: [
+                    { name: "Strip first", description: "", facts: [], boards: [STRIP] },
+                    { name: "Rail first", description: "", facts: [], boards: [RAIL] },
+                ],
+            },
+        };
+        const arrangeOn = (f: BrainstormFile, onCanvas = [RAIL, STRIP]) => {
+            arrange(f);
+            updateBrainstorm("a1", (s) => ({
+                ...s,
+                boards: onCanvas.map((name) => ({ name, x: 0, y: 0, w: 1440, h: 900 })),
+            }));
+        };
+        const scope = () => globalStore.get(canvasWindowScopeAtom);
+        const tabBoards = () => scope()?.tabs.map((t) => t.board);
+
+        it("opens the window scoped to the question, on the chip's board", () => {
+            arrangeOn(ASKED);
+            openQuestionBoard("a1", STRIP);
+            expect(globalStore.get(canvasWindowAtom)).toBe("a1");
+            expect(getCanvas("a1")).toMatchObject({ topic: "lag-canvas", board: STRIP, all: false });
+            expect(scope()?.source).toMatchObject({ kind: "question", n: 4, judging: false });
+            expect(tabBoards()).toEqual([RAIL, STRIP]);
+        });
+
+        it("opens the approaches' scope during the judge's wait", () => {
+            arrangeOn(WEIGHING);
+            openQuestionBoard("a1", RAIL);
+            expect(scope()?.source).toMatchObject({ kind: "question", judging: true });
+            expect(tabBoards()).toEqual([STRIP, RAIL]);
+            expect(getCanvas("a1")?.board).toBe(RAIL);
+        });
+
+        it("opens unscoped while the agent writes over the question, or once the answer is sent", () => {
+            arrangeOn({ ...ASKED, working: "Writing up your answer." });
+            openQuestionBoard("a1", RAIL);
+            expect(globalStore.get(canvasWindowAtom)).toBe("a1");
+            expect(scope()).toBeNull();
+
+            arrangeOn(WEIGHING);
+            updateBrainstorm("a1", (s) => ({ ...s, sent: { kind: "answer", at: 1, modifiedMs: null } }));
+            openQuestionBoard("a1", RAIL);
+            expect(scope()).toBeNull();
+        });
+
+        it("opens unscoped on a board with no tab in the question's scope", () => {
+            arrangeOn(ASKED, [RAIL]);
+            openQuestionBoard("a1", STRIP);
+            expect(globalStore.get(canvasWindowAtom)).toBe("a1");
+            expect(scope()).toBeNull();
+            expect(getCanvas("a1")?.board).toBe(STRIP);
+        });
     });
 });
 

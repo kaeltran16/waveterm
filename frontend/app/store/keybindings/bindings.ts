@@ -21,11 +21,14 @@ import { enterAction, pickAdvance } from "@/app/view/agents/askflow";
 import {
     checkMain,
     checkReview,
+    judgeWait,
+    mainView,
     OPTION_KEYS,
     optionNumber,
     paneBack,
     paneView,
     pickableOptions,
+    type BrainstormFile,
     type PartPick,
     type ReviewRow,
 } from "@/app/view/agents/brainstormmodel";
@@ -33,11 +36,14 @@ import { pickPart, reportSendFailure } from "@/app/view/agents/brainstormsend";
 import {
     focusedBrainstorm,
     moveReviewCursor,
+    openBrainstormBoard,
     openBrainstormDesign,
     openBrainstormHistory,
     shownBrainstormFile,
     toggleReviewRow,
+    type BrainstormState,
 } from "@/app/view/agents/brainstormstore";
+import { partScope, questionScope, scopeOpenBoard } from "@/app/view/agents/brainstormwindowmodel";
 import { paneState, shownBoard } from "@/app/view/agents/canvasmodel";
 import {
     canvasWindowAtom,
@@ -51,6 +57,7 @@ import {
     stepCanvasBoard,
     stepCanvasWindow,
 } from "@/app/view/agents/canvasstore";
+import type { WindowScope } from "@/app/view/agents/canvaswindowmodel";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sendPendingComments } from "@/app/view/agents/commentsend";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
@@ -1022,6 +1029,44 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         }
         pickPart(agent, row.id, pick).catch((e) => reportSendFailure(agent.id, e));
     };
+    // the scope the shown brainstorm opens the canvas window on: the asked question's (the judge's wait included), or
+    // the review cursor's part's. null in the design list, while the agent writes, and under the narrow history
+    const shownScope = (s: BrainstormState, f: BrainstormFile): WindowScope | null => {
+        const onCanvas = s.boards.map((b) => b.name);
+        const pending = s.sent != null;
+        const view = paneView(s);
+        const main =
+            view === "check"
+                ? checkMain(f, s.designOpen, pending)
+                : view === "design"
+                  ? mainView(f, s.designOpen, pending)
+                  : null;
+        if (main === "review") {
+            const row = reviewRow();
+            return row == null ? null : partScope(f, row.id, onCanvas);
+        }
+        const asked = (main === "question" || main === "judging") && !s.historyOpen;
+        return asked ? questionScope(f, onCanvas, judgeWait(f, pending)) : null;
+    };
+    // the answer row a digit focused, by its data-brainstorm-option index; null with none focused
+    const focusedAnswer = (): number | null => {
+        const row = (document.activeElement as HTMLElement | null)?.closest?.(
+            "[data-brainstorm-pane] [data-brainstorm-option]"
+        );
+        const at = row?.getAttribute("data-brainstorm-option");
+        return at == null ? null : Number(at);
+    };
+    // where o opens the window: the focused answer's first tab, else the scope's first
+    const windowTarget = (): { canvas: string; board: string; scope: WindowScope } | null => {
+        const s = brainstorm();
+        const f = shownBrainstormFile(s);
+        const scope = s != null && f?.canvas != null ? shownScope(s, f) : null;
+        if (scope == null) {
+            return null;
+        }
+        const board = scopeOpenBoard(scope, scope.source.kind === "question" ? focusedAnswer() : null);
+        return board == null ? null : { canvas: f!.canvas!, board, scope };
+    };
     // the asked question's options the pane draws, each picked by its digit
     const pickable = () => {
         const s = brainstorm();
@@ -1600,6 +1645,20 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                     return false;
                 }
                 toggleViewMode(id);
+            },
+        },
+        {
+            id: "agent:brainstorm-window",
+            keys: "o",
+            group: "Agent",
+            label: "Open the question's or the review part's boards in the canvas window",
+            when: (ctx) => inBrainstorm(ctx) && windowTarget() != null,
+            run: (ctx) => {
+                const t = inBrainstorm(ctx) ? windowTarget() : null;
+                if (t == null) {
+                    return false;
+                }
+                openBrainstormBoard(focusId(), t.canvas, t.board, Date.now(), t.scope);
             },
         },
         // a digit focuses its answer row, so Enter, the row's own key, sends it

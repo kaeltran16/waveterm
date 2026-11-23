@@ -127,25 +127,19 @@ export async function openBuildRun(
     }
 }
 
-// tabLabels names a board's tab in place of its plain label, as a brainstorm's open question numbers its answers'
-// boards; boardActions draws a row under the toolbar for the one board shown, never under All or while marking. Either
-// marks a brainstorm's canvas, whose brainstorm owns the run launch, so it has no Build this. onClose makes it the
-// canvas window (canvaswindow.tsx): a Close button, the marking hint in the header, and All in rows of 3. scope
-// (window only) replaces every board and All with the scope's tabs and Other boards, and band draws under the toolbar
-// for the shown scope tab; a scope is a brainstorm's, so it too has no Build this
+// onClose makes it the canvas window (canvaswindow.tsx): a Close button, the marking hint in the header, and All in
+// rows of 3. scope (window only) replaces every board and All with the scope's tabs and Other boards, and band draws
+// under the toolbar for the shown scope tab, never on Other boards or while marking. Either marks a brainstorm's
+// canvas, whose brainstorm owns the run launch, so it has no Build this
 export function CanvasPane({
     model,
     agent,
-    tabLabels,
-    boardActions,
     scope,
     band,
     onClose,
 }: {
     model: AgentsViewModel;
     agent: AgentVM;
-    tabLabels?: Record<string, string>;
-    boardActions?: (board: string) => ReactNode;
     scope?: WindowScope;
     band?: (tab: ScopeTab, scope: WindowScope) => ReactNode;
     onClose?: () => void;
@@ -198,7 +192,7 @@ export function CanvasPane({
               })
             : canvasTabs(s.boards).map((t) => ({
                   key: t,
-                  label: t === ALL_TAB ? "All" : (tabLabels?.[t] ?? boardLabel(t)),
+                  label: t === ALL_TAB ? "All" : boardLabel(t),
               }));
     const select = (t: string) => (scope != null ? selectCanvasWindowTab(agent.id, t) : selectCanvasTab(agent.id, t));
     const layout =
@@ -286,7 +280,7 @@ export function CanvasPane({
                                 Open in browser
                             </button>
                         ) : null}
-                        {s.boards.length > 0 && boardActions == null && scope == null ? (
+                        {s.boards.length > 0 && band == null && scope == null ? (
                             <button
                                 type="button"
                                 onClick={() => {
@@ -321,15 +315,7 @@ export function CanvasPane({
                 >
                     {scopeTab != null ? <ViewSwap swapKey={scopeTab.board}>{band?.(scopeTab, scope)}</ViewSwap> : null}
                 </PaneReveal>
-            ) : (
-                <PaneReveal
-                    open={boardActions != null && pane === "board" && !marking && tab !== ALL_TAB}
-                    variants={composerReveal}
-                    className="flex-none"
-                >
-                    {boardActions?.(board.name)}
-                </PaneReveal>
-            )}
+            ) : null}
             <ViewSwap swapKey={pane} className="flex min-h-0 flex-1 flex-col bg-surface-code">
                 {pane === "server-down" ? (
                     <ServerDown />

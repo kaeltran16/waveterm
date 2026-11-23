@@ -168,7 +168,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `m` | Mark part of the board; in mark mode, stop marking |
 | `Enter` / `Esc` | In the note under a drawn box: send the mark to the agent / drop it |
 
-The canvas window opens over the Rendered view on one board, or on every board with All laid out in rows of 3; a brainstorm's "Open full size" and board chips open it too. While it is open the agent and surface keys stand down under it, and these are its keys:
+The canvas window opens over the Rendered view on one board, or on every board with All laid out in rows of 3; a brainstorm's board chips and `o` open it too. While it is open the agent and surface keys stand down under it, and these are its keys:
 
 | Keys | Action |
 |---|---|
@@ -186,6 +186,7 @@ The canvas window opens over the Rendered view on one board, or on every board w
 | `b` | Show or close the agent's brainstorm (in Rendered, its tab) |
 | `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal |
 | `1`…`9` | While the brainstorm asks a question with answers to pick from: focus the answer with that number; `Enter` sends it |
+| `o` | Open the canvas window on the question's boards (during the judge's wait, the approaches'), on the focused answer's board or else the first; in the builder check's review, on the cursor decision's boards |
 | `Esc` | Back one level, as the pane's back control does: from the "Decided so far" history opened over the question back to it; from the design opened over the question (or over the agent writing) back to it. A focused field keeps its own `Esc` |
 | `j` / `k` | In the builder check's review: next / previous decision |
 | `Enter` | In the review: open or close the cursor decision (a focused button keeps its own `Enter`) |
