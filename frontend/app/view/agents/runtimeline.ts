@@ -203,6 +203,9 @@ export function eventTitle(event: RunEvent): string {
         const title = STAGE_ROLE_TITLE[d?.role ?? ""] ?? eventKindTitle(event.kind);
         return d?.lens ? `${title} · ${planReviewLensTitle(d.lens)}` : title;
     }
+    if (event.kind === "review-overruled" && detailOf<{ by?: string }>(event)?.by === "human") {
+        return "You overruled the review";
+    }
     if (event.kind === "final-step") {
         const { step, ok } = finalStepOf(event);
         return `${FINAL_STEP_TITLE[step] ?? "Final step"} ${ok ? "passed" : "failed"}`;
@@ -249,6 +252,8 @@ export function eventText(event: RunEvent): string {
             return `${actor} skipped ${task}`;
         case "task-escalated":
             return [`${actor} escalated ${task}`, d?.model ? shortModel(d.model) : ""].filter(Boolean).join(" to ");
+        case "review-overruled":
+            return d?.by === "human" ? `you approved ${task} over its review` : defaultText(event, task);
         case "final-rerun":
             return "you reran the final stage";
         case "task-forwarded":

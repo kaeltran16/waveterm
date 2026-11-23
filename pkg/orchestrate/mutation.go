@@ -367,10 +367,10 @@ func applyActionLocked(ctx context.Context, dagID, taskID, action, by string, ta
 		if err := refuseNoFailedReview(g, taskID, "approved"); err != nil {
 			return err
 		}
-		// the lead overrules the reviewer: the worker's commit lands as it is
+		// the lead or the human overrules the reviewer: the worker's commit lands as it is
 		taskByID(g, taskID).State = TaskState_Done
 		emit = append(emit, func() {
-			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindReviewOverruled, nil, map[string]any{"taskid": taskID})
+			appendRunEvent(ctx, g.ChannelId, g.RunID, waveobj.RunEventKindReviewOverruled, nil, map[string]any{"taskid": taskID, "by": by})
 		})
 	case "skip":
 		if err := SkipTask(g, taskID); err != nil {

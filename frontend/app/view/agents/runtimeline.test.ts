@@ -150,6 +150,17 @@ describe("eventText: the human's and the lead's task actions", () => {
         );
     });
 
+    it("says an approve over a failed review in the human's name, and the lead's or an older row's as the lead's", () => {
+        expect(eventText(ev("review-overruled", { taskid: "t-4", by: "human" }))).toBe(
+            "you approved t-4 over its review"
+        );
+        expect(eventTitle(ev("review-overruled", { taskid: "t-4", by: "human" }))).toBe("You overruled the review");
+        expect(eventText(ev("review-overruled", { taskid: "t-4", by: "lead" }))).toBe(
+            "Lead overruled the review · t-4"
+        );
+        expect(eventText(ev("review-overruled", { taskid: "t-4" }))).toBe("Lead overruled the review · t-4");
+    });
+
     it("keeps an engine retry's text, which names no actor", () => {
         expect(eventText(ev("task-retried", { taskid: "t-2", kind: "failed", attempt: 1, auto: true }))).toBe(
             "Task retried · t-2"

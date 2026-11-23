@@ -436,21 +436,22 @@ func TestEscalateRejectsBlockedMergeWithoutCancellingRun(t *testing.T) {
 	}
 }
 
-// a retry, skip or escalate leaves a row naming who acted, so the timeline tells the human's own actions from the lead's
+// a retry, skip, escalate or approve leaves a row naming who acted, so the timeline tells the human's own actions from the lead's
 func TestActionWritesItsRunEventWithTheActor(t *testing.T) {
 	cases := []struct {
-		action, kind string
-		target       waveobj.RoutePin
-		want         map[string]any
+		action, kind, state string
+		target              waveobj.RoutePin
+		want                map[string]any
 	}{
-		{"retry", waveobj.RunEventKindTaskRetried, waveobj.RoutePin{}, map[string]any{"auto": false}},
-		{"skip", waveobj.RunEventKindTaskSkipped, waveobj.RoutePin{}, map[string]any{}},
-		{"escalate", waveobj.RunEventKindTaskEscalated, waveobj.RoutePin{Model: "opus"}, map[string]any{"model": "opus", "runtime": "claude"}},
+		{"retry", waveobj.RunEventKindTaskRetried, TaskState_Failed, waveobj.RoutePin{}, map[string]any{"auto": false}},
+		{"skip", waveobj.RunEventKindTaskSkipped, TaskState_Failed, waveobj.RoutePin{}, map[string]any{}},
+		{"escalate", waveobj.RunEventKindTaskEscalated, TaskState_Failed, waveobj.RoutePin{Model: "opus"}, map[string]any{"model": "opus", "runtime": "claude"}},
+		{"approve", waveobj.RunEventKindReviewOverruled, TaskState_ReviewFailed, waveobj.RoutePin{}, map[string]any{}},
 	}
 	for _, c := range cases {
 		for _, by := range []string{ActionByHuman, ActionByLead} {
 			t.Run(c.action+"-"+by, func(t *testing.T) {
-				ctx, dag, _, _ := seedEscalationDag(t, "claude", TaskState_Failed, 0)
+				ctx, dag, _, _ := seedEscalationDag(t, "claude", c.state, 0)
 				allowEscalationSchedule(t)
 				if err := ApplyAction(ctx, dag.OID, "t-0", c.action, by, c.target); err != nil {
 					t.Fatal(err)

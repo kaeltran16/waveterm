@@ -142,7 +142,7 @@ const (
 	//   task-review-started  a reviewer was spawned for a finished task ("taskid", "runid")
 	//   task-review-passed   "taskid", "note", "downstream"
 	//   task-review-failed   "taskid", "note", "round", "final" (true when it went to the lead)
-	//   review-overruled     the lead approved a task whose review failed ("taskid")
+	//   review-overruled     the lead or the human approved a task whose review failed ("taskid", "by")
 	//   task-amended         the lead added a note to a task not started yet ("taskid", "text")
 	//   task-lead-told       the lead typed into a running worker or reviewer ("taskid", "text")
 	RunEventKindTaskReviewStarted = "task-review-started"

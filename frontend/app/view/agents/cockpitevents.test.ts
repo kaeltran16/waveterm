@@ -234,13 +234,14 @@ describe("runRailEvents", () => {
         ]);
     });
 
-    it("reads the human's retry, skip, escalate, take-over and rerun as acted", () => {
+    it("reads the human's retry, skip, escalate, approve, take-over and rerun as acted", () => {
         const out = runRailEvents(run, [
             ev("task-retried", 1, { taskid: "t1", auto: false, by: "human" }),
             ev("task-skipped", 2, { taskid: "t2", by: "human" }),
             ev("task-escalated", 3, { taskid: "t3", model: "claude-opus-5-5", by: "human" }),
             ev("task-forwarded", 4, { taskid: "t4", by: "human", note: "taken over" }),
             ev("final-rerun", 5, { round: 1 }),
+            ev("review-overruled", 6, { taskid: "t5", by: "human" }),
         ]);
         expect(out.map((e) => [e.kind, e.text])).toEqual([
             ["acted", "you retried t1"],
@@ -248,6 +249,7 @@ describe("runRailEvents", () => {
             ["acted", "you escalated t3 to opus-5-5"],
             ["acted", "you took t4 over from the lead"],
             ["acted", "you reran the final stage"],
+            ["acted", "you approved t5 over its review"],
         ]);
     });
 
@@ -257,6 +259,8 @@ describe("runRailEvents", () => {
             ev("task-skipped", 2, { taskid: "t2", by: "lead" }),
             ev("task-escalated", 3, { taskid: "t3", model: "m", by: "lead" }),
             ev("task-retried", 4, { taskid: "t4", kind: "failed", attempt: 1, auto: true }),
+            ev("review-overruled", 5, { taskid: "t5", by: "lead" }),
+            ev("review-overruled", 6, { taskid: "t5" }),
         ]);
         expect(out).toEqual([]);
     });
