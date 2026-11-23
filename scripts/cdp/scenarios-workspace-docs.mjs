@@ -2,7 +2,7 @@
 // docs/superpowers/plans/2026-11-20-workspace-surfaces.md; spec 2026-11-20-workspace-surfaces-design.md; boards Main and
 // the Docs half of S1-States). The roster is a fixture claude agent backed by a real tab with no controller, in the
 // Rendered view, whose transcript writes two Markdown docs and a .go file in a temp folder and cites a doc and the .go
-// file in its reply. The steps draw the list and the rendered doc, route reply links, the step card and Open raw, narrow
+// file in its reply. The steps draw the list and the rendered doc, route reply links and Open raw, narrow
 // the pane, and delete a doc. The default view, the pane width and the viewport are put back in teardown.
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -40,8 +40,6 @@ const PLAN_REL = "docs/plans/2026-11-20-shelf.md";
 const PLAN_TITLE = "Shelf tags plan";
 const GO_REL = "internal/shelf/shelf.go";
 const GO_LINE = 3;
-// the spec's Write step row
-const STEP_HEAD = "Wrote 2026-11-20-shelf-design.md";
 const MINUTE_MS = 60_000;
 
 const TAB_SEL = `[data-workspace-tab="docs"]`;
@@ -256,40 +254,6 @@ export const workspaceDocs = {
             return [f.active === "docs" && f.h1 === PLAN_TITLE && same, { ...f, same }];
         });
 
-        await step("step card opens docs: the Write step card's Open full view activates the Docs tab with that doc selected", async () => {
-            await closeAll();
-            // a finished turn's steps sit folded under its "Worked for" line
-            await h.ev(`(() => {
-                const fold = document.querySelector('[data-rendered-view] [data-fold][aria-expanded="false"]');
-                fold?.click();
-                return true;
-            })()`);
-            await polishWaitFor(h, `document.querySelector("[data-rendered-view] [data-step]") != null`, WAIT_MS);
-            const clicked = await h.ev(`(() => {
-                const step = [...document.querySelectorAll("[data-rendered-view] [data-step]")].find(
-                    (s) => (s.querySelector("[data-step-head]")?.textContent ?? "").trim().startsWith(${JSON.stringify(STEP_HEAD)})
-                );
-                if (!step) return "no step";
-                const head = step.querySelector("[data-step-head]");
-                if (head?.getAttribute("aria-expanded") === "false") head.click();
-                return "ok";
-            })()`);
-            await polishWaitFor(
-                h,
-                `[...document.querySelectorAll("[data-rendered-view] [data-step]")].some((s) => (s.querySelector("[data-step-head]")?.textContent ?? "").trim().startsWith(${JSON.stringify(STEP_HEAD)}) && s.querySelector('button[aria-label="Open full view"]'))`,
-                WAIT_MS
-            );
-            await h.ev(
-                `[...document.querySelectorAll("[data-rendered-view] [data-step]")].find((s) => (s.querySelector("[data-step-head]")?.textContent ?? "").trim().startsWith(${JSON.stringify(STEP_HEAD)}) && s.querySelector('button[aria-label="Open full view"]'))?.querySelector('button[aria-label="Open full view"]')?.click()`
-            );
-            await polishWaitFor(h, `${H1} === ${JSON.stringify(SPEC_TITLE)}`, WAIT_MS);
-            await polishNap(SETTLE_MS);
-            const f = await shown();
-            const same = await page(h, `return P.sameRepoPath(activeTab(${A})?.selected ?? "", ${SPEC});`);
-            await h.shot("cdp-shots/workspace-docs-step-card.png");
-            return [clicked === "ok" && f.active === "docs" && f.h1 === SPEC_TITLE && same, { clicked, ...f, same }];
-        });
-
         await step("non-doc opens file: a link to the .go file opens a File tab", async () => {
             await h.ev(
                 `[...document.querySelectorAll("[data-rendered-view] [data-file-link]")].find((l) => l.getAttribute("data-file-link") === ${JSON.stringify(GO_REL)})?.click()`
@@ -300,6 +264,8 @@ export const workspaceDocs = {
         });
 
         await step("open raw: Open raw opens a File tab on the doc", async () => {
+            // a fresh Docs tab selects the newest doc, the spec
+            await closeAll();
             await page(h, `W.openWorkspaceTab(${A}, { kind: "docs", selected: null }); return true;`);
             await polishWaitFor(h, `${PANE}?.querySelector("[data-docs-open-raw]") != null`, WAIT_MS);
             await h.ev(`${PANE}?.querySelector("[data-docs-open-raw]")?.click()`);

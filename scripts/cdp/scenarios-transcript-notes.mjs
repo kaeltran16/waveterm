@@ -328,7 +328,7 @@ export const transcriptNotes = {
                 opened.tiles[0].includes("image-20261109-030246.png") &&
                 hasAll(opened.comment, ["Khang Tran", "11-09", "can you give me an example"]) &&
                 hasAll(opened.project, ["Arc project", "cyber_assistant"]) &&
-                opened.view.includes("Open full view") &&
+                !opened.view.includes("Open full view") &&
                 opened.overflows === false,
             detail: JSON.stringify({ closed: closed?.card, opened }),
         });
@@ -349,7 +349,8 @@ export const transcriptNotes = {
             step: "a ticket that did not load: the opened step says so inline and the raw output stays one click away",
             ok:
                 lostTicket?.card == null &&
-                hasAll(lostTicket?.view, ["SIEM-9999 did not load", "refused on the page", "Open full view"]),
+                hasAll(lostTicket?.view, ["SIEM-9999 did not load", "refused on the page", "Raw output"]) &&
+                !lostTicket.view.includes("Open full view"),
             detail: JSON.stringify(lostTicket),
         });
 

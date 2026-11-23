@@ -1,13 +1,15 @@
 // Scenario `transcript-census-steps`: the census's step-row and tool-body fixes (steprows.tsx, tooldetailbody.tsx,
-// toolrenderers.tsx, recordedoutput.tsx, tooldetailmodal.tsx), at the
+// toolrenderers.tsx, recordedoutput.tsx), at the
 // census's two hosts. Each fixture is trimmed from the census specimen named beside it (#N): the declined look, title
-// truncation (B1), the compact answer (B2), no repeated command (B3), the 20-line body cap (C1), the compact Tests card
-// (C2), the wsh fallback (C3), wrapping (C5), segment-cut paths (C6), the command-output gap (C8), Open full view inside
-// the box (C9), status words (E4), and the user's kept ligatures (decision 3).
+// truncation (B1), the compact answer (B2), no repeated command (B3), the 20-line body cap (C1) and its expand in place,
+// the compact Tests card (C2) and its clamped failure message, the wsh fallback (C3), wrapping (C5), segment-cut paths
+// (C6), the command-output gap (C8), no Open full view on a step body, status words (E4), and the user's kept ligatures
+// (decision 3).
 
 import { clearTranscript, HOSTS, openFolds, ROOT, showAt, waitSeam } from "./transcript-fixture.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const NL = String.fromCharCode(10);
 const T0 = Date.UTC(2026, 10, 18, 9, 0, 0);
 const S = 1000;
 const MOTION_MS = 700;
@@ -182,7 +184,7 @@ const WROTE_LINES = [
     "Window 2026-08-01 to 2026-11-11. All measurement ran locally; nothing was sent to a network service.",
     ...Array.from({ length: 27 }, (_, i) => `- finding ${i + 1}: a flow the user asked to see again`),
 ];
-// #0: a go test run with six failures
+// #0: a go test run with six failures, the first with a FAILURE_MESSAGE the card clamps to CLAMPED_LINES lines
 const TEST_NAMES = [
     ["TestDetachedTreeSetupTakesNoClaim", 262],
     ["TestFinishedWorkerClaimDoesNotHoldItsReviewer", 275],
@@ -191,10 +193,19 @@ const TEST_NAMES = [
     ["TestLandAndBaseCheckNeverWait", 373],
     ["TestDispatchSetupNeverWaits", 398],
 ];
+const FAILURE_MESSAGE = [
+    "the gate's book holds 1 claims before the test",
+    "held: run-7f3a/task-2 (worker)",
+    "held since: 09:00:04",
+    "released: never",
+    "want: an empty book",
+];
+const CLAMPED_LINES = 3;
 const TEST_OUT = [
-    ...TEST_NAMES.flatMap(([name, line]) => [
+    ...TEST_NAMES.flatMap(([name, line], i) => [
         `--- FAIL: ${name} (0.00s)`,
-        `    memadmit_test.go:${line}: the gate's book holds 1 claims before the test`,
+        `    memadmit_test.go:${line}: ${FAILURE_MESSAGE[0]}`,
+        ...(i === 0 ? FAILURE_MESSAGE.slice(1).map((l) => `        ${l}`) : []),
     ]),
     "FAIL",
     "FAIL\tgithub.com/wavetermdev/waveterm/pkg/orchestrate\t3.135s",
@@ -427,44 +438,6 @@ async function mainSteps(h, label, host) {
     ];
 }
 
-// the modal draws a declined call as the row does: the word, the muted reason, no error block
-const MODAL_STATE = `(() => {
-    const head = document.querySelector('[data-tool-modal-head]');
-    const body = document.querySelector('[data-tool-modal-body]');
-    if (!head || !body) return null;
-    const note = body.querySelector('[data-tool-note]');
-    const s = document.createElement('span');
-    s.style.color = 'var(--color-muted)';
-    body.appendChild(s);
-    const muted = getComputedStyle(s).color;
-    s.className = 'font-mono';
-    const mono = getComputedStyle(s).fontFamily;
-    s.remove();
-    return {
-        word: [...head.querySelectorAll('span')].some((x) => x.textContent === 'declined'),
-        note: note?.textContent ?? null,
-        noteMuted: note ? getComputedStyle(note).color === muted : null,
-        noteMono: note ? getComputedStyle(note).fontFamily === mono : null,
-        errors: body.querySelectorAll('[data-tool-error]').length,
-    };
-})()`;
-
-async function modalStep(h) {
-    await showAt(h, HOSTS.rendered, MAIN);
-    await openAll(h);
-    await h.ev(probe(`rowOf('What do you dislike')?.querySelector('button[aria-label="Open full view"]')?.click(); return true;`));
-    await sleep(MOTION_MS);
-    const m = await h.ev(MODAL_STATE);
-    await h.shot("cdp-shots/transcript-census-steps-modal.png");
-    await h.ev(`document.querySelector('[data-tool-modal-head] button[aria-label="Close"]')?.click()`);
-    await sleep(MOTION_MS);
-    return {
-        step: "[rendered] Main board: a declined ask's full view reads declined, its reason muted and not mono, no error block",
-        ok: m != null && m.word === true && m.note === DECLINED_ASK && m.noteMuted === true && m.noteMono === false && m.errors === 0,
-        detail: JSON.stringify(m),
-    };
-}
-
 // E4: each row's one status word and its tone
 const STATUS_STATE = probe(`
     const rows = { fail: 'Run the checks', declined: 'Locate variable Geist', blocked: 'Release', stopped: 'Final pass' };
@@ -532,8 +505,6 @@ const BODIES_STATE = probe(`
     const testRow = rowOf('Run the memadmit tests');
     const test = testRow?.querySelector('[data-tool-card="test"]');
     const firstFail = test?.querySelector('[data-test-failure]');
-    const diffRow = rowOf('Show the types commit');
-    const fullIn = (row) => { const b = row?.querySelector('button[aria-label="Open full view"]'); return b ? !!b.closest('[data-tool-card]') : null; };
     const gapPanel = panelOf('Check remaining Markup');
     const cmd = gapPanel?.querySelector('[data-bash-command]');
     const out = gapPanel?.querySelector('[data-bash-output]');
@@ -553,12 +524,12 @@ const BODIES_STATE = probe(`
     const code = wrote?.querySelector('[data-line-text]');
     return {
         bare: bare ? { first: bare.textContent.slice(0, 40), command: !!bare.querySelector('[data-bash-command]'), head: rowOf('for a in')?.querySelector('[data-step-head]')?.textContent ?? null } : null,
-        skill: skill ? { text: skill.textContent, nameShown: skill.textContent.replace('Open full view', '').includes(${JSON.stringify(SKILL_NAME)}) } : null,
+        skill: skill ? { text: skill.textContent, nameShown: skill.textContent.includes(${JSON.stringify(SKILL_NAME)}) } : null,
         p51: p51 ? { more: more51?.textContent ?? null, outLines: p51.querySelector('[data-bash-output]')?.textContent.split('\\n').length ?? null, clipped: clipped(p51), moreIn: more51 ? rect(more51).bottom <= rect(p51).bottom : null } : null,
         wrote: wrote ? { more: moreWrote?.textContent ?? null, lines: wrote.querySelectorAll('[data-line-text]').length, lastAbove: lastWrote && moreWrote ? rect(lastWrote).bottom <= rect(moreWrote).top + 1 : null, clipped: clipped(wrote) } : null,
         test: test ? { failures: test.querySelectorAll('[data-test-failure]').length, clipped: clipped(test), lastIn: rect(lastOf(test, '[data-test-failure]')).bottom <= rect(test).bottom + 1 } : null,
         names: firstFail ? { name: Math.round(rect(firstFail.querySelector('[data-test-name]')).width), where: Math.round(rect(firstFail.querySelector('[data-test-where]')).width) } : null,
-        fullIn: { test: fullIn(testRow), diff: fullIn(diffRow) },
+        fullViews: root.querySelectorAll('button[aria-label="Open full view"]').length,
         gap: cmd && out ? Math.round(rect(out).top - rect(cmd).bottom) : null,
         paths,
         wrap: longLine ? { overflowWrap: getComputedStyle(longLine).overflowWrap, ...lines } : null,
@@ -614,9 +585,9 @@ async function bodySteps(h, label, host) {
             detail: JSON.stringify(s?.names),
         },
         {
-            step: `[${label}] #0/#19 C9: Open full view sits inside the Tests and git diff cards' box`,
-            ok: s?.fullIn?.test === true && s.fullIn.diff === true,
-            detail: JSON.stringify(s?.fullIn),
+            step: `[${label}] no step body offers Open full view: not a command, a write, the Tests or git diff card`,
+            ok: s?.fullViews === 0,
+            detail: `fullViews=${s?.fullViews}`,
         },
         {
             step: `[${label}] #8 C8: a gap between the command and its first output line`,
@@ -650,38 +621,6 @@ async function bodySteps(h, label, host) {
             detail: JSON.stringify(s?.ligatures),
         },
     ];
-}
-
-// C9 on a collapsed card: steps open, cards left as the host draws them (the rendered host collapses a card in an
-// earlier turn to its header, so a later turn follows the bodies)
-const LATER_TURN = [user("Carry on.", T0 + 20 * S), prose("Done.", T0 + 21 * S)];
-const COLLAPSED_STATE = probe(`
-    const card = (t, kind) => {
-        const c = rowOf(t)?.querySelector('[data-tool-card="' + kind + '"]');
-        return c ? {
-            collapsed: c.querySelector('[data-card-head]')?.getAttribute('aria-expanded') === 'false',
-            fullIn: !!c.querySelector('button[aria-label="Open full view"]'),
-        } : null;
-    };
-    return { test: card('Run the memadmit tests', 'test'), diff: card('Show the types commit', 'git-diff') };
-`);
-
-async function collapsedStep(h, label, host) {
-    await showAt(h, host, [...BODIES, ...LATER_TURN]);
-    await openFolds(h);
-    await h.ev(`${R}?.querySelectorAll('[data-step-head][aria-expanded="false"]').forEach((b) => b.click())`);
-    await sleep(MOTION_MS);
-    const s = await h.ev(COLLAPSED_STATE);
-    await h.ev(probe(`rowOf('Run the memadmit tests')?.scrollIntoView({ block: "start" }); return true;`));
-    await sleep(200);
-    await h.shot(`cdp-shots/transcript-census-steps-collapsed-${label}.png`);
-    // only the rendered host collapses a card
-    const collapsed = !host.renderers || (s?.test?.collapsed === true && s?.diff?.collapsed === true);
-    return {
-        step: `[${label}] C9: a collapsed Tests or git diff card still holds Open full view inside its box`,
-        ok: s?.test?.fullIn === true && s?.diff?.fullIn === true && collapsed,
-        detail: JSON.stringify(s),
-    };
 }
 
 // C6 on a narrowing box: the grep paths fit whole in a wide host, then the host narrows to its own width; each path
@@ -724,7 +663,7 @@ const FALLBACK_STATE = probe(`
     return {
         more: box.querySelector('[data-more-lines]')?.textContent ?? null,
         lines: box.querySelector('[data-recorded-output]')?.textContent.split('\\n').length ?? null,
-        full: !!box.querySelector('button[aria-label="Open full view"]'),
+        full: !!f.querySelector('button[aria-label="Open full view"]'),
         // capped by line count, so a 20-line cap that wraps in a narrow card is still whole, never clipped
         clipped: box.scrollHeight > box.clientHeight + 1,
         bordered: getComputedStyle(box).borderTopWidth !== '0px',
@@ -740,16 +679,89 @@ async function fallbackStep(h, label, host) {
     await sleep(200);
     await h.shot(`cdp-shots/transcript-census-steps-fallback-${label}.png`);
     return {
-        step: `[${label}] #108 C3: the wsh fallback's output is boxed, capped at 20 whole lines with "20 more lines", nothing clipped, and has Open full view`,
+        step: `[${label}] #108 C3: the wsh fallback's output is boxed, capped at 20 whole lines with "20 more lines", nothing clipped, and no Open full view`,
         ok:
             s != null &&
             s.more === "20 more lines" &&
             s.lines === 20 &&
-            s.full === true &&
+            s.full === false &&
             s.bordered === true &&
             s.clipped === false,
         detail: JSON.stringify(s),
     };
+}
+
+const EXPAND_STATE = probe(`
+    const panel = rowOf('git status --short')?.querySelector('[data-tool-panel]');
+    const test = rowOf('Run the memadmit tests')?.querySelector('[data-tool-card="test"]');
+    const btn = (el) => el?.querySelector('[data-more-lines]');
+    const message = test?.querySelector('[data-test-failure] [data-test-message]');
+    return {
+        body: panel ? {
+            lines: panel.querySelector('[data-bash-output]')?.textContent.split(String.fromCharCode(10)).length ?? null,
+            button: btn(panel)?.textContent ?? null,
+            expanded: btn(panel)?.getAttribute('aria-expanded') ?? null,
+        } : null,
+        test: test ? {
+            failures: test.querySelectorAll('[data-test-failure]').length,
+            message: message?.textContent ?? null,
+            button: btn(test)?.textContent ?? null,
+            expanded: btn(test)?.getAttribute('aria-expanded') ?? null,
+        } : null,
+    };
+`);
+
+const clickMore = (text) => probe(`rowOf(${JSON.stringify(text)})?.querySelector('[data-more-lines]')?.click(); return true;`);
+
+// C1 expanded: "N more lines" lifts the cap in place and reads "Show less", which puts it back; the Tests card's
+// clamped message expands whole the same way
+async function expandSteps(h, label, host) {
+    await showAt(h, host, BODIES);
+    await openAll(h);
+    const before = await h.ev(EXPAND_STATE);
+    await h.ev(clickMore("git status --short"));
+    await h.ev(clickMore("Run the memadmit tests"));
+    await sleep(MOTION_MS);
+    const open = await h.ev(EXPAND_STATE);
+    await h.ev(probe(`rowOf('Run the memadmit tests')?.scrollIntoView({ block: "start" }); return true;`));
+    await sleep(200);
+    await h.shot(`cdp-shots/transcript-census-steps-expanded-${label}.png`);
+    await h.ev(clickMore("git status --short"));
+    await h.ev(clickMore("Run the memadmit tests"));
+    await sleep(MOTION_MS);
+    const after = await h.ev(EXPAND_STATE);
+    const whole = FAILURE_MESSAGE.join(NL);
+    const clamped = FAILURE_MESSAGE.slice(0, CLAMPED_LINES).join(NL);
+    const hiddenLines = FAILURE_MESSAGE.length - CLAMPED_LINES;
+    return [
+        {
+            step: `[${label}] #51 C1 expand: "2 more lines" shows all 22 lines in place and reads "Show less"; Show less cuts back to 20`,
+            ok:
+                before?.body?.lines === 20 &&
+                before.body.button === "2 more lines" &&
+                before.body.expanded === "false" &&
+                open?.body?.lines === 22 &&
+                open.body.button === "Show less" &&
+                open.body.expanded === "true" &&
+                after?.body?.lines === 20 &&
+                after.body.button === "2 more lines",
+            detail: JSON.stringify({ before: before?.body, open: open?.body, after: after?.body }),
+        },
+        {
+            step: `[${label}] #0 C2 expand: a multi-line failure is clamped to ${CLAMPED_LINES} lines with "${hiddenLines} more lines"; expanded it shows whole, Show less clamps it again`,
+            ok:
+                before?.test?.message === clamped &&
+                before.test.button === `${hiddenLines} more lines` &&
+                before.test.failures === TEST_NAMES.length &&
+                open?.test?.message === whole &&
+                open.test.button === "Show less" &&
+                open.test.expanded === "true" &&
+                open.test.failures === TEST_NAMES.length &&
+                after?.test?.message === clamped &&
+                after.test.button === `${hiddenLines} more lines`,
+            detail: JSON.stringify({ before: before?.test, open: open?.test, after: after?.test }),
+        },
+    ];
 }
 
 export const transcriptCensusSteps = {
@@ -766,11 +778,10 @@ export const transcriptCensusSteps = {
             steps.push(...(await mainSteps(h, label, host)));
             steps.push(...(await statusSteps(h, label, host)));
             steps.push(...(await bodySteps(h, label, host)));
-            steps.push(await collapsedStep(h, label, host));
             steps.push(await narrowedPathStep(h, label, host));
             steps.push(await fallbackStep(h, label, host));
+            steps.push(...(await expandSteps(h, label, host)));
         }
-        steps.push(await modalStep(h));
         return steps;
     },
     teardown(h) {

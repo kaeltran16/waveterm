@@ -360,7 +360,7 @@ const STATUS_STATE = probe(`
     return {
         text: view.textContent,
         pills: [...view.querySelectorAll('[data-task-pill]')].map((p) => p.getAttribute('data-task-pill')),
-        rawFooter: view.textContent.includes('Open full view'),
+        fullView: view.textContent.includes('Open full view'),
     };
 `);
 
@@ -428,7 +428,7 @@ async function fullSteps(h) {
             status.view != null &&
             includesAll(status.view.text, ["Running", "1 of 4 done", "parallelism 3", "as of now", "162e724", "in review", "idle 2m", "asks"]) &&
             JSON.stringify(status.view.pills) === JSON.stringify(["landed", "running", "review", "asks"]) &&
-            status.view.rawFooter,
+            status.view.fullView === false,
         detail: JSON.stringify(status),
     });
 

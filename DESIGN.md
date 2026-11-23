@@ -415,6 +415,11 @@ the tokens above.
   step rows (title, command in mono, exit chip, time, chevron) that open to a structured body. A finished stretch of
   three or more steps folds into one "Worked for N" line. Arc's own messages (wakes, briefs, brainstorm lines) are
   centred events, never user bubbles. The message box is a pill with the model and permission chips inside it.
+- **Step bodies expand in place** — an opened step's body (command output, a read, a grep, a diff, skill arguments,
+  an ask, the Tests and git diff cards, a wsh view's raw output) is cut at 20 whole lines, and an "N more lines"
+  button under it lifts the cut inside the transcript; expanded it reads "Show less". A Tests card clamps each
+  failure's message to 3 lines and expands to every failure with its whole message. A body that fits draws no button
+  and no footer strip. No step body opens a modal or the workspace pane: the reading stays where the run is.
 - **Rendered view only** — a thinking-only message is a muted line between the steps around it. A file path in a
   reply is an accent link that ellipsizes inside the column and stays selectable; a click docks the Code peek on
   it under the transcript.

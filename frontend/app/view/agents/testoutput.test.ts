@@ -20,6 +20,19 @@ describe("parseTestOutput go test -json", () => {
             Action: "output",
             Package: "pkg/jarvis",
             Test: "TestPlanParseFencedBullet",
+            Output: "        the fence opened in a bullet\n",
+        }),
+        J({ Action: "output", Package: "pkg/jarvis", Test: "TestPlanParseFencedBullet", Output: "debug: 1 task\n" }),
+        J({
+            Action: "output",
+            Package: "pkg/jarvis",
+            Test: "TestPlanParseFencedBullet",
+            Output: '    plan_test.go:91: want task 2 named "Land"\n',
+        }),
+        J({
+            Action: "output",
+            Package: "pkg/jarvis",
+            Test: "TestPlanParseFencedBullet",
             Output: "--- FAIL: TestPlanParseFencedBullet (0.00s)\n",
         }),
         J({ Action: "fail", Package: "pkg/jarvis", Test: "TestPlanParseFencedBullet", Elapsed: 0 }),
@@ -33,7 +46,7 @@ describe("parseTestOutput go test -json", () => {
         J({ Action: "pass", Package: "pkg/wstore", Elapsed: 0.1 }),
     ].join("\n");
 
-    it("counts tests and lists the failure with its package, message and location", () => {
+    it("counts tests and lists the failure with its package, whole message and first location", () => {
         expect(parseTestOutput(out)).toEqual({
             runner: "go",
             unit: "test",
@@ -44,7 +57,8 @@ describe("parseTestOutput go test -json", () => {
                 {
                     pkg: "pkg/jarvis",
                     test: "TestPlanParseFencedBullet",
-                    message: "want 3 tasks, got 1",
+                    message:
+                        'want 3 tasks, got 1\nthe fence opened in a bullet\ndebug: 1 task\nplan_test.go:91: want task 2 named "Land"',
                     loc: "plan_test.go:88",
                 },
             ],
@@ -84,7 +98,7 @@ describe("parseTestOutput go test -v", () => {
         "ok  \tpkg/wstore\t0.101s",
     ].join("\n");
 
-    it("counts tests and attributes the failure to the package line that follows it", () => {
+    it("counts tests and attributes the failure, its continuation line included, to the package line after it", () => {
         expect(parseTestOutput(out)).toEqual({
             runner: "go",
             unit: "test",
@@ -95,7 +109,7 @@ describe("parseTestOutput go test -v", () => {
                 {
                     pkg: "pkg/jarvis",
                     test: "TestPlanParseFencedBullet",
-                    message: "want 3 tasks, got 1",
+                    message: "want 3 tasks, got 1\nmore detail",
                     loc: "plan_test.go:88",
                 },
             ],
@@ -117,11 +131,13 @@ describe("parseTestOutput go test -v", () => {
 });
 
 describe("parseTestOutput plain go test", () => {
-    it("counts packages, reads the failed test's message, and skips packages with no test files", () => {
+    it("counts packages, reads the failed test's whole message but not go's own lines, and skips packages with no test files", () => {
         const out = [
             "--- FAIL: TestPlanParseFencedBullet (0.00s)",
             "    plan_test.go:88: want 3 tasks, got 1",
+            "    plan_test.go:95: the fence opened twice",
             "FAIL",
+            "exit status 1",
             "FAIL\tpkg/jarvis\t0.214s",
             "ok  \tpkg/wstore\t0.101s",
             "ok  \tpkg/wshrpc\t(cached)",
@@ -138,7 +154,7 @@ describe("parseTestOutput plain go test", () => {
                 {
                     pkg: "pkg/jarvis",
                     test: "TestPlanParseFencedBullet",
-                    message: "want 3 tasks, got 1",
+                    message: "want 3 tasks, got 1\nplan_test.go:95: the fence opened twice",
                     loc: "plan_test.go:88",
                 },
             ],
@@ -172,8 +188,17 @@ describe("parseTestOutput vitest", () => {
         " ❯ frontend/b.test.ts:12:20",
         '     10|     it("adds two numbers", () => {',
         "",
-        " Test Files  1 failed | 1 passed (2)",
-        "      Tests  1 failed | 3 passed | 1 skipped (5)",
+        "⎯⎯⎯⎯⎯⎯⎯[1/2]⎯",
+        "",
+        " FAIL  frontend/c.test.ts > timeline > groups an approve",
+        "TypeError: Cannot read properties of undefined (reading 'actor')",
+        " ❯ entryFor frontend/c.ts:88:31",
+        " ❯ frontend/c.test.ts:31:24",
+        "",
+        "⎯⎯⎯⎯⎯⎯⎯[2/2]⎯",
+        "",
+        " Test Files  2 failed | 1 passed (3)",
+        "      Tests  2 failed | 3 passed | 1 skipped (6)",
         "   Start at  10:01:02",
         "   Duration  1.2s",
     ].join("\n");
@@ -182,29 +207,49 @@ describe("parseTestOutput vitest", () => {
         runner: "vitest",
         unit: "test",
         pass: 3,
-        fail: 1,
+        fail: 2,
         skip: 1,
         failures: [
             {
                 pkg: "frontend/b.test.ts",
                 test: "sums > adds two numbers",
-                message: "AssertionError: expected 3 to be 4 // Object.is equality",
+                message: "AssertionError: expected 3 to be 4 // Object.is equality\n\n- Expected\n+ Received",
                 loc: "frontend/b.test.ts:12",
+            },
+            {
+                pkg: "frontend/c.test.ts",
+                test: "timeline > groups an approve",
+                message:
+                    "TypeError: Cannot read properties of undefined (reading 'actor')\n ❯ entryFor frontend/c.ts:88:31",
+                loc: "frontend/c.test.ts:31",
             },
         ],
     };
 
-    it("reads the summary counts and the failure block", () => {
+    it("reads the summary counts and each failure's whole block, up to its bare location line", () => {
         expect(parseTestOutput(out)).toEqual(want);
     });
 
     it("strips ANSI colors first", () => {
         const colored = out
             .replace(" FAIL ", "\x1b[41m\x1b[1m FAIL \x1b[22m\x1b[49m")
-            .replace("1 failed |", "\x1b[1m\x1b[31m1 failed\x1b[39m\x1b[22m\x1b[2m |\x1b[22m")
+            .replace("2 failed |", "\x1b[1m\x1b[31m2 failed\x1b[39m\x1b[22m\x1b[2m |\x1b[22m")
             .replace(" ❯ frontend/b.test.ts:12:20", "\x1b[36m ❯ frontend/b.test.ts:\x1b[2m12:20\x1b[22m\x1b[39m");
         expect(colored).not.toBe(out);
         expect(parseTestOutput(colored)).toEqual(want);
+    });
+
+    it("ends a block cut before its location line at the summary", () => {
+        const cut = [
+            " FAIL  a.test.ts > x",
+            "Error: boom",
+            "",
+            " Test Files  1 failed (1)",
+            "      Tests  1 failed (1)",
+        ];
+        expect(parseTestOutput(cut.join("\n"))?.failures).toEqual([
+            { pkg: "a.test.ts", test: "x", message: "Error: boom" },
+        ]);
     });
 
     it("reads a passing run with no failures", () => {
