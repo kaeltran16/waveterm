@@ -58,7 +58,6 @@ describe("attachBrainstorm", () => {
             historyOpen: false,
             boards: [],
             base: null,
-            turn: { read: [], canvases: {} },
             sent: null,
             picks: {},
             sentCheckAt: null,

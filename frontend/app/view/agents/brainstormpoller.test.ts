@@ -11,14 +11,12 @@ import {
     listAllOpenBrainstorms,
     listOpenBrainstorms,
     pollBrainstormOnce,
-    readTurnCanvases,
     reconcileBrainstorms,
     settleBrainstorm,
     terminalAnswerStopsJudge,
     type BrainstormIO,
 } from "./brainstormpoller";
 import type { BrainstormState } from "./brainstormstore";
-import { boardsFromCanvasJson } from "./canvasmodel";
 
 const PATH = "/p/.superpowers/brainstorm/t/brainstorm.json";
 const BASE = "http://127.0.0.1:5005/canvas/tok";
@@ -40,7 +38,6 @@ function state(over: Partial<BrainstormState> = {}): BrainstormState {
         historyOpen: false,
         boards: [],
         base: null,
-        turn: { read: [], canvases: {} },
         sent: null,
         picks: {},
         sentCheckAt: null,
@@ -423,74 +420,5 @@ describe("listAllOpenBrainstorms", () => {
             ["b", "/b", "Y"],
             ["a", "/a", "X"],
         ]);
-    });
-});
-
-describe("readTurnCanvases", () => {
-    const page = { canvas: "lag", name: "Page.dc.html" };
-    const other = { canvas: "who", name: "Who.dc.html" };
-
-    it("does no IO without boards", async () => {
-        const { io, calls } = fakeIO({});
-        expect(await readTurnCanvases(state(), [], io)).toBeNull();
-        expect(calls.serves).toEqual([]);
-        expect(calls.canvasJson).toEqual([]);
-    });
-
-    it("serves the design folder on the first board and reads its canvas.json", async () => {
-        const { io, calls } = fakeIO({});
-        const res = await readTurnCanvases(state(), [page], io);
-        expect(calls.serves).toEqual(["/p/.superpowers/design"]);
-        expect(calls.canvasJson).toEqual([`${BASE}/lag/project/canvas.json`]);
-        expect(res?.base).toBe(BASE);
-        expect(res?.turn.read).toEqual(["lag/Page.dc.html"]);
-        expect(res?.turn.canvases.lag).toEqual(
-            boardsFromCanvasJson({ boards: { "Main.dc.html": { x: 0, y: 0, w: 1200, h: 800 } } })
-        );
-    });
-
-    it("does no IO when every board was read", async () => {
-        const { io, calls } = fakeIO({});
-        const s = state({ base: BASE, turn: { read: ["lag/Page.dc.html"], canvases: { lag: [] } } });
-        expect(await readTurnCanvases(s, [page], io)).toBeNull();
-        expect(calls.serves).toEqual([]);
-        expect(calls.canvasJson).toEqual([]);
-    });
-
-    it("re-reads a canvas for a new board on it and keeps the untouched canvases", async () => {
-        const { io, calls } = fakeIO({});
-        const kept = boardsFromCanvasJson(undefined);
-        const s = state({
-            base: BASE,
-            turn: { read: ["lag/Page.dc.html", "who/Who.dc.html"], canvases: { lag: [], who: kept } },
-        });
-        const res = await readTurnCanvases(s, [page, other, { canvas: "lag", name: "Two.dc.html" }], io);
-        expect(calls.canvasJson).toEqual([`${BASE}/lag/project/canvas.json`]);
-        expect(res?.turn.read).toEqual(["lag/Page.dc.html", "who/Who.dc.html", "lag/Two.dc.html"]);
-        expect(res?.turn.canvases.who).toBe(kept);
-        expect(res?.turn.canvases.lag).not.toEqual([]);
-    });
-
-    it("reads a second canvas beside the first", async () => {
-        const { io } = fakeIO({});
-        const first = await readTurnCanvases(state(), [page], io);
-        const s = state({ ...first });
-        const res = await readTurnCanvases(s, [page, other], io);
-        expect(Object.keys(res!.turn.canvases).sort()).toEqual(["lag", "who"]);
-        expect(res?.turn.read).toEqual(["lag/Page.dc.html", "who/Who.dc.html"]);
-    });
-
-    it("marks nothing read when wavesrv refuses to serve", async () => {
-        const { io, calls } = fakeIO({}, null);
-        expect(await readTurnCanvases(state(), [page], io)).toBeNull();
-        expect(calls.canvasJson).toEqual([]);
-    });
-
-    it("falls back to default sizes when canvas.json is missing", async () => {
-        const { io } = fakeIO({});
-        io.canvasJson = async () => undefined;
-        const res = await readTurnCanvases(state(), [page], io);
-        expect(res?.turn.canvases.lag).toEqual(boardsFromCanvasJson(undefined));
-        expect(res?.turn.read).toEqual(["lag/Page.dc.html"]);
     });
 });

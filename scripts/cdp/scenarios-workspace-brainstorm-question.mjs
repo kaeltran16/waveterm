@@ -250,7 +250,7 @@ export const workspaceBrainstormQuestion = wbsScenario(NAME, async (h, ctx, step
                 badges: rows.map((r) => r.querySelector("[data-brainstorm-option] > span")?.textContent.trim() ?? null),
                 tagInLine: !!t && !!l && tm >= l.top && tm <= l.bottom && t.left >= l.right - 1,
                 chips: rows.map((r) => [...r.querySelectorAll("[data-brainstorm-board-chip]")].map((c) => c.getAttribute("data-brainstorm-board-chip"))),
-                thumbs: pane?.querySelectorAll("[data-brainstorm-thumb], [data-brainstorm-question] iframe").length ?? null,
+                thumbs: pane?.querySelectorAll("[data-brainstorm-question] iframe").length ?? null,
                 sideways: (${SIDEWAYS})(pane),
             };
         })()`);

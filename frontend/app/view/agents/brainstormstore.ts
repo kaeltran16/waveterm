@@ -55,10 +55,6 @@ export type BrainstormState = {
     boards: CanvasBoard[];
     // where wavesrv serves the project's design folder; null until the poller has asked it to
     base: string | null;
-    // the boards this turn wrote, sized from their canvas.json: `canvases` holds canvas.json's boards for each canvas
-    // the turn wrote on, and `read` the board keys (`<canvas>/<name>`) they were read for, so the poller does IO only
-    // when the turn writes a board it has not read. Apart from `boards`, which stays the file's own canvas.
-    turn: { read: string[]; canvases: Record<string, CanvasBoard[]> };
     // the last line Arc sent, until the agent has taken it (the poller settles it)
     sent: SentLine | null;
     // keep, put back and confirm picks not sent yet: here, not in the pane, so they survive a surface switch
@@ -166,7 +162,6 @@ export function attachBrainstorm(
         historyOpen: false,
         boards: [],
         base: null,
-        turn: { read: [], canvases: {} },
         sent: null,
         picks: {},
         sentCheckAt: null,

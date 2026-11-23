@@ -56,7 +56,6 @@ const state = (f: BrainstormFile | null, over: Partial<BrainstormState> = {}): B
     historyOpen: false,
     boards: [],
     base: null,
-    turn: { read: [], canvases: {} },
     sent: null,
     picks: {},
     sentCheckAt: null,

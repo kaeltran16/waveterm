@@ -38,11 +38,9 @@ import {
     updateBrainstorm,
     type BrainstormState,
 } from "./brainstormstore";
-import { boardKey, turnBoards, type TurnBoard } from "./brainstormworking";
 import { boardsFromCanvasJson, boardUrl, canvasDesignDir } from "./canvasmodel";
 import { tauriCanvasIO } from "./canvaspoller";
 import { tauriFileIO } from "./fileio";
-import { entriesAtomFor } from "./livetranscriptatoms";
 
 const CANVAS_JSON = "canvas.json";
 const HTTP_OK = 200;
@@ -149,33 +147,6 @@ async function readBoards(
         return null;
     }
     return { base, boards: boardsFromCanvasJson(await io.canvasJson(boardUrl(base, f.canvas, CANVAS_JSON))) };
-}
-
-// the sizes of the boards the agent wrote this turn, from canvas.json: they come from the transcript, not from
-// brainstorm.json, so this runs every tick and does IO only for a board it has not read. A refused serve marks nothing
-// read, so the next poll tries again.
-export async function readTurnCanvases(
-    s: BrainstormState,
-    boards: TurnBoard[],
-    io: BrainstormIO
-): Promise<Pick<BrainstormState, "base" | "turn"> | null> {
-    const unread = boards.filter((b) => !s.turn.read.includes(boardKey(b)));
-    if (unread.length === 0) {
-        return null;
-    }
-    const base = s.base ?? (await io.serve(canvasDesignDir(s.cwd)));
-    if (base == null) {
-        return null;
-    }
-    const names = [...new Set(unread.map((b) => b.canvas))];
-    const read = await Promise.all(
-        names.map(async (canvas) => boardsFromCanvasJson(await io.canvasJson(boardUrl(base, canvas, CANVAS_JSON))))
-    );
-    const canvases = { ...s.turn.canvases };
-    names.forEach((canvas, i) => {
-        canvases[canvas] = read[i];
-    });
-    return { base, turn: { read: [...s.turn.read, ...unread.map(boardKey)], canvases } };
 }
 
 async function readFile(path: string, io: BrainstormIO): Promise<{ file: BrainstormFile } | { error: string }> {
@@ -309,8 +280,6 @@ async function pollAndMerge(agentId: string, agent: AgentVM | undefined, io: Bra
         return;
     }
     const patch = await pollBrainstormOnce(s, io);
-    const boards = turnBoards(globalStore.get(entriesAtomFor(agentId)), s.cwd).boards;
-    Object.assign(patch, await readTurnCanvases({ ...s, ...patch }, boards, io));
     const cur = getBrainstorm(agentId);
     if (cur == null || cur.path !== s.path) {
         return;
