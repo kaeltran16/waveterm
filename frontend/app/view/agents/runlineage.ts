@@ -558,6 +558,7 @@ export const PLAN_REVIEWER_ROLE = "plan-reviewer";
 const STAGE_LABELS: Record<string, string> = {
     [PLAN_REVIEWER_ROLE]: "Plan review",
     verifier: "Final verification",
+    "end-reviewer": "End review",
     [BUILDER_CHECK_ROLE]: "Builder check",
     [BRAINSTORM_JUDGE_ROLE]: "Judge",
 };

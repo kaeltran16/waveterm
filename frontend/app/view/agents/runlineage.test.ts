@@ -529,6 +529,7 @@ describe("stage sessions", () => {
     it("titles a stage row by its stage", () => {
         expect(stageLabel("plan-reviewer")).toBe("Plan review");
         expect(stageLabel("verifier")).toBe("Final verification");
+        expect(stageLabel("end-reviewer")).toBe("End review");
     });
 });
 

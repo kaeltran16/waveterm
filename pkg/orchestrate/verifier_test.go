@@ -234,6 +234,26 @@ func TestChildRunIDsIncludesTheVerifier(t *testing.T) {
 	}
 }
 
+// the end review is a judging session too: a cancel or a failed tick must stop it, and a stage without one lists what it did
+func TestJudgingSessionListsIncludeTheEndReviewer(t *testing.T) {
+	withEnd := &waveobj.TaskGroup{Final: &waveobj.FinalStage{VerifierRunID: "verifier-run", EndReview: &waveobj.FinalEndReview{RunID: "end-run"}}}
+	noRunYet := &waveobj.TaskGroup{Final: &waveobj.FinalStage{VerifierRunID: "verifier-run", EndReview: &waveobj.FinalEndReview{}}}
+	for name, list := range map[string]func(*waveobj.TaskGroup) []string{"childRunIDs": childRunIDs, "sessionRunIDs": sessionRunIDs} {
+		if got := list(withEnd); !slices.Equal(got, []string{"verifier-run", "end-run"}) {
+			t.Errorf("%s with an end review = %q", name, got)
+		}
+		if got := list(noRunYet); !slices.Equal(got, []string{"verifier-run"}) {
+			t.Errorf("%s with an end review that has no run = %q", name, got)
+		}
+	}
+}
+
+func TestPlanReviewLensTitleNamesTheLightReview(t *testing.T) {
+	if got := PlanReviewLensTitle(PlanReviewLens_Light); got != "Light review" {
+		t.Fatalf("PlanReviewLensTitle(light) = %q", got)
+	}
+}
+
 func TestTheVerifierBriefNamesWhatPassedAndItsBudget(t *testing.T) {
 	g := &waveobj.TaskGroup{
 		RunID: "run-1", Check: "go vet ./...", Verify: "node scripts/verify.mjs ./pkg/...", FinalCmd: "node scripts/cdp/final-verify.mjs",

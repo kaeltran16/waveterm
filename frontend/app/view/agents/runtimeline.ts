@@ -149,6 +149,7 @@ function eventKindTitle(kind: string): string {
 const STAGE_ROLE_TITLE: Record<string, string> = {
     "plan-reviewer": "Plan reviewer started",
     verifier: "Final verifier started",
+    "end-reviewer": "End reviewer started",
 };
 
 // PLAN_REVIEW_LENS_TITLE names each plan reviewer by its lens: the one map the graph, timeline and tree read.
@@ -161,6 +162,7 @@ const PLAN_REVIEW_LENS_TITLE: Record<string, string> = {
     tests: "Tests and commands",
     final: "Final coverage",
     followup: "Round-2 follow-up",
+    light: "Light review",
 };
 
 export function planReviewLensTitle(lens: string): string {
@@ -173,6 +175,7 @@ const FINAL_STEP_TITLE: Record<string, string> = {
     check: "Final Check",
     verify: "Final Verify",
     final: "Final command",
+    review: "End review",
 };
 
 function finalStepOf(event: RunEvent): { step: string; ok: boolean } {
