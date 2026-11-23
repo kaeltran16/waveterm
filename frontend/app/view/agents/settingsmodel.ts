@@ -522,13 +522,35 @@ export function vaultStatusLine(s: VaultStatusRtnData | null): string {
     return line;
 }
 
+export type VaultSyncOutcome = "synced" | "failed";
+export type VaultSyncMode = "idle" | "syncing" | VaultSyncOutcome;
+
+// how long the button shows a click's outcome before it reads Sync now again
+export const VAULT_SYNC_OUTCOME_HOLD_MS = 1800;
+
 // the Sync now button. `clicking` is the local in-flight flag, set before the RPC so the row reads
-// syncing at once; `status.running` also covers a sync started at launch or on window focus.
-export function vaultSyncButton(s: VaultStatusRtnData | null, clicking: boolean): { enabled: boolean; label: string } {
+// syncing at once; `status.running` also covers a sync started at launch or on window focus. `outcome` is
+// what the user's own click came to, held briefly so the button they pressed answers it.
+export function vaultSyncButton(
+    s: VaultStatusRtnData | null,
+    clicking: boolean,
+    outcome: VaultSyncOutcome | null
+): { enabled: boolean; label: string; mode: VaultSyncMode } {
     if (clicking || s?.running) {
-        return { enabled: false, label: "Syncing…" };
+        return { enabled: false, label: "Syncing…", mode: "syncing" };
     }
-    return { enabled: s != null && !s.off, label: "Sync now" };
+    if (outcome === "synced") {
+        return { enabled: true, label: "Synced", mode: "synced" };
+    }
+    return { enabled: s != null && !s.off, label: "Sync now", mode: outcome ?? "idle" };
+}
+
+// what a click's completed sync came to, from the status reloaded after it; null when that reload failed
+export function vaultSyncOutcome(reloaded: VaultStatusRtnData | null): VaultSyncOutcome | null {
+    if (reloaded == null) {
+        return null;
+    }
+    return reloaded.lasterror ? "failed" : "synced";
 }
 
 export const VAULT_STATUS_POLL_MS = 2000;

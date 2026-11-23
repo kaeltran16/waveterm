@@ -25,6 +25,7 @@ import {
     vaultStatusPollMs,
     vaultSyncButton,
     vaultSyncFailureNote,
+    vaultSyncOutcome,
     visibleRowIds,
     type SettingSectionDef,
 } from "./settingsmodel";
@@ -96,27 +97,55 @@ describe("vaultStatusLine", () => {
 
 describe("vaultSyncButton", () => {
     it("is disabled and reads Syncing… while a sync runs, from a click or from launch/focus", () => {
-        const syncing = { enabled: false, label: "Syncing…" };
-        expect(vaultSyncButton({ running: true }, false)).toEqual(syncing);
-        expect(vaultSyncButton({}, true)).toEqual(syncing);
+        const syncing = { enabled: false, label: "Syncing…", mode: "syncing" };
+        expect(vaultSyncButton({ running: true }, false, null)).toEqual(syncing);
+        expect(vaultSyncButton({}, true, null)).toEqual(syncing);
+        // a new click's sync replaces the last one's held outcome
+        expect(vaultSyncButton({}, true, "synced")).toEqual(syncing);
     });
 
     it("is disabled but keeps its label when sync is off", () => {
-        const off = { enabled: false, label: "Sync now" };
-        expect(vaultSyncButton({ off: "no-git" }, false)).toEqual(off);
-        expect(vaultSyncButton({ off: "no-remote" }, false)).toEqual(off);
+        const off = { enabled: false, label: "Sync now", mode: "idle" };
+        expect(vaultSyncButton({ off: "no-git" }, false, null)).toEqual(off);
+        expect(vaultSyncButton({ off: "no-remote" }, false, null)).toEqual(off);
     });
 
     it("stays enabled after a failed sync so the user can retry", () => {
-        expect(vaultSyncButton({ lasterror: "push rejected" }, false)).toEqual({ enabled: true, label: "Sync now" });
+        expect(vaultSyncButton({ lasterror: "push rejected" }, false, "failed")).toEqual({
+            enabled: true,
+            label: "Sync now",
+            mode: "failed",
+        });
+    });
+
+    it("reads Synced while a click's success is held", () => {
+        expect(vaultSyncButton({ lastsuccessts: Date.now() }, false, "synced")).toEqual({
+            enabled: true,
+            label: "Synced",
+            mode: "synced",
+        });
     });
 
     it("is enabled when idle", () => {
-        expect(vaultSyncButton({ lastsuccessts: Date.now() }, false)).toEqual({ enabled: true, label: "Sync now" });
+        expect(vaultSyncButton({ lastsuccessts: Date.now() }, false, null)).toEqual({
+            enabled: true,
+            label: "Sync now",
+            mode: "idle",
+        });
     });
 
     it("is disabled until the status loads", () => {
-        expect(vaultSyncButton(null, false)).toEqual({ enabled: false, label: "Sync now" });
+        expect(vaultSyncButton(null, false, null)).toEqual({ enabled: false, label: "Sync now", mode: "idle" });
+    });
+});
+
+describe("vaultSyncOutcome", () => {
+    it.each([
+        ["a clean status", { lastsuccessts: 1 }, "synced"],
+        ["a status with the sync's error", { lasterror: "push rejected" }, "failed"],
+        ["no status (the reload failed)", null, null],
+    ] as const)("reads %s", (_name, reloaded, want) => {
+        expect(vaultSyncOutcome(reloaded)).toBe(want);
     });
 });
 
