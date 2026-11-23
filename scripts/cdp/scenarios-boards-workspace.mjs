@@ -515,7 +515,7 @@ export const boardsWorkspace = {
                 q(s.buttons) === q(["Stop"]) &&
                 elapsed.size > 1 &&
                 ticks.every((l) => l?.flash !== "changeFlash");
-            return { ok, detail: q({ s, revealing: revealing.length, elapsed: [...elapsed] }) };
+            return { ok, detail: q({ s, revealing: revealing.length, frames: frames.length, shown: frames.findIndex((l) => l != null), elapsed: [...elapsed] }) };
         });
 
         await run("W1 failed: the drawing turn failing in place keeps one line whose detail washes once (moment 14), with the error and Retry; Retry re-asks that turn", async () => {
@@ -598,7 +598,7 @@ export const boardsWorkspace = {
                 form &&
                 surface === "Boards" &&
                 back;
-            return { ok, detail: q({ s, cleared, choice, collapsing: collapsing.length, form, surface, back }) };
+            return { ok, detail: q({ s, cleared, choice, collapsing: collapsing.length, frames: frames.length, moved: frames.findIndex((l) => l == null || l.height < final), form, surface, back }) };
         });
 
         await run("W1 narrow window: at 1000px wide the bar fits the pane: the facts at its end and the agent chip's label are truncated, the input group keeps at least 200px, and Ask is fully visible", async () => {
