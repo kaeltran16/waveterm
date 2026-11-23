@@ -295,7 +295,7 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
                         {loadError ? (
                             "won't open"
                         ) : shapesNow != null ? (
-                            <Facts text={boardFacts(board, shapesNow, now)} />
+                            <Facts text={boardFacts(board, shapesNow, now, view.drawings)} />
                         ) : null}
                     </span>
                     {talk != null ? (
@@ -361,7 +361,7 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
             <div className="flex min-h-0 flex-1">
                 {column}
                 <div className="flex min-w-0 flex-1 flex-col">
-                    {showCanvas && !loadError ? <BoardStrip boardId={board.id} /> : null}
+                    {showCanvas && !loadError ? <BoardStrip boardId={board.id} onPick={view.onPickDrawing} /> : null}
                     <section
                         aria-label={board != null && showCanvas ? `Board: ${board.name}` : "Board"}
                         className="relative min-h-0 flex-1 overflow-hidden bg-background"

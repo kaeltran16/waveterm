@@ -3,8 +3,9 @@
 
 // The open board: plain Excalidraw over the board file, in view mode unless the board's Edit switch is on. It loads
 // the file, autosaves your edits under the rev it read, and takes the drawer's answers live (registerLiveBoard), so an
-// answer landing while you edit goes through updateScene instead of overwriting the file under you. Loaded lazily by
-// the Boards surface: Excalidraw's runtime is ~2 MB.
+// answer landing while you edit goes through updateScene instead of overwriting the file under you. The view follows
+// the newest drawing while it is the one in view: a new drawing landing then is fitted, and otherwise marked new.
+// Loaded lazily by the Boards surface: Excalidraw's runtime is ~2 MB.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -17,11 +18,24 @@ import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import "./boardcanvas.css";
 import { landAnswer } from "./boardconvert";
-import { parseBoardFile, serializeBoard, type BoardScene } from "./boardmodel";
-import { boardEditingAtom, boardViewportAtom, registerBoardEscape, registerLiveBoard } from "./boardstore";
+import { drawingInView, drawingsOf, isFrame } from "./boarddrawings";
+import { parseBoardFile, serializeBoard, wrapEarlier, type BoardScene } from "./boardmodel";
+import {
+    boardDrawingsAtom,
+    boardEditingAtom,
+    boardViewportAtom,
+    registerBoardEscape,
+    registerLiveBoard,
+    type BoardDrawings,
+    type BoardViewport,
+} from "./boardstore";
 
 const AUTOSAVE_MS = 500;
 const SAVE_TRIES = 3;
+// a fitted drawing covers this share of the view, so its edges and title clear the canvas's edge
+const FIT_VIEW_SHARE = 0.9;
+// a small drawing is fitted at its drawn size, not blown up
+const FIT_MAX_ZOOM = 1;
 
 // what the surface drives on the canvas
 export interface BoardCanvasControl {
@@ -30,6 +44,8 @@ export interface BoardCanvasControl {
     // saves a pending autosave now, so the drawer reads the board as you see it
     flush(): Promise<void>;
     elements(): readonly ExcalidrawElement[];
+    // moves the view to that drawing, fitted
+    fitDrawing(id: string): void;
 }
 
 export interface BoardCanvasProps {
@@ -82,6 +98,31 @@ function errorText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
 }
 
+function sameRow(a: BoardDrawings | null, b: BoardDrawings): boolean {
+    return (
+        a != null &&
+        a.inView === b.inView &&
+        a.fresh.join(",") === b.fresh.join(",") &&
+        a.drawings.length === b.drawings.length &&
+        a.drawings.every(
+            (d, i) => d.id === b.drawings[i].id && d.n === b.drawings[i].n && d.title === b.drawings[i].title
+        )
+    );
+}
+
+// how the canvas opens: a board left following (or opened for the first time) fits its newest drawing, any other
+// returns to where it was left; one with neither scrolls to its content
+interface Opening {
+    fit: string | null;
+    viewport: BoardViewport | null;
+}
+
+function opening(scene: BoardScene, viewport: BoardViewport | null): Opening {
+    const newest = drawingsOf(scene.elements).at(-1)?.id ?? null;
+    const fit = viewport == null || viewport.following ? newest : null;
+    return { fit, viewport: fit == null ? viewport : null };
+}
+
 export default function BoardCanvas({
     channelId,
     boardId,
@@ -109,6 +150,15 @@ export default function BoardCanvas({
     const readyRef = useRef<Deferred | null>(null);
     const editing = useAtomValue(boardEditingAtom(boardId));
     const editingRef = useRef(editing);
+    // read once as the file loads, so the first render and the first frame agree on it
+    const openingRef = useRef<Opening>({ fit: null, viewport: null });
+    // the load wrapped an old board's shapes in an "Earlier drawings" frame, saved once the canvas has it
+    const wrappedRef = useRef(false);
+    // as of the last change: the drawing in view, and whether it is the newest
+    const inViewRef = useRef<string | null>(null);
+    const followingRef = useRef(true);
+    // the first frame has placed the view where the board opens; until then a change shows no drawing in view
+    const openedRef = useRef(false);
 
     const ref = { channelid: channelId, boardid: boardId };
 
@@ -178,6 +228,71 @@ export default function BoardCanvas({
         }
     }
 
+    function fitDrawing(id: string): void {
+        const api = apiRef.current;
+        const frame = api?.getSceneElements().find((el) => el.id === id && isFrame(el));
+        if (frame == null) {
+            return;
+        }
+        api.scrollToContent(frame, {
+            fitToViewport: true,
+            viewportZoomFactor: FIT_VIEW_SHARE,
+            maxZoom: FIT_MAX_ZOOM,
+            animate: false,
+        });
+    }
+
+    // the drawings row, the drawing in view and following, from the scene and view as they are now. A hidden
+    // canvas (its tab off-screen) has no view, so it leaves them as the shown one set them
+    function publishView(elements: readonly ExcalidrawElement[], appState: AppState): void {
+        if (appState.width === 0 || appState.height === 0) {
+            return;
+        }
+        const drawings = drawingsOf(elements);
+        const inView = drawingInView(drawings, {
+            scrollX: appState.scrollX,
+            scrollY: appState.scrollY,
+            zoom: appState.zoom.value,
+            width: appState.width,
+            height: appState.height,
+        });
+        const following = drawings.length === 0 || inView === drawings.at(-1).id;
+        inViewRef.current = inView;
+        followingRef.current = following;
+        const vpAtom = boardViewportAtom(boardId);
+        const vp = globalStore.get(vpAtom);
+        if (
+            vp?.scrollX !== appState.scrollX ||
+            vp?.scrollY !== appState.scrollY ||
+            vp?.zoom !== appState.zoom.value ||
+            vp?.following !== following
+        ) {
+            globalStore.set(vpAtom, {
+                scrollX: appState.scrollX,
+                scrollY: appState.scrollY,
+                zoom: appState.zoom.value,
+                following,
+            });
+        }
+        const rowAtom = boardDrawingsAtom(boardId);
+        const prev = globalStore.get(rowAtom);
+        const ids = new Set(drawings.map((d) => d.id));
+        const row: BoardDrawings = {
+            drawings: drawings.map(({ id, n, title }) => ({ id, n, title })),
+            inView,
+            fresh: (prev?.fresh ?? []).filter((id) => id !== inView && ids.has(id)),
+        };
+        if (!sameRow(prev, row)) {
+            globalStore.set(rowAtom, row);
+        }
+    }
+
+    function markFresh(id: string): void {
+        globalStore.set(boardDrawingsAtom(boardId), (prev) =>
+            prev == null || prev.fresh.includes(id) ? prev : { ...prev, fresh: [...prev.fresh, id] }
+        );
+    }
+
     function clearSelectionAndTool(): void {
         const api = apiRef.current;
         if (api == null) {
@@ -211,8 +326,23 @@ export default function BoardCanvas({
             if (api == null) {
                 throw new Error("the board is not open");
             }
-            const { scene, shapeIds } = landAnswer(current(), answer, Date.now());
+            const before = current();
+            const had = new Set(drawingsOf(before.elements).map((d) => d.id));
+            // as the person left the view: landing a drawing changes which one is newest
+            const following = followingRef.current;
+            const inView = inViewRef.current;
+            const { scene, shapeIds, drawingId } = landAnswer(before, answer, Date.now());
             api.updateScene({ elements: scene.elements, captureUpdate: CaptureUpdateAction.IMMEDIATELY });
+            if (!had.has(drawingId)) {
+                if (following) {
+                    fitDrawing(drawingId);
+                } else {
+                    markFresh(drawingId);
+                }
+            } else if (drawingId === inView) {
+                // an edit may have grown the drawing in view; one out of view stays out of it
+                fitDrawing(drawingId);
+            }
             await save();
             return shapeIds;
         });
@@ -220,6 +350,7 @@ export default function BoardCanvas({
             show,
             flush: () => flush().catch((e) => console.warn("boards: saving before an ask failed", boardId, e)),
             elements: () => apiRef.current?.getSceneElements() ?? [],
+            fitDrawing,
         };
         ownsEscapeRef.current = false;
         const escape = registerBoardEscape(clearSelectionAndTool);
@@ -227,10 +358,13 @@ export default function BoardCanvas({
         (async () => {
             try {
                 const read = await RpcApi.BoardReadCommand(TabRpcClient, ref);
-                const scene = parseBoardFile(read.data);
+                const parsed = parseBoardFile(read.data);
                 if (cancelled) {
                     return;
                 }
+                const scene = wrapEarlier(parsed, Date.now());
+                wrappedRef.current = scene !== parsed;
+                openingRef.current = opening(scene, globalStore.get(boardViewportAtom(boardId)));
                 revRef.current = read.rev;
                 sceneRef.current = scene;
                 setInitial(scene);
@@ -263,10 +397,19 @@ export default function BoardCanvas({
         }
         // Excalidraw hands the api over before it has restored the initial scene
         requestAnimationFrame(() => {
+            if (openingRef.current.fit != null) {
+                fitDrawing(openingRef.current.fit);
+            }
             readyRef.current?.resolve();
             const scene = current();
             sigRef.current = elementsSig(scene.elements);
+            openedRef.current = true;
+            publishView(scene.elements, api.getAppState());
             cbRef.current.onLoaded(scene);
+            if (wrappedRef.current) {
+                wrappedRef.current = false;
+                save().catch((e) => console.warn("boards: saving the earlier drawings' frame failed", boardId, e));
+            }
         });
     }
 
@@ -282,14 +425,8 @@ export default function BoardCanvas({
             ownsEscapeRef.current = owns;
             escapeRef.current?.setOwns(owns);
         }
-        const vpAtom = boardViewportAtom(boardId);
-        const vp = globalStore.get(vpAtom);
-        if (vp?.scrollX !== appState.scrollX || vp?.scrollY !== appState.scrollY || vp?.zoom !== appState.zoom.value) {
-            globalStore.set(vpAtom, {
-                scrollX: appState.scrollX,
-                scrollY: appState.scrollY,
-                zoom: appState.zoom.value,
-            });
+        if (openedRef.current) {
+            publishView(elements, appState);
         }
         const sig = elementsSig(elements);
         if (sigRef.current === "" || sig === sigRef.current || sceneRef.current == null) {
@@ -309,7 +446,7 @@ export default function BoardCanvas({
     if (initial == null) {
         return null;
     }
-    const viewport = globalStore.get(boardViewportAtom(boardId));
+    const { fit, viewport } = openingRef.current;
     return (
         <div className="arc-board absolute inset-0" data-board-canvas={boardId}>
             <Excalidraw
@@ -329,7 +466,7 @@ export default function BoardCanvas({
                             ? { scrollX: viewport.scrollX, scrollY: viewport.scrollY, zoom: { value: viewport.zoom } }
                             : {}),
                     } as Partial<AppState>,
-                    scrollToContent: viewport == null,
+                    scrollToContent: viewport == null && fit == null,
                 }}
                 UIOptions={{
                     canvasActions: {

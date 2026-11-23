@@ -517,6 +517,13 @@ describe("boardFacts", () => {
         expect(boardFacts(info({}), 3, NOW)).toBe("0 drawings · 3 shapes");
         expect(boardFacts(info({ questions: 1 }), 0, NOW)).toBe("0 drawings · 0 shapes");
     });
+
+    it("counts the canvas's drawings once it has loaded, so the facts agree with the drawings row", () => {
+        const listed = info({ questions: 2, drawings: 2, drawnts: at(15, 20) });
+        expect(boardFacts(listed, 5, NOW, 1)).toBe("1 drawing · 5 shapes · drawn 15:20");
+        expect(boardFacts(listed, 5, NOW, null)).toBe("2 drawings · 5 shapes · drawn 15:20");
+        expect(boardFacts(info({}), 0, NOW, 0)).toMatch(/^empty/);
+    });
 });
 
 describe("switcherRows", () => {

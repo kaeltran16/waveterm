@@ -52,6 +52,11 @@ const box = (x, y, text) => ({ type: "rectangle", x, y, width: 180, height: 70, 
 const FIRST_DRAWING = [box(0, 0, "Tauri shell"), box(260, 0, "wavesrv"), box(520, 0, "agents")];
 const SECOND_DRAWING = [box(260, 160, "pkg/orchestrate"), { type: "arrow", x: 350, y: 75, width: 0, height: 80 }];
 const SHAPES = FIRST_DRAWING.length + SECOND_DRAWING.length;
+// wider than the narrow tab at full size, so it shows whole only when the view fits it
+const LIVE_DRAWING = {
+    title: "Restarting a worker",
+    add: [box(0, 0, "crash"), box(260, 0, "supervisor"), box(520, 0, "restart"), box(780, 0, "resume")],
+};
 
 const SURF = `document.querySelector("[data-cockpit-surface-wrap]")`;
 const RV = `${SURF}?.querySelector("[data-rendered-view]")`;
@@ -414,7 +419,8 @@ export const boardsWorkspace = {
             }
         };
 
-        const facts = new RegExp(`^3 drawings · ${SHAPES} shapes · drawn ${HHMM}$`);
+        // its frameless shapes open as one drawing, Earlier drawings, and the facts count the row's drawings
+        const facts = new RegExp(`^1 drawing · ${SHAPES} shapes · drawn ${HHMM}$`);
 
         await run("W1 idle, 2 shapes selected: no header and no line; under the canvas the ask bar holds the bare agent chip, the Selected chip entering (moment 1), Ask the board, Ask, and the facts at its end", async () => {
             await polishWaitFor(h, `/shapes/.test(${BAR}?.querySelector("[data-board-facts]")?.textContent ?? "")`, WAIT_MS);
@@ -604,6 +610,53 @@ export const boardsWorkspace = {
             await polishNap(SETTLE_MS);
             const ok = s.bar && s.factsTruncated && s.groupPx >= MIN_BOX_PX && s.barFits && s.askVisible && s.chipTruncated;
             return { ok, detail: q(s) };
+        });
+
+        await run("W1 drawings row: in the narrow board tab the row shows the board's one drawing, Earlier drawings; a drawing landed through the page's live apply joins the row as current and lies wholly inside the tab's visible canvas", async () => {
+            const ROW = `[...(${TAB}?.querySelectorAll("[data-board-drawings] [data-board-drawing]") ?? [])]`;
+            const readRow = () =>
+                h.ev(`${ROW}.map((b) => ({
+                    id: b.getAttribute("data-board-drawing"),
+                    title: b.querySelector("[data-board-drawing-title]")?.textContent ?? "",
+                    current: b.getAttribute("aria-current") === "true",
+                }))`);
+            await h.cdp("Emulation.setDeviceMetricsOverride", NARROW);
+            await polishNap(SETTLE_MS);
+            const before = await readRow();
+            await page(
+                h,
+                `await B.liveBoardApply(${q(ctx.boardId)})({
+                    id: "fx-live-drawing", channelid: fx.channelId, boardid: ${q(ctx.boardId)}, turnid: "fx-live",
+                    add: ${q(JSON.stringify(LIVE_DRAWING.add))}, title: ${q(LIVE_DRAWING.title)}, ts: Date.now(),
+                });
+                return true;`
+            );
+            await polishWaitFor(h, `${ROW}.length === 2`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const after = await readRow();
+            const view = await h.ev(`(() => {
+                const a = ${TAB_APP}, s = a?.state;
+                const f = a?.scene.getNonDeletedElements().find((e) => e.id === ${q(after.at(-1)?.id ?? "")});
+                if (f == null) return null;
+                const z = s.zoom.value, left = (f.x + s.scrollX) * z, top = (f.y + s.scrollY) * z;
+                return { left, top, right: left + f.width * z, bottom: top + f.height * z, width: s.width, height: s.height };
+            })()`);
+            await h.shot(SHOT("W1", "drawings-row"));
+            await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
+            await polishNap(SETTLE_MS);
+            const ok =
+                before.length === 1 &&
+                before[0].title === "Earlier drawings" &&
+                before[0].current &&
+                after.length === 2 &&
+                after[1].title === LIVE_DRAWING.title &&
+                after[1].current &&
+                view != null &&
+                view.left >= 0 &&
+                view.top >= 0 &&
+                view.right <= view.width &&
+                view.bottom <= view.height;
+            return { ok, detail: q({ before, after, view }) };
         });
 
         await run("W2 expanded: Expand gives the turns column (the agent's request rows, the copied reply with Back to the transcript and Draw instead, the agent's request being drawn with its seconds) with no ask box, beside the full-width canvas with the ask bar under it; Back to the transcript returns to W1 with the drawing line", async () => {

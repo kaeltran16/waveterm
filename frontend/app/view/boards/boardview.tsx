@@ -16,9 +16,17 @@ import { lazy, Suspense, useEffect, useRef, useState, type MutableRefObject } fr
 import type { AgentsViewModel } from "../agents/agents";
 import { openTarget } from "../jarvis/openref";
 import type { BoardCanvasControl, BoardCanvasProps } from "./boardcanvas";
+import { askedDrawing } from "./boarddrawings";
 import type { BoardFormRequest } from "./boardformrequest";
 import { selectionLabel, shapeCount, type BoardScene } from "./boardmodel";
-import { boardEditingAtom, boardListAtom, boardTalkAtom, loadBoardList, loadBoardTalk } from "./boardstore";
+import {
+    boardDrawingsAtom,
+    boardEditingAtom,
+    boardListAtom,
+    boardTalkAtom,
+    loadBoardList,
+    loadBoardTalk,
+} from "./boardstore";
 
 // vite.config.ts (excalidrawFonts) serves Excalidraw's fonts from the app, under this path's fonts/
 const EXCALIDRAW_ASSET_PATH = "/excalidraw/";
@@ -84,12 +92,14 @@ export interface BoardView {
     shownTurnId: string | null;
     asking: boolean;
     shapes: number | null; // the canvas's shapes, once it has loaded
+    drawings: number | null; // the drawings row's count, once a canvas of the board has loaded
     canvasError: string | null;
     attempt: number; // a canvas retry remounts it
     controlRef: MutableRefObject<BoardCanvasControl | null>;
     onScene: (scene: BoardScene) => void;
     onCanvasError: (message: string) => void;
     onSelection: (ids: string[]) => void;
+    onPickDrawing: (drawingId: string) => void;
     retryCanvas: () => void;
     onAsk: (question: string) => void;
     onShow: (turnId: string, ids: string[]) => void;
@@ -110,6 +120,7 @@ export function useBoardView(channelId: string | null, boardId: string | null): 
     const controlRef = useRef<BoardCanvasControl | null>(null);
 
     const editing = useAtomValue(boardEditingAtom(boardId ?? ""));
+    const row = useAtomValue(boardDrawingsAtom(boardId ?? ""));
     const talkValue = useAtomValue(boardTalkAtom(boardId ?? ""));
     const talk = talkValue != null && talkValue.boardid === boardId ? talkValue : null;
     useTick(inFlight(talk));
@@ -139,6 +150,7 @@ export function useBoardView(channelId: string | null, boardId: string | null): 
         shownTurnId: shown?.turnId ?? null,
         asking,
         shapes: shapes != null && shapes.boardId === boardId ? shapes.count : null,
+        drawings: row?.drawings.length ?? null,
         canvasError,
         attempt,
         controlRef,
@@ -159,6 +171,7 @@ export function useBoardView(channelId: string | null, boardId: string | null): 
                 prev != null && (ids.length === 0 || ids.some((id) => !prev.ids.includes(id))) ? null : prev
             );
         },
+        onPickDrawing: (drawingId) => controlRef.current?.fitDrawing(drawingId),
         retryCanvas: () => {
             setCanvasError(null);
             setAttempt((n) => n + 1);
@@ -169,6 +182,8 @@ export function useBoardView(channelId: string | null, boardId: string | null): 
             }
             // in view mode a selection is Show's, not the person's
             const asked = editing ? selection : NO_SELECTION;
+            // shapes selected in one drawing name it; otherwise the drawing in view is the one asked about
+            const drawingId = askedDrawing(controlRef.current?.elements() ?? [], asked.ids, row?.inView ?? null);
             act("ask the board", async () => {
                 setAsking(true);
                 try {
@@ -178,6 +193,7 @@ export function useBoardView(channelId: string | null, boardId: string | null): 
                         question,
                         on: asked.label ?? undefined,
                         selectedids: asked.ids.length > 0 ? asked.ids : undefined,
+                        drawingid: drawingId ?? undefined,
                     });
                     await loadBoardTalk(ref.channelid, ref.boardid);
                 } finally {

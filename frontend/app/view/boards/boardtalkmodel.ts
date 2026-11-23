@@ -405,9 +405,10 @@ export function askInput(ask: AskState): {
     };
 }
 
-// "3 drawings · 14 shapes · drawn 15:20" (decision 13)
-export function boardFacts(info: BoardInfo, shapes: number, now: number): string {
-    const drawings = info.drawings ?? 0;
+// "3 drawings · 14 shapes · drawn 15:20" (decision 13). canvasDrawings is the drawings row's count once the canvas has
+// loaded, so the facts agree with the row; null reads the list's count
+export function boardFacts(info: BoardInfo, shapes: number, now: number, canvasDrawings: number | null = null): string {
+    const drawings = canvasDrawings ?? info.drawings ?? 0;
     if ((info.questions ?? 0) === 0 && drawings === 0 && shapes === 0) {
         return `empty · created ${talkTime(info.createdts, now)}`;
     }
