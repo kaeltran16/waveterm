@@ -124,7 +124,7 @@ const READ_HEAD = `(() => {
         track: q?.querySelectorAll("[data-brainstorm-track] [data-state]").length ?? 0,
     };
 })()`;
-const reviewCursor =`${BS_IN_TAB}?.querySelector("[data-brainstorm-review-row][data-cursor]")?.getAttribute("data-brainstorm-review-row") ?? null`;
+const reviewCursor = `${BS_IN_TAB}?.querySelector("[data-brainstorm-review-row][data-cursor]")?.getAttribute("data-brainstorm-review-row") ?? null`;
 
 const IN_REVIEW = `${BS_IN_TAB}?.querySelector("[data-brainstorm-review]")`;
 const IN_RUN = `${BS_IN_TAB}?.querySelector("[data-brainstorm-run]")`;
@@ -305,6 +305,7 @@ export const workspaceBrainstormCheck = wbsScenario(NAME, async (h, ctx, step) =
             fit.chipsInside &&
             fit.expanded === "false" &&
             fit.lines === 2 &&
+            fit.showTop != null &&
             Math.abs(fit.showTop) <= 2 &&
             restored;
         return [ok, { shown, narrowed, fit, restored }];

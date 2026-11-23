@@ -393,8 +393,6 @@ export function useAnswer(agent: AgentVM, kind: "answer" | "builder-answer" = "a
 
 export type Answer = ReturnType<typeof useAnswer>;
 
-// the read over the answers, with the one toggle for every answer's pros and cons, shown until hidden. On a question
-// the judge weighed, the read and pick are the judge's; the judge's work goes under the answers
 export function ProsConsToggle({ shown, onToggle }: { shown: boolean; onToggle: () => void }) {
     return (
         <button
@@ -409,7 +407,9 @@ export function ProsConsToggle({ shown, onToggle }: { shown: boolean; onToggle: 
     );
 }
 
-// reasonsShown set means the caller places the toggle (ProsConsToggle) and owns whether the pros and cons show
+// the read over the answers, with the one toggle for every answer's pros and cons, shown until hidden; reasonsShown
+// set means the caller places the toggle (ProsConsToggle) and owns whether the pros and cons show. On a question the
+// judge weighed, the read and pick are the judge's; the judge's work goes under the answers
 export function QuestionAnswers({
     q,
     ans,
