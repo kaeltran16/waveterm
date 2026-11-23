@@ -469,7 +469,7 @@ export function QuestionAnswers({
 }
 
 // how the judge got to its options, or why it did not; what it dropped stays behind a toggle, closed until opened
-function JudgeWorkLine({ work, compact, lineText }: { work: JudgeWork; compact: boolean; lineText: string }) {
+export function JudgeWorkLine({ work, compact, lineText }: { work: JudgeWork; compact: boolean; lineText: string }) {
     const [open, setOpen] = useState(false);
     const n = work.dropped.length;
     return (
@@ -686,7 +686,7 @@ function ProsCons({ o, compact }: { o: AnswerOption; compact: boolean }) {
     );
 }
 
-function ReasonList({
+export function ReasonList({
     label,
     mark,
     tone,
