@@ -462,8 +462,8 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 	}
 	agent := d.readAgent(ctx, b, talk.Agent)
 	ti := turnInput{
-		Scene: scene, SelectedIds: turn.SelectedIds, On: turn.On, Question: turn.Question, Briefing: turn.Briefing,
-		Kept: turn.Kept, Elsewhere: turn.Briefing != nil && hasEarlierTurns(talk, turn.ID), Draw: turn.Route == RouteDraw,
+		Scene: scene, SelectedIds: turn.SelectedIds, DrawingId: turn.DrawingId, On: turn.On, Question: turn.Question,
+		Briefing: turn.Briefing, Kept: turn.Kept, Elsewhere: turn.Briefing != nil && hasEarlierTurns(talk, turn.ID), Draw: turn.Route == RouteDraw,
 		AgentTitle: agent.title, AgentTurns: agent.text,
 	}
 	call.Prompt = turnPrompt(ti)
@@ -508,17 +508,21 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 	if ctx.Err() != nil {
 		return Answer{}, false, ctx.Err()
 	}
-	answer, err := CheckAnswer(reply, scene, ti.Elsewhere)
+	answer, err := CheckAnswer(reply, scene, ti.Elsewhere, turn.DrawingId)
 	if err == nil {
 		answer, err = routeAnswer(answer, mustDraw(turn))
 	}
 	if err != nil || !answer.HasDrawing() {
 		return answer, false, err
 	}
-	err = d.d.Deliver(wshrpc.BoardAnswer{
+	delivered := wshrpc.BoardAnswer{
 		ID: d.d.NewId(), ChannelId: b.ChannelId, BoardId: b.BoardId, TurnId: turn.ID,
-		Add: answer.Add, Update: answer.Update, Remove: answer.Remove, Ts: d.d.Now(),
-	})
+		Add: answer.Add, Update: answer.Update, Remove: answer.Remove, Title: answer.Title, Ts: d.d.Now(),
+	}
+	if answer.Edit {
+		delivered.DrawingId = turn.DrawingId
+	}
+	err = d.d.Deliver(delivered)
 	if err != nil {
 		return Answer{}, false, fmt.Errorf("the drawer's answer could not be delivered: %w", err)
 	}

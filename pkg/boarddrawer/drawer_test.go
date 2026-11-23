@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	drawAnswer  = `{"reply":"Two processes.","title":"wavesrv, opened up","add":[{"type":"rectangle","id":"a","x":0,"y":300,"width":10,"height":10},{"type":"text","id":"b","x":0,"y":340,"text":"x"}],"update":[{"id":"box","x":40}]}`
+	drawAnswer  = `{"reply":"Two processes.","title":"wavesrv, opened up","add":[{"type":"rectangle","id":"a","x":0,"y":300,"width":10,"height":10},{"type":"text","id":"b","x":0,"y":340,"text":"x"}]}`
 	wordsAnswer = `{"reply":"Nothing to draw."}`
 	emptyBoard  = `{"type":"excalidraw","elements":[]}`
 )
@@ -239,7 +239,7 @@ func TestDrawerFirstTurnThenResume(t *testing.T) {
 	talk := settled(t, f, d)
 	got := talk.Turns[0]
 	if got.State != StateAnswered || got.Route != RouteDraw || got.Reply != "" || got.Title != "wavesrv, opened up" ||
-		got.Added != 2 || got.Changed != 1 || got.Removed != 0 || got.AnsweredTs != 1000 || got.Forward != nil {
+		got.Added != 2 || got.Changed != 0 || got.Removed != 0 || got.AnsweredTs != 1000 || got.Forward != nil {
 		t.Errorf("first turn: %+v", got)
 	}
 	calls := f.callList()
@@ -254,7 +254,8 @@ func TestDrawerFirstTurnThenResume(t *testing.T) {
 	if len(f.reads) != 1 || f.reads[0] != 0 {
 		t.Errorf("the thing must be read once from the start: %v", f.reads)
 	}
-	if len(f.delivered) != 1 || f.delivered[0].TurnId != turn.ID || f.delivered[0].Add == "" || f.delivered[0].Update == "" {
+	if len(f.delivered) != 1 || f.delivered[0].TurnId != turn.ID || f.delivered[0].Add == "" ||
+		f.delivered[0].Title != "wavesrv, opened up" || f.delivered[0].DrawingId != "" {
 		t.Errorf("delivered: %+v", f.delivered)
 	}
 
@@ -993,6 +994,75 @@ func TestDrawerMustDrawTurnsFail(t *testing.T) {
 				}
 				if got := settled(t, f, d).Turns[0]; got.State != StateAnswered || got.Route != RouteDraw || got.From != in.From {
 					t.Errorf("retried with a drawing: %+v", got)
+				}
+			})
+		}
+	}
+}
+
+const editAnswer = `{"title":"Cache, simpler","edit":true,"add":[{"type":"text","id":"n","x":0,"y":60,"text":"hot"}],"update":[{"id":"cache","label":"c"}]}`
+
+func TestDrawerEditsTheDrawingInView(t *testing.T) {
+	f := newFake(reply(editAnswer))
+	f.files["b1"] = framedSceneFile
+	d := New(f.deps())
+	turn, err := d.Ask(board, wshrpc.BoardTurn{Question: "Simpler.", DrawingId: "f1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := settled(t, f, d).Turns[0]
+	if got.State != StateAnswered || got.DrawingId != "f1" || got.Title != "Cache, simpler" {
+		t.Errorf("turn: %+v", got)
+	}
+	if calls := f.callList(); len(calls) != 1 || !strings.Contains(calls[0].Prompt, drawingInViewHead+`"Cache path" (id f1)`) {
+		t.Errorf("the prompt must name the drawing in view: %+v", calls)
+	}
+	if len(f.delivered) != 1 || f.delivered[0].TurnId != turn.ID || f.delivered[0].DrawingId != "f1" || f.delivered[0].Title != "Cache, simpler" {
+		t.Errorf("delivered: %+v", f.delivered)
+	}
+}
+
+// an agent's request arrives with no view, so it is always a new drawing, even on a board with drawings
+func TestDrawerAgentRequestsMakeNewDrawings(t *testing.T) {
+	brief := &wshrpc.BoardBriefing{From: "claude · waveterm", Text: "facts", Ask: "Draw the store."}
+	oneLine := &wshrpc.BoardBriefing{From: "claude · waveterm", Ask: "Draw the retry loop."}
+	start := map[string]func(d *Drawer) error{
+		"a briefing": func(d *Drawer) error {
+			_, err := d.Ask(board, wshrpc.BoardTurn{Question: brief.Ask, Briefing: brief})
+			return err
+		},
+		"a draw request": func(d *Drawer) error {
+			_, err := d.Ask(board, wshrpc.BoardTurn{Question: oneLine.Ask, Briefing: oneLine})
+			return err
+		},
+		"a Keep it here turn": func(d *Drawer) error { return d.Choose(board, "t1", ChoiceKeep) },
+	}
+	for name, run := range start {
+		for _, edit := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, edit %v", name, edit), func(t *testing.T) {
+				answer := drawAnswer
+				if edit {
+					answer = editAnswer
+				}
+				f := newFake(reply(answer))
+				f.files["b1"] = framedSceneFile
+				f.talks["b1"] = wshrpc.BoardTalk{ChannelId: "c1", BoardId: "b1", SessionId: "s1", Turns: []wshrpc.BoardTurn{
+					{ID: "t1", Ts: 1, Question: brief.Ask, Briefing: brief, State: StateAsks},
+				}}
+				d := New(f.deps())
+				if err := run(d); err != nil {
+					t.Fatal(err)
+				}
+				turns := settled(t, f, d).Turns
+				got := turns[len(turns)-1]
+				if edit {
+					if got.State != StateFailed || !strings.Contains(got.Reason, "no drawing is in view") || f.deliveredCount() != 0 {
+						t.Errorf("an edit must fail the turn: %+v, delivered %d", got, f.deliveredCount())
+					}
+					return
+				}
+				if got.State != StateAnswered || len(f.delivered) != 1 || f.delivered[0].DrawingId != "" || f.delivered[0].Title != "wavesrv, opened up" {
+					t.Errorf("want a new drawing: %+v, delivered %+v", got, f.delivered)
 				}
 			})
 		}

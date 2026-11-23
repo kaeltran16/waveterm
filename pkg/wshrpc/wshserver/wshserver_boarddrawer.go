@@ -251,7 +251,7 @@ func (ws *WshServer) BoardAskCommand(ctx context.Context, data wshrpc.CommandBoa
 	if info.LoadError != "" {
 		return fmt.Errorf("the board's file won't open: %s", info.LoadError)
 	}
-	_, err = boardDrawer.Ask(b, wshrpc.BoardTurn{Question: question, On: data.On, SelectedIds: data.SelectedIds})
+	_, err = boardDrawer.Ask(b, wshrpc.BoardTurn{Question: question, On: data.On, SelectedIds: data.SelectedIds, DrawingId: data.DrawingId})
 	return err
 }
 

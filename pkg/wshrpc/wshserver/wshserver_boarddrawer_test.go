@@ -251,7 +251,7 @@ func TestBoardAskRefusesWhileBusy(t *testing.T) {
 	r := stubBoardDrawer(t, drawReply, gate)
 	ch, _ := boardProjectChannel(t, ctx)
 	info := startBoard(t, ctx, wshrpc.CommandBoardStartData{ChannelId: ch.OID, Name: "Auth flow"})
-	ask := wshrpc.CommandBoardAskData{ChannelId: ch.OID, BoardId: info.ID, Question: "How?", On: "wavesrv", SelectedIds: []string{"n1"}}
+	ask := wshrpc.CommandBoardAskData{ChannelId: ch.OID, BoardId: info.ID, Question: "How?", On: "wavesrv", SelectedIds: []string{"n1"}, DrawingId: "f1"}
 	if err := ws.BoardAskCommand(ctx, ask); err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestBoardAskRefusesWhileBusy(t *testing.T) {
 	waitIdle(t, ch.OID, info.ID)
 	talk := readTalk(t, ctx, ch.OID, info.ID)
 	if len(talk.Turns) != 1 || talk.Turns[0].State != boarddrawer.StateStopped || talk.Turns[0].On != "wavesrv" ||
-		!slices.Equal(talk.Turns[0].SelectedIds, []string{"n1"}) {
+		!slices.Equal(talk.Turns[0].SelectedIds, []string{"n1"}) || talk.Turns[0].DrawingId != "f1" {
 		t.Fatalf("turns: %+v", talk.Turns)
 	}
 	close(gate)

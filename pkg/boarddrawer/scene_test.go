@@ -51,6 +51,44 @@ func TestSceneSummary(t *testing.T) {
 	}
 }
 
+// framedSceneFile has two drawings, a loose shape, and a shape whose frame was deleted. Excalidraw keeps a frame
+// after its children.
+const framedSceneFile = `{"type":"excalidraw","elements":[
+{"id":"cache","type":"rectangle","x":0,"y":0,"width":100,"height":50,"frameId":"f1","backgroundColor":"transparent","boundElements":[{"id":"cachelabel","type":"text"}]},
+{"id":"cachelabel","type":"text","x":10,"y":10,"width":40,"height":20,"text":"cache","containerId":"cache","frameId":"f1"},
+{"id":"f1","type":"frame","x":-20,"y":-20,"width":160,"height":90,"name":"Cache path","backgroundColor":"transparent"},
+{"id":"api","type":"ellipse","x":500,"y":0,"width":100,"height":50,"frameId":"f2","backgroundColor":"transparent"},
+{"id":"f2","type":"frame","x":480,"y":-20,"width":140,"height":90,"name":"API","backgroundColor":"transparent"},
+{"id":"loose","type":"text","x":0,"y":300,"width":40,"height":20,"text":"mine","backgroundColor":"transparent"},
+{"id":"orphan","type":"text","x":0,"y":400,"width":40,"height":20,"text":"old","frameId":"gonef","backgroundColor":"transparent"},
+{"id":"gonef","type":"frame","x":0,"y":380,"width":60,"height":60,"name":"Gone","isDeleted":true}
+]}`
+
+func TestSceneSummaryFrames(t *testing.T) {
+	scene := mustScene(t, framedSceneFile, nil)
+	want := []string{
+		`{"id":"cache","type":"rectangle","x":0,"y":0,"w":100,"h":50,"label":"cache","frame":"f1"}`,
+		`{"id":"f1","type":"frame","x":-20,"y":-20,"w":160,"h":90,"label":"Cache path"}`,
+		`{"id":"api","type":"ellipse","x":500,"y":0,"w":100,"h":50,"frame":"f2"}`,
+		`{"id":"f2","type":"frame","x":480,"y":-20,"w":140,"h":90,"label":"API"}`,
+		`{"id":"loose","type":"text","x":0,"y":300,"w":40,"h":20,"text":"mine"}`,
+		`{"id":"orphan","type":"text","x":0,"y":400,"w":40,"h":20,"text":"old"}`,
+	}
+	if got := strings.Split(scene.Text, "\n"); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("lines:\n got %s\nwant %s", scene.Text, strings.Join(want, "\n"))
+	}
+	if len(scene.Frames) != 2 || scene.Frames["f1"] != "Cache path" || scene.Frames["f2"] != "API" {
+		t.Errorf("frames: %v", scene.Frames)
+	}
+	wantOf := map[string]string{"cache": "f1", "api": "f2"}
+	if len(scene.FrameOf) != len(wantOf) || scene.FrameOf["cache"] != "f1" || scene.FrameOf["api"] != "f2" {
+		t.Errorf("frame of: got %v, want %v", scene.FrameOf, wantOf)
+	}
+	if scene.Shapes != 4 {
+		t.Errorf("shapes: got %d, want 4 (a frame is not a shape)", scene.Shapes)
+	}
+}
+
 func TestSceneSummaryEmptyAndBroken(t *testing.T) {
 	scene, err := SceneSummary([]byte(`{"type":"excalidraw","elements":[]}`), nil)
 	if err != nil || scene.Text != "" || scene.Shapes != 0 {

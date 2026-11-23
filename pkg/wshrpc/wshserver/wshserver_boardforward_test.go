@@ -295,7 +295,7 @@ func TestBoardForwardReplyAfterRestart(t *testing.T) {
 func TestBoardRerouteDrawnTurnForwardsIt(t *testing.T) {
 	f := newForwardFixture(t, baseds.AgentState_Idle)
 	drawn := f.seed(f.boardAgent(f.agent), wshrpc.BoardTurn{
-		Question: "show the cache", On: "Cache", SelectedIds: []string{"a"}, State: boarddrawer.StateAnswered,
+		Question: "show the cache", On: "Cache", SelectedIds: []string{"a"}, DrawingId: "f1", State: boarddrawer.StateAnswered,
 		Route: boarddrawer.RouteDraw, Title: "cache", Added: 2, ShapeIds: []string{"s1"},
 	})
 
@@ -312,7 +312,7 @@ func TestBoardRerouteDrawnTurnForwardsIt(t *testing.T) {
 	}
 	sent := turns[1]
 	if sent.From != drawn.ID || sent.State != boarddrawer.StateForwarded || sent.Route != boarddrawer.RouteAgent ||
-		sent.Question != drawn.Question || sent.On != drawn.On || sent.ID == drawn.ID {
+		sent.Question != drawn.Question || sent.On != drawn.On || sent.DrawingId != drawn.DrawingId || sent.ID == drawn.ID {
 		t.Errorf("forwarded turn: %+v", sent)
 	}
 	if sent.Forward == nil || sent.Forward.State != "sent" {
@@ -329,7 +329,7 @@ func TestBoardRerouteDrawnTurnForwardsIt(t *testing.T) {
 func TestBoardRerouteForwardedTurnDrawsIt(t *testing.T) {
 	f := newForwardFixture(t, baseds.AgentState_Idle)
 	asked := f.seed(f.boardAgent(f.agent), wshrpc.BoardTurn{
-		Question: "show the cache", On: "Cache", State: boarddrawer.StateForwarded, Route: boarddrawer.RouteAgent,
+		Question: "show the cache", On: "Cache", DrawingId: "f1", State: boarddrawer.StateForwarded, Route: boarddrawer.RouteAgent,
 		Forward: &wshrpc.BoardForward{State: "sent", TabId: f.agent.Tab.OID, SentTs: 1},
 	})
 
@@ -342,7 +342,8 @@ func TestBoardRerouteForwardedTurnDrawsIt(t *testing.T) {
 	if len(turns) != 2 || !reflect.DeepEqual(turns[0], asked) {
 		t.Fatalf("turns: %+v", turns)
 	}
-	if drawn := turns[1]; drawn.From != asked.ID || drawn.Route != boarddrawer.RouteDraw || drawn.Question != asked.Question || drawn.On != asked.On {
+	if drawn := turns[1]; drawn.From != asked.ID || drawn.Route != boarddrawer.RouteDraw || drawn.Question != asked.Question || drawn.On != asked.On ||
+		drawn.DrawingId != asked.DrawingId {
 		t.Errorf("the drawer's turn: %+v", drawn)
 	}
 	if calls := f.drawer.list(); len(calls) != 1 || !strings.Contains(calls[0].Prompt, "show the cache") {

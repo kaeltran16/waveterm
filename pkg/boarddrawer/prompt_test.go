@@ -99,6 +99,18 @@ func TestPrompt(t *testing.T) {
 		t.Errorf("an agent with nothing new must add nothing:\n%s", turnPrompt(silent))
 	}
 
+	// the drawing in view is named only when the turn's drawing is a live frame
+	framed := mustScene(t, framedSceneFile, nil)
+	inView := turnPrompt(turnInput{Scene: framed, DrawingId: "f1", Question: "Simpler."})
+	if !strings.Contains(inView, drawingInViewHead+`"Cache path" (id f1)`) {
+		t.Errorf("the turn lacks the drawing in view:\n%s", inView)
+	}
+	for _, id := range []string{"", "gonef", "cache"} {
+		if p := turnPrompt(turnInput{Scene: framed, DrawingId: id, Question: "Simpler."}); strings.Contains(p, drawingInViewHead) {
+			t.Errorf("drawing %q is not a live frame, so no drawing is in view:\n%s", id, p)
+		}
+	}
+
 	project := firstPrompt(firstInput{BoardName: "x", About: wshrpc.BoardSource{}}, turnInput{Question: "q"})
 	if !strings.Contains(project, "The project's code. Nothing else") || strings.Contains(project, "Where this talk comes from") {
 		t.Errorf("a project talk with no handoff:\n%s", project)
