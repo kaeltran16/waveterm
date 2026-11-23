@@ -245,7 +245,7 @@ function Phases({ f, merged }: { f: BrainstormFile; merged: boolean }) {
         <ol
             data-brainstorm-phase
             aria-label="Where the brainstorm is"
-            className="m-0 flex flex-none list-none items-center gap-[8px] p-0 text-[12px]"
+            className="m-0 flex flex-none list-none items-center gap-[8px] p-0 text-[12px] @max-[480px]/bs:min-w-0 @max-[480px]/bs:shrink @max-[480px]/bs:flex-wrap @max-[480px]/bs:gap-y-[4px]"
         >
             {phaseSteps(f, merged).map((s, i) => (
                 <Fragment key={s.phase}>
@@ -347,7 +347,7 @@ export function MainBody({ children }: { children: ReactNode }) {
     const narrow = useBsNarrow();
     if (narrow) {
         return (
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[28px] pb-[24px] pt-[20px]">
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-[28px] pb-[24px] pt-[20px] @max-[480px]/bs:px-[22px]">
                 <div className="flex flex-none flex-col gap-[18px]">{children}</div>
             </div>
         );
@@ -395,21 +395,40 @@ export type Answer = ReturnType<typeof useAnswer>;
 
 // the read over the answers, with the one toggle for every answer's pros and cons, shown until hidden. On a question
 // the judge weighed, the read and pick are the judge's; the judge's work goes under the answers
+export function ProsConsToggle({ shown, onToggle }: { shown: boolean; onToggle: () => void }) {
+    return (
+        <button
+            type="button"
+            data-brainstorm-proscons-toggle
+            aria-expanded={shown}
+            onClick={onToggle}
+            className={cn(CHIP, "flex-none")}
+        >
+            {shown ? "Hide pros and cons" : "Show pros and cons"}
+        </button>
+    );
+}
+
+// reasonsShown set means the caller places the toggle (ProsConsToggle) and owns whether the pros and cons show
 export function QuestionAnswers({
     q,
     ans,
     compact,
     rowBoards,
+    reasonsShown,
 }: {
     q: BrainstormQuestion;
     ans: Answer;
     compact: boolean;
     rowBoards?: (i: number) => RowBoards | null;
+    reasonsShown?: boolean;
 }) {
     const [shown, setShown] = useState(true);
     if (q.options == null) {
         return null;
     }
+    const placed = reasonsShown != null;
+    const showing = reasonsShown ?? shown;
     const reasons = hasProsCons(q);
     const work = judgeWork(q);
     const who = work?.judged ? "Judge’s" : "Agent’s";
@@ -418,18 +437,19 @@ export function QuestionAnswers({
             options={q.options}
             ans={ans}
             compact={compact}
-            reasons={reasons && shown}
+            reasons={reasons && showing}
             pickLabel={`${who} pick`}
             rowBoards={rowBoards}
         />
     );
-    if (!q.read && !reasons && work == null) {
+    const toggle = reasons && !placed;
+    if (!q.read && !toggle && work == null) {
         return options;
     }
     const lineText = compact ? "text-[12.5px] leading-[1.5]" : "text-[15px] leading-[1.55]";
     return (
         <div className={cn("flex flex-col", compact ? "gap-[8px]" : "gap-[12px]")}>
-            {q.read || reasons ? (
+            {q.read || toggle ? (
                 <div className="flex items-baseline gap-[12px]">
                     <span data-brainstorm-read className={cn("min-w-0 flex-1 text-secondary", lineText)}>
                         {q.read ? (
@@ -439,17 +459,7 @@ export function QuestionAnswers({
                             </>
                         ) : null}
                     </span>
-                    {reasons ? (
-                        <button
-                            type="button"
-                            data-brainstorm-proscons-toggle
-                            aria-expanded={shown}
-                            onClick={() => setShown(!shown)}
-                            className={cn(CHIP, "flex-none")}
-                        >
-                            {shown ? "Hide pros and cons" : "Show pros and cons"}
-                        </button>
-                    ) : null}
+                    {toggle ? <ProsConsToggle shown={shown} onToggle={() => setShown(!shown)} /> : null}
                 </div>
             ) : null}
             {options}
@@ -556,7 +566,9 @@ export function Options({
                         data-brainstorm-option-label
                         className={cn(
                             "font-semibold text-primary",
-                            compact ? "text-[13.5px] leading-[1.4]" : "text-[17px] leading-[1.35]"
+                            compact
+                                ? "text-[13.5px] leading-[1.4]"
+                                : "text-[17px] leading-[1.35] @max-[480px]/bs:text-[16px]"
                         )}
                     >
                         {o.label}
@@ -581,13 +593,17 @@ export function Options({
                             onClick={() => void ans.sendText(o.label)}
                             className={cn(
                                 OPTION_BTN,
-                                compact ? "gap-[12px] px-[12px] py-[9px]" : "gap-[18px] px-[20px] py-[16px]"
+                                compact
+                                    ? "gap-[12px] px-[12px] py-[9px]"
+                                    : "gap-[18px] px-[20px] py-[16px] @max-[480px]/bs:items-start @max-[480px]/bs:gap-[12px] @max-[480px]/bs:p-[14px]"
                             )}
                         >
                             <span
                                 className={cn(
                                     OPTION_NUMBER,
-                                    compact ? "h-[24px] w-[24px] text-[11.5px]" : "h-[30px] w-[30px] text-[13px]"
+                                    compact
+                                        ? "h-[24px] w-[24px] text-[11.5px]"
+                                        : "h-[30px] w-[30px] text-[13px] @max-[480px]/bs:h-[26px] @max-[480px]/bs:w-[26px] @max-[480px]/bs:text-[12px]"
                                 )}
                             >
                                 {optionNumber(i)}
@@ -605,7 +621,9 @@ export function Options({
                                     <span
                                         className={cn(
                                             "text-ink-mid",
-                                            compact ? "text-[12.5px] leading-[1.45]" : "text-[14px]"
+                                            compact
+                                                ? "text-[12.5px] leading-[1.45]"
+                                                : "text-[14px] @max-[480px]/bs:text-[13.5px]"
                                         )}
                                     >
                                         {o.detail}
@@ -650,7 +668,7 @@ export function Options({
     );
 }
 
-// indented to the label, under the number; a narrow column stacks the two lists
+// indented to the label, under the number; a narrow column stacks the two lists, as the tab's width does
 function ProsCons({ o, compact }: { o: AnswerOption; compact: boolean }) {
     return (
         <div
@@ -659,7 +677,7 @@ function ProsCons({ o, compact }: { o: AnswerOption; compact: boolean }) {
                 "grid",
                 compact
                     ? "grid-cols-1 gap-[6px] pb-[10px] pl-[48px] pr-[12px]"
-                    : "grid-cols-2 gap-[24px] pb-[16px] pl-[68px] pr-[20px] pt-[2px]"
+                    : "grid-cols-2 gap-[24px] pb-[16px] pl-[68px] pr-[20px] pt-[2px] @max-[760px]/bs:grid-cols-1 @max-[760px]/bs:gap-[8px] @max-[480px]/bs:pl-[52px]"
             )}
         >
             <ReasonList label={`${o.label}: for`} mark="+" tone="text-success" items={o.pros} compact={compact} />
@@ -688,7 +706,7 @@ function ReasonList({
                     key={i}
                     className={cn(
                         "flex gap-[8px] leading-[1.5] text-secondary",
-                        compact ? "text-[12.5px]" : "text-[13.5px]"
+                        compact ? "text-[12.5px]" : "text-[13.5px] @max-[760px]/bs:text-[13px]"
                     )}
                 >
                     <span aria-hidden="true" className={cn("w-[10px] flex-none font-mono", tone)}>
@@ -757,7 +775,7 @@ export function AnswerBox({
             >
                 OK
             </button>
-            <span className="flex-none text-[12px] text-muted">press Enter</span>
+            <span className="flex-none text-[12px] text-muted @max-[480px]/bs:hidden">press Enter</span>
         </div>
     );
 }
