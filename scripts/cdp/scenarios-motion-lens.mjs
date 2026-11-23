@@ -50,7 +50,7 @@ const readAdded = `(() => { window.__mlObs?.disconnect(); return window.__mlAdde
 // the text watchAdded records for a node reading text
 const addedText = (text) => text.slice(0, ADDED_TEXT_CHARS);
 
-// reads expr (a function body returning a value) every animation frame until stopped
+// reads expr (a function body returning a value) now and then every animation frame until stopped
 const startFrames = (expr) => `(() => {
     const f = { on: true, values: [] };
     window.__mlFrames = f;
@@ -59,7 +59,8 @@ const startFrames = (expr) => `(() => {
         f.values.push(read());
         if (f.on) requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
+    // the first reading is synchronous so an action in the same frame cannot land before it
+    tick();
     return true;
 })()`;
 const stopFrames = `(() => { window.__mlFrames.on = false; return window.__mlFrames.values; })()`;
