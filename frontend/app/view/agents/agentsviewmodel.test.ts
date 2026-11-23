@@ -1152,8 +1152,10 @@ describe("answerHint", () => {
     it("empty when no questions", () => {
         expect(answerHint([], {}, true)).toBe("");
     });
-    it("single single-select, numbered: prompts 1–9 or click", () => {
-        expect(answerHint([q()], {}, true)).toBe("Press 1–9 or click to answer");
+    it("single single-select, numbered: prompts 1–N or click, N the option count up to 9", () => {
+        expect(answerHint([q()], {}, true)).toBe("Press 1–2 or click to answer");
+        const twelve = { question: "Q?", options: Array.from({ length: 12 }, (_, i) => ({ label: `o${i}` })) };
+        expect(answerHint([twelve], {}, true)).toBe("Press 1–9 or click to answer");
     });
     it("single single-select, not numbered: prompts click only", () => {
         expect(answerHint([q()], {}, false)).toBe("Click to answer");
@@ -1200,12 +1202,12 @@ describe("answerHint with typed text", () => {
         expect(answerHint(two, { 0: new Set([0]), 1: new Set([0]) }, true)).toBe("2/2 answered");
     });
     it("does not count whitespace-only text as an answer or as typed", () => {
-        expect(answerHint(one, {}, true, { 0: "   " })).toBe("Press 1–9 or click to answer");
+        expect(answerHint(one, {}, true, { 0: "   " })).toBe("Press 1 or click to answer");
         expect(answerHint(two, {}, true, { 0: "   " })).toBe("0/2 answered");
     });
     it("says Enter sends once an answer is typed", () => {
         expect(answerHint(one, {}, true, { 0: "my own answer" })).toBe("press Enter to send");
-        expect(answerHint(one, {}, true, {})).toBe("Press 1–9 or click to answer");
+        expect(answerHint(one, {}, true, {})).toBe("Press 1 or click to answer");
     });
 });
 

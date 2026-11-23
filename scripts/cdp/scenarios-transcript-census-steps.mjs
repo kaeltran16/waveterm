@@ -13,6 +13,8 @@ const NL = String.fromCharCode(10);
 const T0 = Date.UTC(2026, 10, 18, 9, 0, 0);
 const S = 1000;
 const MOTION_MS = 700;
+// subpixel layout and rounding move a kept-in-place button by a pixel at most
+const ANCHOR_SLACK_PX = 2;
 const OPEN_PASSES = 2;
 const FALLBACK_POLLS = 40;
 const FALLBACK_POLL_MS = 150;
@@ -726,7 +728,13 @@ async function expandSteps(h, label, host) {
     await h.ev(probe(`rowOf('Run the memadmit tests')?.scrollIntoView({ block: "start" }); return true;`));
     await sleep(200);
     await h.shot(`cdp-shots/transcript-census-steps-expanded-${label}.png`);
+    // Show less pressed with its button low in the viewport, as a reader at the end of a long body presses it
+    await h.ev(probe(`rowOf('git status --short')?.querySelector('[data-more-lines]')?.scrollIntoView({ block: "end" }); return true;`));
+    await sleep(200);
+    const lessAt = await h.ev(probe(`return rect(rowOf('git status --short')?.querySelector('[data-more-lines]'))?.top ?? null;`));
     await h.ev(clickMore("git status --short"));
+    await sleep(MOTION_MS);
+    const lessThen = await h.ev(probe(`return rect(rowOf('git status --short')?.querySelector('[data-more-lines]'))?.top ?? null;`));
     await h.ev(clickMore("Run the memadmit tests"));
     await sleep(MOTION_MS);
     const after = await h.ev(EXPAND_STATE);
@@ -746,6 +754,11 @@ async function expandSteps(h, label, host) {
                 after?.body?.lines === 20 &&
                 after.body.button === "2 more lines",
             detail: JSON.stringify({ before: before?.body, open: open?.body, after: after?.body }),
+        },
+        {
+            step: `[${label}] #51 C1 Show less keeps its button where the reader pressed it (within ${ANCHOR_SLACK_PX}px)`,
+            ok: lessAt != null && lessThen != null && Math.abs(lessThen - lessAt) <= ANCHOR_SLACK_PX,
+            detail: JSON.stringify({ lessAt, lessThen }),
         },
         {
             step: `[${label}] #0 C2 expand: a multi-line failure is clamped to ${CLAMPED_LINES} lines with "${hiddenLines} more lines"; expanded it shows whole, Show less clamps it again`,

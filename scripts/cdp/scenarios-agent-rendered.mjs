@@ -239,11 +239,16 @@ const CHARTS = {
 const BAR_MARKS = CHARTS.bar.series[0].points.length;
 const MALFORMED = `{"type": "pie", "title": "not a chart"}`;
 const fence = (body) => "```chart\n" + body + "\n```";
+// a mermaid fence draws as its diagram; its node labels are read back from the svg
+const MERMAID_NODES = ["Plan", "Build", "Land"];
+const MERMAID = `graph LR\n  P[${MERMAID_NODES[0]}] --> B[${MERMAID_NODES[1]}] --> L[${MERMAID_NODES[2]}]`;
 const CHART_TEXT = [
     "The timings, charted:",
     ...Object.values(CHARTS).map((c) => fence(JSON.stringify(c, null, 2))),
     "And one that cannot draw:",
     fence(MALFORMED),
+    "The flow, as a diagram:",
+    "```mermaid\n" + MERMAID + "\n```",
 ].join("\n\n");
 
 const EDIT_INPUT = { file_path: "pkg/a.go", old_string: "var x = 1", new_string: "var x = 2" };
@@ -670,7 +675,7 @@ export default function (_kit) {
                     return [ok, seen];
                 });
 
-                await step("rendered: empty states — E shows the skeleton, N shows the no-transcript line", async () => {
+                await step("rendered: empty states — E shows the skeleton; N shows the no-transcript line, says its terminal may be waiting for input, and Show terminal opens the terminal", async () => {
                     await focus(ctx.eId);
                     await clickToggle(h, "Rendered");
                     const skeleton = await wait(`${RV}?.querySelector('[data-rendered-empty="skeleton"]') != null`);
@@ -678,9 +683,21 @@ export default function (_kit) {
                     await focus(ctx.nId);
                     await clickToggle(h, "Rendered");
                     await wait(`${RV}?.querySelector('[data-rendered-empty="no-transcript"]') != null`);
-                    const none = await h.ev(`(${RV}?.querySelector('[data-rendered-empty="no-transcript"]')?.textContent ?? "").trim()`);
+                    const none = await h.ev(`(${RV}?.querySelector('[data-rendered-empty="no-transcript"]')?.textContent ?? "").replace(/\\s+/g, " ").trim()`);
                     await h.shot(SHOT(3, "empty-no-transcript"));
-                    return [skeleton && none === "No transcript for this session yet.", { skeleton, none }];
+                    const clicked = await h.ev(`(() => { const b = ${RV}?.querySelector("[data-rendered-show-terminal]"); b?.click(); return b != null; })()`);
+                    await wait(`${RV} == null`);
+                    const term = await h.ev(viewOf(ctx.nId));
+                    await clickToggle(h, "Rendered");
+                    await wait(`${RV} != null`);
+                    const ok =
+                        skeleton &&
+                        none.startsWith("No transcript for this session yet.") &&
+                        none.includes("waiting for input") &&
+                        clicked &&
+                        !term.rendered &&
+                        term.termShown;
+                    return [ok, { skeleton, none, clicked, term }];
                 });
 
                 await focus(ctx.aId);
@@ -837,6 +854,19 @@ export default function (_kit) {
                         seen.fallback.text.includes("chart not drawn: ") &&
                         seen.fallback.text.includes("type must be one of");
                     return [ok, seen];
+                });
+
+                await step("rendered: mermaid — a mermaid fence draws its diagram as an svg with every node label, not as a code block", async () => {
+                    const svg = `${RV}?.querySelector(".mermaid svg")`;
+                    const drawn = await wait(`${svg} != null`);
+                    await h.ev(`${svg}?.scrollIntoView({ block: "center" })`);
+                    const seen = await h.ev(`(() => {
+                        const text = ${svg}?.textContent ?? "";
+                        const code = [...(${RV}?.querySelectorAll("pre, code") ?? [])].some((c) => (c.textContent ?? "").includes("graph LR"));
+                        return { labels: ${JSON.stringify(MERMAID_NODES)}.filter((n) => text.includes(n)), code };
+                    })()`);
+                    await h.shot(SHOT(8, "mermaid"));
+                    return [drawn && seen.labels.length === MERMAID_NODES.length && !seen.code, seen];
                 });
 
                 // raises an ask on A over rpc. The fixture roster stands in for the live one, so the ask the server

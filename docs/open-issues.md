@@ -56,10 +56,16 @@ Status legend:
   (`cmd/wsh/cmd/wshcmd-agenthook.go`). Deleting either before the flip puts superpowers back into every engine
   session.
 
+- **`transcript-base` fails 6 of 35 steps on main** (2026-11-23, run `619e5373`). Reproduced on `4b29c9c97`
+  alone in an isolated app (`final-verify.mjs transcript-base`), so it predates that run: both "fold: one Worked
+  for line" steps (an opened fold counts 0 steps), "Events" (the command and skill chips' `justify` reads
+  `flow-end` where the step wants `flex-end`), and the three card-header steps (the opened turn finds no diff,
+  test or image card). Suspects: `18e945d42`/`4b2362b21` (step bodies expand in place), which last touched the
+  scenario. Decide per step whether the view or the scenario is wrong.
+
 Tracked in their own initiatives, not here:
 
 - **Orchestrator wall-clock** — effort `b1fe5d7e`: live-verify the unit-tested fixes, the Timing section live check.
-- **Transcript renderer defects found live** — effort `d35daa47`: six Rendered bugs with cause and fix on each chunk, two UX decisions.
 - **Initiatives balloon with run fallout** — effort `728d3e5b`: the lead adds every open issue as a flat chunk (`pkg/jarvis/leadprompt.go:180`); decide how it sorts them against the goal.
 
 ---
