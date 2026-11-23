@@ -10,6 +10,7 @@ import { atomFamily } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
 import type { Mark } from "./canvasmarks";
 import { ALL_TAB, canvasTabs, currentTab, stepTab, type CanvasBoard } from "./canvasmodel";
+import { digitTab, OTHER_TAB, otherBoards, windowTab, windowTabs, type WindowScope } from "./canvaswindowmodel";
 import { closeWorkspaceTab } from "./workspacestore";
 
 export type CanvasState = {
@@ -41,6 +42,9 @@ export const canvasStateAtom = atomFamily(
 
 // the agent whose canvas window (the Rendered view's modal over its boards) is open: one window at most
 export const canvasWindowAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+
+// what the open window is for (a brainstorm question's answers or a part's boards); null on an unscoped window
+export const canvasWindowScopeAtom = atom<WindowScope | null>(null) as PrimitiveAtom<WindowScope | null>;
 
 // atomFamily can't be enumerated, and canvasOwner has to find an agent by topic
 const attached = new Set<string>();
@@ -98,6 +102,7 @@ export function detachCanvas(agentId: string): void {
     attached.delete(agentId);
     if (globalStore.get(canvasWindowAtom) === agentId) {
         globalStore.set(canvasWindowAtom, null);
+        globalStore.set(canvasWindowScopeAtom, null);
     }
     globalStore.set(canvasStateAtom(agentId), null);
     closeWorkspaceTab(agentId, "canvas");
@@ -149,10 +154,14 @@ export function selectCanvasBoard(agentId: string, board: string): void {
 }
 
 // a window on an agent with no canvas would draw nothing, so it does not open
-export function openCanvasWindow(agentId: string, at: { board?: string; mark?: boolean } = {}): void {
+export function openCanvasWindow(
+    agentId: string,
+    at: { board?: string; mark?: boolean; scope?: WindowScope } = {}
+): void {
     if (getCanvas(agentId) == null) {
         return;
     }
+    globalStore.set(canvasWindowScopeAtom, at.scope ?? null);
     if (at.board != null) {
         selectCanvasTab(agentId, at.board);
     }
@@ -162,12 +171,56 @@ export function openCanvasWindow(agentId: string, at: { board?: string; mark?: b
     globalStore.set(canvasWindowAtom, agentId);
 }
 
+// Other boards is the grid of the boards outside the scope's tabs, or the one board alone when there is only one
+function withWindowTab(scope: WindowScope, s: CanvasState, tab: string): CanvasState {
+    if (tab !== OTHER_TAB) {
+        return withTab(s, tab);
+    }
+    const others = otherBoards(scope, s.boards);
+    if (others.length === 0) {
+        return s;
+    }
+    return others.length === 1 ? withTab(s, others[0].name) : { ...s, all: true, mark: null };
+}
+
+// [ and ] in the window: the scope's tabs and Other boards when scoped, else today's walk
+export function stepCanvasWindow(agentId: string, delta: number): void {
+    const scope = globalStore.get(canvasWindowScopeAtom);
+    if (scope == null) {
+        stepCanvasBoard(agentId, delta);
+        return;
+    }
+    updateCanvas(agentId, (s) => {
+        const tab = stepTab(windowTabs(scope, s.boards), windowTab(scope, s), delta);
+        return tab == null ? s : withWindowTab(scope, s, tab);
+    });
+}
+
+// a board name outside the scope's tabs is a pick from the Other boards grid: shown alone, the tab staying Other boards
+export function selectCanvasWindowTab(agentId: string, tab: string): void {
+    const scope = globalStore.get(canvasWindowScopeAtom);
+    if (scope == null) {
+        selectCanvasTab(agentId, tab);
+        return;
+    }
+    updateCanvas(agentId, (s) => withWindowTab(scope, s, tab));
+}
+
+export function selectCanvasWindowDigit(agentId: string, digit: number): void {
+    const scope = globalStore.get(canvasWindowScopeAtom);
+    const tab = scope == null ? null : digitTab(scope, digit);
+    if (tab != null) {
+        selectCanvasWindowTab(agentId, tab);
+    }
+}
+
 export function closeCanvasWindow(): void {
     const id = globalStore.get(canvasWindowAtom);
     if (id == null) {
         return;
     }
     globalStore.set(canvasWindowAtom, null);
+    globalStore.set(canvasWindowScopeAtom, null);
     setMarking(id, false);
 }
 
