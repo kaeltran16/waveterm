@@ -997,6 +997,28 @@ export const BS_HISTORY_Q4 = [
 ];
 export const BS_BUILDER_Q = "When a lag page fires, should it also hold the enrichment autoscaler at its current size, or only report?";
 export const BS_BUILDER_A = "Only report. Scaling stays a human call.";
+// the builder question's answers: the first is the agent's pick, each weighed with a pro and a con
+export const BS_BUILDER_OPTIONS = [
+    {
+        label: "Only report",
+        detail: "The page says what lagged and leaves the autoscaler alone.",
+        pick: true,
+        pros: ["No new write access to the autoscaler.", "A human decides every scaling change."],
+        cons: ["A stuck partition stays stuck until someone acts."],
+    },
+    {
+        label: "Hold the autoscaler at its current size",
+        detail: "The rule pins the enrichment group while the page is open.",
+        pros: ["Lag cannot trigger a scale-down mid-incident."],
+        cons: ["The rule needs write access to the autoscaler.", "A forgotten hold outlives the incident."],
+    },
+    {
+        label: "Scale up on the page",
+        detail: "The rule adds a replica per stuck partition.",
+        pros: ["Most lag clears without a human."],
+        cons: ["A rebalance storm scales the group for nothing."],
+    },
+];
 
 export const bsParts = (states, over = {}) =>
     Object.entries(states).map(([id, state]) => ({ id, state, ...BS_PART[id], ...(over[id] ?? {}) }));

@@ -298,10 +298,12 @@ export default function (kit) {
             main: Math.round(main?.width ?? 0),
             approveInside: !!approve && !!main && approve.left >= main.left && approve.right <= main.right && approve.right <= window.innerWidth,
             hscroll: document.scrollingElement.scrollWidth > window.innerWidth || (pane?.scrollWidth ?? 0) > (pane?.clientWidth ?? 0),
+            narrow: pane?.hasAttribute("data-brainstorm-narrow") ?? null,
         };
     })()`;
 
-    // the approve bar's buttons hold one row whatever the width; the blocker takes the row below them
+    // the approve bar's buttons hold one row whatever the width; wide, the blocker takes the row below them, and narrow
+    // (the pane is narrow at 1000x700) it is the disabled Approve's title only
     const APPROVE_ROWS = `(() => {
         const bar = ${BS_PANE}?.querySelector("[data-brainstorm-approve-bar]");
         const box = (el) => {
@@ -310,16 +312,14 @@ export default function (kit) {
         };
         return {
             approve: box(bar?.querySelector("[data-brainstorm-approve]")),
+            title: bar?.querySelector("[data-brainstorm-approve]")?.title ?? null,
             keep: box([...(bar?.querySelectorAll("button") ?? [])].find((b) => b.innerText.trim() === "Keep talking")),
             reason: box(bar?.querySelector("[data-brainstorm-approve-reason]")),
         };
     })()`;
-    const approveRowsOk = (b) =>
-        !!b.approve &&
-        !!b.keep &&
-        !!b.reason &&
-        Math.abs(b.approve.top - b.keep.top) <= 1 &&
-        b.reason.top >= Math.max(b.approve.bottom, b.keep.bottom) - 0.5;
+    const sharedTop = (b) => !!b.approve && !!b.keep && Math.abs(b.approve.top - b.keep.top) <= 1;
+    const approveRowsOk = (b) => sharedTop(b) && !!b.reason && b.reason.top >= Math.max(b.approve.bottom, b.keep.bottom) - 0.5;
+    const narrowApproveOk = (b) => sharedTop(b) && b.reason == null && b.title === CR_BLOCKER;
 
     // the Constraints row's gist (its width, line box and lines against its words) and its Keep the change button
     const GIST_ROW = `(() => {
@@ -479,8 +479,8 @@ export default function (kit) {
             await polishNap(400);
             const wideBar = await h.ev(APPROVE_ROWS);
             rec(
-                "1d. at 1000 and at 1600 wide, with the blocker shown, Approve and Keep talking share one top edge and the blocker sits below them",
-                approveRowsOk(narrowBar) && approveRowsOk(wideBar),
+                "1d. at 1000 and at 1600 wide, with a blocker, Approve and Keep talking share one top edge; at 1600 the blocker sits below them, and at 1000 (narrow) it is only Approve's title",
+                narrowApproveOk(narrowBar) && approveRowsOk(wideBar),
                 { narrow: narrowBar, wide: wideBar }
             );
 

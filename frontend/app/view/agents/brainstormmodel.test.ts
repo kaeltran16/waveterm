@@ -30,6 +30,7 @@ import {
     checkRailLine,
     checkReview,
     checkSpan,
+    checkSummaryLine,
     checkUnder,
     clockText,
     compactedSummary,
@@ -1952,6 +1953,37 @@ describe("check rail lines", () => {
             "It had 5 questions: 3 for you, 0 answered; the agent decided 2, shown under their decisions."
         );
         expect(decided.answered).toBe(0);
+    });
+
+    const qs = (n: number, answered: number) =>
+        Array.from({ length: n }, (_, i) => ({ q: `q${i}`, ...(i < answered ? { a: "x" } : {}) }));
+    const calls = (n: number) => Array.from({ length: n }, (_, i) => ({ text: `c${i}` }));
+    const already = (n: number) => Array.from({ length: n }, (_, i) => `a${i}`);
+    it.each([
+        [1, 0, 0, 3, "A builder read the design: 4 questions, ", "1 for you", ", 3 already in the design"],
+        [
+            3,
+            1,
+            2,
+            3,
+            "A builder read the design: 8 questions, ",
+            "3 for you",
+            ", 2 the agent decided, 3 already in the design",
+        ],
+        [
+            1,
+            1,
+            0,
+            3,
+            "A builder read the design: 4 questions, ",
+            "1 for you, all answered",
+            ", 3 already in the design",
+        ],
+        [0, 0, 2, 0, "A builder read the design: 2 questions, ", "none for you", ", 2 the agent decided"],
+        [1, 0, 0, 0, "A builder read the design: 1 question, ", "1 for you", ""],
+    ])("checkSummaryLine: %i yours (%i answered), %i calls, %i already", (y, a, c, al, lead, yours, rest) => {
+        const f = file({ check: { yours: qs(y, a), calls: calls(c), answered: already(al) } });
+        expect(checkSummaryLine(f)).toEqual({ lead, yours, rest });
     });
 });
 

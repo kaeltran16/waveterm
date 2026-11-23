@@ -1605,9 +1605,30 @@ export function plural(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
 }
 
+// what the builder check is, which the ask rail's line and the narrow summary's panel open with
+export const CHECK_INTRO = "A fresh agent checked whether it could plan from this without coming back to you.";
+
 // the ask rail's intro to what the builder asked
 export function checkRailLine(questions: number): string {
-    return `A fresh agent checked whether it could plan from this without coming back to you. It had ${plural(questions, "question", "questions")}.`;
+    return `${CHECK_INTRO} It had ${plural(questions, "question", "questions")}.`;
+}
+
+// the narrow check's one-line summary, read as lead + yours + rest, yours drawn bold. A count of zero leaves its
+// clause out, except yours, which the line always says
+export function checkSummaryLine(f: BrainstormFile): { lead: string; yours: string; rest: string } {
+    const check = f.check ?? { yours: [], calls: [], answered: [] };
+    const questions = check.yours.length + check.calls.length + check.answered.length;
+    const forYou = check.yours.length;
+    const allAnswered = forYou > 0 && check.yours.every((y) => y.a != null);
+    const yours = forYou === 0 ? "none for you" : `${forYou} for you${allAnswered ? ", all answered" : ""}`;
+    const rest = [
+        check.calls.length > 0 ? `${check.calls.length} the agent decided` : null,
+        check.answered.length > 0 ? `${check.answered.length} already in the design` : null,
+    ]
+        .filter((s) => s != null)
+        .map((s) => `, ${s}`)
+        .join("");
+    return { lead: `A builder read the design: ${plural(questions, "question", "questions")}, `, yours, rest };
 }
 
 // the review rail's line, read as lead + answered + rest. answered is the count drawn between them, which only the
