@@ -28,6 +28,27 @@ func LastAnswer(path, runtime string) (text string, ts int64) {
 	return "", 0
 }
 
+// claudeSyntheticModel is the model claude records on a message it made itself (an API error), not one it ran.
+const claudeSyntheticModel = "<synthetic>"
+
+// LastClaudeModel is the model of a claude transcript's last main-chain assistant message, "" when it has none.
+func LastClaudeModel(path string) string {
+	lines := readLines(path)
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !strings.Contains(lines[i], `"type":"assistant"`) {
+			continue
+		}
+		var rec claudeLine
+		if json.Unmarshal([]byte(lines[i]), &rec) != nil || rec.Type != "assistant" || rec.IsSidechain {
+			continue
+		}
+		if m := rec.Message.Model; m != "" && m != claudeSyntheticModel {
+			return m
+		}
+	}
+	return ""
+}
+
 func claudeLastAnswer(lines []string) (string, int64) {
 	for i := len(lines) - 1; i >= 0; i-- {
 		if !strings.Contains(lines[i], `"type":"assistant"`) {

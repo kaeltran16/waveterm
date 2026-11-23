@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
@@ -132,12 +133,13 @@ func loadParentTab(ctx context.Context, fromORef string) (*parentTab, error) {
 		return nil, fmt.Errorf("the parent's tab %s is in no workspace", tabId)
 	}
 	status := orchestrate.LatestAgentStatus(block.OID, tabId)
-	p := &parentTab{tab: tab, workspaceId: workspaceId, cwd: status.Cwd, facts: Parent{
-		Harness: status.Agent, Model: status.Model, PermissionMode: status.PermissionMode,
-	}}
-	if p.facts.Harness == "" {
-		p.facts.Harness = tab.Meta.GetString(metaTabHarness, "")
+	harness := status.Agent
+	if harness == "" {
+		harness = tab.Meta.GetString(metaTabHarness, "")
 	}
+	p := &parentTab{tab: tab, workspaceId: workspaceId, cwd: status.Cwd, facts: Parent{
+		Harness: harness, Model: parentModel(harness, status), PermissionMode: status.PermissionMode,
+	}}
 	if p.cwd == "" {
 		p.cwd = block.Meta.GetString(waveobj.MetaKey_CmdCwd, "")
 	}
@@ -145,6 +147,18 @@ func loadParentTab(ctx context.Context, fromORef string) (*parentTab, error) {
 		return nil, fmt.Errorf("the parent reports no directory to start the worker in")
 	}
 	return p, nil
+}
+
+// parentModel is the model the parent runs, as a route names it. pi reports its provider apart from the model id. A
+// claude status may carry no model (a Notification, the mod's own idle), and then the transcript says it.
+func parentModel(harness string, status baseds.AgentStatusData) string {
+	switch {
+	case harness == "pi" && status.Provider != "" && status.Model != "":
+		return status.Provider + "/" + status.Model
+	case harness == "claude" && status.Model == "" && status.TranscriptPath != "":
+		return agentsessions.LastClaudeModel(status.TranscriptPath)
+	}
+	return status.Model
 }
 
 // workDir is where the worker works: the parent's directory, or with a branch the worktree that branch will get.

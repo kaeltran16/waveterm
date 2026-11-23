@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/agentmsg"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -19,8 +20,15 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wstore"
 )
 
-// idleSweepEvery is how often the sweep looks for workers idle past their prompt cache's lifetime.
-const idleSweepEvery = time.Minute
+const (
+	// idleSweepEvery is how often the sweep looks for workers idle past their prompt cache's lifetime.
+	idleSweepEvery = time.Minute
+	// answerWait bounds the wait for a worker's answer to reach its transcript before its notice and stop: claude
+	// writes it after its Stop hooks, so a stop on the Stop hook's idle lost it (live check 2026-11-23), and a turn
+	// that ended without text never writes one.
+	answerWait = 30 * time.Second
+	answerPoll = 250 * time.Millisecond
+)
 
 func init() {
 	jarvis.AgentExitHook = onAgentExit
@@ -30,9 +38,13 @@ var (
 	// lifeMu serializes every decision below: an idle report, a stop's re-check and an exit can race over the same
 	// owed notice, which must go out once.
 	lifeMu sync.Mutex
-	// openTurns holds the worker blocks that reported working since their last turn end. A launch reports idle before
-	// its first turn opens (claude's SessionStart, pi's session_start), and that idle is not an answer.
-	openTurns = map[string]bool{}
+	// openTurns holds, per worker block that reported working since its last turn end, when that turn opened. A launch
+	// reports idle before its first turn opens (claude's SessionStart, pi's session_start), and that idle is not an
+	// answer.
+	openTurns = map[string]int64{}
+	// endedTurns holds, per worker block waiting for its answer, when its latest ended turn opened, so a wait for an
+	// older turn's answer leaves the settle to the newer one.
+	endedTurns = map[string]int64{}
 )
 
 // seams for tests, which run no processes
@@ -43,10 +55,12 @@ var (
 	}
 	deliverNotice = orchestrate.SendToSession
 	now           = time.Now
+	sleep         = time.Sleep
+	goSettle      = func(settle func()) { go settle() }
 )
 
 // NoteStatus applies an agent's status report to the workers: a worker idle after its parent's turn notifies the
-// parent and stops, and a parent whose agent runs receives the notices held for it.
+// parent and stops once its answer is written, and a parent whose agent runs receives the notices held for it.
 func NoteStatus(ctx context.Context, data *baseds.AgentStatusData) {
 	if data == nil || data.ORef == "" {
 		return
@@ -56,29 +70,82 @@ func NoteStatus(ctx context.Context, data *baseds.AgentStatusData) {
 		return
 	}
 	lifeMu.Lock()
-	defer lifeMu.Unlock()
 	if !data.Ended && shellRunning(blockId) {
 		deliverHeldLocked(ctx, tab.OID, blockId)
 	}
-	if ParentOf(tab) == "" || !turnEnded(blockId, data) {
+	opened, ended := int64(0), false
+	if ParentOf(tab) != "" {
+		opened, ended = turnEnded(blockId, data)
+	}
+	lifeMu.Unlock()
+	if ended {
+		tabId, transcript, harness := tab.OID, data.TranscriptPath, tab.Meta.GetString(metaTabHarness, data.Agent)
+		goSettle(func() { settleAfterAnswer(tabId, blockId, transcript, harness, opened) })
+	}
+}
+
+// turnEnded reports whether the status ends the worker's open turn, and when that turn opened.
+func turnEnded(blockId string, data *baseds.AgentStatusData) (opened int64, ended bool) {
+	switch data.State {
+	case baseds.AgentState_Working:
+		if _, open := openTurns[blockId]; !open {
+			openTurns[blockId] = data.Ts
+		}
+	case baseds.AgentState_Idle:
+		opened, open := openTurns[blockId]
+		// a mid-turn compaction's SessionStart does not end the turn
+		if data.Hook == baseds.AgentHook_SessionStart || !open {
+			return 0, false
+		}
+		delete(openTurns, blockId)
+		endedTurns[blockId] = opened
+		return opened, true
+	}
+	return 0, false
+}
+
+// settleAfterAnswer settles a worker whose turn opened at opened has ended, once its answer is in its transcript, so
+// the parent's `wsh agents read` finds it. A turn the worker opened meanwhile settles at its own end.
+func settleAfterAnswer(tabId, blockId, transcript, harness string, opened int64) {
+	if transcript == "" {
+		transcript = blockTranscript(blockId)
+	}
+	awaitAnswer(transcript, harness, opened)
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+	lifeMu.Lock()
+	defer lifeMu.Unlock()
+	if _, open := openTurns[blockId]; open || endedTurns[blockId] != opened {
+		return
+	}
+	delete(endedTurns, blockId)
+	tab, _ := loadTab(ctx, tabId)
+	if tab == nil {
 		return
 	}
 	settleLocked(ctx, tab, blockId)
 }
 
-func turnEnded(blockId string, data *baseds.AgentStatusData) bool {
-	switch data.State {
-	case baseds.AgentState_Working:
-		openTurns[blockId] = true
-	case baseds.AgentState_Idle:
-		// a mid-turn compaction's SessionStart does not end the turn
-		if data.Hook == baseds.AgentHook_SessionStart || !openTurns[blockId] {
-			return false
-		}
-		delete(openTurns, blockId)
-		return true
+// awaitAnswer returns once the transcript holds an answer written at or after opened, or answerWait has passed.
+func awaitAnswer(transcript, harness string, opened int64) {
+	if transcript == "" {
+		return
 	}
-	return false
+	for deadline := now().Add(answerWait); now().Before(deadline); sleep(answerPoll) {
+		if _, ts := agentsessions.LastAnswer(transcript, harness); ts >= opened {
+			return
+		}
+	}
+}
+
+func blockTranscript(blockId string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	defer cancel()
+	block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
+	if err != nil || block == nil {
+		return ""
+	}
+	return block.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
 }
 
 // settleLocked sends an idle worker's owed notice and stops it, once no worker of its own still runs: a stopped

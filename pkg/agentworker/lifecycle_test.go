@@ -5,6 +5,9 @@ package agentworker
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -32,11 +35,15 @@ type lifeFakes struct {
 func fakeLife(t *testing.T) *lifeFakes {
 	t.Helper()
 	f := &lifeFakes{running: map[string]bool{}, now: time.Now()}
-	prevRunning, prevDeliver, prevNow := shellRunning, deliverNotice, now
+	prevRunning, prevDeliver, prevNow, prevSleep, prevGo := shellRunning, deliverNotice, now, sleep, goSettle
 	shellRunning = func(blockId string) bool { return f.running[blockId] && armed(t, blockId) }
 	deliverNotice = func(blockId, text string) { f.delivered = append(f.delivered, delivery{blockId, text}) }
 	now = func() time.Time { return f.now }
-	t.Cleanup(func() { shellRunning, deliverNotice, now = prevRunning, prevDeliver, prevNow })
+	sleep = func(d time.Duration) { f.now = f.now.Add(d) }
+	goSettle = func(settle func()) { settle() }
+	t.Cleanup(func() {
+		shellRunning, deliverNotice, now, sleep, goSettle = prevRunning, prevDeliver, prevNow, prevSleep, prevGo
+	})
 	return f
 }
 
@@ -127,6 +134,74 @@ func TestIdleWorkerNotifiesItsRunningParentOnceThenStops(t *testing.T) {
 	}
 	if blockMeta(t, workerBlock).GetBool(MetaNoticeOwed, false) {
 		t.Error("the delivered notice is still owed")
+	}
+}
+
+// appendAnswer writes a claude answer recorded at `at` to the transcript.
+func appendAnswer(t *testing.T, path string, at time.Time) {
+	t.Helper()
+	line := fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"role":"assistant","content":[{"type":"text","text":"PONG"}]}}`+"\n",
+		at.UTC().Format(time.RFC3339Nano))
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(line); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// claude writes the answer after its Stop hooks run, so the notice and the stop wait until the transcript holds it
+func TestNoticeWaitsForTheTurnsAnswerInTheTranscript(t *testing.T) {
+	tests := []struct {
+		name string
+		// earlier: the transcript already holds an answer from before the turn
+		earlier bool
+		// landsAfter: the polls before the turn's answer is written, -1 for never
+		landsAfter int
+	}{
+		{"the answer lands after the stop hook", false, 3},
+		{"an earlier turn's answer is not this turn's", true, 3},
+		{"no answer ever lands", false, -1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := fakeLife(t)
+			parentTab, parentBlock := f.agent(t, "", false)
+			_, workerBlock := f.agent(t, parentTab, true)
+			transcript := filepath.Join(t.TempDir(), "worker.jsonl")
+			if err := setBlockMeta(context.Background(), workerBlock, waveobj.MetaKey_AgentTranscriptPath, transcript); err != nil {
+				t.Fatal(err)
+			}
+			if tt.earlier {
+				appendAnswer(t, transcript, f.now.Add(-time.Minute))
+			}
+			polls := 0
+			sleep = func(d time.Duration) {
+				if len(f.delivered) != 0 {
+					t.Fatal("notified before the turn's answer was written")
+				}
+				f.now = f.now.Add(d)
+				if polls++; polls == tt.landsAfter {
+					appendAnswer(t, transcript, f.now)
+				}
+			}
+			start := f.now
+
+			f.report(t, workerBlock, baseds.AgentState_Working, baseds.AgentHook_UserPromptSubmit)
+			f.report(t, workerBlock, baseds.AgentState_Idle, baseds.AgentHook_Stop)
+
+			if len(f.deliveredTo(parentBlock)) != 1 || armed(t, workerBlock) {
+				t.Fatalf("delivered %+v, armed %v: want one notice and a stopped worker", f.delivered, armed(t, workerBlock))
+			}
+			if tt.landsAfter > 0 && polls != tt.landsAfter {
+				t.Errorf("polled %d times, want to stop polling once the answer landed after %d", polls, tt.landsAfter)
+			}
+			if tt.landsAfter < 0 && f.now.Sub(start) < answerWait {
+				t.Errorf("notified after %v with no answer, want the full %v wait", f.now.Sub(start), answerWait)
+			}
+		})
 	}
 }
 

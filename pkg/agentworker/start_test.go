@@ -152,6 +152,55 @@ func TestStartOpensARunningWorkerUnderItsParent(t *testing.T) {
 	}
 }
 
+func TestStartTakesTheParentsModelWhereItsStatusDoesNotNameIt(t *testing.T) {
+	// the last line is a message claude made itself, which names no model it ran
+	claudeTranscript := `{"type":"assistant","message":{"model":"claude-haiku-5-5","content":[{"type":"text","text":"ok"}]}}` + "\n" +
+		`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"API Error"}]}}` + "\n"
+	tests := []struct {
+		name       string
+		status     baseds.AgentStatusData
+		transcript string
+		want       string
+	}{
+		{"a claude status with no model", baseds.AgentStatusData{Agent: "claude"}, claudeTranscript, "claude-haiku-5-5"},
+		{"pi reports its provider apart", baseds.AgentStatusData{Agent: "pi", Provider: "anthropic", Model: "claude-sonnet-5-5"}, "", "anthropic/claude-sonnet-5-5"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateHome(t)
+			isolateGate(t)
+			stubStart(t, nil)
+			dir := t.TempDir()
+			tt.status.State, tt.status.Cwd = baseds.AgentState_Idle, dir
+			if tt.transcript != "" {
+				tt.status.TranscriptPath = filepath.Join(dir, "parent.jsonl")
+				if err := os.WriteFile(tt.status.TranscriptPath, []byte(tt.transcript), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			parent := seedParent(t, tt.status, "proj", "")
+
+			rtn, err := Start(context.Background(), wshrpc.CommandAgentsStartData{FromORef: parent.blockORef(), Prompt: "fix the parser"})
+			if err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			tab, err := wstore.DBMustGet[*waveobj.Tab](context.Background(), rtn.TabId)
+			if err != nil {
+				t.Fatal(err)
+			}
+			memgate.ReleaseOwner(jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: tab.BlockIds[0]})
+			block, err := wstore.DBMustGet[*waveobj.Block](context.Background(), tab.BlockIds[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			args := block.Meta.GetStringList(waveobj.MetaKey_CmdArgs)
+			if i := slices.Index(args, "--model"); i < 0 || i+1 >= len(args) || args[i+1] != tt.want {
+				t.Errorf("cmd:args %q, want --model %s", args, tt.want)
+			}
+		})
+	}
+}
+
 func TestStartInANewWorktree(t *testing.T) {
 	isolateGate(t)
 	stubStart(t, nil)
