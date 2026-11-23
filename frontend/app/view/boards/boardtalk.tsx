@@ -514,7 +514,7 @@ export function BoardTalk(props: BoardTalkProps) {
                 >
                     <span className="text-[13.5px] font-semibold text-secondary">Nothing asked on this board yet</span>
                     <span className="max-w-[280px] text-[12.5px] leading-[1.5] text-muted">
-                        Ask below. To ask about something you drew, select it first.
+                        Ask below. To ask about something you drew, press Edit and select it.
                     </span>
                 </div>
             ) : (

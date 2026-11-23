@@ -552,7 +552,9 @@ export const boardsAsk = {
                 !started.question &&
                 ctx.boards.empty != null &&
                 talk.startsWith("Nothing asked on this board yet") &&
+                talk.includes("press Edit") &&
                 canvas.startsWith("Nothing on this board yet") &&
+                canvas.includes("Press Edit") &&
                 new RegExp(`^empty · created ${HHMM}$`).test(facts) &&
                 name === EMPTY_BOARD;
             return { ok, detail: q({ started, talk, canvas, facts, name }) };

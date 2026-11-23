@@ -510,7 +510,7 @@ function EmptyBoard() {
                 <Shapes size={28} strokeWidth={1.8} aria-hidden className="text-ink-faint" />
                 <span className="text-[15px] font-semibold text-secondary">Nothing on this board yet</span>
                 <span className="text-[13px] leading-[1.6] text-muted">
-                    Draw on it with the tools above, or ask the drawer on the left.
+                    Press Edit to draw on it, or ask the drawer on the left.
                 </span>
             </div>
         </div>
