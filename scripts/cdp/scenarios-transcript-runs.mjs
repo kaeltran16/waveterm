@@ -75,6 +75,7 @@ const SHOW_JSON = {
             tasks: TASK_TITLES.map((label, i) => ({ id: `t-${i + 1}`, label, state: "done" })),
             planreview: { state: "passed", round: 2 },
             final: { state: "passed", round: 1 },
+            fasttrack: true,
         },
         digest: {
             counts: { total: 9, done: 9 },
@@ -198,6 +199,7 @@ const SHOW_STATE = probe(`
     return {
         text: view.textContent,
         bar: bar ? bar.getAttribute('aria-label') : null,
+        route: bar?.previousElementSibling?.lastElementChild?.textContent ?? null,
         segments: segs,
         distinctFills: new Set(segs.map((s) => s.bg)).size,
         overflow: view.scrollWidth > view.clientWidth + 1,
@@ -266,6 +268,13 @@ async function showSteps(h) {
             show.overflow === false &&
             !show.text.includes("as of now"),
         detail: JSON.stringify(show),
+    });
+
+    await h.shot("cdp-shots/transcript-runs-show-fasttrack.png");
+    steps.push({
+        step: "runs show's route line, above the token bar, ends fast track for a fast-track dag",
+        ok: show != null && typeof show.route === "string" && show.route.endsWith("· fast track") && show.route.includes("autonomous"),
+        detail: JSON.stringify({ route: show?.route }),
     });
 
     const row = await h.ev(ROW_SUMMARY("Check what's waiting"));
