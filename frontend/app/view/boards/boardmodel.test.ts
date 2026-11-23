@@ -409,6 +409,20 @@ describe("applyAnswer drawings", () => {
         expect(byId(next, "d2")).toBe(scene.elements[3]);
     });
 
+    it("fits an edited drawing's frame to its text as measured", () => {
+        const scene = emptyScene([
+            text("note", 0, 0, "short", { frameId: "d1" }),
+            frameEl("d1", -40, -40, 130, 100, 1, "First"),
+        ]);
+        const update = JSON.stringify([{ id: "note", text: "a much longer note than before" }]);
+        // stands in for Excalidraw's measuring: the changed text comes out 400 wide and 60 tall
+        const measureText = (els: readonly ExcalidrawElement[], ids: readonly string[]) =>
+            els.map((el) => (ids.includes(el.id) ? ({ ...el, width: 400, height: 60 } as ExcalidrawElement) : el));
+        const { scene: next } = applyAnswer(scene, edit({ update }), [], NOW, measureText);
+        expect(byId(next, "note")).toMatchObject({ x: 0, y: 0, width: 400, height: 60 });
+        expect(byId(next, "d1")).toMatchObject({ x: -40, y: -40, width: 480, height: 140 });
+    });
+
     it("gives a label made for a shape in a drawing that drawing", () => {
         const scene = inDrawing([rect("bare", 0, 0, 100, 40)]);
         const update = JSON.stringify([{ id: "bare", label: "store" }]);

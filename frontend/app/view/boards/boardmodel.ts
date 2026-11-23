@@ -484,14 +484,20 @@ function landEdit(
     return { elements, drawingId: frameId };
 }
 
+// re-wraps and re-measures the named text; landAnswer hands in Excalidraw's, so this module never loads it
+export type MeasureText = (elements: readonly ExcalidrawElement[], textIds: readonly string[]) => ExcalidrawElement[];
+
+const unmeasured: MeasureText = (elements) => [...elements];
+
 // added (already converted) goes on top; update and remove skip ids the board no longer has, since you may have
 // deleted them while the drawer answered. An answer edits the drawing it names while that frame is still on the
-// board, and otherwise lands as a new drawing.
+// board, and otherwise lands as a new drawing. Text is measured before the drawing lands, so its frame fits it.
 export function applyAnswer(
     scene: BoardScene,
     answer: BoardAnswer,
     added: readonly ExcalidrawElement[],
-    now: number
+    now: number,
+    measureText: MeasureText = unmeasured
 ): AnswerResult {
     const board = wrapEarlier(scene, now);
     const editing = liveFrameId(board.elements, answer.drawingid);
@@ -523,14 +529,16 @@ export function applyAnswer(
         }
     }
     routeArrows(els, addedIds, movedIds, now);
+    const changedText = [...new Set(textIds)].filter((id) => liveAt(id) >= 0);
+    const measured = measureText(els, changedText);
     const landed =
         editing != null
-            ? landEdit(els, editing, addedIds, now)
-            : landNew(els, board.elements, addedIds, answer.title, now);
+            ? landEdit(measured, editing, addedIds, now)
+            : landNew(measured, board.elements, addedIds, answer.title, now);
     return {
         scene: { ...board, elements: landed.elements },
         shapeIds: [...new Set(shapeIds)].filter((id) => liveAt(id) >= 0),
-        textIds: [...new Set(textIds)].filter((id) => liveAt(id) >= 0),
+        textIds: changedText,
         drawingId: landed.drawingId,
     };
 }
