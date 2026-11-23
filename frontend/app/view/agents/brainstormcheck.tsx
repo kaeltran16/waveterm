@@ -22,6 +22,7 @@ import {
     checkReview,
     checkSummaryLine,
     checkUnder,
+    hasProsCons,
     lineBox,
     partTitle,
     pickCount,
@@ -46,6 +47,7 @@ import {
     LineBar,
     LINK,
     MainBody,
+    ProsConsToggle,
     QuestionAnswers,
     questionHeadClasses,
     QuestionMain,
@@ -183,35 +185,48 @@ function BuilderAsk({
 }) {
     const ask = checkAsk(f);
     const ans = useAnswer(agent, "builder-answer");
-    const head = questionHeadClasses(useBsNarrow());
+    const narrow = useBsNarrow();
+    const head = questionHeadClasses(narrow);
+    // the question whose pros and cons are hidden, so the next question shows them again
+    const [hiddenFor, setHiddenFor] = useState<number | null>(null);
     const open = ask.open!;
     // drawn with the talk question's answers, which read a question's options
     const asked: BrainstormQuestion = { n: ask.index, text: open.q, part: open.part ?? "", options: open.options };
+    const reasonsShown = hiddenFor !== ask.index;
     return (
         <div data-brainstorm-builder-question className="flex min-h-0 flex-1 flex-col">
-            <Track segments={ask.queue.map((y) => QUEUE_TRACK[y.state])} />
+            {/* a lone question is the one on screen, so its track would only repeat it */}
+            {narrow && ask.total < 2 ? null : <Track segments={ask.queue.map((y) => QUEUE_TRACK[y.state])} />}
             <MainBody>
                 <div className={head.wrap}>
-                    <span data-brainstorm-builder-head className={head.label}>
-                        <span className="font-mono font-semibold">
-                            Builder {ask.index} of {ask.total}
+                    <div className="flex items-center gap-x-[12px] gap-y-[8px] @max-[480px]/bs:flex-wrap">
+                        <span data-brainstorm-builder-head className={cn(head.label, "min-w-0 grow")}>
+                            <span className="font-mono font-semibold">
+                                Builder {ask.index} of {ask.total}
+                            </span>
+                            {open.part ? (
+                                <>
+                                    <span className="text-muted">·</span>
+                                    <span>
+                                        for{" "}
+                                        <button
+                                            type="button"
+                                            onClick={() => goTo(open.part!)}
+                                            className={cn(LINK, "border-0 bg-transparent p-0")}
+                                        >
+                                            {partTitle(f, open.part)}
+                                        </button>
+                                    </span>
+                                </>
+                            ) : null}
                         </span>
-                        {open.part ? (
-                            <>
-                                <span className="text-muted">·</span>
-                                <span>
-                                    for{" "}
-                                    <button
-                                        type="button"
-                                        onClick={() => goTo(open.part!)}
-                                        className="cursor-pointer border-0 bg-transparent p-0 text-warning hover:underline"
-                                    >
-                                        {partTitle(f, open.part)}
-                                    </button>
-                                </span>
-                            </>
+                        {hasProsCons(asked) ? (
+                            <ProsConsToggle
+                                shown={reasonsShown}
+                                onToggle={() => setHiddenFor(reasonsShown ? ask.index : null)}
+                            />
                         ) : null}
-                    </span>
+                    </div>
                     <h1 className={head.text}>{open.q}</h1>
                     {open.why ? (
                         <p data-brainstorm-why className={head.why}>
@@ -219,10 +234,11 @@ function BuilderAsk({
                         </p>
                     ) : null}
                 </div>
-                <QuestionAnswers key={ask.index} q={asked} ans={ans} compact={false} />
+                <QuestionAnswers key={ask.index} q={asked} ans={ans} compact={false} reasonsShown={reasonsShown} />
                 <AnswerBox ans={ans} options={open.options != null} />
                 <div className="flex flex-col gap-[10px]">
-                    <div className="flex items-center gap-[10px]">
+                    <div className="flex items-center gap-[10px] @max-[480px]/bs:flex-wrap">
+                        {/* the spacer would take a row of its own once the chips wrap */}
                         <button
                             type="button"
                             data-brainstorm-builder-decide
@@ -232,7 +248,7 @@ function BuilderAsk({
                         >
                             Let the agent decide
                         </button>
-                        <div className="flex-1" />
+                        <div className="flex-1 @max-[480px]/bs:hidden" />
                         <DesignButton f={f} onClick={openDesign} />
                     </div>
                     <ErrorLine error={ans.act.error} />
