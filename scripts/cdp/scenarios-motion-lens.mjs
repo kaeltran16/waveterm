@@ -127,7 +127,8 @@ export const motionLens = {
         await h.ev(startFrames(checkDrawn("Sonnet patterns")));
         await wfsSeed(h, ctx, "scanning", scanAt(ctx, { state: "scanning", stage: "recount" }));
         const recounted = await polishWaitFor(h, `!!document.querySelector('[data-workflow-detail="recount"]')`, 5000);
-        await settle();
+        await polishWaitFor(h, `(() => { ${checkDrawn("Sonnet patterns")} })() === 1`, SAMPLER_END_WAIT_MS);
+        await polishNap(REST_FRAME_MS);
         const draw = distinct(await h.ev(stopFrames));
         const survivors = wfsScan(ctx).survivors;
         await wfsSeed(h, ctx, "scanning", scanAt(ctx, { state: "scanning", stage: "checking", verdicts: [], survivors: survivors.slice(0, 3) }));
