@@ -1,10 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The open board: plain Excalidraw over the board file. It loads the file, autosaves your edits under the rev it
-// read, and takes the drawer's answers live (registerLiveBoard), so an answer landing while you edit goes through
-// updateScene instead of overwriting the file under you. Loaded lazily by the Boards surface: Excalidraw's runtime
-// is ~2 MB.
+// The open board: plain Excalidraw over the board file, in view mode unless the board's Edit switch is on. It loads
+// the file, autosaves your edits under the rev it read, and takes the drawer's answers live (registerLiveBoard), so an
+// answer landing while you edit goes through updateScene instead of overwriting the file under you. Loaded lazily by
+// the Boards surface: Excalidraw's runtime is ~2 MB.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -13,11 +13,12 @@ import { CaptureUpdateAction, Excalidraw } from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import "@excalidraw/excalidraw/index.css";
 import type { AppState, BinaryFiles, ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import { useAtomValue } from "jotai";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import "./boardcanvas.css";
 import { landAnswer } from "./boardconvert";
 import { parseBoardFile, serializeBoard, type BoardScene } from "./boardmodel";
-import { boardViewportAtom, registerBoardEscape, registerLiveBoard } from "./boardstore";
+import { boardEditingAtom, boardViewportAtom, registerBoardEscape, registerLiveBoard } from "./boardstore";
 
 const AUTOSAVE_MS = 500;
 const SAVE_TRIES = 3;
@@ -106,6 +107,8 @@ export default function BoardCanvas({
     cbRef.current = { onLoaded, onScene, onError, onSelection };
     // settles once the scene is in Excalidraw; an answer that arrives before then waits for it
     const readyRef = useRef<Deferred | null>(null);
+    const editing = useAtomValue(boardEditingAtom(boardId));
+    const editingRef = useRef(editing);
 
     const ref = { channelid: channelId, boardid: boardId };
 
@@ -175,6 +178,27 @@ export default function BoardCanvas({
         }
     }
 
+    function clearSelectionAndTool(): void {
+        const api = apiRef.current;
+        if (api == null) {
+            return;
+        }
+        api.setActiveTool({ type: "selection" });
+        api.updateScene({
+            appState: { selectedElementIds: {}, selectedGroupIds: {}, editingGroupId: null },
+            captureUpdate: CaptureUpdateAction.NEVER,
+        });
+    }
+
+    // turning Edit off leaves nothing selected and no tool armed
+    useEffect(() => {
+        const was = editingRef.current;
+        editingRef.current = editing;
+        if (was && !editing) {
+            clearSelectionAndTool();
+        }
+    }, [editing]);
+
     useEffect(() => {
         let cancelled = false;
         const ready = deferred();
@@ -198,17 +222,7 @@ export default function BoardCanvas({
             elements: () => apiRef.current?.getSceneElements() ?? [],
         };
         ownsEscapeRef.current = false;
-        const escape = registerBoardEscape(() => {
-            const api = apiRef.current;
-            if (api == null) {
-                return;
-            }
-            api.setActiveTool({ type: "selection" });
-            api.updateScene({
-                appState: { selectedElementIds: {}, selectedGroupIds: {}, editingGroupId: null },
-                captureUpdate: CaptureUpdateAction.NEVER,
-            });
-        });
+        const escape = registerBoardEscape(clearSelectionAndTool);
         escapeRef.current = escape;
         (async () => {
             try {
@@ -302,6 +316,8 @@ export default function BoardCanvas({
                 excalidrawAPI={onApi}
                 onChange={onChange}
                 theme="dark"
+                // controlled, so only the Edit switch changes it (Excalidraw's own toggle is disabled)
+                viewModeEnabled={!editing}
                 initialData={{
                     elements: initial.elements as ExcalidrawElement[],
                     files: initial.files as BinaryFiles,

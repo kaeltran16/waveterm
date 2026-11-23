@@ -36,6 +36,7 @@ import {
     setBoardFormEscape,
     setOpenBoard,
 } from "./boardstore";
+import { BoardStrip } from "./boardstrip";
 import { BoardSwitcher } from "./boardswitcher";
 import { BoardTalk } from "./boardtalk";
 import {
@@ -338,7 +339,7 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
                 <BoardTalk
                     about={aboutTitle(talk.about, project)}
                     items={talkItems(talk, now, "surface")}
-                    ask={askBox(talk, view.selection.label, view.asking, !!loadError)}
+                    ask={askBox(talk, view.selection.label, view.asking, !!loadError, view.editing)}
                     shownTurnId={view.shownTurnId}
                     onAsk={view.onAsk}
                     onShow={view.onShow}
@@ -359,35 +360,38 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
         body = (
             <div className="flex min-h-0 flex-1">
                 {column}
-                <section
-                    aria-label={board != null && showCanvas ? `Board: ${board.name}` : "Board"}
-                    className="relative min-w-0 flex-1 overflow-hidden bg-background"
-                >
-                    {!showCanvas ? (
-                        req != null ? (
-                            <div
-                                data-board-canvas-waiting
-                                className="absolute inset-0 flex items-center justify-center"
-                            >
-                                <span className="text-[13px] text-muted">The drawer draws here once you ask.</span>
-                            </div>
-                        ) : null
-                    ) : loadError ? (
-                        <LoadError board={board} reason={loadError} onRetry={onRetryBoard} />
-                    ) : (
-                        <LazyBoardCanvas
-                            key={`${board.id}:${view.attempt}`}
-                            channelId={channelId}
-                            boardId={board.id}
-                            controlRef={controlRef}
-                            onLoaded={view.onScene}
-                            onScene={view.onScene}
-                            onError={view.onCanvasError}
-                            onSelection={view.onSelection}
-                        />
-                    )}
-                    {showCanvas && !loadError && req == null && shapesNow === 0 ? <EmptyBoard /> : null}
-                </section>
+                <div className="flex min-w-0 flex-1 flex-col">
+                    {showCanvas && !loadError ? <BoardStrip boardId={board.id} /> : null}
+                    <section
+                        aria-label={board != null && showCanvas ? `Board: ${board.name}` : "Board"}
+                        className="relative min-h-0 flex-1 overflow-hidden bg-background"
+                    >
+                        {!showCanvas ? (
+                            req != null ? (
+                                <div
+                                    data-board-canvas-waiting
+                                    className="absolute inset-0 flex items-center justify-center"
+                                >
+                                    <span className="text-[13px] text-muted">The drawer draws here once you ask.</span>
+                                </div>
+                            ) : null
+                        ) : loadError ? (
+                            <LoadError board={board} reason={loadError} onRetry={onRetryBoard} />
+                        ) : (
+                            <LazyBoardCanvas
+                                key={`${board.id}:${view.attempt}`}
+                                channelId={channelId}
+                                boardId={board.id}
+                                controlRef={controlRef}
+                                onLoaded={view.onScene}
+                                onScene={view.onScene}
+                                onError={view.onCanvasError}
+                                onSelection={view.onSelection}
+                            />
+                        )}
+                        {showCanvas && !loadError && req == null && shapesNow === 0 ? <EmptyBoard /> : null}
+                    </section>
+                </div>
             </div>
         );
     }

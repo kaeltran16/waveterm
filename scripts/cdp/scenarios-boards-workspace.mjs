@@ -73,6 +73,7 @@ const TAB_APP = `(() => {
     return null;
 })()`;
 const text = (expr) => `((${expr})?.textContent ?? "").replace(/\\s+/g, " ").trim()`;
+const TAB_EDIT = `${TAB}?.querySelector("[data-board-edit]")`;
 
 // placement: the board tab's button in the pane's tab row, the Boards surface's switcher, the drawer's toast
 const BOARD_KEY = (ctx) => `board:${ctx.boardId}`;
@@ -417,6 +418,9 @@ export const boardsWorkspace = {
 
         await run("W1 idle, 2 shapes selected: no header and no line; under the canvas the ask bar holds the bare agent chip, the Selected chip entering (moment 1), Ask the board, Ask, and the facts at its end", async () => {
             await polishWaitFor(h, `/shapes/.test(${BAR}?.querySelector("[data-board-facts]")?.textContent ?? "")`, WAIT_MS);
+            // asking about shapes is Edit's
+            await h.ev(`${TAB_EDIT}?.click()`);
+            await polishWaitFor(h, `${TAB_EDIT}?.getAttribute("aria-pressed") === "true"`, 5000);
             await polishNap(SETTLE_MS);
             const frames = await page(h, `return sample(${SAMPLE_MS}, () => select(2), readChip);`);
             await polishNap(SETTLE_MS);
@@ -777,6 +781,46 @@ export const boardsWorkspace = {
                 s.focusId === ctx.agentId &&
                 s.active === `Board · ${BOARD}`;
             return { ok, detail: q({ onBoards, toasted, toast, landed, surface, s }) };
+        });
+
+        await run("Edit is the board's: Edit, turned on in the agent's board tab, is still on for that board on the Boards surface and on the tab after switching back", async () => {
+            // the Edit switch under scope, and the view mode and toolbar of the canvas beside it
+            const readEdit = (scope) =>
+                page(
+                    h,
+                    `const scope = ${scope};
+                    const el = scope?.querySelector(".excalidraw");
+                    const key = el && Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
+                    let app = null;
+                    for (let f = key ? el[key] : null; f != null && app == null; f = f.return) {
+                        if (typeof f.stateNode?.updateScene === "function" && f.stateNode?.scene != null) app = f.stateNode;
+                    }
+                    return {
+                        edit: scope?.querySelector("[data-board-edit]")?.getAttribute("aria-pressed") ?? null,
+                        viewMode: app?.state?.viewModeEnabled ?? null,
+                        toolbar: !!el?.querySelector(".App-toolbar"),
+                    };`
+                );
+            if ((await h.ev(`${TAB_EDIT}?.getAttribute("aria-pressed")`)) !== "true") {
+                await h.ev(`${TAB_EDIT}?.click()`);
+            }
+            await polishWaitFor(h, `${TAB_EDIT}?.getAttribute("aria-pressed") === "true"`, 5000);
+            const tab = await readEdit(TAB);
+            await page(h, `await B.loadBoardList(fx.channelId); B.selectBoard(fx.channelId, ${q(ctx.boardId)}); return true;`);
+            await h.goto("boards");
+            const onBoards = await polishWaitFor(
+                h,
+                `${text(SWITCHER)} === ${q(BOARD)} && !!${BOARDS_SURFACE}?.querySelector(".excalidraw .App-toolbar")`,
+                WAIT_MS
+            );
+            const boards = await readEdit(BOARDS_SURFACE);
+            await h.shot(SHOT("edit", "on-boards"));
+            await h.goto("agent");
+            const back = await polishWaitFor(h, `!!${TAB}?.querySelector(".excalidraw .App-toolbar")`, WAIT_MS);
+            const tabAgain = await readEdit(TAB);
+            const on = (r) => r.edit === "true" && r.viewMode === false && r.toolbar;
+            const ok = on(tab) && onBoards && on(boards) && back && on(tabAgain);
+            return { ok, detail: q({ tab, onBoards, boards, back, tabAgain }) };
         });
 
         await run("Escape with the board mounted twice: with the board tab active in the agent's workspace and the same board open on Boards, closing that tab leaves Escape to the Boards canvas: a selected shape clears and the surface stays Boards", async () => {

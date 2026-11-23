@@ -358,8 +358,15 @@ export interface AskState {
     selected: string | null; // the selection the next ask is about
 }
 
-// one box, one Ask: the drawer draws the line or flags it for the agent
-export function askBox(talk: BoardTalk | null, selection: string | null, busy: boolean, wontOpen: boolean): AskState {
+// one box, one Ask: the drawer draws the line or flags it for the agent. In view mode a selection (Show's) is not
+// what the ask is about, so it shows no chip
+export function askBox(
+    talk: BoardTalk | null,
+    selection: string | null,
+    busy: boolean,
+    wontOpen: boolean,
+    editing: boolean
+): AskState {
     const placeholder = "Ask the board";
     if (wontOpen) {
         return {
@@ -374,6 +381,9 @@ export function askBox(talk: BoardTalk | null, selection: string | null, busy: b
     const stoppable = (talk?.turns ?? []).some((t) => t.state === "answering");
     if (busy || turnInFlight(talk)) {
         return { disabled: true, hint: "You can ask once this answer lands", placeholder, stoppable, selected: null };
+    }
+    if (!editing) {
+        return { disabled: false, hint: "Press Edit to ask about shapes", placeholder, stoppable, selected: null };
     }
     const selected = selection || null;
     const hint = selected != null ? `Selected ${selected}` : "Select shapes to ask about them";

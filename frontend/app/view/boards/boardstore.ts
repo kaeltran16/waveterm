@@ -3,8 +3,8 @@
 
 // The Boards surface's state, kept at module level because the surface unmounts on a switch (and the router
 // writes the selection before it switches here): which project and board are open, each project's board list,
-// each open board's talk and viewport, and the open canvas's live-apply and Escape hooks. A board:update event
-// reloads whatever is loaded.
+// each open board's talk, viewport and Edit switch, and the open canvas's live-apply and Escape hooks. A
+// board:update event reloads whatever is loaded.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { waveEventSubscribeSingle } from "@/app/store/wps";
@@ -33,6 +33,9 @@ export const boardTalkAtom = atomFamily(
 export const boardViewportAtom = atomFamily(
     (_boardId: string) => atom<BoardViewport | null>(null) as PrimitiveAtom<BoardViewport | null>
 );
+// Edit, per board and shared by every view of it: in memory only, so each board opens in view mode when Arc starts,
+// and only the Edit button changes it
+export const boardEditingAtom = atomFamily((_boardId: string) => atom<boolean>(false) as PrimitiveAtom<boolean>);
 
 // the open canvas has a selection or an active tool, or an ask form is open, so Escape is the board's before it
 // is the shell's

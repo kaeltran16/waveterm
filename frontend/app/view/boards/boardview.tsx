@@ -18,7 +18,7 @@ import { openTarget } from "../jarvis/openref";
 import type { BoardCanvasControl, BoardCanvasProps } from "./boardcanvas";
 import type { BoardFormRequest } from "./boardformrequest";
 import { selectionLabel, shapeCount, type BoardScene } from "./boardmodel";
-import { boardListAtom, boardTalkAtom, loadBoardList, loadBoardTalk } from "./boardstore";
+import { boardEditingAtom, boardListAtom, boardTalkAtom, loadBoardList, loadBoardTalk } from "./boardstore";
 
 // vite.config.ts (excalidrawFonts) serves Excalidraw's fonts from the app, under this path's fonts/
 const EXCALIDRAW_ASSET_PATH = "/excalidraw/";
@@ -80,6 +80,7 @@ export interface BoardView {
     talk: BoardTalk | null; // null until the open board's talk is read
     now: number;
     selection: BoardSelection;
+    editing: boolean; // the board's Edit switch: only then is the selection what an ask is about
     shownTurnId: string | null;
     asking: boolean;
     shapes: number | null; // the canvas's shapes, once it has loaded
@@ -108,6 +109,7 @@ export function useBoardView(channelId: string | null, boardId: string | null): 
     const [asking, setAsking] = useState(false);
     const controlRef = useRef<BoardCanvasControl | null>(null);
 
+    const editing = useAtomValue(boardEditingAtom(boardId ?? ""));
     const talkValue = useAtomValue(boardTalkAtom(boardId ?? ""));
     const talk = talkValue != null && talkValue.boardid === boardId ? talkValue : null;
     useTick(inFlight(talk));
@@ -133,6 +135,7 @@ export function useBoardView(channelId: string | null, boardId: string | null): 
         talk,
         now: Date.now(),
         selection,
+        editing,
         shownTurnId: shown?.turnId ?? null,
         asking,
         shapes: shapes != null && shapes.boardId === boardId ? shapes.count : null,
@@ -164,6 +167,8 @@ export function useBoardView(channelId: string | null, boardId: string | null): 
             if (ref == null) {
                 return;
             }
+            // in view mode a selection is Show's, not the person's
+            const asked = editing ? selection : NO_SELECTION;
             act("ask the board", async () => {
                 setAsking(true);
                 try {
@@ -171,8 +176,8 @@ export function useBoardView(channelId: string | null, boardId: string | null): 
                     await RpcApi.BoardAskCommand(TabRpcClient, {
                         ...ref,
                         question,
-                        on: selection.label ?? undefined,
-                        selectedids: selection.ids.length > 0 ? selection.ids : undefined,
+                        on: asked.label ?? undefined,
+                        selectedids: asked.ids.length > 0 ? asked.ids : undefined,
                     });
                     await loadBoardTalk(ref.channelid, ref.boardid);
                 } finally {
