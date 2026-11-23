@@ -69,6 +69,10 @@ const AutonomousOffWake = "wake: approvals for this run are back to Ask me: from
 // caller or test it breaks was on no task's Files line, so Check failed (runs 9eb0edaa, cad1a593, 5638249e and more).
 const planCallersStep = "Before you submit, for every symbol whose signature, type shape or name a task changes, grep its references across the repo, tests and `scripts/` included, and put each file that must change on that task's Files line. "
 
+// planShortStep asks for the fast track's short plan: workers build only from their task's text, the light review
+// looks for scenario steps in the acceptance, and the end review checks the code against it, so the rest is cost.
+var planShortStep = fmt.Sprintf("A plan of %d tasks or fewer takes the fast track: write it short, inside the same format. Each task keeps its goal, its Files line, its Depends line and its acceptance criteria, scenario steps included, and carries no other prose; the plan keeps its Setup, Verify, Final and Spec lines. On the fast track one light review checks the plan, tasks get no per-task review (a task's lines reach you when it merges), fix-round tasks are not reviewed either, and one end review judges the whole merged diff in the final stage. ", FastTrackMaxTasks)
+
 // planWidthStep and planNoCommitStep close the plan step under either plan skill.
 const (
 	planWidthStep    = "Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. "
@@ -88,7 +92,7 @@ func writePlan(planSkill string) string {
 	if EffectivePlanSkill(planSkill) == PlanSkill_Plan {
 		step = writePlanPlan
 	}
-	return step + planWidthStep + planCallersStep + planNoCommitStep
+	return step + planWidthStep + planCallersStep + planShortStep + planNoCommitStep
 }
 
 // writePlanAndSubmit is the plan step and its submit. spec is the `--spec` argument, a placeholder or the run's

@@ -5,6 +5,7 @@ package jarvis
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -160,8 +161,11 @@ func TestEngineLaunchPromptPlansCarryDecisionsNotCode(t *testing.T) {
 	}
 }
 
-// every path that writes a plan carries the caller grep
+// every path that writes a plan carries the caller grep and the fast track's short plan
 func TestEveryPlanningPromptListsCallersOfChangedSignatures(t *testing.T) {
+	if !strings.Contains(planShortStep, strconv.Itoa(FastTrackMaxTasks)) {
+		t.Fatalf("the short-plan step must name the fast track's limit:\n%s", planShortStep)
+	}
 	for _, runtime := range []string{"claude", "pi"} {
 		for _, autonomous := range []bool{false, true} {
 			runs := map[string]waveobj.Run{
@@ -169,8 +173,11 @@ func TestEveryPlanningPromptListsCallersOfChangedSignatures(t *testing.T) {
 				"from the design": {Goal: "ship auth", Runtime: runtime, Autonomous: autonomous, Spec: "C:/p/docs/spec.md"},
 			}
 			for name, run := range runs {
-				if p := BuildOrchestratePrompt(&run); !strings.Contains(p, planCallersStep) {
-					t.Errorf("%s %s autonomous=%v: plan step missing the caller grep:\n%s", runtime, name, autonomous, p)
+				p := BuildOrchestratePrompt(&run)
+				for step, text := range map[string]string{"the caller grep": planCallersStep, "the short plan": planShortStep} {
+					if !strings.Contains(p, text) {
+						t.Errorf("%s %s autonomous=%v: plan step missing %s:\n%s", runtime, name, autonomous, step, p)
+					}
 				}
 			}
 		}

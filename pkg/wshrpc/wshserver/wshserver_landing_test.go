@@ -441,7 +441,8 @@ func TestDagSubmitRefusedLeavesTheLandingTreeAlone(t *testing.T) {
 	// the revision is committed onto the run's branch
 	t.Run("a revision past the last review round commits nothing", func(t *testing.T) {
 		run, channelId, tree, execGit := newRun(t, jarvis.RunStatus_Planning)
-		plan := writePlanIn(t, tree, "### Task 1: input\n")
+		// past the fast track, whose light rounds do not count toward the limit
+		plan := writePlanIn(t, tree, planOfTasks(jarvis.FastTrackMaxTasks+1))
 		submit := func() error {
 			_, err := (&WshServer{}).DagSubmitCommand(ctx, wshrpc.CommandDagSubmitData{ChannelId: channelId, RunId: run.ID, PlanPath: plan})
 			return err
@@ -466,7 +467,7 @@ func TestDagSubmitRefusedLeavesTheLandingTreeAlone(t *testing.T) {
 		branch := "wave/" + run.ID
 		tip := execGit("rev-parse", branch)
 
-		writePlanIn(t, tree, "### Task 1: input\n\n### Task 2: output\n")
+		writePlanIn(t, tree, planOfTasks(jarvis.FastTrackMaxTasks+2))
 		if err := submit(); err == nil || !strings.Contains(err.Error(), "the most it gets") {
 			t.Fatalf("resubmit err = %v, want the round limit", err)
 		}
