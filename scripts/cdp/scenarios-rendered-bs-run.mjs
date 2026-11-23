@@ -11,6 +11,7 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { assistantText, userText } from "./agent-page-fixtures.mjs";
+import { BS_ROW_MAX_PX } from "./scenarios-shared.mjs";
 
 const NAME = "rendered-bs-run";
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
@@ -19,13 +20,13 @@ const CANVAS = "final-queue";
 const RUN_ID = "3f9a1c2e-5b7d-4e21-9a8c-0d6f3b1a7e42";
 const DAG_ID = "7a2b9c40-1d3e-4f56-8a7b-9c0d1e2f3a4b";
 const SHORT = RUN_ID.slice(0, 8);
+// the project is a run's worktree, so the removed card's line names the worktree and the path is drawn under it
+const WORKTREE = "9ce70819";
 const SHA = "9c1e2f0a1b2c3d4e5f60718293a4b5c6d7e8f901";
 const TASKS = 7;
 const LANDED = 4;
 const SWITCH = `document.querySelector('[aria-label="Show terminal or brainstorm"]')`;
 const BAD_FILE = `{ "v": 1, "title": "Run memory pressure", "parts": [`;
-// the one-row card's bound: workspace-brainstorm-cards' ROW_MAX_PX (a header alone, 46px wide and 69px wrapped)
-const ROW_MAX_PX = 80;
 const REMOVED_TITLE = `${TOPIC}'s brainstorm file is gone`;
 const UNREADABLE_TITLE = "Arc could not read this brainstorm";
 const LAST_REPLY = "Run 3f9a1c2e is planning. I will answer here while it builds.";
@@ -148,7 +149,14 @@ export default (kit) => {
     return [
         scenario(
             NAME,
-            { topic: TOPIC, canvas: CANVAS, boards: ["Main.dc.html"], file: RUN_FILE, transcript: TRANSCRIPT },
+            {
+                topic: TOPIC,
+                project: join("arc-wt", WORKTREE),
+                canvas: CANVAS,
+                boards: ["Main.dc.html"],
+                file: RUN_FILE,
+                transcript: TRANSCRIPT,
+            },
             async (h, ctx, step) => {
                 const brainstormDir = dirname(ctx.file);
                 const canvasDir = join(ctx.cwd, ".superpowers", "design", CANVAS);
@@ -201,7 +209,7 @@ export default (kit) => {
                     return [ok, { auto, clicked, opened, back, ...r }];
                 });
 
-                await step("a removed brainstorm with no close record is the gone card on the Brainstorm header, its line in the body, and the header draws no Brainstorm switch in Rendered", async () => {
+                await step("a removed brainstorm with no close record is the gone card on the Brainstorm header, the run worktree's line and the path in the body, and the header draws no Brainstorm switch in Rendered", async () => {
                     // the run's start left the Brainstorm tab open, which folds the card to its row
                     await brainstormTab(h, ctx, false);
                     rmSync(ctx.file);
@@ -213,9 +221,9 @@ export default (kit) => {
                         r.kind === "gone" &&
                         !r.row &&
                         r.head === `Brainstorm ${REMOVED_TITLE}` &&
-                        r.body.startsWith("It is no longer at") &&
-                        r.body.includes("brainstorm.json") &&
-                        r.body.endsWith("The answers above stay in the transcript.") &&
+                        r.body.startsWith(`It lived in a run's worktree (arc-wt\\${WORKTREE}), which has been removed.`) &&
+                        r.body.includes("The answers above stay in the transcript.") &&
+                        r.body.endsWith(ctx.file) &&
                         r.inside === true &&
                         !r.switchShown;
                     return [ok, { shown, ...r }];
@@ -234,7 +242,7 @@ export default (kit) => {
                         r.rowTitle === REMOVED_TITLE &&
                         r.body === "" &&
                         r.height != null &&
-                        r.height < ROW_MAX_PX;
+                        r.height < BS_ROW_MAX_PX;
                     return [ok, { folded, ...r }];
                 });
 
@@ -326,7 +334,7 @@ export default (kit) => {
                         r.rowTitle === UNREADABLE_TITLE &&
                         r.body === "" &&
                         r.height != null &&
-                        r.height < ROW_MAX_PX;
+                        r.height < BS_ROW_MAX_PX;
                     return [ok, { folded, ...r }];
                 });
             }

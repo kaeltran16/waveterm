@@ -931,6 +931,9 @@ export const BS_PART = {
     },
 };
 export const BS_Q1 = { n: 1, text: "What is the moment you found yourself wishing this existed?", part: "intent" };
+// a brainstorm card folded to its one row is under this; the header row alone measured 46px on one line and 69px
+// wrapped to two when compact (2026-11-20), the full question card 369px and up
+export const BS_ROW_MAX_PX = 80;
 // the copy of the asking state is the canvas's (.superpowers/design/brainstorm-question-center): a question with
 // why, lettered answers with the agent's pick, and in the rail every option a past question offered
 export const BS_Q4_OPTIONS = [

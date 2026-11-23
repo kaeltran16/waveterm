@@ -89,16 +89,17 @@ function writeFile(ctx, file) {
     writeFileSync(ctx.file, typeof file === "string" ? file : JSON.stringify(file, null, 2));
 }
 
-// opts: topic, file (the first brainstorm.json, an object or raw text), transcript (record lines; a prompt and a reply
-// by default), boards (canvas board names: writes the brainstorm's canvas project), files (path under the project ->
-// contents, written before the feed draws), noBrainstorm (an agent with only the canvas), noTab (auto-open's Brainstorm
-// tab turned down, so the full card draws: while the tab shows, the card is one row). A throw past the temp dir still
-// returns ctx, so teardown removes whatever was made
+// opts: topic, project (its folder under the temp dir, "project" by default), file (the first brainstorm.json, an
+// object or raw text), transcript (record lines; a prompt and a reply by default), boards (canvas board names: writes
+// the brainstorm's canvas project), files (path under the project -> contents, written before the feed draws),
+// noBrainstorm (an agent with only the canvas), noTab (auto-open's Brainstorm tab turned down, so the full card draws:
+// while the tab shows, the card is one row). A throw past the temp dir still returns ctx, so teardown removes whatever
+// was made
 async function arrange(h, name, opts = {}) {
     const tag = Date.now().toString(36);
     const topic = opts.topic ?? `rbs-${tag}`;
     const ctx = { name, topic, tabIds: [], dir: mkdtempSync(join(tmpdir(), "verify-rendered-bs-")) };
-    ctx.cwd = join(ctx.dir, "project");
+    ctx.cwd = join(ctx.dir, opts.project ?? "project");
     ctx.file = join(ctx.cwd, ".superpowers", "brainstorm", topic, "brainstorm.json");
     try {
         mkdirSync(dirname(ctx.file), { recursive: true });
