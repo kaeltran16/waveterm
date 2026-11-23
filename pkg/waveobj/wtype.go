@@ -766,7 +766,7 @@ type FinalStage struct {
 
 // FinalEndReview is a fast-track dag's review of the whole merged diff, beside the final stage's commands.
 type FinalEndReview struct {
-	State      string `json:"state"` // reviewing | passed | failed | lost
+	State      string `json:"state"` // reviewing | passed | failed | lost | stopped (the human ended the stage)
 	RunID      string `json:"runid,omitempty"`
 	StartedTs  int64  `json:"startedts,omitempty"`
 	Respawns   int    `json:"respawns,omitempty"`

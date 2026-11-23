@@ -213,6 +213,8 @@ func advanceFinal(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *wa
 				f.Unverified = append(f.Unverified, finalTreeFailed+errNoLandingTree.Error())
 			}
 			f.State = FinalState_Verifying
+			// first: a verifier that ends the stage at once must find the end review to wait on
+			startEndReview(ctx, spawnCtx, g, owner, now, afterCommit)
 			startVerifier(ctx, spawnCtx, g, owner, afterCommit)
 			RecomputeDagStatus(g)
 			return
@@ -221,15 +223,20 @@ func advanceFinal(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, owner *wa
 	switch f.State {
 	case FinalState_Checking, FinalState_Final:
 		// the commands' goroutine sets the tree when it starts the verifier alongside them; until then there is none
-		if f.State == FinalState_Checking && f.Tree != "" && !verifierGaveUp(f) {
+		if f.State == FinalState_Checking && f.Tree != "" && verifierAlongside(g) && !verifierGaveUp(f) {
 			if _, held := heldFinalVerdict(g.OID, f, false); !held {
 				tendVerifier(ctx, spawnCtx, g, owner, now, afterCommit)
 			}
 		}
+		tendEndReview(ctx, spawnCtx, g, owner, now, afterCommit)
 		dagID, ownerCopy := g.OID, *owner
 		*afterCommit = append(*afterCommit, func() { startFinalCommands(dagID, &ownerCopy) })
 	case FinalState_Verifying:
-		tendVerifier(ctx, spawnCtx, g, owner, now, afterCommit)
+		// a stage waiting on its end review is done with its verifier
+		if !endReviewWaiting(f) {
+			tendVerifier(ctx, spawnCtx, g, owner, now, afterCommit)
+		}
+		tendEndReview(ctx, spawnCtx, g, owner, now, afterCommit)
 		RecomputeDagStatus(g)
 	}
 }
@@ -273,7 +280,7 @@ func startFinalCommands(dagID string, owner *waveobj.Run) {
 
 // finalResult is what the deterministic steps found: a failure's Detail, or what they could not verify, and the
 // screenshots the Final command wrote. onStage is set once the stage recorded the tree for a verifier working
-// alongside the commands: from then on the stage releases it, not the commands' goroutine.
+// alongside the commands.
 type finalResult struct {
 	round         int
 	tree          string
@@ -288,8 +295,9 @@ type finalResult struct {
 }
 
 // runFinalSteps runs Check, Verify, then the Final command, in the final tree. With no Final command it starts
-// the verifier on the tree first, so it works while they run. It reads the dag without the lock: the commands
-// and the round it is for were fixed when the round started.
+// the verifier on the tree first, so it works while they run, and a fast-track dag's end review starts there
+// whatever the commands. It reads the dag without the lock: the commands and the round it is for were fixed when
+// the round started.
 func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalResult {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil || g.Final == nil {
@@ -300,8 +308,9 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 		return runFinalStep(ctx, g, res.round, name, run)
 	}
 	if g.Final.Tree != "" {
-		// the server restarted mid-stage: the verifier alongside may still be reading the tree the stage recorded
-		res.tree, res.commit, res.onStage = g.Final.Tree, g.Final.Commit, true
+		// the server restarted mid-stage: the verifier alongside or the end review may still be reading the tree the
+		// stage recorded
+		res.tree, res.commit, res.onStage = g.Final.Tree, g.Final.Commit, verifierAlongside(g)
 	} else {
 		var tree string
 		if !step(FinalStep_Tree, func(planProgress) (bool, string) {
@@ -315,14 +324,14 @@ func runFinalSteps(ctx context.Context, dagID string, owner *waveobj.Run) finalR
 		if res.commit, err = git(ctx, tree, "rev-parse", "HEAD"); err != nil {
 			log.Printf("dag %s: reading the final tree's head: %v", dagID, err)
 		}
-		if verifierAlongside(g) {
+		if verifierAlongside(g) || g.FastTrack {
 			spawnCtx, spawnCancel := context.WithTimeout(context.Background(), jarvis.RunWorkerSpawnTimeout)
 			if err := WithDagMutation(dagID, func() error {
-				var rerr error
-				res.onStage, rerr = startVerifierAlongsideLocked(context.Background(), spawnCtx, dagID, owner, res)
+				took, rerr := takeFinalTreeLocked(context.Background(), spawnCtx, dagID, owner, res)
+				res.onStage = took && verifierAlongside(g)
 				return rerr
 			}); err != nil {
-				log.Printf("dag %s: starting the verifier alongside the final commands: %v", dagID, err)
+				log.Printf("dag %s: starting the sessions alongside the final commands: %v", dagID, err)
 			}
 			spawnCancel()
 		}
@@ -545,10 +554,10 @@ func recordFinalOutputLocked(ctx context.Context, dagID string, round int, step,
 	return nil
 }
 
-// startVerifierAlongsideLocked records the stage's tree and starts the verifier on it before Check and Verify
-// run. It reports whether the stage took the tree: a stage cancelled or ended meanwhile does not. The caller
-// holds the dag mutation lock.
-func startVerifierAlongsideLocked(ctx, spawnCtx context.Context, dagID string, owner *waveobj.Run, res finalResult) (bool, error) {
+// takeFinalTreeLocked records the stage's tree and starts on it, before Check and Verify run, the verifier when it
+// works alongside them and a fast-track dag's end review. It reports whether the stage took the tree: a stage
+// cancelled or ended meanwhile does not. The caller holds the dag mutation lock.
+func takeFinalTreeLocked(ctx, spawnCtx context.Context, dagID string, owner *waveobj.Run, res finalResult) (bool, error) {
 	g, err := wstore.GetDag(ctx, dagID)
 	if err != nil {
 		return false, err
@@ -559,7 +568,10 @@ func startVerifierAlongsideLocked(ctx, spawnCtx context.Context, dagID string, o
 	}
 	f.Tree, f.Commit = res.tree, res.commit
 	var afterCommit []func()
-	startVerifier(ctx, spawnCtx, g, owner, &afterCommit)
+	startEndReview(ctx, spawnCtx, g, owner, time.Now().UnixMilli(), &afterCommit)
+	if verifierAlongside(g) {
+		startVerifier(ctx, spawnCtx, g, owner, &afterCommit)
+	}
 	if err := persistDag(ctx, g); err != nil {
 		return false, err
 	}
@@ -569,9 +581,9 @@ func startVerifierAlongsideLocked(ctx, spawnCtx context.Context, dagID string, o
 	return true, nil
 }
 
-// recordFinalLocked writes what the deterministic steps found. A failure ends the stage, and stops a verifier
-// working alongside whatever it said; otherwise the verifier's verdict, given already or still to come, judges
-// the result. A dag that was cancelled, moved to another round meanwhile, or whose commands were stopped (an end, and
+// recordFinalLocked writes what the deterministic steps found. A failure ends the stage, once an end review has
+// its say, and stops a verifier working alongside whatever it said; otherwise the verifier's verdict, given
+// already or still to come, judges the result. A dag that was cancelled, moved to another round meanwhile, or whose commands were stopped (an end, and
 // perhaps a rerun of the same round since), takes nothing. The caller holds the dag mutation lock.
 func recordFinalLocked(ctx, spawnCtx context.Context, dagID string, owner *waveobj.Run, res finalResult) error {
 	g, err := wstore.GetDag(ctx, dagID)
@@ -637,13 +649,25 @@ func startVerifierSession(ctx, spawnCtx context.Context, g *waveobj.TaskGroup, o
 // finalVerifyWhere names the final stage's Verify in a flaky item.
 const finalVerifyWhere = "in the final stage's Verify on the merged result"
 
-// finishFinal decides the stage's outcome: failed on a Detail, unverified when anything could not be verified,
+// finishFinal ends a stage whose commands and verifier are done: at once, or, while its end review still reviews,
+// once that gives its verdict, which then joins the outcome (applyEndReview).
+func finishFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) {
+	f := g.Final
+	clearFinalStep(f)
+	if awaitEndReview(f, judged) {
+		return
+	}
+	applyEndReview(f)
+	endFinal(ctx, g, judged, afterCommit)
+}
+
+// endFinal decides the stage's outcome: failed on a Detail, unverified when anything could not be verified,
 // else passed. The tests a merge Verify reported flaky and a plan with no Verify are reasons too, since nothing
 // checked them cleanly. The tasks' caveats (taskCaveats) are reasons only when no verifier judged the result: the
 // verifier is briefed with them, so its verdict, and its own --unverified, already answer them. A done outcome wakes the
 // lead from the tick that announces the dag done; a failure wakes it here, with the Detail whole, because the fix
 // plan is written from it.
-func finishFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) {
+func endFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) {
 	f := g.Final
 	// a human ending the stage stops its commands before they could clear their step
 	clearFinalStep(f)
@@ -700,8 +724,8 @@ func finishFinal(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCo
 }
 
 // settleFinalLocked ends a stage whose outcome is decided and persists the dag: the verifier's verdict (judged)
-// and a human's end both finish through it. The caller holds the dag mutation lock and runs afterCommit after it.
-func settleFinalLocked(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run, judged bool, afterCommit *[]func()) error {
+// and the end review's finish through it. The caller holds the dag mutation lock and runs afterCommit after it.
+func settleFinalLocked(ctx context.Context, g *waveobj.TaskGroup, judged bool, afterCommit *[]func()) error {
 	finishFinal(ctx, g, judged, afterCommit)
 	RecomputeDagStatus(g)
 	return persistDag(ctx, g)
@@ -712,7 +736,8 @@ const finalEndedByHuman = "ended by the human: "
 
 // EndFinalStage ends a running final stage on the human's word, as unverified or failed, with reason recorded
 // where every final outcome is: failed is the stage's Detail and wakes the lead as a verifier's fail does. It
-// stops what is running: the stage's commands, or its verifier. The caller schedules the dag afterwards.
+// stops what is running: the stage's commands, its verifier and its end review, whose verdict, given or not, the
+// human's outcome overrides. The caller schedules the dag afterwards.
 func EndFinalStage(ctx context.Context, dagID, outcome, reason string) error {
 	reason = strings.TrimSpace(reason)
 	switch {
@@ -739,10 +764,6 @@ func EndFinalStage(ctx context.Context, dagID, outcome, reason string) error {
 		case finalTerminal(f.State):
 			return fmt.Errorf("run %s's final stage is %s; only a running one can be ended", g.RunID, f.State)
 		}
-		owner, err := wstore.GetRun(ctx, g.ChannelId, g.RunID)
-		if err != nil {
-			return fmt.Errorf("loading the dag's run: %w", err)
-		}
 		if f.State == FinalState_Checking || f.State == FinalState_Final {
 			// the commands' goroutine finds the stage ended when it comes back, and records nothing
 			afterCommit = append(afterCommit, func() { stopDagFinal(dagID) })
@@ -751,6 +772,7 @@ func EndFinalStage(ctx context.Context, dagID, outcome, reason string) error {
 		if f.VerifierRunID != "" {
 			stopReviewer(ctx, g, f.VerifierRunID, &afterCommit)
 		}
+		stopEndReview(ctx, g, &afterCommit)
 		if outcome == FinalState_Failed {
 			f.Detail = finalEndedByHuman + reason
 		} else {
@@ -760,7 +782,9 @@ func EndFinalStage(ctx context.Context, dagID, outcome, reason string) error {
 				PostQuiet(ctx, channelID, runID, "the human ended the final stage unverified: "+flatLine(reason))
 			})
 		}
-		return settleFinalLocked(ctx, g, owner, false, &afterCommit)
+		endFinal(ctx, g, false, &afterCommit)
+		RecomputeDagStatus(g)
+		return persistDag(ctx, g)
 	})
 	if err != nil {
 		return err
