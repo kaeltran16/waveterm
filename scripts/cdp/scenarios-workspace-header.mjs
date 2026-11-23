@@ -74,7 +74,7 @@ const headerFacts = (h) =>
             actions: flat(hd?.querySelector("[data-agent-actions]")),
             link: link ? flat(link) : null,
             asks: asks ? { label: asks.getAttribute("aria-label"), text: flat(asks), dot: asks.querySelector(".bg-warning") != null } : null,
-            chip: chip ? { text: flat(chip.querySelector("[data-composer-changes-summary]")), title: chip.title } : null,
+            chip: chip ? { text: flat(document.querySelector("[data-rendered-composer] [data-composer-changes-summary]")), title: chip.title } : null,
         };`
     );
 

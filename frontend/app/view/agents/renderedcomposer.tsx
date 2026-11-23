@@ -196,17 +196,8 @@ function ChangesRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }
                     exit="exit"
                     className="overflow-hidden"
                 >
-                    <button
-                        type="button"
-                        data-composer-changes
-                        onClick={(e) => {
-                            if (!openBeside(model, agent.id, { kind: "changes", selected: null }, e)) {
-                                openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent));
-                            }
-                        }}
-                        title={chip.title ? `${chip.title} · Open the Changes tab` : "Open the Changes tab"}
-                        className="group mb-2.5 flex w-full cursor-pointer items-center gap-[9px] border-b border-edge-mid pb-2.5 text-left text-ink-mid"
-                    >
+                    {/* only the pill opens the diff: a whole-row button caught clicks meant for the box below */}
+                    <div className="mb-2.5 flex w-full items-center gap-[9px] border-b border-edge-mid pb-2.5 text-ink-mid">
                         <FileDiff size={13} strokeWidth={2} aria-hidden className="shrink-0" />
                         <span
                             data-composer-changes-summary
@@ -215,11 +206,21 @@ function ChangesRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }
                             <FilesSummary chip={chip} />
                         </span>
                         <span className="flex-1" />
-                        <span className="inline-flex shrink-0 items-center gap-[3px] rounded-[6px] px-[6px] py-[2px] text-[12px] font-semibold text-accent-soft group-hover:bg-surface-hover">
+                        <button
+                            type="button"
+                            data-composer-changes
+                            onClick={(e) => {
+                                if (!openBeside(model, agent.id, { kind: "changes", selected: null }, e)) {
+                                    openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent));
+                                }
+                            }}
+                            title={chip.title ? `${chip.title} · Open the Changes tab` : "Open the Changes tab"}
+                            className="inline-flex shrink-0 cursor-pointer items-center gap-[3px] rounded-[6px] px-[6px] py-[2px] text-[12px] font-semibold text-accent-soft hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                        >
                             Review changes
                             <ChevronRight size={12} strokeWidth={2} aria-hidden />
-                        </span>
-                    </button>
+                        </button>
+                    </div>
                 </motion.div>
             ) : null}
         </AnimatePresence>
