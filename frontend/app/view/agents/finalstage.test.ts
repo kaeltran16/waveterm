@@ -592,6 +592,124 @@ describe("finalStageView, the steps", () => {
     });
 });
 
+describe("finalStageView, the end review", () => {
+    const keys = (v: FinalStageView) => v.steps.map((s) => s.key);
+    const stateOf = (v: FinalStageView, key: string) => v.steps.find((s) => s.key === key)?.state;
+    const reviewing = (over: Partial<FinalEndReview> = {}): FinalEndReview => ({ state: "reviewing", ...over });
+    const commandsOk = [ev("tree", 41 * S), ev("check", 18 * S), ev("verify", 300 * S), ev("final", 125 * S)];
+
+    it("adds an End review step before the Verifier, with or without commands", () => {
+        const endreview = reviewing();
+        expect(keys(finalStageView(dag({ state: "checking", round: 1, endreview }), [], NOW))).toEqual([
+            "tree",
+            "check",
+            "verify",
+            "final",
+            "review",
+            "verifier",
+        ]);
+        const bare = dag({ state: "verifying", round: 1, endreview }, { check: "", verify: "", finalcmd: "" });
+        const v = finalStageView(bare, [], NOW);
+        expect(keys(v)).toEqual(["review", "verifier"]);
+        expect(v.steps[0].label).toBe("End review");
+    });
+
+    it("reviews beside a running Verify: running, and the subline and activity name it alongside", () => {
+        const stepts = NOW - 192 * S;
+        const final = {
+            state: "checking",
+            round: 1,
+            step: "verify",
+            stepts,
+            endreview: reviewing({ startedts: NOW - 250 * S }),
+        };
+        const v = finalStageView(dag(final), [ev("tree", 41 * S), ev("check", 18 * S)], NOW);
+        expect(states(v)).toEqual(["passed", "passed", "running", "waiting", "running", "waiting"]);
+        expect(v.running).toBe("verify");
+        expect(v.subline).toBe("Verify · 3m 12s · end review alongside");
+        expect(v.steps[4].text).toBe("running 4m 10s");
+        expect(finalStageActivity(final)).toBe("running Verify · end review alongside");
+    });
+
+    it("names both beside a command when the verifier works alongside too", () => {
+        const final = {
+            state: "checking",
+            round: 1,
+            step: "check",
+            stepts: NOW - 11 * S,
+            verifierrunid: "v-run",
+            endreview: reviewing(),
+        };
+        const v = finalStageView(dag(final, { finalcmd: "" }), [ev("tree", 30 * S)], NOW);
+        expect(v.subline).toBe("Check · 11s · verifier and end review alongside");
+        expect(finalStageActivity(final)).toBe("running Check · verifier and end review alongside");
+    });
+
+    it("names the end review in the headline while the stage waits only on it", () => {
+        const endreview = reviewing({ startedts: NOW - 62 * S, waiting: true, judged: true });
+        const final = { state: "verifying", round: 1, verifierrunid: "v-run", endreview };
+        const v = finalStageView(dag(final), commandsOk, NOW);
+        expect(states(v)).toEqual(["passed", "passed", "passed", "passed", "running", "passed"]);
+        expect(v.running).toBe("review");
+        expect(v.headline).toBe("round 1 · end review reviewing · 1m 02s");
+        expect(finalStageActivity(final)).toBe("end review reviewing");
+    });
+
+    it("a detail that is only the end review's fails its step, and leaves the commands and the Verifier unfailed", () => {
+        const final = {
+            state: "failed",
+            round: 1,
+            verifierrunid: "v-run",
+            detail: "[End review] t-2's test asserts nothing",
+            endreview: { state: "failed", text: "t-2's test asserts nothing" },
+        };
+        const v = finalStageView(dag(final, { status: "blocked" }), [...commandsOk, ev("review", 400 * S, false)], NOW);
+        expect(states(v)).toEqual(["passed", "passed", "passed", "passed", "failed", "passed"]);
+        expect(v.subline).toBe("failed at End review · round 1");
+        expect(v.detail).toBe("[End review] t-2's test asserts nothing");
+    });
+
+    it("a command's failure beside the end review's fails both, and the Verifier did not run", () => {
+        const final = {
+            state: "failed",
+            round: 1,
+            detail: "Final `x` failed (exit 1):\nsteps 4 and 5\n\n[End review] t-2's test asserts nothing",
+            endreview: { state: "failed", text: "t-2's test asserts nothing" },
+        };
+        const events = [ev("tree", 41 * S), ev("check", 18 * S), ev("verify", 300 * S), ev("final", 125 * S, false)];
+        const v = finalStageView(dag(final, { status: "blocked" }), events, NOW);
+        expect(states(v)).toEqual(["passed", "passed", "passed", "failed", "failed", "notrun"]);
+    });
+
+    it("reads a lost end review as failed and its reason apart from the Verifier's verdict", () => {
+        const final = {
+            state: "unverified",
+            round: 1,
+            verifierrunid: "v-run",
+            unverified: ["the end review did not finish: its session exited twice"],
+            endreview: { state: "lost", text: "its session exited twice" },
+        };
+        const v = finalStageView(dag(final, { status: "done" }), commandsOk, NOW);
+        expect(stateOf(v, "review")).toBe("failed");
+        expect(stateOf(v, "verifier")).toBe("passed");
+    });
+
+    it("leaves the parallel end review out of a passed stage's total", () => {
+        const final = {
+            state: "passed",
+            round: 1,
+            verifierrunid: "v-run",
+            startedts: NOW - 400 * S,
+            endreview: { state: "passed" },
+        };
+        const events = [...commandsOk, ev("review", 600 * S)];
+        const v = finalStageView(dag(final, { status: "done" }), events, NOW, { completedts: NOW });
+        expect(states(v)).toEqual(Array(6).fill("passed"));
+        // 41s + 18s + 5m + 2m 05s and the Verifier's 6m 40s
+        expect(v.subline).toBe("passed · 14m 44s");
+    });
+});
+
 describe("finalStageActivity", () => {
     const at = (state: string, step?: string, verifierrunid?: string) =>
         finalStageActivity({ state, round: 1, step, verifierrunid });

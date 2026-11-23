@@ -567,6 +567,9 @@ const LIGHT_GOAL =
 const LIGHT_TASKS = 3;
 const LIGHT_TITLE = "Light review";
 const LIGHT_DISPATCH_WAIT_MS = 30000;
+// the tree row's verdict words: the lead's amendment, and the human's accept it must not read as
+const LIGHT_AMENDED = "amended by the lead";
+const LIGHT_ACCEPTED = "accepted by you";
 
 export const planReviewLight = {
     name: "plan-review-light",
@@ -671,6 +674,19 @@ export const planReviewLight = {
             "4. after the resubmit the dag leaves plan-review and t-1 dispatches",
             resubmitted === "ok" && dispatched() && g?.planreview?.state === "accepted" && g?.planreview?.amended === true && graph2.ok,
             JSON.stringify({ resubmitted, status: g?.status, planreview: { state: g?.planreview?.state, amended: g?.planreview?.amended, round: g?.planreview?.round }, t1: t1 && { state: t1.state, runid: t1.runid ?? "" }, graph: graph2.ok })
+        );
+
+        await h.ev(PEEKS_ESC);
+        await h.goto("agent");
+        const amendedTree = await h.ev(planReviewTreeRows(1));
+        await h.shot("cdp-shots/plan-review-light-5-amended-tree.png");
+        rec(
+            `5. after the resubmit the agent tree's ${LIGHT_TITLE} row reads the lead's amendment, not ${LIGHT_ACCEPTED}`,
+            amendedTree.rows.length === 1 &&
+                amendedTree.rows[0].title === `${PLAN_REVIEW_TITLE}${LIGHT_TITLE}` &&
+                amendedTree.rows[0].sub.startsWith(LIGHT_AMENDED) &&
+                !amendedTree.rows[0].sub.includes(LIGHT_ACCEPTED),
+            JSON.stringify(amendedTree)
         );
         return steps;
     },
