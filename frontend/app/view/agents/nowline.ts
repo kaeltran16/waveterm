@@ -74,6 +74,27 @@ function startsTurn(e: AgentEntry): boolean {
     return e.kind === "user" || e.kind === "command";
 }
 
+/** A turn the last hook opened that the transcript has written nothing for yet: the newest record predates the hook
+ *  by more than the skew and no call is running. Until it lands, the transcript's last turn is a finished one, so a
+ *  timeline drawing it live would open its work and fold it again when the prompt arrives. */
+export function turnAwaitingTranscript(entries: AgentEntry[], lastHook: { hook: string; ts: number } | null): boolean {
+    if (lastHook == null || !TURN_START_HOOKS.includes(lastHook.hook)) {
+        return false;
+    }
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i];
+        if (e.kind === "action" && e.pending) {
+            return false;
+        }
+        const ts = "ts" in e ? e.ts : undefined;
+        if (ts != null) {
+            const end = e.kind === "action" ? ts + (e.durationMs ?? 0) : ts;
+            return lastHook.ts - end > TURN_SKEW_MS;
+        }
+    }
+    return false;
+}
+
 export function nowLineState(input: {
     state: AgentState;
     docked: boolean;

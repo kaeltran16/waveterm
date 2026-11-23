@@ -7,7 +7,7 @@
 // scrolled out of view, a bar pinned at the top holds it. A file path in a reply opens in a File tab of the workspace
 // pane beside the transcript.
 
-import { cardVariants, composerReveal } from "@/app/element/motiontokens";
+import { composerReveal } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
@@ -27,7 +27,7 @@ import { showEarlierTranscript } from "./livetranscript";
 import { earlierAtomFor, entriesAtomFor, waitingAtomFor } from "./livetranscriptatoms";
 import { FileLinkContext } from "./markdownmessage";
 import { CommandChip, NarrationTimeline, PersonBubble } from "./narrationtimeline";
-import { useWorkingTail } from "./nowlineview";
+import { useTurnLive, useWorkingTail } from "./nowlineview";
 import { PermissionBand } from "./permissionband";
 import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
@@ -211,20 +211,17 @@ function QueuedLine({ count }: { count: number }) {
     );
 }
 
-// The messages waiting on the agent, after the timeline and above the working line. A message enters as an item
-// (moment 1); it has no exit, since the transcript row that shows it read takes its place in the same frame. The
-// Queued line reveals and leaves in place (moment 6).
+// The messages waiting on the agent, after the timeline and above the working line. A message lands at once and has
+// no exit, since the transcript row that shows it read takes its place in the same frame: any fade there blinks the
+// bubble. The Queued line reveals and leaves in place (moment 6).
 function QueuedFoot({ items }: { items: FootItem[] }) {
     const last = items.length - 1;
     return (
         <div data-queued-foot>
             {items.map((item, i) => (
-                <motion.div
+                <div
                     key={item.key}
                     data-queued-item
-                    variants={cardVariants}
-                    initial="initial"
-                    animate="animate"
                     className={item.command != null ? "flex flex-col" : "my-6 flex flex-col items-end"}
                 >
                     {item.command != null ? (
@@ -246,7 +243,7 @@ function QueuedFoot({ items }: { items: FootItem[] }) {
                             </motion.div>
                         ) : null}
                     </AnimatePresence>
-                </motion.div>
+                </div>
             ))}
         </div>
     );
@@ -285,6 +282,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     const canvasReveal = useMemo(() => lastCanvasReveal(entries) ?? undefined, [entries]);
     const timelineCtx = useMemo(() => ({ ...ctx, canvasReveal }), [ctx, canvasReveal]);
     const working = useWorkingTail(model.nowAtom, agent, entries);
+    const turnLive = useTurnLive(agent.blockId, agent.state === "working", entries);
     const foot = useQueuedFoot(agent, entries);
     // one node per change of either, so the memoized timeline does not re-render on every view render; an idle feed
     // gets no foot element, so its list holds only the rows it draws
@@ -345,7 +343,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                                             accentLatest
                                             thoughts
                                             renderAll={whole}
-                                            active={agent.state === "working"}
+                                            active={turnLive}
                                             ctx={timelineCtx}
                                             tail={tail}
                                             entryRow={entryRow}

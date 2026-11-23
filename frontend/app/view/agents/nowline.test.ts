@@ -15,6 +15,7 @@ import {
     spinnerGlyph,
     summarizeTurn,
     TURN_SKEW_MS,
+    turnAwaitingTranscript,
     type NowLine,
 } from "./nowline";
 import { fmtDuration } from "./runcompletion";
@@ -214,5 +215,28 @@ describe("glyphPose", () => {
         expect(largest.glyph).toBe(SPINNER_FRAMES.at(-1));
         expect(largest.scale).toBeGreaterThan(at(0).scale);
         expect(glyphPose(0).scale).toBeCloseTo(glyphPose(0.999).scale, 1);
+    });
+});
+
+describe("turnAwaitingTranscript", () => {
+    const submit = (ts: number) => ({ hook: "UserPromptSubmit", ts });
+    const finished = [user(T0), done(), msg(T0 + 30_000)];
+    it.each([
+        ["a submit after the last turn's reply, before its prompt lands", finished, submit(T0 + 60_000), true],
+        ["a /compact after the turn ended", finished, { hook: "PreCompact", ts: T0 + 60_000 }, true],
+        ["the prompt has landed", [...finished, user(T0 + 60_000)], submit(T0 + 60_000), false],
+        ["a submit within the skew of the newest record", finished, submit(T0 + 30_000 + TURN_SKEW_MS), false],
+        ["a submit while a call runs", [user(T0), pending("go test", T0 + 1_000)], submit(T0 + 60_000), false],
+        [
+            "a submit while a finished call's run reaches it",
+            [user(T0), { ...done(), ts: T0 + 1_000, durationMs: 58_000 }],
+            submit(T0 + 60_000),
+            false,
+        ],
+        ["a hook that opens no turn", finished, { hook: "PreToolUse", ts: T0 + 60_000 }, false],
+        ["no hook", finished, null, false],
+        ["no record carries a time", [user(), done(), msg()], submit(T0), false],
+    ])("%s", (_name, entries, hook, want) => {
+        expect(turnAwaitingTranscript(entries as AgentEntry[], hook)).toBe(want);
     });
 });

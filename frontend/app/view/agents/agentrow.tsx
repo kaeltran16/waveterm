@@ -61,7 +61,7 @@ import { editsApply } from "./diffscope";
 import { parseDocReview } from "./docreview";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
-import { useWorkingTail } from "./nowlineview";
+import { useTurnLive, useWorkingTail } from "./nowlineview";
 import { SubLabel } from "./sectionlabel";
 import type { SubagentState, SubagentVM } from "./session-models/sessionviewmodel";
 import { isStandingBy, shellTasksLabel, type ShellTask } from "./shelltasks";
@@ -336,6 +336,7 @@ export const AgentRow = memo(function AgentRow({
     const { scrollRef, onScroll, atBottom, jumpToBottom, release } = useStickToBottom(entries);
     const ctx = useTranscriptContext(model, agent);
     const tail = useWorkingTail(nowAtom, agent, entries, true);
+    const turnLive = useTurnLive(agent.blockId, agent.state !== "idle", entries);
     // the composer ends the scroll region, so opening it re-sticks a card scrolled up into its history
     useEffect(() => {
         if (composerOpen) {
@@ -709,7 +710,7 @@ export const AgentRow = memo(function AgentRow({
                                 <NarrationTimeline
                                     entries={entries}
                                     accentLatest
-                                    active={!idle}
+                                    active={turnLive}
                                     ctx={ctx}
                                     compact
                                     tail={tail}

@@ -22,6 +22,7 @@ import {
     nowLineText,
     SHIMMER_HALF_CH,
     shimmerSweep,
+    turnAwaitingTranscript,
     type NowLine,
 } from "./nowline";
 import { getAgentPermissionsAtom } from "./permissionstore";
@@ -143,6 +144,13 @@ export function LiveWorkingLine({
         now,
     });
     return <WorkingLine line={line} compact={compact} />;
+}
+
+/** Whether a host's timeline lays out its last turn as live: the agent is busy and the transcript has caught up with
+ *  the turn the last hook opened. */
+export function useTurnLive(blockId: string | undefined, busy: boolean, entries: AgentEntry[]): boolean {
+    const lastHook = useAtomValue(getLastHookAtom(blockId ? `block:${blockId}` : ""));
+    return busy && !turnAwaitingTranscript(entries, lastHook);
 }
 
 /** The working line as a host's timeline tail, memoised on what it reads so the timeline's memo holds between turns
