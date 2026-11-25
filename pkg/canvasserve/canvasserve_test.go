@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const boardBody = "<!doctype html><p>board</p>"
@@ -84,7 +85,7 @@ func TestHandlerServesARegisteredFolder(t *testing.T) {
 	}
 	res := get(t, http.MethodGet, base+"/topic/project/Main.dc.html")
 	body, _ := io.ReadAll(res.Body)
-	if res.StatusCode != http.StatusOK || string(body) != boardBody {
+	if res.StatusCode != http.StatusOK || string(body) != boardBody+keyRelay {
 		t.Fatalf("GET board: status %d body %q", res.StatusCode, body)
 	}
 	if res.Header.Get("Last-Modified") == "" {
@@ -95,6 +96,55 @@ func TestHandlerServesARegisteredFolder(t *testing.T) {
 	}
 	if head := get(t, http.MethodHead, base+"/topic/project/Main.dc.html"); head.StatusCode != http.StatusOK {
 		t.Errorf("HEAD board: status %d", head.StatusCode)
+	}
+}
+
+func TestHandlerInjectsTheKeyRelayIntoBoardsOnly(t *testing.T) {
+	design := designDir(t)
+	project := filepath.Join(design, "topic", "project")
+	files := map[string]string{
+		"canvas.json":   `{"boards":{"Main.dc.html":{"w":10,"h":10}}}`,
+		"support.js":    "document.body.dataset.x = '</body>';",
+		"Upper.dc.html": "<html><BODY><p>x</p></BODY></html>",
+		"Main.dc.html":  "<html><body><p>board</p></body></html>",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(project, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base, err := Register(design)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"canvas.json":   files["canvas.json"],
+		"support.js":    files["support.js"],
+		"Upper.dc.html": "<html><BODY><p>x</p>" + keyRelay + "</BODY></html>",
+		"Main.dc.html":  "<html><body><p>board</p>" + keyRelay + "</body></html>",
+	} {
+		res := get(t, http.MethodGet, base+"/topic/project/"+name)
+		body, _ := io.ReadAll(res.Body)
+		if res.StatusCode != http.StatusOK || string(body) != want {
+			t.Errorf("GET %s: status %d body %q, want %q", name, res.StatusCode, body, want)
+		}
+	}
+}
+
+func TestHandlerBoardHeadKeepsTheFileLastModified(t *testing.T) {
+	design := designDir(t)
+	board := filepath.Join(design, "topic", "project", "Main.dc.html")
+	stamp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := os.Chtimes(board, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	base, err := Register(design)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := get(t, http.MethodHead, base+"/topic/project/Main.dc.html")
+	if res.StatusCode != http.StatusOK || res.Header.Get("Last-Modified") != stamp.Format(http.TimeFormat) {
+		t.Errorf("HEAD board: status %d Last-Modified %q, want %q", res.StatusCode, res.Header.Get("Last-Modified"), stamp.Format(http.TimeFormat))
 	}
 }
 

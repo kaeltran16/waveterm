@@ -34,6 +34,7 @@ import {
 } from "react";
 import type { AgentsViewModel } from "./agents";
 import { projectOf, type AgentVM } from "./agentsviewmodel";
+import { listenBoardKeys } from "./boardkeys";
 import { errText } from "./brainstormui";
 import { boxToMark, type Box, type Mark } from "./canvasmarks";
 import {
@@ -443,11 +444,15 @@ function useEdgeFade() {
     return { ref: setEl, el, style, update };
 }
 
-// a fresh iframe paints only once its page loads, long after a view fade ends: fading on load is what shows
+// a fresh iframe paints only once its page loads, long after a view fade ends: fading on load is what shows. A
+// click focuses the board, so the keys it relays come back through the iframe
 export function BoardIframe({ src, title, style }: { src: string; title: string; style: CSSProperties }) {
     const [loaded, setLoaded] = useState(false);
+    const ref = useRef<HTMLIFrameElement>(null);
+    useEffect(() => listenBoardKeys(ref.current!, src), [src]);
     return (
         <motion.iframe
+            ref={ref}
             src={src}
             title={title}
             sandbox="allow-scripts allow-same-origin"
