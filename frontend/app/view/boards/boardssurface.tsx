@@ -6,8 +6,9 @@
 // project's boards (every project's under "All projects"), and its agent chip picks the board's agent. The open
 // board's state and actions are boardview.tsx's.
 // An ask form (new, about a thing, a handoff, a briefing) takes the talk column's place until it asks. The project
-// is the one a router landing named, else the cockpit's current one; a switcher change made while Boards shows
-// replaces a landing's. What must outlive a surface switch lives in boardstore.ts.
+// is the one a router landing named, else the cockpit's current one, else under "All projects" the one with the latest
+// board; a switcher change made while Boards shows replaces a landing's. What must outlive a surface switch lives in
+// boardstore.ts.
 
 import { palettePickChannel } from "@/app/cockpit/palette-data";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -46,6 +47,7 @@ import {
     agentChoices,
     askBox,
     boardFacts,
+    latestBoardChannel,
     switcherGroups,
     talkItems,
     type SwitcherList,
@@ -63,12 +65,56 @@ import {
 
 const PROJECT_ABOUT: BoardSource = { kind: "project", ref: "", title: "" };
 
-// the explicit project a landing named, else the switcher's project, else the active or only one
-function useBoardsChannel(model: AgentsViewModel): Channel | null {
+// "All projects" with no project to follow opens the project whose board was active last, picked once per mount so a
+// board drawn in another project does not pull the view away; undefined while the lists load
+function useLatestBoardChannel(enabled: boolean): Channel | null | undefined {
+    const rows = rowsWithChannel(useAtomValue(projectListAtom));
+    const key = rows.map((r) => r.channel.oid).join(",");
+    const [picked, setPicked] = useState<{ key: string; id: string | null } | null>(null);
+    const pickedId = picked?.key === key ? picked.id : undefined;
+    useEffect(() => {
+        if (!enabled || pickedId !== undefined) {
+            return;
+        }
+        let live = true;
+        const ids = rows.map((r) => r.channel.oid);
+        const unread = ids.filter((id) => globalStore.get(boardListAtom(id)) == null);
+        Promise.allSettled(unread.map((id) => loadBoardList(id))).then((results) => {
+            results.forEach((r, i) => {
+                if (r.status === "rejected") {
+                    console.warn("boards: listing failed", unread[i], r.reason);
+                }
+            });
+            if (live) {
+                const lists = ids.map((id) => ({
+                    channelId: id,
+                    boards: globalStore.get(boardListAtom(id))?.boards ?? [],
+                }));
+                setPicked({ key, id: latestBoardChannel(lists) });
+            }
+        });
+        return () => {
+            live = false;
+        };
+    }, [enabled, pickedId, key]);
+    if (pickedId === undefined) {
+        return undefined;
+    }
+    return rows.find((r) => r.channel.oid === pickedId)?.channel ?? null;
+}
+
+// the explicit project a landing named, else the switcher's project, else the active or only one, else under "All
+// projects" the one with the latest board; undefined while that is being found
+function useBoardsChannel(model: AgentsViewModel): Channel | null | undefined {
     const explicit = useAtomValue(boardsChannelAtom);
     const filter = useAtomValue(model.projectFilterAtom);
     const rows = useAtomValue(projectListAtom);
     const active = useAtomValue(activeChannelAtom);
+    const followed =
+        explicit == null
+            ? (rows.find((r) => r.name === filter)?.channel ?? palettePickChannel(active, rows, null))
+            : null;
+    const latest = useLatestBoardChannel(explicit == null && followed == null && filter === "all");
     // starts at the value Boards arrives with, so only a change made while Boards shows unpins a landing's project;
     // "All projects" names nothing to follow
     const prevFilterRef = useRef(filter);
@@ -82,7 +128,7 @@ function useBoardsChannel(model: AgentsViewModel): Channel | null {
     if (explicit != null) {
         return rows.find((r) => r.channel?.oid === explicit)?.channel ?? ({ oid: explicit, name: "" } as Channel);
     }
-    return rows.find((r) => r.name === filter)?.channel ?? palettePickChannel(active, rows, null);
+    return followed ?? (filter === "all" ? latest : null);
 }
 
 // the switcher's lists: every project's under "All projects", else the open project's alone
@@ -250,7 +296,9 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
     let header: ReactNode = <span className="text-[12px] text-muted">{channelId != null ? project : null}</span>;
     let actions: ReactNode = null;
     let body: ReactNode;
-    if (channelId == null) {
+    if (channel === undefined) {
+        body = null;
+    } else if (channelId == null) {
         body = (
             <SurfaceEmptyState
                 glyph={<Shapes size={28} strokeWidth={1.8} aria-hidden className="mb-[18px] text-ink-faint" />}

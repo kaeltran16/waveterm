@@ -13,6 +13,7 @@ import {
     barLine,
     boardFacts,
     elapsedText,
+    latestBoardChannel,
     SLOW_AFTER_MS,
     switcherGroups,
     switcherRows,
@@ -586,6 +587,23 @@ describe("switcherGroups", () => {
 
     it("keeps the open project even with no boards", () => {
         expect(switcherGroups([{ channelId: "cur", project: "cur", boards: [] }], "cur", NOW)).toHaveLength(1);
+    });
+});
+
+describe("latestBoardChannel", () => {
+    it.each<[string, { channelId: string; boards: BoardInfo[] }[], string | null]>([
+        [
+            "the project with the latest board, by activity or creation",
+            [
+                { channelId: "old", boards: [info({ activets: at(10, 0) })] },
+                { channelId: "new", boards: [info({ activets: 0, createdts: at(15, 0) })] },
+                { channelId: "empty", boards: [] },
+            ],
+            "new",
+        ],
+        ["none when no project has a board", [{ channelId: "empty", boards: [] }], null],
+    ])("%s", (_name, lists, want) => {
+        expect(latestBoardChannel(lists)).toBe(want);
     });
 });
 

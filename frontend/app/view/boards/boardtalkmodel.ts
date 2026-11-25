@@ -493,6 +493,18 @@ function lastActive(boards: BoardInfo[]): number {
     return Math.max(0, ...boards.map((b) => b.activets || b.createdts));
 }
 
+// the project whose board was active last, for "All projects" with no project to follow; null when none has a board
+export function latestBoardChannel(lists: { channelId: string; boards: BoardInfo[] }[]): string | null {
+    let latest: { channelId: string; ts: number } | null = null;
+    for (const l of lists) {
+        const ts = lastActive(l.boards);
+        if (l.boards.length > 0 && (latest == null || ts > latest.ts)) {
+            latest = { channelId: l.channelId, ts };
+        }
+    }
+    return latest?.channelId ?? null;
+}
+
 // one group per project: the open board's project first, then the others with boards, most recently active first
 export function switcherGroups(lists: SwitcherList[], currentId: string, now: number): SwitcherGroup[] {
     const isCurrent = (l: SwitcherList) => Number(l.channelId === currentId);
