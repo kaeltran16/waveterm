@@ -63,6 +63,9 @@ func Decide(project, changeID, verdict string) (*wshrpc.MemHygieneProject, error
 			if err := entryUndo(st, c, now); err != nil {
 				return err
 			}
+			if err := undoRestoreShared(st); err != nil {
+				return err
+			}
 		case wshrpc.MemVerdict_Keep:
 			// an applied change's files stay applied, so keeping it would misstate what's on disk
 			if !Pending(*c) {

@@ -145,6 +145,9 @@ func UndoBatch(project, batchID, changeID string) (*wshrpc.MemHygieneProject, er
 			stopped = undoWhole(st, b, now)
 		}
 		pruneBatches(st)
+		if err := undoRestoreShared(st); err != nil {
+			return err
+		}
 		return checkRemeasure(st)
 	})
 	if err != nil {
@@ -181,6 +184,28 @@ func undoWhole(st *State, b wshrpc.MemBatch, now time.Time) error {
 		}
 		undone++
 	}
+	return nil
+}
+
+// undoRestoreShared puts back the shared folder a split waits on. A check after the switch measured
+// the own folder as unshared, and the tab shows a split only for a project sharing its folder, so an
+// undone switch would otherwise hide the split that waits again until the next check.
+func undoRestoreShared(st *State) error {
+	i := slices.IndexFunc(st.Changes, func(c wshrpc.MemChange) bool { return c.Kind == splitKindSettings })
+	if i < 0 || !Pending(st.Changes[i]) || len(st.SharedWith) > 0 {
+		return nil
+	}
+	resolved := Discover(registryFn(), claudeHomeFn())
+	j := slices.IndexFunc(resolved, func(r Resolved) bool { return r.Project == st.Project })
+	if j < 0 || resolved[j].Skip != "" || len(resolved[j].SharedWith) == 0 {
+		return nil
+	}
+	r := resolved[j]
+	inv, err := ReadInventory(r.Folder)
+	if err != nil {
+		return fmt.Errorf("memory hygiene: re-reading %s's shared memory after the undo: %w", st.Project, err)
+	}
+	st.Folder, st.SharedWith, st.OwnFolder, st.Memories = r.Folder, r.SharedWith, r.OwnFolder, len(inv.Memories)
 	return nil
 }
 

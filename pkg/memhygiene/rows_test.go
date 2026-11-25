@@ -350,6 +350,25 @@ func TestUndoSplitBatchRestoresAllUnlessACleanupRemovedACopy(t *testing.T) {
 	}
 }
 
+func TestUndoSplitAfterACheckWaitsAgainOnTheSharedFolder(t *testing.T) {
+	env := checkTestSetup(t)
+	shared, _, _ := rowsTestSplit(t, env)
+	rowsTestApply(t, "ca", wshrpc.MemRow_Split, "")
+	// the check after the switch measures ca's own folder, unshared
+	checkTestRun(t, env, "ca")
+	splitID := rowsTestBatches(checkTestLoad(t, "ca"), wshrpc.MemBatch_Split)[0].Id
+
+	p, err := UndoBatch("ca", splitID, "")
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !checkSameFolder(p.Folder, shared) || !slices.Equal(p.SharedWith, []string{"det"}) || p.Memories != 4 || p.Index.Lines != 4 {
+		t.Fatalf("folder/sharedwith/memories/index lines = %q/%v/%d/%d, want the shared folder with det, 4 memories, 4 lines",
+			p.Folder, p.SharedWith, p.Memories, p.Index.Lines)
+	}
+}
+
 func TestApplyRowRefusesASecondApplyWhileOneRuns(t *testing.T) {
 	env := checkTestSetup(t)
 	rowsTestSplit(t, env)
