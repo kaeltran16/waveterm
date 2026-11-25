@@ -129,56 +129,6 @@ func TestChannelAtPathMatchesSeparatorStyles(t *testing.T) {
 	}
 }
 
-func TestGetRunsBySessionIds(t *testing.T) {
-	ctx := context.Background()
-	ch, err := CreateChannel(ctx, "runs-by-session", t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, r := range []waveobj.Run{
-		{ID: uuid.NewString(), Goal: "a", SessionId: "s-a"},
-		{ID: uuid.NewString(), Goal: "b", SessionId: "s-b"},
-		{ID: uuid.NewString(), Goal: "none"},
-		{ID: uuid.NewString(), Goal: "lead", SessionId: "s-lead-2", LeadSessionIds: []string{"s-lead-1", "s-lead-2"}},
-		{ID: uuid.NewString(), Goal: "scan", SessionId: "s-scan", ConsultSessions: []waveobj.ConsultSession{{SessionId: "s-consult", Role: "workflow-scan"}}},
-	} {
-		if err := AppendRun(ctx, ch.OID, r); err != nil {
-			t.Fatal(err)
-		}
-	}
-	got, err := GetRunsBySessionIds(ctx, []string{"s-a", "s-missing"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Goal != "a" {
-		t.Fatalf("want only the run launched under s-a, got %+v", got)
-	}
-	got, err = GetRunsBySessionIds(ctx, []string{"s-lead-1"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Goal != "lead" {
-		t.Fatalf("want the lead run found by an earlier lead session, got %+v", got)
-	}
-	got, err = GetRunsBySessionIds(ctx, []string{"s-lead-1", "s-lead-2"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 {
-		t.Fatalf("a run matching on both fields comes back once, got %+v", got)
-	}
-	got, err = GetRunsBySessionIds(ctx, []string{"s-consult"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Goal != "scan" {
-		t.Fatalf("want the scan run found by its consult session, got %+v", got)
-	}
-	if none, err := GetRunsBySessionIds(ctx, nil); err != nil || len(none) != 0 {
-		t.Fatalf("no ids: want nothing, got %v %v", none, err)
-	}
-}
-
 func TestGetRunsByStatus(t *testing.T) {
 	ctx := context.Background()
 	ch, err := CreateChannel(ctx, "runs-by-status", t.TempDir())

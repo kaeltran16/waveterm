@@ -5,7 +5,10 @@ package wshserver
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
@@ -36,6 +39,74 @@ func TestRunsBySession(t *testing.T) {
 	}
 	if got["rbs-unlinked"] != nil || len(got) != 2 {
 		t.Fatalf("an unlinked id maps to nothing, got %+v", got)
+	}
+}
+
+// manySessionIds is n ids, the first of them the given ones and the rest linked to no run
+func manySessionIds(n int, linked ...string) []string {
+	ids := append([]string{}, linked...)
+	for len(ids) < n {
+		ids = append(ids, uuid.NewString())
+	}
+	return ids
+}
+
+// All time names every session ever kept, past SQLite's cap on a statement's bound parameters
+func TestRunsBySessionManyIds(t *testing.T) {
+	seedLeadRun(t, "many")
+	seedLeadRun(t, "many-b")
+	linked := []string{"many-1", "many-2", "many-b-1", "many-b-2"}
+	got, err := runsBySession(context.Background(), manySessionIds(12000, linked...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(linked) {
+		t.Fatalf("want only the %d linked ids mapped, got %d", len(linked), len(got))
+	}
+	for _, id := range linked {
+		one, err := runsBySession(context.Background(), []string{id})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if one[id] == nil || got[id] == nil || got[id].OID != one[id].OID {
+			t.Fatalf("%s: linked with 12,000 ids to %v, alone to %v", id, got[id], one[id])
+		}
+	}
+}
+
+// linking reads the run table once, whatever the number of ids: a per-id or per-chunk scan grows with them
+func TestRunsBySessionCostDoesNotGrowWithIds(t *testing.T) {
+	for i := range 50 {
+		seedLeadRun(t, fmt.Sprintf("cost-%d", i))
+	}
+	ctx := context.Background()
+	few, many := manySessionIds(100, "cost-0-1"), manySessionIds(12000, "cost-0-1")
+	best := func(fn func()) time.Duration {
+		fastest := time.Duration(math.MaxInt64)
+		for range 3 {
+			start := time.Now()
+			fn()
+			fastest = min(fastest, time.Since(start))
+		}
+		return fastest
+	}
+	link := func(ids []string) func() {
+		return func() {
+			if _, err := runsBySession(ctx, ids); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	read := best(func() {
+		if _, err := wstore.GetAllRunsShared(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+	dFew, dMany := best(link(few)), best(link(many))
+	// the slack covers building a 12,000-entry set, well under a millisecond, and a scheduler hiccup
+	const slack = 20 * time.Millisecond
+	if dMany > dFew+read+slack {
+		t.Fatalf("12,000 ids took %v, over 100 ids' %v plus one run read's %v", dMany, dFew, read)
 	}
 }
 

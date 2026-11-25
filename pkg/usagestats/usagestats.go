@@ -796,6 +796,15 @@ func windowStart(now time.Time, windowDays int) time.Time {
 	return time.Date(y, m, d, 0, 0, 0, 0, now.Location())
 }
 
+// WindowStartDay is the first local day ("YYYY-MM-DD") of the last windowDays, the Kept argument for that window;
+// "" for all-time (0).
+func WindowStartDay(windowDays int) string {
+	if windowDays <= 0 {
+		return ""
+	}
+	return windowStart(time.Now(), windowDays).Format("2006-01-02")
+}
+
 // ScanUsage aggregates usage from the user's Claude, Codex, OpenCode, and Pi transcripts within
 // the last windowDays (0 = all-time), with one SessionMeta per (harness, session) that has a bucket.
 func ScanUsage(windowDays int) ([]Bucket, []SessionMeta, error) {

@@ -7,9 +7,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/effortstore"
@@ -414,6 +416,89 @@ func TestRepoRootFoldsALinkedWorktree(t *testing.T) {
 	for i, want := range []string{filepath.Join(main, "pkg", "x"), main, main} {
 		if got[i].Project != want {
 			t.Errorf("project %q, want %q", got[i].Project, want)
+		}
+	}
+}
+
+// keepUsageAt keeps one claude bucket for session on the local day daysAgo days before today, with a kept title
+func keepUsageAt(t *testing.T, session string, daysAgo int) usagestats.Bucket {
+	t.Helper()
+	b := usagestats.Bucket{
+		Harness: "claude", Provider: "anthropic", Model: "claude-opus-5-5", Session: session,
+		Day: time.Now().AddDate(0, 0, -daysAgo).Format("2006-01-02"), Input: 10, Output: 20, CacheRead: 300, Msgs: 2,
+	}
+	meta := usagestats.SessionMeta{Harness: "claude", Session: session, Cwd: usageTestRepo, Title: "kept title"}
+	if err := usagestats.Keep(context.Background(), []usagestats.Bucket{b}, []usagestats.SessionMeta{meta}); err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func getUsageStats(t *testing.T, windowDays int) *wshrpc.CommandGetUsageStatsRtnData {
+	t.Helper()
+	got, err := (&WshServer{}).GetUsageStatsCommand(context.Background(), wshrpc.CommandGetUsageStatsData{WindowDays: windowDays})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func usageBucketsOf(got *wshrpc.CommandGetUsageStatsRtnData, session string) []wshrpc.UsageBucket {
+	var out []wshrpc.UsageBucket
+	for _, b := range got.Buckets {
+		if b.Session == session {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// a session whose transcript is gone (none is on the test home's disk) still counts from what was kept
+func TestGetUsageStatsAnswersFromTheKeptRecord(t *testing.T) {
+	lead, _ := seedUsageDag(t)
+	b := keepUsageAt(t, lead.SessionId, 0)
+	got := getUsageStats(t, 7)
+	want := []wshrpc.UsageBucket{{
+		Harness: "claude", Provider: "anthropic", Model: "claude-opus-5-5", Session: lead.SessionId, Day: b.Day,
+		Input: 10, Output: 20, CacheRead: 300, Msgs: 2,
+	}}
+	if bs := usageBucketsOf(got, lead.SessionId); !reflect.DeepEqual(bs, want) {
+		t.Fatalf("buckets %+v, want %+v", bs, want)
+	}
+	var s *wshrpc.UsageSession
+	for i := range got.Sessions {
+		if got.Sessions[i].Session == lead.SessionId {
+			s = &got.Sessions[i]
+		}
+	}
+	if s == nil || s.Title != "kept title" || s.RunId != lead.ID || s.Role != "lead" || s.Project != usageTestRepo {
+		t.Fatalf("want the kept session with its kept title and its run link, got %+v", s)
+	}
+}
+
+func TestGetUsageStatsWindowLeavesOutEarlierKeptRows(t *testing.T) {
+	firstDay, dayBefore, monthAgo := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	keepUsageAt(t, firstDay, 6)
+	keepUsageAt(t, dayBefore, 7)
+	keepUsageAt(t, monthAgo, 30)
+	week := getUsageStats(t, 7)
+	if len(usageBucketsOf(week, firstDay)) != 1 {
+		t.Fatalf("the window's first day is in it")
+	}
+	for _, s := range []string{dayBefore, monthAgo} {
+		if bs := usageBucketsOf(week, s); len(bs) != 0 {
+			t.Fatalf("a kept row before the window is out of it, got %+v", bs)
+		}
+		for _, us := range week.Sessions {
+			if us.Session == s {
+				t.Fatalf("a session with no row in the window is out of it, got %+v", us)
+			}
+		}
+	}
+	all := getUsageStats(t, 0)
+	for _, s := range []string{firstDay, dayBefore, monthAgo} {
+		if len(usageBucketsOf(all, s)) != 1 {
+			t.Fatalf("All time holds every kept row, missing %s", s)
 		}
 	}
 }
