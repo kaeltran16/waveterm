@@ -6,6 +6,7 @@ package memhygiene
 import (
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -153,6 +154,29 @@ func TestUpdateRoundTripsState(t *testing.T) {
 	if st.OwnIndex == nil || st.OwnIndex.Lines != 3 || len(st.Changes) != 1 || st.Changes[0].Op.New != "b" ||
 		st.Seen["m.md"] != "h" || len(st.Sort["m.md"].Projects) != 2 {
 		t.Fatalf("state did not round-trip: %+v", st)
+	}
+}
+
+func TestListReturnsStoredBatchesUnchanged(t *testing.T) {
+	storeSetup(t)
+	want := []wshrpc.MemBatch{
+		{
+			Id: "b2", Kind: wshrpc.MemBatch_Routine, At: 2000, ChangeIds: []string{"c1", "c2"},
+			Skipped:     []wshrpc.MemSkip{{ChangeId: "c3", Kind: "trim", Title: "Trim x", Reason: wshrpc.MemSkip_Failed, Error: "boom"}},
+			IndexBefore: wshrpc.MemIndexStats{Exists: true, Lines: 90, Bytes: 9000},
+			IndexAfter:  wshrpc.MemIndexStats{Exists: true, Lines: 80, Bytes: 8000},
+		},
+		{Id: "b1", Kind: wshrpc.MemBatch_Split, At: 1000, ChangeIds: []string{"c4"}, Skipped: []wshrpc.MemSkip{}},
+	}
+	if _, err := Update("p", func(st *State) error { st.Batches = want; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	got, err := List(map[string]string{"p": `C:\p`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got[0].Batches, want) {
+		t.Fatalf("batches did not round-trip:\n got %+v\nwant %+v", got[0].Batches, want)
 	}
 }
 

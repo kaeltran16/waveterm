@@ -162,6 +162,12 @@ export class RpcApiType {
         return client.wshRpcCall("appenddossierdecision", data, opts);
     }
 
+    // command "applymemoryrow" [call]
+    ApplyMemoryRowCommand(client: WshClient, data: CommandApplyMemoryRowData, opts?: RpcOpts): Promise<MemRowResult> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "applymemoryrow", data, opts);
+        return client.wshRpcCall("applymemoryrow", data, opts);
+    }
+
     // command "ask" [call]
     AskCommand(client: WshClient, data: CommandAskData, opts?: RpcOpts): Promise<AskRtnData> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "ask", data, opts);
@@ -1408,6 +1414,12 @@ export class RpcApiType {
     UiStateCommand(client: WshClient, opts?: RpcOpts): Promise<UiState> {
         if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "uistate", null, opts);
         return client.wshRpcCall("uistate", null, opts);
+    }
+
+    // command "undomemorybatch" [call]
+    UndoMemoryBatchCommand(client: WshClient, data: CommandUndoMemoryBatchData, opts?: RpcOpts): Promise<MemHygieneProject> {
+        if (this.mockClient) return this.mockClient.mockWshRpcCall(client, "undomemorybatch", data, opts);
+        return client.wshRpcCall("undomemorybatch", data, opts);
     }
 
     // command "updateworkspacetabids" [call]

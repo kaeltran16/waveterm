@@ -26,7 +26,7 @@ import { canvasDir, canvasProjectDir } from "../agents/canvasmodel";
 import { attachCanvas, canvasOwner, getCanvas, selectCanvasBoard } from "../agents/canvasstore";
 import { jumpToAgent } from "../agents/channelsprimitives";
 import { selectChannel } from "../agents/channelsstore";
-import { selectMemoryProject } from "../agents/memorystore";
+import { landMemoryProject } from "../agents/memorystore";
 import { runRoleOf } from "../agents/runlineage";
 import { setupTabAtom } from "../agents/setupstore";
 import { usageLensAtom } from "../agents/usagestore";
@@ -309,7 +309,9 @@ async function land(
                 selectBrainstorm(model, target, b)
             );
         case "memhygiene":
-            return select(await loadMemHygiene(target, current), () => selectMemHygiene(model, target.project));
+            return select(await loadMemHygiene(target, current), (listed) =>
+                selectMemHygiene(model, listed, target.project)
+            );
         // the lens follows the run's own object, so there is nothing to load first
         case "workflowscan":
             return selectWorkflowScan(model, target.runId);
@@ -760,9 +762,9 @@ async function loadNote(noteId: string, current: () => boolean): Promise<Loaded>
     return current() ? loaded() : SUPERSEDED;
 }
 
-// The Memory tab shows only registered projects, so an unregistered one has nothing to land on. A failed list is
-// reported as such rather than as a missing project.
-async function loadMemHygiene(target: MemHygieneTarget, current: () => boolean): Promise<Loaded> {
+// The Memory tab shows only registered projects, so an unregistered one has nothing to land on; a registered one
+// lands with its first waiting row opened. A failed list is reported as such rather than as a missing project.
+async function loadMemHygiene(target: MemHygieneTarget, current: () => boolean): Promise<Loaded<MemHygieneProject[]>> {
     let projects: MemHygieneProject[];
     try {
         projects = (await RpcApi.ListMemoryHygieneCommand(TabRpcClient))?.projects ?? [];
@@ -773,13 +775,13 @@ async function loadMemHygiene(target: MemHygieneTarget, current: () => boolean):
         return SUPERSEDED;
     }
     return projects.some((p) => p.project === target.project)
-        ? loaded()
+        ? loaded(projects)
         : unavailable(`${target.project} is not a registered project`);
 }
 
-function selectMemHygiene(model: AgentsViewModel, project: string): OpenResult {
+function selectMemHygiene(model: AgentsViewModel, listed: MemHygieneProject[], project: string): OpenResult {
     globalStore.set(setupTabAtom, "memory");
-    selectMemoryProject(project);
+    landMemoryProject(listed, project);
     landOn(model.surfaceAtom, "setup");
     return OK;
 }

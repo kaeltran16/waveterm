@@ -12,8 +12,17 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 )
 
-// MemoryHygieneProducer reports a project whose memory check left changes to review. The function
-// field is the seam for tests.
+// hygieneRowNames reads each waiting row kind in the snippet.
+var hygieneRowNames = map[string]string{
+	wshrpc.MemRow_Split:   "split",
+	wshrpc.MemRow_Cleanup: "cleanup",
+	wshrpc.MemRow_Doc:     "doc move",
+	memhygiene.RowFailed:  "failed check",
+}
+
+// MemoryHygieneProducer reports a project whose memory waits for the user: Arc applies the routine
+// changes itself, so only what the Memory tab lists as waiting counts. The function field is the seam
+// for tests.
 type MemoryHygieneProducer struct {
 	listProjects func() ([]wshrpc.MemHygieneProject, error)
 }
@@ -31,22 +40,18 @@ func (p *MemoryHygieneProducer) Candidates(_ context.Context, _ *Trigger) ([]Can
 	}
 	var out []Candidate
 	for _, proj := range projects {
-		n := pendingChanges(proj.Changes)
+		rows := memhygiene.WaitingRows(proj)
 		// a CheckedAt of 0 has no fact to stamp from; the gate's prefilter would drop it anyway
-		if n == 0 || proj.CheckedAt == 0 {
+		if len(rows) == 0 || proj.CheckedAt == 0 {
 			continue
-		}
-		noun := "changes"
-		if n == 1 {
-			noun = "change"
 		}
 		out = append(out, Candidate{
 			Class: ClassMemoryHygiene,
 			// stamped from the check, so an unchanged result re-emits the same pair and dies at the watermark
 			ID:         fmt.Sprintf("memory-hygiene:%s:%d", proj.Project, proj.CheckedAt),
 			At:         proj.CheckedAt,
-			Title:      fmt.Sprintf("%s's memory has %d %s to review", proj.Project, n, noun),
-			Snippet:    hygieneSnippet(proj),
+			Title:      fmt.Sprintf("%s's memory has %d waiting for you", proj.Project, len(rows)),
+			Snippet:    hygieneSnippet(proj, rows),
 			SourceType: "memhygiene",
 			SourceRef:  "memhygiene:" + proj.Project,
 		})
@@ -54,33 +59,24 @@ func (p *MemoryHygieneProducer) Candidates(_ context.Context, _ *Trigger) ([]Can
 	return out, nil
 }
 
-// hygieneSnippet gives the judge what the title can't: what kind of changes wait, and how close the
-// index is to the lines Claude Code loads. "2 move here, 1 copy here · MEMORY.md at 6 of 200 lines"
-func hygieneSnippet(proj wshrpc.MemHygieneProject) string {
+// hygieneSnippet gives the judge what the title can't: what waits, and how close the index is to the
+// lines Claude Code loads. "1 split, 2 doc moves · MEMORY.md at 6 of 200 lines"
+func hygieneSnippet(proj wshrpc.MemHygieneProject, rows []string) string {
 	var kinds []string
 	count := map[string]int{}
-	for _, c := range proj.Changes {
-		if !memhygiene.Pending(c) {
-			continue
+	for _, r := range rows {
+		if count[r] == 0 {
+			kinds = append(kinds, r)
 		}
-		if count[c.Kind] == 0 {
-			kinds = append(kinds, c.Kind)
-		}
-		count[c.Kind]++
+		count[r]++
 	}
 	parts := make([]string, len(kinds))
 	for i, k := range kinds {
-		parts[i] = fmt.Sprintf("%d %s", count[k], strings.ReplaceAll(k, "-", " "))
+		name := hygieneRowNames[k]
+		if count[k] > 1 {
+			name += "s"
+		}
+		parts[i] = fmt.Sprintf("%d %s", count[k], name)
 	}
 	return fmt.Sprintf("%s · MEMORY.md at %d of %d lines", strings.Join(parts, ", "), proj.Index.Lines, memhygiene.LimitLines)
-}
-
-func pendingChanges(changes []wshrpc.MemChange) int {
-	n := 0
-	for _, c := range changes {
-		if memhygiene.Pending(c) {
-			n++
-		}
-	}
-	return n
 }

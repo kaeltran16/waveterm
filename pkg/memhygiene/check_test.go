@@ -524,7 +524,8 @@ func TestDecideUndoRemeasuresIndex(t *testing.T) {
 		t.Fatalf("after apply: index %+v, status %q", p.Index, p.Changes[0].Status)
 	}
 	p = checkTestDecide(t, "p", c.Id, "undo")
-	if p.Index.Lines != 2 || p.Changes[0].Status != "open" || p.Changes[0].ApplyId != "" {
+	// an undone routine change is kept, so the next check doesn't apply it again
+	if p.Index.Lines != 2 || p.Changes[0].Status != "kept" || p.Changes[0].ApplyId != "" {
 		t.Fatalf("after undo: index %+v, change %+v", p.Index, p.Changes[0])
 	}
 	if _, err := os.Stat(filepath.Join(folder, "a.md")); err != nil {
@@ -575,9 +576,32 @@ func TestDecideRefusesKeepAndReopenOutOfStatus(t *testing.T) {
 	}
 
 	checkTestDecide(t, "p", id, "undo")
-	checkTestDecide(t, "p", id, "keep")
 	if p := checkTestDecide(t, "p", id, "reopen"); p.Changes[0].Status != "open" {
 		t.Fatalf("reopen of a kept change left it %q", p.Changes[0].Status)
+	}
+}
+
+func TestCheckDropsBatchesWithNothingApplied(t *testing.T) {
+	env := checkTestSetup(t)
+	checkTestSimple(t, env, "p")
+	env.setReply(func(string) (string, error) { return checkTestDelete("a.md"), nil })
+	checkTestRun(t, env, "p")
+	id := checkTestLoad(t, "p").Changes[0].Id
+	checkTestDecide(t, "p", id, "apply")
+	if _, err := Update("p", func(st *State) error {
+		st.Batches = []wshrpc.MemBatch{
+			{Id: "live", Kind: wshrpc.MemBatch_Doc, At: 2, ChangeIds: []string{id}, Skipped: []wshrpc.MemSkip{}},
+			{Id: "gone", Kind: wshrpc.MemBatch_Doc, At: 1, ChangeIds: []string{"dropped-after-its-backup-expired"}, Skipped: []wshrpc.MemSkip{}},
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	checkTestRun(t, env, "p")
+
+	if b := checkTestLoad(t, "p").Batches; len(b) != 1 || b[0].Id != "live" {
+		t.Fatalf("batches = %+v, want only the one whose change is still applied", b)
 	}
 }
 

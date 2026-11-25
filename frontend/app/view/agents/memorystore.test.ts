@@ -5,13 +5,20 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-    applyMemoryGroup,
-    decideMemory,
+    applyMemoryRow,
+    leaveOutMemory,
+    loadMemory,
+    memoryApplyingAtom,
+    memoryBusyAtom,
     memoryErrorAtom,
+    memoryFocusAtom,
+    memoryOpenAtom,
     memoryProjectsAtom,
-    memorySelectedChangeAtom,
-    memorySelectedProjectAtom,
-    memorySelection,
+    memoryRefusedAtom,
+    memoryRowResultsAtom,
+    pressMemoryRow,
+    undoMemoryBatch,
+    undoMemoryLine,
 } from "./memorystore";
 
 vi.mock("@/app/store/wshclientapi", () => ({
@@ -19,6 +26,8 @@ vi.mock("@/app/store/wshclientapi", () => ({
         DecideMemoryChangeCommand: vi.fn(),
         ListMemoryHygieneCommand: vi.fn(),
         CheckMemoryHygieneCommand: vi.fn(),
+        ApplyMemoryRowCommand: vi.fn(),
+        UndoMemoryBatchCommand: vi.fn(),
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -69,80 +78,196 @@ function project(name: string, changes: MemChange[], split = false): MemHygieneP
     };
 }
 
-// the backend's answer to an apply: the project with that change applied
-function applying(p: MemHygieneProject): void {
-    decide.mockImplementation(async (_c, data) => {
-        const cur = globalStore.get(memoryProjectsAtom)!.find((x) => x.project === data.project)!;
-        return {
-            ...cur,
-            changes: cur.changes.map((c) => (c.id === data.changeid ? { ...c, status: "applied" } : c)),
-        };
-    });
-    globalStore.set(memoryProjectsAtom, [p]);
-}
-
 beforeEach(() => {
     decide.mockReset();
     globalStore.set(memoryProjectsAtom, null);
-    globalStore.set(memorySelectedProjectAtom, null);
-    globalStore.set(memorySelectedChangeAtom, null);
     globalStore.set(memoryErrorAtom, null);
+    globalStore.set(memoryOpenAtom, null);
+    globalStore.set(memoryFocusAtom, null);
+    globalStore.set(memoryRefusedAtom, null);
 });
 
-describe("F11: a verdict keeps the decided change selected", () => {
-    it("the last pending change, shown by default and applied, stays selected with Undo", async () => {
-        applying(project("own", [change("a", "", "applied"), change("b", "")]));
-        expect(memorySelection().change?.id).toBe("b");
-        expect(globalStore.get(memorySelectedChangeAtom)).toBeNull();
+describe("re-lists landing", () => {
+    const list = vi.mocked(RpcApi.ListMemoryHygieneCommand);
 
-        await decideMemory("own", "b", "apply");
+    // starts n lists; finish[i] resolves list i+1 and waits for it to land or be dropped
+    function startLists(n: number): { finish: (() => Promise<void>)[] } {
+        const resolvers: ((v: CommandListMemoryHygieneRtnData) => void)[] = [];
+        list.mockReset();
+        list.mockImplementation(() => new Promise((r) => resolvers.push(r)));
+        const loads = Array.from({ length: n }, () => loadMemory());
+        const names = Array.from({ length: n }, (_, i) => `list${i + 1}`);
+        const finish = names.map((name, i) => async () => {
+            resolvers[i]({ projects: [project(name, [])] } as CommandListMemoryHygieneRtnData);
+            await loads[i];
+        });
+        return { finish };
+    }
 
-        expect(globalStore.get(memoryErrorAtom)).toBeNull();
-        expect(globalStore.get(memorySelectedChangeAtom)).toBe("b");
-        expect(memorySelection().change?.id).toBe("b");
-        expect(memorySelection().change?.status).toBe("applied");
+    function landed(): string | undefined {
+        return globalStore.get(memoryProjectsAtom)?.[0]?.project;
+    }
+
+    it("each list finishing in start order lands", async () => {
+        const { finish } = startLists(3);
+        const seen: (string | undefined)[] = [];
+        for (const f of finish) {
+            await f();
+            seen.push(landed());
+        }
+        expect(seen).toEqual(["list1", "list2", "list3"]);
     });
 
-    it("stays on the project shown by default once its last change is decided", async () => {
-        applying(project("own", [change("b", "")]));
-        globalStore.set(memoryProjectsAtom, [
-            ...globalStore.get(memoryProjectsAtom)!,
-            project("next", [change("n", "")]),
+    it("a list finishing after a later-started one does not land over it", async () => {
+        const { finish } = startLists(3);
+        const seen: (string | undefined)[] = [];
+        for (const i of [1, 0, 2]) {
+            await finish[i]();
+            seen.push(landed());
+        }
+        expect(seen).toEqual(["list2", "list2", "list3"]);
+    });
+
+    it("a list started before a decision lands does not land over it", async () => {
+        globalStore.set(memoryProjectsAtom, [project("list0", [])]);
+        const { finish } = startLists(1);
+        decide.mockResolvedValue(project("list0", [change("m1", "shared", "kept")]));
+        await leaveOutMemory("list0", "m1");
+        await finish[0]();
+        expect(globalStore.get(memoryProjectsAtom)!.map((p) => [p.project, p.changes[0]?.status])).toEqual([
+            ["list0", "kept"],
         ]);
-        expect(memorySelection().project?.project).toBe("own");
+    });
+});
 
-        await decideMemory("own", "b", "apply");
+describe("row apply and batch undo", () => {
+    const applyRow = vi.mocked(RpcApi.ApplyMemoryRowCommand);
+    const undoBatch = vi.mocked(RpcApi.UndoMemoryBatchCommand);
+    const MINUTE = 60_000;
 
-        expect(memorySelection().project?.project).toBe("own");
-        expect(memorySelection().change?.id).toBe("b");
+    function rowResult(p: MemHygieneProject, over: Partial<MemRowResult> = {}): MemRowResult {
+        return { project: p, stop: "", here: 0, total: 0, changed: 0, newer: 0, failed: "", error: "", ...over };
+    }
+
+    beforeEach(() => {
+        applyRow.mockReset();
+        undoBatch.mockReset();
+        globalStore.set(memoryApplyingAtom, []);
+        globalStore.set(memoryRowResultsAtom, {});
     });
 
-    it("moves on to the next change still to review when there is one", async () => {
-        applying(project("own", [change("a", ""), change("b", "")]));
-        await decideMemory("own", "a", "apply");
-        expect(memorySelection().change?.id).toBe("b");
+    it("marks the row in flight, then stores the result and the project it returns", async () => {
+        const before = project("mp", [change("m1", "shared"), change("s1", "switch")], true);
+        const after = project("mp", [change("m1", "shared", "applied"), change("s1", "switch")], true);
+        globalStore.set(memoryProjectsAtom, [before, project("other", [])]);
+        let inFlight: string[] = [];
+        const res = rowResult(after, { stop: "newer", here: 1, total: 1, newer: 2 });
+        applyRow.mockImplementation(async () => {
+            inFlight = globalStore.get(memoryApplyingAtom);
+            return res;
+        });
+
+        await applyMemoryRow("mp", "split");
+
+        expect(inFlight).toEqual(["split/mp"]);
+        expect(applyRow.mock.calls[0][1]).toEqual({ project: "mp", row: "split", changeid: "" });
+        expect(applyRow.mock.calls[0][2].timeout).toBeGreaterThanOrEqual(MINUTE);
+        expect(globalStore.get(memoryApplyingAtom)).toEqual([]);
+        expect(globalStore.get(memoryRowResultsAtom)).toEqual({ mp: res });
+        expect(globalStore.get(memoryProjectsAtom)!.map((p) => p.changes[0]?.status)).toEqual(["applied", undefined]);
+        expect(globalStore.get(memoryErrorAtom)).toBeNull();
     });
 
-    it("the last id of an Apply all, shown by default, stays selected once nothing is pending", async () => {
-        applying(project("split", [change("m1", "shared"), change("m2", "shared")], true));
-        expect(memorySelection().change?.id).toBe("m1");
+    it("on a thrown error, says where, clears the in-flight mark and drops the last result", async () => {
+        globalStore.set(memoryProjectsAtom, [project("mp", [], true)]);
+        globalStore.set(memoryRowResultsAtom, { mp: rowResult(project("mp", [], true), { stop: "failed" }) });
+        applyRow.mockRejectedValue(new Error("apply already running"));
 
-        await applyMemoryGroup("split", "shared", ["m1", "m2"]);
+        await applyMemoryRow("mp", "doc", "d1");
 
-        expect(globalStore.get(memorySelectedChangeAtom)).toBe("m1");
-        expect(memorySelection().change?.status).toBe("applied");
+        expect(applyRow.mock.calls[0][1]).toEqual({ project: "mp", row: "doc", changeid: "d1" });
+        expect(globalStore.get(memoryApplyingAtom)).toEqual([]);
+        expect(globalStore.get(memoryRowResultsAtom)).toEqual({});
+        expect(globalStore.get(memoryErrorAtom)).toMatch(/mp.*apply already running/);
     });
 
-    it("an Apply all that leaves a pending change outside its group advances to that change", async () => {
-        applying(
-            project(
-                "split",
-                [change("m1", "shared"), change("m2", "shared"), change("o1", "own"), change("s1", "switch")],
-                true
-            )
-        );
-        await applyMemoryGroup("split", "shared", ["m1", "m2"]);
-        expect(memorySelection().change?.id).toBe("o1");
-        expect(globalStore.get(memorySelectedChangeAtom)).toBe("o1");
+    it("an undo replaces the project and drops its last row result", async () => {
+        const undone = project("mp", [change("m1", "shared", "open")], true);
+        globalStore.set(memoryProjectsAtom, [project("mp", [change("m1", "shared", "applied")], true)]);
+        globalStore.set(memoryRowResultsAtom, { mp: rowResult(undone, { stop: "failed" }) });
+        undoBatch.mockResolvedValue(undone);
+
+        await undoMemoryBatch("mp", "b1");
+
+        expect(undoBatch.mock.calls[0][1]).toEqual({ project: "mp", batchid: "b1", changeid: "" });
+        expect(globalStore.get(memoryProjectsAtom)).toEqual([undone]);
+        expect(globalStore.get(memoryRowResultsAtom)).toEqual({});
+    });
+});
+
+describe("the page's keys and Undo", () => {
+    const applyRow = vi.mocked(RpcApi.ApplyMemoryRowCommand);
+    const undoBatch = vi.mocked(RpcApi.UndoMemoryBatchCommand);
+    const NO_INDEX = { exists: false, lines: 0, bytes: 0 };
+
+    function switched(undoblock?: MemUndoBlock): MemHygieneProject {
+        const p = project("mp", [change("m1", "shared", "applied"), change("s1", "switch", "applied")], true);
+        const batch: MemBatch = {
+            id: "b1",
+            kind: "split",
+            at: Date.now(),
+            changeids: ["m1", "s1"],
+            skipped: [],
+            indexbefore: NO_INDEX,
+            indexafter: NO_INDEX,
+            undoblock,
+        };
+        return { ...p, batches: [batch] };
+    }
+
+    beforeEach(() => {
+        applyRow.mockReset();
+        undoBatch.mockReset();
+        globalStore.set(memoryBusyAtom, false);
+        globalStore.set(memoryApplyingAtom, []);
+        globalStore.set(memoryRowResultsAtom, {});
+    });
+
+    it("an Undo the model refuses shows the refusal and undoes nothing", () => {
+        globalStore.set(memoryProjectsAtom, [switched({ project: "det", batchid: "c1", at: 1, memories: 2 })]);
+        expect(undoMemoryLine("mp/b1")).toBe(true);
+        expect(undoBatch).not.toHaveBeenCalled();
+        expect(globalStore.get(memoryRefusedAtom)).toBe("mp/b1");
+    });
+
+    it("an Undo nothing refuses undoes the line's whole batch", () => {
+        const p = switched();
+        globalStore.set(memoryProjectsAtom, [p]);
+        undoBatch.mockResolvedValue(p);
+        expect(undoMemoryLine("mp/b1")).toBe(true);
+        expect(undoBatch.mock.calls.map((c) => c[1])).toEqual([{ project: "mp", batchid: "b1", changeid: "" }]);
+        expect(globalStore.get(memoryRefusedAtom)).toBeNull();
+    });
+
+    it("runs the opened row's button, and nothing while it is disabled or no row is opened", () => {
+        const p = project("mp", [change("m1", "shared"), change("s1", "switch")], true);
+        globalStore.set(memoryProjectsAtom, [p]);
+        applyRow.mockResolvedValue({
+            project: p,
+            stop: "",
+            here: 0,
+            total: 0,
+            changed: 0,
+            newer: 0,
+            failed: "",
+            error: "",
+        });
+        expect(pressMemoryRow("primary")).toBe(false);
+        globalStore.set(memoryOpenAtom, "split/mp");
+        globalStore.set(memoryBusyAtom, true);
+        expect(pressMemoryRow("primary")).toBe(false);
+        globalStore.set(memoryBusyAtom, false);
+        expect(pressMemoryRow("primary")).toBe(true);
+        expect(applyRow.mock.calls.map((c) => c[1])).toEqual([{ project: "mp", row: "split", changeid: "" }]);
     });
 });
