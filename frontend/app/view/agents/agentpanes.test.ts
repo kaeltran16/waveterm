@@ -84,11 +84,11 @@ describe("paneShown in Rendered", () => {
         expect(paneShown(model, id)).toBeNull();
     });
 
-    it("never shows the canvas of an agent with a brainstorm", () => {
+    it("with a brainstorm and a canvas, is the one whose tab is active", () => {
         brainstorm();
         canvas();
         openWorkspaceTab(id, { kind: "canvas" });
-        expect(paneShown(model, id)).toBeNull();
+        expect(paneShown(model, id)).toBe("canvas");
         openWorkspaceTab(id, { kind: "brainstorm" });
         expect(paneShown(model, id)).toBe("brainstorm");
     });

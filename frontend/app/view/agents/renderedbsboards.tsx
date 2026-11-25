@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The boards a Rendered card names: useQuestionBoards, the question card's option chips (Main), and MockupCard, one
-// row for a canvas with no brainstorm (CanvasEdge), drawn on the agent's last canvas reveal (useCanvasReveal) rather
+// row for the agent's canvas (CanvasEdge), drawn on the agent's last canvas reveal (useCanvasReveal) rather
 // than pinned after the transcript. The boards themselves draw in the workspace pane's Canvas tab and the canvas
 // window; a card only opens them.
 
@@ -15,7 +15,7 @@ import { useEffect, useState, type JSX, type ReactNode } from "react";
 import { openPaneTab } from "./agentpanes";
 import type { AgentActionEntry, AgentVM } from "./agentsviewmodel";
 import type { BrainstormFile } from "./brainstormmodel";
-import { brainstormAtom, openBrainstormAt, type BrainstormState } from "./brainstormstore";
+import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
 import { boardLabel, updatedAgo } from "./canvasmodel";
 import { SERVER_DOWN } from "./canvaspane";
 import { canvasStateAtom, openCanvasWindow, selectCanvasTab } from "./canvasstore";
@@ -251,8 +251,8 @@ function MockupBody({ view }: { view: MockupView }) {
     }
 }
 
-// the standalone Mockup card, for an agent with a canvas and no brainstorm: one row once boards are served, or why
-// they can't show. It measures its own width, since the narrow column it stacks in is the Rendered view's, not a
+// the standalone Mockup card, for an agent with a canvas, a brainstorm agent's too: one row once boards are served, or
+// why they can't show. It measures its own width, since the narrow column it stacks in is the Rendered view's, not a
 // card-width host's
 export function MockupCard({ agentId, compact }: { agentId: string; compact: boolean }): JSX.Element | null {
     const s = useAtomValue(canvasStateAtom(agentId));
@@ -301,13 +301,12 @@ export function useCanvasReveal(
 ): { view: CanvasRevealView; board: string | null } {
     const id = ctx.agentId ?? "";
     const s = useAtomValue(canvasStateAtom(id));
-    const bs = useAtomValue(brainstormAtom(id));
     const named = revealedCanvas(address);
     if (ctx.canvasReveal == null || ctx.agentId == null || named == null) {
         return { view: "row", board: null };
     }
     const latest = ctx.canvasReveal === action;
-    const view = canvasRevealView({ latest, topic: named.topic, canvas: s, brainstorm: bs != null });
+    const view = canvasRevealView({ latest, topic: named.topic, canvas: s });
     return { view, board: view === "row-open" && s != null ? revealBoard(s, named.board) : null };
 }
 

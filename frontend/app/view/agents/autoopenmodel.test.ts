@@ -153,6 +153,20 @@ describe("applyArrivals", () => {
         expect(s.unseen).toEqual(["run:r1"]);
     });
 
+    it("opens a brainstorm's question over a reveal of its agent's canvas, the Canvas tab behind it marked", () => {
+        const turn = offers(
+            input({
+                entries: [bash(REVEAL)],
+                brainstorm: { path: "/p/bs.json", modifiedMs: AFTER, wait: "2", run: null },
+                canvas: { topic: "auto-open", removed: false },
+            })
+        );
+        const s = applyArrivals(EMPTY_WORKSPACE, arrivals(turn, EMPTY_MEMORY));
+        expect(s.tabs.map(tabKey)).toEqual(["brainstorm", "canvas"]);
+        expect(s.active).toBe("brainstorm");
+        expect(s.unseen).toEqual(["canvas"]);
+    });
+
     it("opens Changes when it is all the turn brought", () => {
         const s = applyArrivals(EMPTY_WORKSPACE, [changes]);
         expect(s.active).toBe("changes");

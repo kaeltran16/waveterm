@@ -2866,6 +2866,69 @@ describe("Agent keys, stepping and toggles", () => {
                 ]);
             });
         });
+
+        describe("an agent with a brainstorm and a canvas", () => {
+            const both = () => {
+                const r = rendered();
+                attachBrainstorm("r", { topic: "bs", cwd: "/p" }, 0);
+                attachCanvas("r", { topic: "t", dir: "/p/.superpowers/design/t", projectDir: "/p" }, 0);
+                updateCanvas("r", (s) => ({
+                    ...s,
+                    status: "ready",
+                    board: "Main.dc.html",
+                    boards: ["Main.dc.html", "States.dc.html"].map((name) => ({ name, x: 0, y: 0, w: 1440, h: 900 })),
+                }));
+                openWorkspaceTab("r", { kind: "brainstorm" });
+                openWorkspaceTab("r", { kind: "canvas" });
+                return r;
+            };
+            const kinds = () => tabs().tabs.map((t) => t.kind);
+
+            it("with the Canvas tab shown, ] and [ move the list and m opens the window marking", () => {
+                const { claiming, find } = both();
+                expect(claiming("]")).toEqual(["agent:canvas-list-next"]);
+                find("agent:canvas-list-next").run(nav);
+                expect(getCanvas("r")!.board).toBe("States.dc.html");
+                find(claiming("[")[0]).run(nav);
+                expect(getCanvas("r")!.board).toBe("Main.dc.html");
+                expect(claiming("m")).toEqual(["agent:canvas-list-mark"]);
+                find("agent:canvas-list-mark").run(nav);
+                expect(globalStore.get(canvasWindowAtom)).toBe("r");
+                expect(getCanvas("r")!.marking).toBe(true);
+            });
+
+            it("b and Ctrl+Shift+B show the Brainstorm tab from the Canvas tab, both tabs kept", () => {
+                const { claiming, find } = both();
+                expect(claiming("b")).toEqual(["agent:brainstorm-open"]);
+                expect(claiming("c")).toEqual(["agent:canvas-close"]);
+                find("agent:brainstorm-open").run(nav);
+                expect(tabs().active).toBe("brainstorm");
+                expect(kinds()).toEqual(["brainstorm", "canvas"]);
+                openWorkspaceTab("r", { kind: "canvas" });
+                find("agent:view-chord").run({ ...nav, editable: true });
+                expect(tabs().active).toBe("brainstorm");
+                expect(kinds()).toEqual(["brainstorm", "canvas"]);
+            });
+
+            it("c shows the Canvas tab from the Brainstorm tab; b there closes the Brainstorm tab", () => {
+                const { claiming, find } = both();
+                openWorkspaceTab("r", { kind: "brainstorm" });
+                expect(claiming("c")).toEqual(["agent:canvas-open"]);
+                expect(claiming("b")).toEqual(["agent:brainstorm-close"]);
+                find("agent:canvas-open").run(nav);
+                expect(tabs().active).toBe("canvas");
+                expect(kinds()).toEqual(["brainstorm", "canvas"]);
+                openWorkspaceTab("r", { kind: "brainstorm" });
+                find("agent:brainstorm-close").run(nav);
+                expect(kinds()).toEqual(["canvas"]);
+            });
+
+            it("c on the Canvas tab closes it", () => {
+                const { claiming, find } = both();
+                find(claiming("c")[0]).run(nav);
+                expect(kinds()).toEqual(["brainstorm"]);
+            });
+        });
     });
 
     it("toggles the rail and fullscreen, and F11 toggles fullscreen too", () => {

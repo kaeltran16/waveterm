@@ -172,17 +172,16 @@ describe("boardCount", () => {
 });
 
 describe("canvasRevealView", () => {
-    const base = { latest: true, topic: "final-queue", canvas: state(), brainstorm: false };
+    const base = { latest: true, topic: "final-queue", canvas: state() };
 
     it("draws the card on the latest reveal and an opening row on an earlier one", () => {
         expect(canvasRevealView(base)).toBe("card");
         expect(canvasRevealView({ ...base, latest: false })).toBe("row-open");
     });
 
-    it("keeps the plain row for a canvas the agent no longer has, one its brainstorm holds, or one removed", () => {
+    it("keeps the plain row for a canvas the agent no longer has, or one removed", () => {
         expect(canvasRevealView({ ...base, canvas: null })).toBe("row");
         expect(canvasRevealView({ ...base, topic: "older-topic" })).toBe("row");
-        expect(canvasRevealView({ ...base, brainstorm: true })).toBe("row");
         expect(canvasRevealView({ ...base, latest: false, canvas: state({ status: "removed" }) })).toBe("row");
     });
 

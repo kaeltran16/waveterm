@@ -1072,8 +1072,9 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         const s = brainstorm();
         return s == null ? 0 : pickableOptions(shownBrainstormFile(s), s);
     };
-    // an agent with a brainstorm never shows its canvas, so the canvas keys stand down for it
-    const canvas = () => (brainstorm() == null ? focusedCanvas(model) : null);
+    // in Terminal an agent with a brainstorm never shows its canvas, so the canvas keys stand down for it there; in
+    // Rendered its canvas is a tab of its own
+    const canvas = () => (rendered() || brainstorm() == null ? focusedCanvas(model) : null);
     // in Terminal a shown brainstorm or canvas hides the rail and the terminal, so their keys stand down there; in
     // Rendered it is a tab beside the transcript, whose keys stay
     const centerFree = () => shown() == null || rendered();
@@ -1588,13 +1589,14 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             },
         },
         // b, c and m change meaning with the brainstorm's or the canvas's state, so each is two bindings with
-        // exclusive when()s and every footer chip keeps a static label
+        // exclusive when()s and every footer chip keeps a static label. An open fires while its own kind is not the one
+        // shown, so with both tabs in the Rendered pane b and c switch between them
         {
             id: "agent:canvas-open",
             keys: "c",
             group: "Agent",
             label: "Show the agent's canvas",
-            when: (ctx) => agentNav(ctx) && canvas() != null && shown() == null,
+            when: (ctx) => agentNav(ctx) && canvas() != null && shown() !== "canvas",
             run: () => showPane(model, focusId()!, "canvas", true, Date.now()),
         },
         {
@@ -1610,7 +1612,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "b",
             group: "Agent",
             label: "Show the agent's brainstorm",
-            when: (ctx) => agentNav(ctx) && brainstorm() != null && shown() == null,
+            when: (ctx) => agentNav(ctx) && brainstorm() != null && shown() !== "brainstorm",
             run: () => showPane(model, focusId()!, "brainstorm", true, Date.now()),
         },
         {
@@ -1624,8 +1626,9 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         {
             // b and c only fire off the terminal, and Ctrl+G b / c are Code / Jarvis, so this is the one door
             // that works while typing. A terminal sends it as plain ^B, so no TUI can bind it apart from Ctrl+B.
-            // Not gated on editable, like F11. An agent has a brainstorm or a canvas, never both; with neither it
-            // flips Terminal / Rendered, so the composer has the same door back
+            // Not gated on editable, like F11. The brainstorm wins over the canvas: in Terminal an agent with a
+            // brainstorm never shows its canvas, and in Rendered the chord shows the Brainstorm tab from the Canvas
+            // tab. With neither it flips Terminal / Rendered, so the composer has the same door back
             id: "agent:view-chord",
             keys: "Ctrl:Shift:b",
             group: "Agent",
@@ -1637,7 +1640,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             run: () => {
                 const kind = brainstorm() != null ? "brainstorm" : canvas() != null ? "canvas" : null;
                 if (kind != null) {
-                    showPane(model, focusId()!, kind, shown() == null, Date.now());
+                    showPane(model, focusId()!, kind, shown() !== kind, Date.now());
                     return;
                 }
                 const id = renderableId();

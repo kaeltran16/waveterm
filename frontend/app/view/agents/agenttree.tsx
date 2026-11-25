@@ -258,7 +258,8 @@ function PaneTag({ model, id }: { model: AgentsViewModel; id: string }) {
     const brainstorm = useAtomValue(brainstormAtom(id));
     const focused = useAtomValue(model.focusIdAtom) === id;
     const shown = usePaneShown(model, id);
-    // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
+    // the brainstorm's chip, in both views: in Terminal an agent with a brainstorm never shows its canvas (the
+    // brainstorm pane opens its boards), and in Rendered its Canvas tab sits beside the Brainstorm tab the chip opens
     if (brainstorm != null) {
         const showing = focused && shown === "brainstorm";
         return (

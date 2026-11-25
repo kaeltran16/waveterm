@@ -37,7 +37,7 @@ export type OfferInput = {
     entries: AgentEntry[];
     // the brainstorm's wait key while it asks the user, and the run it started, with its file's path and last write
     brainstorm: { path: string; modifiedMs: number | null; wait: string | null; run: string | null } | null;
-    // the canvas attached to the agent, unless its brainstorm holds it
+    // the canvas attached to the agent, a brainstorm agent's too: its Canvas tab joins the Rendered pane
     canvas: { topic: string; removed: boolean } | null;
     // the agent's last file edit (agent:lasteditts) and whether its checkout has changes
     lastEditMs: number | null;

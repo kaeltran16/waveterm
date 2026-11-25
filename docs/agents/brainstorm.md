@@ -319,6 +319,10 @@ to the judge**). The judge rides the builder check's machinery.
 
   ![The attention popup for a brainstorm question](../images/brainstorm/06-popup.png)
 
+- **Canvas tab.** In the Rendered view the brainstorm's canvas has its own tab beside the Brainstorm tab: the
+  workspace pane's Canvas tab lists every board of the brainstorm's canvas, a turn that reveals the canvas adds it
+  (behind a question the same turn asks), and `b` and `c` switch between the two tabs. The Terminal view shows only
+  the brainstorm, whose cards open its boards.
 - **Compaction.** After a compaction the agent re-reads the file and stamps `compacted`; the terminal
   shows a banner with the counts until you next open the brainstorm.
 - **Agent exited.** Its tab closes, as every agent tab does on exit. The brainstorm stays in its file:

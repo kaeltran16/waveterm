@@ -1,17 +1,21 @@
 // Scenario `workspace-auto-open`: what the Rendered view opens beside the transcript by itself when a turn ends
 // (autoopenmodel.ts). One fixture claude agent with a canvas and no brainstorm (RBS_KIT), whose project is a git repo
 // with an uncommitted change. Each step appends a turn to its transcript, or stamps its block's last edit, as the agent
-// would; the started run ids are fixtures no store knows, so a Run tab shows its id. The last step makes the agent a
-// lead of a held run (arrangeHeldRun), which no model ever starts.
+// would; the started run ids are fixtures no store knows, so a Run tab shows its id. Then a step makes the agent a
+// lead of a held run (arrangeHeldRun), which no model ever starts. The last steps attach a brainstorm with no question
+// and give the agent a second canvas (a canvas's reveal arrives once per topic), which teardown detaches.
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assistantText, editCall, toolResult, toolUse } from "./agent-page-fixtures.mjs";
 import { RBS_KIT } from "./scenarios-rendered-brainstorm.mjs";
-import { arrangeHeldRun, git, teardownHeldRuns } from "./scenarios-shared.mjs";
+import { arrangeHeldRun, bsFile, git, teardownHeldRuns } from "./scenarios-shared.mjs";
 
 const NAME = "workspace-auto-open";
 const TOPIC = `auto-open-${Date.now().toString(36)}`;
+// the brainstorm's canvas, a second topic the agent has not revealed yet
+const BS_TOPIC = `${TOPIC}-bs`;
+const BS_BOARDS = ["Main.dc.html", "States.dc.html", "Cards.dc.html"];
 const SHOT = (n, what) => `cdp-shots/workspace-auto-open-${n}-${what}.png`;
 // long enough for the transcript tail and the effect to have acted, were anything going to open
 const QUIET_MS = 2500;
@@ -35,7 +39,8 @@ const store = (h, ctx, body) =>
         h,
         `const W = await mod("app/view/agents/workspacestore.ts");
         const C = await mod("app/view/agents/canvasstore.ts");
-        const id = ${JSON.stringify(ctx.agentId)};
+        const S = await mod("app/view/agents/brainstormstore.ts");
+        const id =${JSON.stringify(ctx.agentId)};
         const ws = () => globalStore.get(W.workspaceAtom(id));
         ${body}`
     );
@@ -66,6 +71,31 @@ const stampEdit = (h, ctx) => h.rpc("setmeta", { oref: `block:${ctx.blockId}`, m
 
 const closeAll = (h, ctx) =>
     store(h, ctx, `for (const t of [...ws().tabs]) W.closeWorkspaceTab(id, t.kind === "run" ? "run:" + t.runId : t.kind); return true;`);
+
+const writeCanvas = (ctx, topic, boards) => {
+    const project = join(ctx.cwd, ".superpowers", "design", topic, "project");
+    mkdirSync(project, { recursive: true });
+    writeFileSync(join(project, "canvas.json"), JSON.stringify({ boards: Object.fromEntries(boards.map((b) => [b, { w: 1440, h: 900 }])), order: boards }));
+    for (const b of boards) writeFileSync(join(project, b), `<!doctype html><title>${b}</title><h1 style="font:64px sans-serif;color:#e6e9ed">${b}</h1>`);
+    return join(ctx.cwd, ".superpowers", "design", topic);
+};
+
+const C_TAB = `${PANE}?.querySelector("[data-canvas-tab]")`;
+const MOCKUP = `document.querySelector("[data-rendered-view] [data-rendered-mockup-card] [data-rendered-mockup]")`;
+const readList = (h) =>
+    h.ev(`(() => {
+        const rows = [...(${C_TAB}?.querySelectorAll("[data-canvas-tab-preview]") ?? [])];
+        return {
+            names: rows.map((r) => r.getAttribute("data-canvas-tab-preview")),
+            selected: rows.filter((r) => r.hasAttribute("data-selected")).map((r) => r.getAttribute("data-canvas-tab-preview")),
+            answers: ${C_TAB}?.querySelectorAll("[data-canvas-tab-answer]").length ?? -1,
+        };
+    })()`);
+
+async function pressKey(h, { key, code, keyCode }) {
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", key, code, text: key, windowsVirtualKeyCode: keyCode });
+    await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: keyCode });
+}
 
 async function realClick(h, expr) {
     const at = await h.ev(`(() => { const r = (${expr})?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; })()`);
@@ -196,6 +226,71 @@ const base = RBS_KIT.scenario(NAME, { noBrainstorm: true, topic: TOPIC }, async 
         await h.shot(SHOT(5, "lead-run"));
         return [opened && p.shape === "open" && p.tabs.join() === `run:${run.runId}`, p];
     });
+
+    await step("with a brainstorm's tab shown, a turn that reveals its canvas keeps Brainstorm, adds Canvas behind it with a new dot, and draws the Mockup card (Main board)", async () => {
+        await closeAll(h, ctx);
+        writeFileSync(ctx.file, JSON.stringify(bsFile({ canvas: BS_TOPIC }), null, 2));
+        await patchAgent(h, ctx, { brainstormFile: ctx.file });
+        const attached = await store(h, ctx, `return until(() => S.getBrainstorm(id)?.file != null, ${WAIT_MS});`);
+        const dir = writeCanvas(ctx, BS_TOPIC, BS_BOARDS);
+        await store(
+            h,
+            ctx,
+            `C.detachCanvas(id);
+            C.attachCanvas(id, { topic: ${JSON.stringify(BS_TOPIC)}, dir: ${JSON.stringify(dir)}, projectDir: ${JSON.stringify(ctx.cwd)} }, Date.now());
+            W.openWorkspaceTab(id, { kind: "brainstorm" });
+            return true;`
+        );
+        const shown = await waitPane(h, ctx, `s.active === "brainstorm"`);
+        await polishNap(QUIET_MS);
+        await patchAgent(h, ctx, { state: "working" });
+        append(ctx, [...bashCall(`wsh ui reveal canvas:${BS_TOPIC}`, ""), assistantText("The brainstorm's mockup is up.")]);
+        await polishNap(700);
+        await patchAgent(h, ctx, { state: "idle", idleSince: Date.now() });
+        const added = await waitPane(h, ctx, `tabs.includes("canvas")`);
+        const card = await polishWaitFor(h, `${MOCKUP}?.getAttribute("data-rendered-mockup") === "boards"`, RBS_KIT.BS_POLL_WAIT_MS);
+        await polishNap(700);
+        const p = await readPane(h, ctx);
+        await h.shot(SHOT(6, "brainstorm-canvas-behind"));
+        const ok =
+            attached &&
+            shown &&
+            added &&
+            card &&
+            p.shape === "open" &&
+            p.active === "brainstorm" &&
+            p.tabs.join() === "brainstorm,canvas" &&
+            p.unseen.join() === "canvas" &&
+            p.dots.join() === "canvas";
+        return [ok, { attached, shown, added, card, ...p }];
+    });
+
+    await step("the brainstorm agent's Canvas tab lists every board, none tagged with an answer, and ] moves the selected row (CanvasTab board)", async () => {
+        const clicked = await realClick(h, `document.querySelector('${tabSel("canvas")} [role="tab"]')`);
+        const active = await waitPane(h, ctx, `s.active === "canvas" && s.unseen.length === 0`);
+        const listed = await polishWaitFor(h, `(${C_TAB}?.querySelectorAll("[data-canvas-tab-preview]").length ?? 0) === ${BS_BOARDS.length}`, WAIT_MS);
+        await polishNap(700);
+        const before = await readList(h);
+        // the surface's keys fire only from outside a field; a key that never lands must fail the step, so focus is read
+        const focus = await h.ev(`(() => { document.activeElement?.blur?.(); const w = document.querySelector("[data-cockpit-surface-wrap]"); w?.focus(); return { wrap: document.activeElement === w, page: document.hasFocus() }; })()`);
+        await pressKey(h, { key: "]", code: "BracketRight", keyCode: 221 });
+        const at = before.names.indexOf(before.selected[0]);
+        const want = before.names[(at + 1) % before.names.length];
+        const moved = await polishWaitFor(h, `${C_TAB}?.querySelector('[data-canvas-tab-preview="${want}"]')?.hasAttribute("data-selected") === true`, WAIT_MS);
+        const after = await readList(h);
+        await h.shot(SHOT(7, "canvas-tab"));
+        const ok =
+            clicked &&
+            active &&
+            listed &&
+            before.names.join() === BS_BOARDS.join() &&
+            before.answers === 0 &&
+            before.selected.length === 1 &&
+            focus.wrap &&
+            moved &&
+            after.selected.join() === want;
+        return [ok, { clicked, active, listed, before, focus, want, after }];
+    });
 });
 
 export const workspaceAutoOpen = {
@@ -203,7 +298,9 @@ export const workspaceAutoOpen = {
     async teardown(h, ctx) {
         try {
             await closeAll(h, ctx);
-            await store(h, ctx, `C.detachCanvas(id); return true;`);
+            // null, not undefined, which the patch's JSON would drop
+            await patchAgent(h, ctx, { brainstormFile: null });
+            await store(h, ctx, `S.detachBrainstorm(id); C.detachCanvas(id); return true;`);
         } catch (e) {
             console.error(`${NAME} teardown: close the pane and the canvas failed: ${e?.message ?? e}`);
         }
