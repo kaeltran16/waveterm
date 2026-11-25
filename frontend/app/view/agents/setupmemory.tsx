@@ -5,7 +5,7 @@
 // a repo doc, a failed check), each row opening in place, then what Arc did this week with Undo. All derivation
 // is in memorymodel.ts, the atoms, RPCs and key actions in memorystore.ts.
 
-import { barFillClass, cardVariants, errorNudge, morphTransition } from "@/app/element/motiontokens";
+import { barFillClass, cardVariants, composerReveal, errorNudge, morphTransition } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { TickNumber } from "@/app/element/ticknumber";
 import { atoms } from "@/app/store/global-atoms";
@@ -16,8 +16,8 @@ import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { RefreshCw } from "lucide-react";
-import { AnimatePresence, motion, type Transition } from "motion/react";
-import { useEffect, useMemo, useState, type MouseEvent, type ReactNode, type Ref } from "react";
+import { AnimatePresence, LayoutGroup, motion, type Transition } from "motion/react";
+import { useEffect, useLayoutEffect, useMemo, useState, type MouseEvent, type ReactNode, type Ref } from "react";
 import {
     cleanupDetail,
     didLines,
@@ -289,23 +289,48 @@ function SplitProgress({ p, text }: { p: MemHygieneProject; text: string }) {
     );
 }
 
+// the split items wholly below the scroll box's visible area
+function itemsBelow(box: HTMLElement): number {
+    const bottom = box.getBoundingClientRect().bottom;
+    return [...box.querySelectorAll("[data-memory-item]")].filter((el) => el.getBoundingClientRect().top >= bottom)
+        .length;
+}
+
 function SplitReview({ p, row, b }: { p: MemHygieneProject; row: WaitingRow; b: RowButtons }) {
     const [all, setAll] = useState(false);
+    const [box, setBox] = useState<HTMLDivElement | null>(null);
+    const [below, setBelow] = useState(0);
     const n = splitCounts(p);
+    // every render, since a leave-out or a re-list can change what the box holds; an unchanged count bails out
+    useLayoutEffect(() => {
+        setBelow(box == null ? 0 : itemsBelow(box));
+    });
     const showAll = (
-        <button
-            type="button"
-            data-memory-showall
-            onClick={() => setAll(!all)}
-            className={cn(BTN_TEXT, "px-0 text-accent hover:bg-transparent")}
-        >
-            {all ? "Show fewer" : `Show all ${(n.comeOver + n.leftOut).toLocaleString("en-US")}`}
-        </button>
+        <>
+            <button
+                type="button"
+                data-memory-showall
+                onClick={() => setAll(!all)}
+                className={cn(BTN_TEXT, "px-0 text-accent hover:bg-transparent")}
+            >
+                {all ? "Show fewer" : `Show all ${(n.comeOver + n.leftOut).toLocaleString("en-US")}`}
+            </button>
+            {all && below > 0 ? (
+                <span data-memory-below className="text-[12px] text-muted">
+                    {below.toLocaleString("en-US")} more below
+                </span>
+            ) : null}
+        </>
     );
     return (
         <>
             {all ? (
-                <div className="flex max-h-[420px] flex-col overflow-y-auto border-t border-edge-faint">
+                <div
+                    ref={setBox}
+                    data-memory-all
+                    onScroll={(e) => setBelow(itemsBelow(e.currentTarget))}
+                    className="flex max-h-[420px] flex-col overflow-y-auto border-t border-edge-faint"
+                >
                     {splitList(p).map((g) => (
                         <div key={g.label} className="flex flex-col">
                             <span className={cn(SECTION_HEAD, "pb-1 pt-2.5")}>
@@ -679,9 +704,11 @@ function DidLineView({
                     </button>
                 )}
             </div>
-            <AnimatePresence initial={false}>
-                {refused && line.refusal !== "" ? <Refusal key="refusal" line={line} /> : null}
-            </AnimatePresence>
+            {/* grows in the flow, so the next line moves down with its bottom edge instead of sliding out from
+                under a box that appeared at full height */}
+            <PaneReveal open={refused && line.refusal !== ""} variants={composerReveal}>
+                <Refusal line={line} />
+            </PaneReveal>
             <PaneReveal open={open}>
                 <DigestBody line={line} p={p} />
             </PaneReveal>
@@ -695,6 +722,7 @@ function MemoryPage({ projects }: { projects: MemHygieneProject[] }) {
     const open = useAtomValue(memoryOpenAtom);
     const focus = useAtomValue(memoryFocusAtom);
     const refused = useAtomValue(memoryRefusedAtom);
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
     const rows = waitingRows(projects);
     const lines = didLines(projects, Date.now());
     const byName = new Map(projects.map((p) => [p.project, p]));
@@ -715,53 +743,64 @@ function MemoryPage({ projects }: { projects: MemHygieneProject[] }) {
                     <h2 className="m-0 text-[18px] font-semibold text-primary">Memory</h2>
                     <span className="text-[12.5px] leading-[1.5] text-muted">{INTRO}</span>
                 </div>
-                {rows.length === 0 ? (
-                    <div data-memory-empty className="px-3 text-[13px] text-secondary">
-                        {emptyText(projects)}
-                    </div>
-                ) : (
-                    <section data-memory-waiting aria-label="Waiting for you" className="flex flex-col gap-1.5">
-                        <span className={cn(SECTION_HEAD, "px-3 pb-1")}>
-                            Waiting for you · <TickNumber value={rows.length} />
-                        </span>
-                        <div className="relative flex flex-col">
-                            {/* popLayout lifts a leaving row out of the flow, so it travels to its did line rather
+                {/* one group, so a re-render of any row (busy, applying) also measures the did section and every line */}
+                <LayoutGroup>
+                    {rows.length === 0 ? (
+                        <div data-memory-empty className="px-3 text-[13px] text-secondary">
+                            {emptyText(projects)}
+                        </div>
+                    ) : (
+                        <section data-memory-waiting aria-label="Waiting for you" className="flex flex-col gap-1.5">
+                            <span className={cn(SECTION_HEAD, "px-3 pb-1")}>
+                                Waiting for you · <TickNumber value={rows.length} />
+                            </span>
+                            <div className="relative flex flex-col">
+                                {/* popLayout lifts a leaving row out of the flow, so it travels to its did line rather
                                 than below a gap that then closes in one frame (moment 2 reflow) */}
-                            <AnimatePresence initial={false} mode="popLayout">
-                                {rows.map((r) => (
-                                    <WaitingRowView
-                                        key={r.key}
-                                        row={r}
-                                        p={byName.get(r.project)!}
-                                        open={open === r.key}
-                                        focused={focus === r.key}
-                                        layoutId={morphId(rowMorph(r), lineMorphs)}
-                                    />
-                                ))}
-                            </AnimatePresence>
-                        </div>
-                    </section>
-                )}
-                {lines.length > 0 ? (
-                    <section data-memory-did aria-label="Arc did this week" className="flex flex-col gap-1.5">
-                        <span className={cn(SECTION_HEAD, "px-3 pb-1")}>Arc did this week</span>
-                        <div className="relative flex flex-col">
-                            <AnimatePresence initial={false} mode="popLayout">
-                                {lines.map((l) => (
-                                    <DidLineView
-                                        key={l.key}
-                                        line={l}
-                                        p={byName.get(l.project)!}
-                                        open={open === l.key}
-                                        focused={focus === l.key}
-                                        refused={refused === l.key}
-                                        layoutId={morphId(lineMorph(l), rowMorphs)}
-                                    />
-                                ))}
-                            </AnimatePresence>
-                        </div>
-                    </section>
-                ) : null}
+                                <AnimatePresence initial={false} mode="popLayout">
+                                    {rows.map((r) => (
+                                        <WaitingRowView
+                                            key={r.key}
+                                            row={r}
+                                            p={byName.get(r.project)!}
+                                            open={open === r.key}
+                                            focused={focus === r.key}
+                                            layoutId={morphId(rowMorph(r), lineMorphs)}
+                                        />
+                                    ))}
+                                </AnimatePresence>
+                            </div>
+                        </section>
+                    )}
+                    {lines.length > 0 ? (
+                        // moves with the rows above it (moment 17 with 2): a section that snapped to its new place
+                        // would sit under rows still travelling to theirs
+                        <motion.section
+                            data-memory-did
+                            aria-label="Arc did this week"
+                            layout="position"
+                            transition={reduce ? INSTANT : morphTransition}
+                            className="flex flex-col gap-1.5"
+                        >
+                            <span className={cn(SECTION_HEAD, "px-3 pb-1")}>Arc did this week</span>
+                            <div className="relative flex flex-col">
+                                <AnimatePresence initial={false} mode="popLayout">
+                                    {lines.map((l) => (
+                                        <DidLineView
+                                            key={l.key}
+                                            line={l}
+                                            p={byName.get(l.project)!}
+                                            open={open === l.key}
+                                            focused={focus === l.key}
+                                            refused={refused === l.key}
+                                            layoutId={morphId(lineMorph(l), rowMorphs)}
+                                        />
+                                    ))}
+                                </AnimatePresence>
+                            </div>
+                        </motion.section>
+                    ) : null}
+                </LayoutGroup>
             </div>
         </div>
     );

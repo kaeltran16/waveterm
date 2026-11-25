@@ -346,6 +346,15 @@ describe("waitingRows", () => {
         expect(waitingRows([p])[0].sub).toBe("90 come over · 1 left out · 87 stay in SIEM’s");
     });
 
+    it("stay counts what the shared folder keeps after the split, before, during and after a re-check", () => {
+        const before = sharing("MP-Frontend", [20, 33], [37]);
+        const APPLIED = FLOW_CHECKED + DAY;
+        const mid = structuredClone(before);
+        Object.assign(mid.changes[0], { status: "applied", decidedat: APPLIED });
+        const rechecked = { ...structuredClone(mid), memories: 157, checkedat: APPLIED + DAY };
+        expect([before, mid, rechecked].map((p) => splitCounts(p).stay)).toEqual([87, 87, 87]);
+    });
+
     it("a switched split, and removals and doc moves not open, give no row", () => {
         const switched = sharing("MP-Frontend", [], [], {
             changes: [shared("m0", 1, "move-here", "applied"), settings("applied")],

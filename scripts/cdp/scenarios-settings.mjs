@@ -1852,6 +1852,31 @@ async function setupMemoryAssert(h, ctx) {
             await openRow(splitKey(P.splitA));
             await click(`${row} [data-memory-showall]`);
             const all = await waitFor(`document.querySelectorAll(${q(`${row} [data-memory-item]`)}).length === ${total}`);
+            // "N more below" against the items wholly under the scroll box, read from geometry here
+            const belowNow = () =>
+                h.ev(`(() => {
+                    const box = document.querySelector(${q(`${row} [data-memory-all]`)});
+                    if (!box) return null;
+                    const bottom = box.getBoundingClientRect().bottom;
+                    const n = [...box.querySelectorAll("[data-memory-item]")].filter((el) => el.getBoundingClientRect().top >= bottom).length;
+                    return { n, text: (document.querySelector(${q(`${row} [data-memory-below]`)})?.textContent ?? "").trim() };
+                })()`);
+            const before = await belowNow();
+            await h.ev(`(() => { const box = document.querySelector(${q(`${row} [data-memory-all]`)}); box.scrollTop = box.scrollHeight / 2; })()`);
+            await waitFor(`(() => {
+                const box = document.querySelector(${q(`${row} [data-memory-all]`)});
+                const bottom = box.getBoundingClientRect().bottom;
+                const n = [...box.querySelectorAll("[data-memory-item]")].filter((el) => el.getBoundingClientRect().top >= bottom).length;
+                return (document.querySelector(${q(`${row} [data-memory-below]`)})?.textContent ?? "").trim() === n + " more below";
+            })()`);
+            const scrolled = await belowNow();
+            await h.ev(`document.querySelector(${q(`${row} [data-memory-all]`)}).scrollTop = 0`);
+            const below = { before, scrolled };
+            const belowOk =
+                before?.n > 0 &&
+                before.text === `${before.n} more below` &&
+                scrolled?.n < before.n &&
+                scrolled.text === (scrolled.n > 0 ? `${scrolled.n} more below` : "");
             await click(`${item} [data-memory-leaveout]`);
             const leftSub = `${total - 1} come over · 1 left out · ${stay() + 1} stay in ${repo}’s`;
             const left = await waitFor(`(document.querySelector(${q(row)})?.firstElementChild?.children[1]?.lastElementChild?.textContent ?? "").trim() === ${q(leftSub)}`);
@@ -1859,10 +1884,11 @@ async function setupMemoryAssert(h, ctx) {
             await h.shot("cdp-shots/setup-memory-split-left-out.png");
             await click(`${item} [data-memory-leaveout]`);
             const back = await waitFor(`(document.querySelector(${q(row)})?.firstElementChild?.children[1]?.lastElementChild?.textContent ?? "").trim() === ${q(openSub())}`);
-            const got = { all, left, leftOut, back, restored: await sub(row), button: await text(`${item} [data-memory-leaveout]`) };
+            const got = { all, below, left, leftOut, back, restored: await sub(row), button: await text(`${item} [data-memory-leaveout]`) };
             return {
                 ok:
                     all &&
+                    belowOk &&
                     left &&
                     leftOut.item.startsWith("Left out") &&
                     leftOut.button === "Bring back" &&
@@ -1873,9 +1899,11 @@ async function setupMemoryAssert(h, ctx) {
         }
     );
 
-    // the observer goes in before Apply is clicked, so the progress line is seen however briefly it shows
+    // the observer goes in before Apply is clicked, so the progress line is seen however briefly it shows. A frame
+    // sampler goes in with it: the did section must never sit under a waiting row while rows move (the leaving row,
+    // lifted out by popLayout, travels into its did line by design and is not counted)
     await run(
-        "3. split-applying (AutoApplying): while Apply runs the row shows Bringing over N of M, seen by a MutationObserver installed before the click",
+        "3. split-applying (AutoApplying): while Apply runs the row shows Bringing over N of M through counts in between, seen by a MutationObserver installed before the click, and no waiting row overlaps Arc did this week in any frame",
         "split-applying",
         async () => {
             ctx.splitBefore = snapshot([fx().paths.shared, fx().paths.ownA], [settingsA()]);
@@ -1893,6 +1921,23 @@ async function setupMemoryAssert(h, ctx) {
                 window.__memoryProgressObserver?.disconnect();
                 window.__memoryProgressObserver = new MutationObserver(read);
                 window.__memoryProgressObserver.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ["style"] });
+                const frames = (window.__memoryFrames = { n: 0, overlaps: [], stop: false });
+                const sample = () => {
+                    if (frames.stop) return;
+                    frames.n++;
+                    const did = document.querySelector("[data-memory-did]")?.getBoundingClientRect();
+                    if (did) {
+                        for (const el of document.querySelectorAll("[data-memory-row]")) {
+                            if (getComputedStyle(el).position === "absolute") continue;
+                            const r = el.getBoundingClientRect();
+                            if (r.bottom > did.top + 0.5 && r.top < did.bottom - 0.5 && frames.overlaps.length < 5) {
+                                frames.overlaps.push({ frame: frames.n, row: el.getAttribute("data-memory-row"), rowBottom: r.bottom, didTop: did.top });
+                            }
+                        }
+                    }
+                    requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
                 const b = document.querySelector(${q(`${rowSel(splitKey(P.splitA))} [data-memory-apply]`)});
                 if (!b) return false;
                 b.click();
@@ -1900,12 +1945,15 @@ async function setupMemoryAssert(h, ctx) {
             })()`);
             await h.shot("cdp-shots/setup-memory-split-applying-live.png");
             const done = await waitFor(`!${has(rowSel(splitKey(P.splitA)))} && ${has(`[data-memory-line^="${P.splitA}/"]`)}`, MEMORY_APPLY_WAIT_MS);
+            // past the row's exit and the rows' reflow, so the frames cover them settling
+            await polishNap(1000);
+            const frames = await h.ev(`(() => { const f = window.__memoryFrames ?? { n: 0, overlaps: [] }; f.stop = true; return { n: f.n, overlaps: f.overlaps }; })()`);
             const log = await h.ev(`(window.__memoryProgressObserver?.disconnect(), window.__memoryProgress ?? [])`);
             const re = new RegExp(`^Bringing over (\\d+) of ${total}, then switching over…$`);
-            const seen = log.filter((e) => re.test(e.text));
+            const counts = [...new Set(log.filter((e) => re.test(e.text)).map((e) => Number(re.exec(e.text)[1])))];
             return {
-                ok: clicked && done && seen.length > 0,
-                detail: JSON.stringify({ clicked, done, progress: log.length, first: log[0], last: log[log.length - 1], counts: [...new Set(seen.map((e) => Number(re.exec(e.text)[1])))] }),
+                ok: clicked && done && counts.some((n) => n > 0 && n < total) && frames.n > 0 && frames.overlaps.length === 0,
+                detail: JSON.stringify({ clicked, done, progress: log.length, first: log[0], last: log[log.length - 1], counts, frames }),
             };
         }
     );
@@ -2032,7 +2080,7 @@ async function setupMemoryAssert(h, ctx) {
     );
 
     await run(
-        "8. undo-refused (AutoUndoRefused): Undo on the split a cleanup took from shows the refusal with Undo the cleanup, and no file changes",
+        "8. undo-refused (AutoUndoRefused): Undo on the split a cleanup took from shows the refusal with Undo the cleanup, and no file changes; the next line keeps an opened line's gap below the box in every frame",
         "undo-refused",
         async () => {
             await reset();
@@ -2041,8 +2089,51 @@ async function setupMemoryAssert(h, ctx) {
             const watched = () => snapshot([fx().paths.shared, fx().paths.ownC], [fx().paths.settingsC]);
             const before = watched();
             await reveal(line);
-            await click(`${line} [data-memory-undo="line"]`);
+            // every frame from the click until the refusal settles: the next line never overlaps the box's drawn
+            // part (the pane clips it while it grows), and once its bottom edge is drawn a gap shows under it
+            const clicked = await h.ev(`(() => {
+                const f = (window.__memoryRefusalFrames = { n: 0, bad: [], stop: false });
+                const sample = () => {
+                    if (f.stop) return;
+                    f.n++;
+                    const box = document.querySelector(${q(`${line} [data-memory-undo-refused]`)});
+                    const lines = [...document.querySelectorAll("[data-memory-line]")];
+                    const next = lines[lines.findIndex((e) => e.matches(${q(line)})) + 1];
+                    if (box && next) {
+                        const b = box.getBoundingClientRect();
+                        const pane = box.parentElement.parentElement.getBoundingClientRect();
+                        const top = next.getBoundingClientRect().top;
+                        const covered = top < Math.min(b.bottom, pane.bottom) - 0.5;
+                        const touching = b.bottom <= pane.bottom && top - b.bottom <= 0.5;
+                        if ((covered || touching) && f.bad.length < 5) f.bad.push({ frame: f.n, boxBottom: b.bottom, paneBottom: pane.bottom, nextTop: top });
+                    }
+                    requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
+                const u = document.querySelector(${q(`${line} [data-memory-undo="line"]`)});
+                if (!u) return false;
+                u.click();
+                return true;
+            })()`);
             const shown = await waitFor(has(`${line} [data-memory-undo-refused]`));
+            await polishNap(1000);
+            const frames = await h.ev(`(() => { const f = window.__memoryRefusalFrames; f.stop = true; return { n: f.n, bad: f.bad }; })()`);
+            // the gap under a body to the next line, settled: the refusal's, then an opened digest's
+            const gapUnder = (elExpr) =>
+                h.ev(`(() => {
+                    const el = ${elExpr};
+                    const lines = [...document.querySelectorAll("[data-memory-line]")];
+                    const next = lines[lines.findIndex((e) => e.contains(el)) + 1];
+                    return el && next ? next.getBoundingClientRect().top - el.getBoundingClientRect().bottom : null;
+                })()`);
+            const refusalGap = await gapUnder(`document.querySelector(${q(`${line} [data-memory-undo-refused]`)})`);
+            const first = lineSel(boardLines()[0]);
+            await click(`${first} [data-memory-see]`);
+            await polishNap(1000);
+            // the digest's last row holds its Undo all
+            const digestGap = await gapUnder(`document.querySelector(${q(`${first} [data-memory-undo="all"]`)})?.parentElement`);
+            await click(`${first} [data-memory-see]`);
+            await polishNap(1000);
             const cleanupAt = fx().states[P.former].batches.find((b) => b.id === fx().batches.formerCleanup).at;
             const want =
                 `Can’t undo yet. Clearing ${repo}’s memory on ${monthDay(cleanupAt)} removed 1 memory this split brought over; ` +
@@ -2052,7 +2143,11 @@ async function setupMemoryAssert(h, ctx) {
                 .rpc("undomemorybatch", { project: P.splitC, batchid: fx().batches.splitC, changeid: "" })
                 .then(() => "undone", (e) => String(e?.message ?? e));
             const got = {
+                clicked,
                 shown,
+                frames,
+                refusalGap,
+                digestGap,
                 text: await text(`${line} [data-memory-undo-refused] > span`),
                 undoCleanup: await text(`${line} [data-memory-undo="cleanup"]`),
                 backend,
@@ -2060,7 +2155,12 @@ async function setupMemoryAssert(h, ctx) {
             };
             return {
                 ok:
+                    clicked &&
                     shown &&
+                    frames.n > 0 &&
+                    frames.bad.length === 0 &&
+                    refusalGap > 0 &&
+                    Math.abs(refusalGap - digestGap) < 0.5 &&
                     got.text === want &&
                     got.undoCleanup === "Undo the cleanup" &&
                     backend.includes(`can't undo the split of ${P.splitC}`) &&

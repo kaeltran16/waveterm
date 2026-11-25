@@ -6,6 +6,8 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
     applyMemoryRow,
+    leaveOutMemory,
+    loadMemory,
     memoryApplyingAtom,
     memoryBusyAtom,
     memoryErrorAtom,
@@ -83,6 +85,59 @@ beforeEach(() => {
     globalStore.set(memoryOpenAtom, null);
     globalStore.set(memoryFocusAtom, null);
     globalStore.set(memoryRefusedAtom, null);
+});
+
+describe("re-lists landing", () => {
+    const list = vi.mocked(RpcApi.ListMemoryHygieneCommand);
+
+    // starts n lists; finish[i] resolves list i+1 and waits for it to land or be dropped
+    function startLists(n: number): { finish: (() => Promise<void>)[] } {
+        const resolvers: ((v: CommandListMemoryHygieneRtnData) => void)[] = [];
+        list.mockReset();
+        list.mockImplementation(() => new Promise((r) => resolvers.push(r)));
+        const loads = Array.from({ length: n }, () => loadMemory());
+        const names = Array.from({ length: n }, (_, i) => `list${i + 1}`);
+        const finish = names.map((name, i) => async () => {
+            resolvers[i]({ projects: [project(name, [])] } as CommandListMemoryHygieneRtnData);
+            await loads[i];
+        });
+        return { finish };
+    }
+
+    function landed(): string | undefined {
+        return globalStore.get(memoryProjectsAtom)?.[0]?.project;
+    }
+
+    it("each list finishing in start order lands", async () => {
+        const { finish } = startLists(3);
+        const seen: (string | undefined)[] = [];
+        for (const f of finish) {
+            await f();
+            seen.push(landed());
+        }
+        expect(seen).toEqual(["list1", "list2", "list3"]);
+    });
+
+    it("a list finishing after a later-started one does not land over it", async () => {
+        const { finish } = startLists(3);
+        const seen: (string | undefined)[] = [];
+        for (const i of [1, 0, 2]) {
+            await finish[i]();
+            seen.push(landed());
+        }
+        expect(seen).toEqual(["list2", "list2", "list3"]);
+    });
+
+    it("a list started before a decision lands does not land over it", async () => {
+        globalStore.set(memoryProjectsAtom, [project("list0", [])]);
+        const { finish } = startLists(1);
+        decide.mockResolvedValue(project("list0", [change("m1", "shared", "kept")]));
+        await leaveOutMemory("list0", "m1");
+        await finish[0]();
+        expect(globalStore.get(memoryProjectsAtom)!.map((p) => [p.project, p.changes[0]?.status])).toEqual([
+            ["list0", "kept"],
+        ]);
+    });
 });
 
 describe("row apply and batch undo", () => {

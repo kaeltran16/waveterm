@@ -220,11 +220,15 @@ export function splitCounts(p: MemHygieneProject): SplitCounts {
     const coming = moves.filter((c) => c.status !== "kept");
     const move = memCount(coming.filter((c) => c.kind === "move-here"));
     const copy = memCount(coming.filter((c) => c.kind === "copy-here"));
+    // memories counts the shared folder at the last check, so a move applied before it already left it
+    const movedBeforeCheck = memCount(
+        moves.filter((c) => c.kind === "move-here" && c.status === "applied" && c.decidedat < p.checkedat)
+    );
     return {
         comeOver: move + copy,
         move,
         copy,
-        stay: Math.max(0, p.memories - move - copy),
+        stay: Math.max(0, p.memories + movedBeforeCheck - move - copy),
         leftOut: memCount(moves.filter((c) => c.status === "kept")),
         here: memCount(moves.filter((c) => c.status === "applied")),
         total: move + copy,

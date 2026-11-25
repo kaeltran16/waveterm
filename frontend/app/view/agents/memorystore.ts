@@ -42,14 +42,17 @@ function errText(e: unknown): string {
     return e instanceof Error ? e.message : String(e);
 }
 
-// an update event can start a list while an earlier one is still in flight; only the latest may land
-let loadSeq = 0;
+// an update event can start a list while an earlier one is still in flight. a list lands when it started
+// after the last one that landed, so a split Apply's progress shows each step rather than only the last.
+let startedSeq = 0;
+let landedSeq = 0;
 
 export async function loadMemory(): Promise<void> {
-    const seq = ++loadSeq;
+    const seq = ++startedSeq;
     try {
         const rtn = await RpcApi.ListMemoryHygieneCommand(TabRpcClient, { timeout: READ_TIMEOUT_MS });
-        if (seq === loadSeq) {
+        if (seq > landedSeq) {
+            landedSeq = seq;
             globalStore.set(memoryProjectsAtom, rtn.projects ?? []);
         }
     } catch (e) {
@@ -109,7 +112,7 @@ function replaceProject(updated: MemHygieneProject | null): void {
     const projects = globalStore.get(memoryProjectsAtom);
     if (updated != null && projects != null) {
         // a list started before the decision would land older state over it
-        loadSeq++;
+        landedSeq = startedSeq;
         globalStore.set(
             memoryProjectsAtom,
             projects.map((p) => (p.project === updated.project ? updated : p))
