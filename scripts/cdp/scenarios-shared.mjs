@@ -10,6 +10,10 @@ import { fileURLToPath } from "node:url";
 // skip stays a standing invitation to make the step real rather than a permanent shrug.
 export const skipStep = (step, detail) => ({ step, skip: true, detail });
 
+// a declared `flex-end` as getComputedStyle reads it: Chromium 158 (WebView2 158) reports justify-*/align-* `flex-end`
+// as `flow-end`, older builds as itself
+export const isFlexEnd = (v) => v === "flex-end" || v === "flow-end";
+
 // a channel's runs are their own rows: the getchannels reply is channel metadata, with no run list
 export async function channelRuns(h, channelId) {
     return (await h.rpc("getchannelruns", { channelid: channelId }))?.runs ?? [];

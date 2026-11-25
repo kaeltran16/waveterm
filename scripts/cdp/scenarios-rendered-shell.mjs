@@ -382,7 +382,8 @@ export const renderedShell = {
                 return { text: el.textContent.trim(), dx: Math.abs((t.left + t.right) / 2 - (s.left + s.right) / 2), dy: Math.abs((t.top + t.bottom) / 2 - (s.top + s.bottom) / 2) };
             })()`);
             await h.shot(SHOT(5, "empty"));
-            const ok = ready && seen?.text === "No transcript for this session yet." && seen.dx <= FIT_PX && seen.dy <= FIT_PX;
+            // the hint and Show terminal under the line are agent-rendered's to check
+            const ok = ready && (seen?.text ?? "").startsWith("No transcript for this session yet.") && seen.dx <= FIT_PX && seen.dy <= FIT_PX;
             return [ok, { ready, ...seen }];
         });
 

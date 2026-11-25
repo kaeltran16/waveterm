@@ -6,7 +6,7 @@
 
 import { crc32, deflateSync } from "node:zlib";
 import { assistantText, userText } from "./agent-page-fixtures.mjs";
-import { bsFile } from "./scenarios-shared.mjs";
+import { bsFile, isFlexEnd } from "./scenarios-shared.mjs";
 
 const TOPIC = `rbs-rows-${Date.now().toString(36)}`;
 const S = 1000;
@@ -253,7 +253,7 @@ export default (kit) => {
                     bubble.text.includes(NOTE) &&
                         bubble.text.includes(`marked on Main · ${TOPIC}`) &&
                         bubble.crop === "300x76" &&
-                        bubble.right === "flex-end" &&
+                        isFlexEnd(bubble.right) &&
                         shown &&
                         opened.window === ctx.agentId &&
                         opened.board === "Main.dc.html" &&

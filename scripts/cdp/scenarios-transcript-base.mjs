@@ -10,6 +10,7 @@
 // Cards: a finished turn's diff and test cards draw as their header until clicked; the latest turn's draw open.
 
 import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript, tool, user, waitSeam } from "./transcript-fixture.mjs";
+import { isFlexEnd } from "./scenarios-shared.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -193,7 +194,7 @@ const FOLD_STATE = probe(`
     const folds = [...root.querySelectorAll('[data-fold]')];
     const fold = folds[0];
     if (!fold) return { fold: null };
-    const box = fold.parentElement.querySelector('[data-steps]');
+    const box = fold.closest('[data-turn-fold]').querySelector('[data-steps]');
     return {
         fold: fold.textContent,
         expanded: fold.getAttribute('aria-expanded'),
@@ -471,10 +472,10 @@ async function eventsStep(h) {
             s.compactionOpen === "true" &&
             s.summary &&
             (s.command?.text ?? "").includes("/review") &&
-            s.command?.justify === "flex-end" &&
+            isFlexEnd(s.command?.justify) &&
             (s.skill?.text ?? "").startsWith("✦") &&
             (s.skill?.text ?? "").includes("superpowers:brainstorming") &&
-            s.skill?.justify === "flex-end" &&
+            isFlexEnd(s.skill?.justify) &&
             (s.subagent ?? "").startsWith("Subagent") &&
             !(s.subagent ?? "").startsWith("Subagent finished") &&
             (s.subagent ?? "").includes("completed") &&
@@ -1194,7 +1195,7 @@ const CARDS_STATE = probe(`
         thumbs: c.querySelectorAll('img').length,
     } : null;
     const turn = (n) => {
-        const box = folds[n]?.parentElement;
+        const box = folds[n]?.closest('[data-turn-fold]');
         const card = (kind) => read(box?.querySelector('[data-tool-card="' + kind + '"]'));
         return { expanded: folds[n]?.getAttribute('aria-expanded') ?? null, diff: card('git-diff'), test: card('test'), image: card('image') };
     };
