@@ -133,13 +133,18 @@ const LIB = `
     };
     const folder = (dir) => tab()?.querySelector('[data-changes-group="' + CSS.escape(dir) + '"] [data-changes-folder]');
     const toggleAll = () => tab()?.querySelector("[data-changes-toggle-all]");
-    // per group, in order: each list box as its files, each open card as "card <path>"
+    // per group, in order: each list box as its files, each open card as "card <path>"; a box is drawn by its rows'
+    // edges, so a closed row that starts a run starts a box
     const segments = () =>
         [...(tab()?.querySelectorAll("[data-changes-group]") ?? [])].map((g) => [
             g.dataset.changesGroup,
-            [...g.children]
-                .filter((c) => c.matches("[data-changes-list], [data-changes-file]"))
-                .map((c) => (c.matches("[data-changes-list]") ? [...c.querySelectorAll("[data-changes-file]")].map((r) => r.dataset.changesFile) : "card " + c.dataset.changesFile)),
+            [...g.querySelectorAll("[data-changes-file]")].reduce((boxes, r) => {
+                const p = r.dataset.changesFile;
+                if (r.dataset.changesOpen != null) boxes.push("card " + p);
+                else if (r.dataset.changesRunStart != null) boxes.push([p]);
+                else boxes.at(-1).push(p);
+                return boxes;
+            }, []),
         ]);
     const folderFacts = () =>
         [...(tab()?.querySelectorAll("[data-changes-folder]") ?? [])].map((b) => ({
@@ -418,6 +423,32 @@ export const workspaceChanges = {
                 dedupe(closed)?.expanded === "false" &&
                 !dedupe(closed)?.turned;
             return [ok, { before, opened, closed }];
+        });
+
+        await step("a file inside a list box opens and closes in place: its body grows and shrinks over frames, and its header glides with the gap a card opens instead of jumping by it", async () => {
+            const r = await page(
+                h,
+                `const watch = () => {
+                    const top = sampleFrames(() => rect(header(${q(OLD)}))?.top);
+                    const height = sampleFrames(() => block(${q(OLD)})?.offsetHeight);
+                    return { top, height };
+                };
+                const run = async () => {
+                    const w = watch();
+                    toggle(${q(OLD)});
+                    await nap(${SETTLE_MS});
+                    w.top.stop();
+                    w.height.stop();
+                    return { tops: w.top.values, heights: w.height.values, open: isOpen(${q(OLD)}) };
+                };
+                const opening = await run();
+                const closing = await run();
+                return { opening, closing };`
+            );
+            // an unanimated toggle draws two values only, before and after
+            const moved = (x) => x.tops.length > 2 && x.heights.length > 2;
+            const ok = r.opening.open && !r.closing.open && moved(r.opening) && moved(r.closing);
+            return [ok, r];
         });
 
         await step("Shift+N opens the stepped-into file as its own card between list boxes; the next step into another file closes it; a file opened from its header stays open across steps (Opened board)", async () => {

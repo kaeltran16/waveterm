@@ -194,22 +194,16 @@ export function stepInto(s: ChangesOpen, path: string): ChangesOpen {
     return isFileOpen(next, path) ? next : { open: { ...next.open, [path]: true }, stepOpened: path };
 }
 
-// a group's closed files run together as one list box; an open file breaks the run as its own card
-export type ChangesSegment = { kind: "list"; files: ChangesFile[] } | { kind: "card"; file: ChangesFile };
+// a group's closed files run together as one list box; an open file breaks the run as its own card. Each file is one
+// row whatever box it draws in, so a toggle animates the row in place instead of remounting it in another box
+export type ChangesRow = { file: ChangesFile; open: boolean; runStart: boolean; runEnd: boolean };
 
-export function changesSegments(files: ChangesFile[], s: ChangesOpen): ChangesSegment[] {
-    const segs: ChangesSegment[] = [];
-    for (const file of files) {
-        const last = segs.at(-1);
-        if (isFileOpen(s, file.change.path)) {
-            segs.push({ kind: "card", file });
-        } else if (last?.kind === "list") {
-            last.files.push(file);
-        } else {
-            segs.push({ kind: "list", files: [file] });
-        }
-    }
-    return segs;
+export function changesRows(files: ChangesFile[], s: ChangesOpen): ChangesRow[] {
+    const closed = (i: number) => i >= 0 && i < files.length && !isFileOpen(s, files[i].change.path);
+    return files.map((file, i) => {
+        const open = !closed(i);
+        return { file, open, runStart: open || !closed(i - 1), runEnd: open || !closed(i + 1) };
+    });
 }
 
 // every hunk of every file in display order, closed files included, so the counter's total holds as files toggle
