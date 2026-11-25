@@ -2080,7 +2080,7 @@ async function setupMemoryAssert(h, ctx) {
     );
 
     await run(
-        "8. undo-refused (AutoUndoRefused): Undo on the split a cleanup took from shows the refusal with Undo the cleanup, and no file changes; the next line keeps an opened line's gap below the box in every frame",
+        "8. undo-refused (AutoUndoRefused): Undo on the split a cleanup took from shows the refusal with Undo the cleanup, and no file changes; the next line never covers the box in any frame and settles at an opened line's gap",
         "undo-refused",
         async () => {
             await reset();
@@ -2089,8 +2089,10 @@ async function setupMemoryAssert(h, ctx) {
             const watched = () => snapshot([fx().paths.shared, fx().paths.ownC], [fx().paths.settingsC]);
             const before = watched();
             await reveal(line);
-            // every frame from the click until the refusal settles: the next line never overlaps the box's drawn
-            // part (the pane clips it while it grows), and once its bottom edge is drawn a gap shows under it
+            // every frame from the click until the refusal settles: the next line never covers the box's drawn
+            // part (the pane clips it while it grows). no gap is asked per frame: the reveal's height includes the
+            // padding under the box, so the gap passes near 0 as the box's bottom edge is drawn. the settled gap is
+            // checked below
             const clicked = await h.ev(`(() => {
                 const f = (window.__memoryRefusalFrames = { n: 0, bad: [], stop: false });
                 const sample = () => {
@@ -2104,8 +2106,7 @@ async function setupMemoryAssert(h, ctx) {
                         const pane = box.parentElement.parentElement.getBoundingClientRect();
                         const top = next.getBoundingClientRect().top;
                         const covered = top < Math.min(b.bottom, pane.bottom) - 0.5;
-                        const touching = b.bottom <= pane.bottom && top - b.bottom <= 0.5;
-                        if ((covered || touching) && f.bad.length < 5) f.bad.push({ frame: f.n, boxBottom: b.bottom, paneBottom: pane.bottom, nextTop: top });
+                        if (covered && f.bad.length < 5) f.bad.push({ frame: f.n, boxBottom: b.bottom, paneBottom: pane.bottom, nextTop: top });
                     }
                     requestAnimationFrame(sample);
                 };
