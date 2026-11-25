@@ -13,6 +13,9 @@ type MemHygieneCommands interface {
 	// starts a check and returns at once: a check runs model calls, which can't fit the rpc budget
 	CheckMemoryHygieneCommand(ctx context.Context, data CommandCheckMemoryHygieneData) error
 	DecideMemoryChangeCommand(ctx context.Context, data CommandDecideMemoryChangeData) (*MemHygieneProject, error)
+	// applies a whole split or cleanup row, or one doc move, change by change
+	ApplyMemoryRowCommand(ctx context.Context, data CommandApplyMemoryRowData) (*MemRowResult, error)
+	UndoMemoryBatchCommand(ctx context.Context, data CommandUndoMemoryBatchData) (*MemHygieneProject, error)
 }
 
 const (
@@ -21,6 +24,83 @@ const (
 	MemVerdict_Undo   = "undo"
 	MemVerdict_Reopen = "reopen"
 )
+
+const (
+	MemBatch_Routine = "routine"
+	MemBatch_Split   = "split"
+	MemBatch_Cleanup = "cleanup"
+	MemBatch_Doc     = "doc"
+)
+
+const (
+	MemRow_Split   = "split"
+	MemRow_Cleanup = "cleanup"
+	MemRow_Doc     = "doc"
+)
+
+const (
+	MemStop_Changed = "changed"
+	MemStop_Newer   = "newer"
+	MemStop_Failed  = "failed"
+)
+
+const (
+	MemSkip_Changed = "changed"
+	MemSkip_Overlap = "overlap"
+	MemSkip_Failed  = "failed"
+)
+
+type CommandApplyMemoryRowData struct {
+	Project  string `json:"project"`
+	Row      string `json:"row"`      // MemRow_*
+	ChangeId string `json:"changeid"` // MemRow_Doc only: the move to apply
+}
+
+// MemRowResult is how a row apply ended. A stopped apply stores no error: it comes back here.
+type MemRowResult struct {
+	Project MemHygieneProject `json:"project"`
+	Stop    string            `json:"stop"`    // "" = done, else MemStop_*
+	Here    int               `json:"here"`    // memories brought over
+	Total   int               `json:"total"`   // memories to bring over (not left out)
+	Changed int               `json:"changed"` // memories changed since the check
+	Newer   int               `json:"newer"`   // memories newer than the check
+	Failed  string            `json:"failed"`  // the change title that failed
+	Error   string            `json:"error"`   // and why
+}
+
+type CommandUndoMemoryBatchData struct {
+	Project  string `json:"project"`
+	BatchId  string `json:"batchid"`
+	ChangeId string `json:"changeid"` // "" = the whole batch
+}
+
+// MemBatch is a set of changes Arc applied together. Newest first on the project.
+type MemBatch struct {
+	Id          string        `json:"id"`
+	Kind        string        `json:"kind"`        // MemBatch_*
+	At          int64         `json:"at"`          // unix ms of its last apply
+	ChangeIds   []string      `json:"changeids"`   // apply order
+	Skipped     []MemSkip     `json:"skipped"`     // routine only
+	IndexBefore MemIndexStats `json:"indexbefore"` // routine only: the index its changes edit
+	IndexAfter  MemIndexStats `json:"indexafter"`
+	UndoBlock   *MemUndoBlock `json:"undoblock,omitempty"` // filled by List, never stored
+}
+
+type MemSkip struct {
+	ChangeId string `json:"changeid"`
+	Kind     string `json:"kind"`
+	Title    string `json:"title"`
+	Reason   string `json:"reason"` // MemSkip_*
+	Error    string `json:"error"`  // the apply's error, for MemSkip_Failed only
+}
+
+// MemUndoBlock names the cleanup batch that must be undone before a split batch can be.
+type MemUndoBlock struct {
+	Project  string `json:"project"`
+	BatchId  string `json:"batchid"`
+	At       int64  `json:"at"`
+	Memories int    `json:"memories"`
+}
 
 type CommandListMemoryHygieneRtnData struct {
 	Projects []MemHygieneProject `json:"projects"`
@@ -53,6 +133,7 @@ type MemHygieneProject struct {
 	Index        MemIndexStats  `json:"index"`              // Folder's MEMORY.md
 	OwnIndex     *MemIndexStats `json:"ownindex,omitempty"` // OwnFolder's, during a split
 	Changes      []MemChange    `json:"changes"`
+	Batches      []MemBatch     `json:"batches,omitempty"` // newest first
 }
 
 type MemIndexStats struct {

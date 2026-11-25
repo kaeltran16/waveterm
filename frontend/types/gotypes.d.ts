@@ -788,6 +788,13 @@ declare global {
         decisionid: string;
     };
 
+    // wshrpc.CommandApplyMemoryRowData
+    type CommandApplyMemoryRowData = {
+        project: string;
+        row: string;
+        changeid: string;
+    };
+
     // wshrpc.CommandAskData
     type CommandAskData = {
         oref: string;
@@ -2271,6 +2278,13 @@ declare global {
         callercwd?: string;
     };
 
+    // wshrpc.CommandUndoMemoryBatchData
+    type CommandUndoMemoryBatchData = {
+        project: string;
+        batchid: string;
+        changeid: string;
+    };
+
     // wshrpc.CommandVaultGraphRtnData
     type CommandVaultGraphRtnData = {
         nodes: GraphNode[];
@@ -3036,6 +3050,18 @@ declare global {
         to: string;
     };
 
+    // wshrpc.MemBatch
+    type MemBatch = {
+        id: string;
+        kind: string;
+        at: number;
+        changeids: string[];
+        skipped: MemSkip[];
+        indexbefore: MemIndexStats;
+        indexafter: MemIndexStats;
+        undoblock?: MemUndoBlock;
+    };
+
     // wshrpc.MemChange
     type MemChange = {
         id: string;
@@ -3102,6 +3128,7 @@ declare global {
         index: MemIndexStats;
         ownindex?: MemIndexStats;
         changes: MemChange[];
+        batches?: MemBatch[];
     };
 
     // wshrpc.MemIndexDelta
@@ -3135,6 +3162,35 @@ declare global {
         settingspath: string;
         settingsvalue: string;
         stripharvester: boolean;
+    };
+
+    // wshrpc.MemRowResult
+    type MemRowResult = {
+        project: MemHygieneProject;
+        stop: string;
+        here: number;
+        total: number;
+        changed: number;
+        newer: number;
+        failed: string;
+        error: string;
+    };
+
+    // wshrpc.MemSkip
+    type MemSkip = {
+        changeid: string;
+        kind: string;
+        title: string;
+        reason: string;
+        error: string;
+    };
+
+    // wshrpc.MemUndoBlock
+    type MemUndoBlock = {
+        project: string;
+        batchid: string;
+        at: number;
+        memories: number;
     };
 
     // waveobj.MetaTSType
