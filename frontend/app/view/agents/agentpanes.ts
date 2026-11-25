@@ -17,19 +17,26 @@ import { closeWorkspaceTab, openWorkspaceTab, rendersNow, workspaceAtom } from "
 
 export type PaneKind = "brainstorm" | "canvas";
 
-// an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
+// in Rendered each has its own tab, so an agent with both shows whichever tab is active. In Terminal an agent with a
+// brainstorm never shows its canvas: the brainstorm pane opens its boards
 export function shownPane(
     rendered: boolean,
     brainstorm: { mode: "terminal" | "brainstorm" } | null,
     canvas: { mode: "terminal" | "canvas" } | null,
     ws: WorkspaceState
 ): PaneKind | null {
+    if (rendered) {
+        if (ws.collapsed) {
+            return null;
+        }
+        if (ws.active === "brainstorm" && brainstorm != null) {
+            return "brainstorm";
+        }
+        return ws.active === "canvas" && canvas != null ? "canvas" : null;
+    }
     const kind: PaneKind | null = brainstorm != null ? "brainstorm" : canvas != null ? "canvas" : null;
     if (kind == null) {
         return null;
-    }
-    if (rendered) {
-        return ws.active === kind && !ws.collapsed ? kind : null;
     }
     const on = kind === "brainstorm" ? brainstorm!.mode === "brainstorm" : canvas!.mode === "canvas";
     return on ? kind : null;

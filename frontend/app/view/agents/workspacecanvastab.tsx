@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The workspace pane's Canvas tab: one row per board of the agent's canvas, a small preview of the whole board beside
-// its name, size and title. A row opens the canvas window (canvaswindow.tsx) on its board, where marking happens. Its
-// own data attributes, not CanvasPane's: sendCanvasMark's capture queries [data-canvas-board] and
-// [data-canvas-scroll], which have to stay the window's.
+// its name, size and title. A row opens the canvas window (canvaswindow.tsx) on its board, where marking happens; a row
+// the open question names is tagged with it and opens the window scoped to the question. Its own data attributes, not
+// CanvasPane's: sendCanvasMark's capture queries [data-canvas-board] and [data-canvas-scroll], which have to stay the
+// window's.
 
 import { cardVariants, morphTransition } from "@/app/element/motiontokens";
 import { TickNumber } from "@/app/element/ticknumber";
@@ -18,6 +19,7 @@ import { AnimatePresence, motion, type Transition } from "motion/react";
 import { useEffect, useRef } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
+import { brainstormAtom, openQuestionBoard, openQuestionScope, shownBrainstormFile } from "./brainstormstore";
 import { boardUrl, paneState, shownBoard, updatedAgo } from "./canvasmodel";
 import { BoardIframe, CANVAS_BTN, EdgeState, EXPLAINER, openBuildRun, Removed, ServerDown } from "./canvaspane";
 import { canvasStateAtom, openCanvasWindow } from "./canvasstore";
@@ -29,6 +31,7 @@ const INSTANT: Transition = { duration: 0 };
 
 export function WorkspaceCanvasTab({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const s = useAtomValue(canvasStateAtom(agent.id));
+    const bs = useAtomValue(brainstormAtom(agent.id));
     const now = useAtomValue(model.nowAtom);
     const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -57,6 +60,7 @@ export function WorkspaceCanvasTab({ model, agent }: { model: AgentsViewModel; a
     const pane = paneState(s);
     const ago = updatedAgo(now, s.lastModifiedMs);
     const tint = reduce ? INSTANT : morphTransition;
+    const rows = tabRows(s, openQuestionScope(bs), shownBrainstormFile(bs)?.canvas ?? null);
 
     return (
         <div data-canvas-tab className="flex min-h-0 flex-1 flex-col">
@@ -130,7 +134,7 @@ export function WorkspaceCanvasTab({ model, agent }: { model: AgentsViewModel; a
                     >
                         <div className="relative flex flex-col gap-[2px]">
                             <AnimatePresence initial={false} mode="popLayout">
-                                {tabRows(s).map((row) => (
+                                {rows.map((row) => (
                                     <motion.div
                                         key={row.board.name}
                                         layout
@@ -149,7 +153,11 @@ export function WorkspaceCanvasTab({ model, agent }: { model: AgentsViewModel; a
                                                     : null
                                             }
                                             reloadKey={s.reloadKey}
-                                            onOpen={() => openCanvasWindow(agent.id, { board: row.board.name })}
+                                            onOpen={() =>
+                                                row.tag != null
+                                                    ? openQuestionBoard(agent.id, row.board.name)
+                                                    : openCanvasWindow(agent.id, { board: row.board.name })
+                                            }
                                         />
                                     </motion.div>
                                 ))}
@@ -179,7 +187,7 @@ function BoardRow({
     reloadKey: number;
     onOpen: () => void;
 }) {
-    const { board, label, size, selected } = row;
+    const { board, label, size, selected, tag } = row;
     const fit = previewFit(board.w, board.h);
     const open = `Open ${label} in a window`;
     return (
@@ -239,6 +247,16 @@ function BoardRow({
                     </span>
                     <span className="flex-none text-[10.5px] text-ink-faint">{size}</span>
                 </span>
+                {tag != null ? (
+                    <span
+                        data-canvas-tab-answer
+                        title={tag.label}
+                        className="flex min-w-0 items-baseline gap-[7px] text-[12.5px] font-semibold leading-[1.4]"
+                    >
+                        <span className="flex-none text-warning">{tag.n}</span>
+                        <span className="min-w-0 truncate text-secondary">{tag.label}</span>
+                    </span>
+                ) : null}
                 {board.title != null ? (
                     <span
                         data-canvas-tab-title

@@ -6,6 +6,7 @@
 
 import { boardLabel, paneState, shownBoard, stepTab, type CanvasBoard } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
+import type { WindowScope } from "./canvaswindowmodel";
 
 // a row's preview box is 112×70 with a 3px inset: the board fits the space inside it
 const PREVIEW_INNER_W = 106;
@@ -13,7 +14,10 @@ const PREVIEW_INNER_H = 64;
 
 export type TabView = "boards" | "no-boards" | "removed" | "server-down";
 
-export type TabRow = { board: CanvasBoard; label: string; size: string; selected: boolean };
+// the open question's number and the label of the board's tab in the question's window
+export type RowTag = { n: number; label: string };
+
+export type TabRow = { board: CanvasBoard; label: string; size: string; selected: boolean; tag: RowTag | null };
 
 // probing keeps the (empty) list, so attaching a canvas never flashes "No boards yet" before the first poll
 export function tabView(s: CanvasState): TabView {
@@ -24,14 +28,30 @@ export function tabView(s: CanvasState): TabView {
     return s.status === "ready" && s.boards.length === 0 ? "no-boards" : "boards";
 }
 
-export function tabRows(s: CanvasState): TabRow[] {
+// question is the open question's window scope; its tabs tag rows only on the brainstorm's own canvas, as opening a
+// tagged row through the question attaches the agent to that canvas
+export function tabRows(
+    s: CanvasState,
+    question: WindowScope | null = null,
+    brainstormCanvas: string | null = null
+): TabRow[] {
     const selected = s.boards.length > 0 ? shownBoard(s).name : null;
+    const tags = rowTags(question, s.topic === brainstormCanvas);
     return s.boards.map((board) => ({
         board,
         label: boardLabel(board.name),
         size: `${board.w}×${board.h}`,
         selected: board.name === selected,
+        tag: tags.get(board.name) ?? null,
     }));
+}
+
+function rowTags(question: WindowScope | null, ownCanvas: boolean): Map<string, RowTag> {
+    const source = question?.source;
+    if (question == null || source?.kind !== "question" || !ownCanvas) {
+        return new Map();
+    }
+    return new Map(question.tabs.map((t) => [t.board, { n: source.n, label: t.label }]));
 }
 
 // the whole board, centred on the axis it leaves free

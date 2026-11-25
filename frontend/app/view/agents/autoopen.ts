@@ -54,9 +54,8 @@ export function useAutoOpen(model: AgentsViewModel, agent: AgentVM, entries: Age
                 entries,
                 brainstorm:
                     bs != null ? { path: bs.path, modifiedMs: bs.modifiedMs, wait, run: bs.file?.run ?? null } : null,
-                // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
-                canvas:
-                    bs == null && canvas != null ? { topic: canvas.topic, removed: canvas.status === "removed" } : null,
+                // a brainstorm agent's canvas has its own tab in Rendered; only Terminal keeps it behind the brainstorm
+                canvas: canvas != null ? { topic: canvas.topic, removed: canvas.status === "removed" } : null,
                 lastEditMs,
                 hasChanges,
                 leadRun,

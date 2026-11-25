@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import type { BrainstormFile } from "./brainstormmodel";
+import { questionScope } from "./brainstormwindowmodel";
 import type { CanvasBoard } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
 import { previewFit, stepListBoard, tabRows, tabView } from "./workspacecanvastabmodel";
@@ -57,6 +59,75 @@ describe("tabRows", () => {
 
     it("has no rows, so none selected, with no boards", () => {
         expect(tabRows(state({ boards: [] }))).toEqual([]);
+    });
+});
+
+describe("tabRows tags", () => {
+    const BOARDS = ["Rail.dc.html", "Strip.dc.html", "Both.dc.html", "Look.dc.html", "Other.dc.html"];
+    const ASKED: BrainstormFile = {
+        v: 1,
+        title: "Consumer lag alerts",
+        spec: "docs/specs/lag.md",
+        canvas: "lag-canvas",
+        question: {
+            n: 4,
+            text: "When should on-call get paged?",
+            part: "thresholds",
+            options: [
+                { label: "Page at once", detail: "", boards: ["Rail.dc.html", "Both.dc.html"] },
+                { label: "Wait five minutes", detail: "", boards: ["Strip.dc.html"] },
+                { label: "Both ways", detail: "", boards: ["Both.dc.html"] },
+            ],
+        },
+        working: null,
+        parts: [{ id: "thresholds", title: "When it pages", state: "asked", body: "", boards: ["Look.dc.html"] }],
+        history: [],
+        done: false,
+        check: null,
+        run: null,
+    };
+    const WEIGHING: BrainstormFile = {
+        ...ASKED,
+        working: "The judge is weighing 2 approaches.",
+        question: {
+            ...ASKED.question!,
+            approaches: [
+                { name: "Strip first", description: "", facts: [], boards: ["Strip.dc.html"] },
+                { name: "Rail first", description: "", facts: [], boards: ["Rail.dc.html"] },
+            ],
+        },
+    };
+    const canvas = state({ topic: "lag-canvas", boards: BOARDS.map((b) => board(b)) });
+    const tags = (f: BrainstormFile, judging = false, s = canvas) =>
+        tabRows(s, questionScope(f, BOARDS, judging), f.canvas).map((r) => r.tag);
+
+    it("tags each board the open question names with its number and the answer tab's label", () => {
+        expect(tags(ASKED)).toEqual([
+            { n: 4, label: "1 · Rail" },
+            { n: 4, label: "2 · Wait five minutes" },
+            { n: 4, label: "1, 3 · Both" },
+            { n: 4, label: "Every answer" },
+            null,
+        ]);
+    });
+
+    it("tags the approaches' boards while the judge weighs", () => {
+        expect(tags(WEIGHING, true)).toEqual([
+            { n: 4, label: "2 · Rail first" },
+            { n: 4, label: "1 · Strip first" },
+            null,
+            { n: 4, label: "Every answer" },
+            null,
+        ]);
+    });
+
+    it("tags nothing while the agent writes over the question, or with no question", () => {
+        expect(tags({ ...ASKED, working: "Writing up your answer." })).toEqual([null, null, null, null, null]);
+        expect(tags({ ...ASKED, question: null })).toEqual([null, null, null, null, null]);
+    });
+
+    it("tags nothing on a canvas other than the brainstorm's", () => {
+        expect(tags(ASKED, false, { ...canvas, topic: "other-canvas" })).toEqual([null, null, null, null, null]);
     });
 });
 
