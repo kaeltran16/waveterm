@@ -158,7 +158,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 ### Agent: canvas mode
 
-`c` works when the focused agent has a canvas. In Terminal the canvas takes over the center (canvas mode), and there `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas. In Rendered the canvas is the workspace pane's Canvas tab beside the transcript, every board stacked as a preview: `c` and `Ctrl`+`Shift`+`B` open and close the tab, and while it is the shown tab `[` / `]` move the selection among the boards (no All) and `m` opens the canvas window on the selected board with marking on.
+`c` works when the focused agent has a canvas. In Terminal the canvas takes over the center (canvas mode), and there `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas. In Rendered the canvas is the workspace pane's Canvas tab beside the transcript, every board stacked as a preview: `c` and `Ctrl`+`Shift`+`B` (for an agent with no brainstorm) open and close the tab, and while it is the shown tab `[` / `]` move the selection among the boards (no All) and `m` opens the canvas window on the selected board with marking on.
 
 | Keys | Action |
 |---|---|
@@ -179,7 +179,7 @@ The canvas window opens over the Rendered view on one board, or on every board w
 
 ### Agent: brainstorm mode
 
-`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In Rendered the brainstorm is the workspace pane's Brainstorm tab beside the transcript: `b` and `Ctrl`+`Shift`+`B` open and close the tab, the keys below work while it is the shown tab, and the transcript's keys stay. In brainstorm mode (Terminal), `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area, and `↓` / `↑` stand down there (`←` / `→` and `Ctrl`+`Tab` still move between agents).
+`b` works when the focused agent has a brainstorm. In Terminal such an agent never shows canvas mode, so `c` does nothing for it. In Rendered the brainstorm is the workspace pane's Brainstorm tab beside the transcript: `b` and `Ctrl`+`Shift`+`B` open and close the tab, the keys below work while it is the shown tab, and the transcript's keys stay. An agent with a brainstorm and a canvas has both tabs there: `b` and `c` switch between them and close their own tab while it shows, and `Ctrl`+`Shift`+`B` shows the Brainstorm tab from the Canvas tab. In brainstorm mode (Terminal), `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area, and `↓` / `↑` stand down there (`←` / `→` and `Ctrl`+`Tab` still move between agents).
 
 | Keys | Action |
 |---|---|
