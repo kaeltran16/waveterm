@@ -432,7 +432,11 @@ export const narrationFeed = {
         await sleep(600);
         const panels = await h.ev(PANEL_PROBE);
         const fail = panels.find((p) => p.text.includes("TestBackoff"));
-        const ok = panels.find((p) => p.row.includes("task check:ts"));
+        const ok = await h.ev(`(() => {
+            const step = [...${ROOT}.querySelectorAll('[data-step]')].find((s) => s.querySelector('[data-step-head]')?.textContent.includes('task check:ts'));
+            if (!step) return null;
+            return { expanded: step.querySelector('[data-step-head]').getAttribute('aria-expanded'), panel: step.querySelector('[data-tool-panel]') != null, hasExit: /exit \\d/i.test(step.textContent || '') };
+        })()`);
         steps.push({
             step: "[640] a bash body that fits: no button and no footer strip, only its body; the exit chip stays on the row",
             ok: opened === true && fail != null && fail.buttons === 0 && fail.children === 1 && fail.hasExit === false,
@@ -440,8 +444,8 @@ export const narrationFeed = {
         });
         steps.push({ step: "[640] bash output wraps (pre-wrap)", ok: fail?.ws === "pre-wrap", detail: `ws=${fail?.ws}` });
         steps.push({
-            step: "[640] command-only bash with exit 0 opens with no exit chip",
-            ok: openedOk === true && ok != null && ok.hasExit === false,
+            step: "[640] command-only bash with exit 0 and no output opens to its whole command on the row: no exit chip, no empty panel",
+            ok: openedOk === true && ok?.expanded === "true" && ok.panel === false && ok.hasExit === false,
             detail: JSON.stringify(ok ?? null),
         });
         await h.shot("cdp-shots/narration-feed-wide.png");

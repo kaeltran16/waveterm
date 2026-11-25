@@ -333,6 +333,7 @@ async function arrange(h) {
         ctx.boardId = made.info.id;
         ctx.boardDir = dirname(made.info.path);
         await page(h, `fx.talks[${q(ctx.boardId)}] = ${q(startTalk(ctx, made.ids))}; return true;`);
+        ctx.prevWidth = await page(h, `return globalStore.get(W.workspaceWidthAtom);`);
         await page(
             h,
             `globalStore.set(W.workspaceWidthAtom, ${PANE_PX});
@@ -938,6 +939,10 @@ export const boardsWorkspace = {
                       return true;`
                   )
                 : null
+        );
+        // the width is stored, so left at PANE_PX it narrows every later scenario's transcript column
+        await step("restore the pane width", () =>
+            ctx.prevWidth != null ? page(h, `globalStore.set(W.workspaceWidthAtom, ${ctx.prevWidth}); return true;`) : null
         );
         await step("unpin the Boards project", () =>
             page(h, `globalStore.set(B.boardsChannelAtom, null); return true;`)

@@ -306,6 +306,10 @@ function StepBody({
     const bare = isBareCommand(action);
     const passedOver = isPassedOver(status);
     const refused = isRefusedCommand(action);
+    // an opened bare command is whole on its own row, so with no output and no error nothing is left to draw
+    if (!error && bare && detail?.kind === "bash" && !detail.output) {
+        return null;
+    }
     // a refused command's reason sits under its command; with no command drawn, it leads like any other
     const noteUnder = refused && !bare;
     const note = !error ? null : passedOver ? (
