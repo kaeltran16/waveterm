@@ -1112,6 +1112,32 @@ describe("projectPiTranscript census fixes", () => {
     });
 });
 
+describe("projectPiTranscript thinking", () => {
+    const TS = "2026-08-11T03:00:05.000Z";
+    const assistant = (content: unknown[]) =>
+        L({ type: "message", id: "a", parentId: "u", timestamp: TS, message: { role: "assistant", content } });
+    const thinking = (text: string) => ({ type: "thinking", thinking: text, thinkingSignature: "sig" });
+    const project = (content: unknown[]) =>
+        projectPiTranscript([session, user("u", "go"), assistant(content)]).slice(1);
+
+    it("shows the thinking of a message with no reply text as one thought, before its calls", () => {
+        const entries = project([
+            thinking(" first "),
+            thinking("   "),
+            thinking("second"),
+            { type: "toolCall", id: "c1", name: "ls", arguments: { path: "src" } },
+        ]);
+        expect(entries).toEqual([
+            { kind: "thought", text: "first\n\nsecond", ts: Date.parse(TS) },
+            expect.objectContaining({ kind: "action", verb: "listed" }),
+        ]);
+    });
+
+    it("hides the thinking of a message that replies", () => {
+        expect(project([thinking("why"), { type: "text", text: "done" }])).toEqual([{ kind: "message", text: "done" }]);
+    });
+});
+
 describe("projectPiTranscript bash executions", () => {
     const TS = "2026-08-11T03:00:05.000Z";
     const bashExec = (id: string, parent: string | null, fields: object) =>
