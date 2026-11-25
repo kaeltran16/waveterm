@@ -1486,6 +1486,7 @@ declare global {
         files: GitAgentEditFile[];
         bashcalls: number;
         reason?: string;
+        cwd?: string;
     };
 
     // wshrpc.CommandGitBlameData

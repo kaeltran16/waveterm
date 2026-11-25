@@ -67,7 +67,7 @@ async function readRunChanges(run: Run): Promise<{ cwd: string; read: () => Prom
     const { cwd, base, end } = await runChangesRange(run);
     const read = async () => {
         const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, ref: base, end: end || undefined });
-        return { ch, edits: false, end };
+        return { ch, edits: false, end, cwd };
     };
     return { cwd, read };
 }
@@ -104,17 +104,18 @@ export async function loadRailForAgent(
     }
     try {
         // the worktree list only names the worktree, so a failure there leaves the line out rather than the rail
-        const [{ ch, edits, end }, wts] = await Promise.all([
-            read(),
-            RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd }).catch(() => null),
-        ]);
+        const listWorktrees = (dir: string) =>
+            RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd: dir }).catch(() => null);
+        const [{ ch, edits, end, cwd: at }, cwdWts] = await Promise.all([read(), listWorktrees(cwd)]);
+        // edits in another checkout name that checkout's worktree, so its list is read again there
+        const wts = at === cwd ? cwdWts : await listWorktrees(at);
         if (seq !== loadSeq) {
             return;
         }
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat, ch.numstaterror) : null;
-        const worktree = ch.isrepo ? linkedWorktree(cwd, wts?.worktrees ?? []) : undefined;
+        const worktree = ch.isrepo ? linkedWorktree(at, wts?.worktrees ?? []) : undefined;
         globalStore.set(railStateAtom, {
-            cwd,
+            cwd: at,
             branch: ch.branch,
             isRepo: ch.isrepo,
             changes,

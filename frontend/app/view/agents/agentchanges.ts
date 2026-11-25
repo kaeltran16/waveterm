@@ -15,6 +15,8 @@ export interface AgentChanges {
     // the list is the agent's own edits, ch.ref..end ("" end: none yet)
     edits: boolean;
     end: string;
+    // the folder the list was read in: the agent's cwd, or the other checkout its edits went to
+    cwd: string;
 }
 
 export async function readAgentChanges(
@@ -24,7 +26,7 @@ export async function readAgentChanges(
 ): Promise<AgentChanges> {
     if (!editsApply(agent.runtime)) {
         const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, sessionstartts: startTs ?? undefined });
-        return { ch, edits: false, end: "" };
+        return { ch, edits: false, end: "", cwd };
     }
     const r = await RpcApi.GitAgentEditsCommand(
         TabRpcClient,
@@ -34,8 +36,9 @@ export async function readAgentChanges(
     if (!r.base) {
         // no edits of its own yet: the plain read only supplies the branch and whether this is a repository
         const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd });
-        return { ch: { ...ch, statusz: "", numstat: "", numstaterror: undefined }, edits: true, end: "" };
+        return { ch: { ...ch, statusz: "", numstat: "", numstaterror: undefined }, edits: true, end: "", cwd };
     }
-    const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, ref: r.base, end: r.end });
-    return { ch, edits: true, end: r.end };
+    const at = r.cwd || cwd;
+    const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd: at, ref: r.base, end: r.end });
+    return { ch, edits: true, end: r.end, cwd: at };
 }

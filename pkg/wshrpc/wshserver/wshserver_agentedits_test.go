@@ -201,6 +201,29 @@ func TestGitAgentEditsSubfolderCwdGetsCwdRelativePaths(t *testing.T) {
 	}
 }
 
+// a session started in the main checkout that edits a sibling worktree by absolute path listed nothing
+func TestGitAgentEditsFollowsTheCheckoutTheAgentEdited(t *testing.T) {
+	repo := editsRepo(t, map[string]string{"sub/a.txt": "one\n"})
+	wt := filepath.Join(t.TempDir(), "wt")
+	editsGit(t, repo, "worktree", "add", "-q", "-b", "feature", wt)
+	cwd := filepath.Join(repo, "sub")
+	transcript := editsTranscript(t)
+	appendTranscript(t, transcript, transcriptLines(t, cwd, []transcriptCall{
+		{"Edit", map[string]any{"file_path": filepath.Join(wt, "sub", "a.txt"), "old_string": "one", "new_string": "ONE"}},
+	}))
+
+	rtn := agentEdits(t, cwd, transcript)
+	if want := filepath.Join(wt, "sub"); rtn.Cwd != want {
+		t.Errorf("cwd = %q, want %q", rtn.Cwd, want)
+	}
+	if want := []wshrpc.GitAgentEditFile{{Path: "a.txt", Flag: "approximate"}}; !reflect.DeepEqual(rtn.Files, want) {
+		t.Errorf("files = %+v, want %+v (reason %q)", rtn.Files, want, rtn.Reason)
+	}
+	if got := editsGit(t, wt, "show", rtn.End+":sub/a.txt"); got != "ONE" {
+		t.Errorf("H:sub/a.txt = %q, want the edit applied", got)
+	}
+}
+
 var editsLogLine = regexp.MustCompile(`^agentedits: transcript="[^"]*" calls=(\d+) files=(\d+) cache=(hit|miss) ms=\d+( err=".*")?$`)
 
 func TestGitAgentEditsCachesUntilATranscriptGrows(t *testing.T) {

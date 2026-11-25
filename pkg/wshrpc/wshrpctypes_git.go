@@ -268,4 +268,6 @@ type CommandGitAgentEditsRtnData struct {
 	Files     []GitAgentEditFile `json:"files"`
 	BashCalls int                `json:"bashcalls"`
 	Reason    string             `json:"reason,omitempty"`
+	// set when the agent edited another checkout than the request's cwd: the folder Base, End and Files belong to
+	Cwd string `json:"cwd,omitempty"`
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -95,14 +96,37 @@ func readAgentEdits(ctx context.Context, data wshrpc.CommandGitAgentEditsData) (
 	if err != nil {
 		return nil, 0, false, err
 	}
-	rtn, err = buildAgentEdits(ctx, data.Cwd, co, l)
+	cwd := data.Cwd
+	if other := l.OtherCheckout(co.Root); other != "" {
+		if cwd, co, err = checkoutAt(ctx, other, co.Prefix); err != nil {
+			return nil, l.EditCalls, false, err
+		}
+	}
+	rtn, err = buildAgentEdits(ctx, cwd, co, l)
 	if err != nil {
 		return nil, l.EditCalls, false, err
+	}
+	if cwd != data.Cwd {
+		rtn.Cwd = cwd
 	}
 	agentEditsCache.Lock()
 	agentEditsCache.m[data.TranscriptPath] = agentEditsEntry{key: key, editCalls: l.EditCalls, rtn: *rtn}
 	agentEditsCache.Unlock()
 	return rtn, l.EditCalls, false, nil
+}
+
+// checkoutAt reads the checkout at root, from the session cwd's subfolder in it when it has one, so a sibling
+// worktree of the same repository lists paths as the session's own checkout would.
+func checkoutAt(ctx context.Context, root, prefix string) (string, agentedits.Checkout, error) {
+	dir := filepath.Join(root, filepath.FromSlash(prefix))
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		dir = root
+	}
+	co, err := agentedits.CheckoutOf(ctx, dir)
+	if err != nil {
+		return "", co, fmt.Errorf("reading the checkout the agent edited, %s: %w", dir, err)
+	}
+	return dir, co, nil
 }
 
 // agentEditsKey is the request cwd plus the size and mtime of the transcript and each subagent transcript.

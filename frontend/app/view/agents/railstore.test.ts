@@ -85,6 +85,22 @@ describe("loadRailForAgent", () => {
         expect(globalStore.get(railStateAtom)?.changes?.files.map((f) => f.path)).toEqual(["mine.ts"]);
     });
 
+    // a session started in the main checkout that edits a sibling worktree listed nothing
+    it("reads a Claude agent's edits in the other checkout they went to", async () => {
+        vi.mocked(RpcApi.GitAgentEditsCommand).mockResolvedValueOnce({
+            base: "B",
+            end: "H",
+            files: [],
+            bashcalls: 0,
+            cwd: "C:/src/demo-wt",
+        });
+        vi.mocked(RpcApi.GitChangesCommand).mockResolvedValueOnce({ ...changes("mine.ts"), ref: "B" });
+        await loadRailForAgent(claude);
+        expect(RpcApi.GitChangesCommand).toHaveBeenLastCalledWith({}, { cwd: "C:/src/demo-wt", ref: "B", end: "H" });
+        expect(RpcApi.GitListWorktreesCommand).toHaveBeenLastCalledWith({}, { cwd: "C:/src/demo-wt" });
+        expect(globalStore.get(railStateAtom)).toMatchObject({ cwd: "C:/src/demo-wt", edits: true });
+    });
+
     // a lead writes little itself: what it reviews is what its workers merged into the run's tree
     it("lists a lead's run's changes, read in the run's tree from its base", async () => {
         vi.mocked(RpcApi.GitAgentEditsCommand).mockClear();
