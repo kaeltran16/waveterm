@@ -1,24 +1,17 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// Pure derivations behind the Setup surface's Memory tab: rail meters and statuses, the check line,
-// the index cards and their after-totals, the split's groups and switch-over gate, and each change's
-// status and outcome text. memorystore.ts feeds these the memhygiene RPC results; setupmemory.tsx
-// renders them.
+// Pure derivations behind the Setup surface's Memory tab: the rows that wait for the user, each row's state
+// and buttons, and the lines of what Arc did this week. memorystore.ts feeds these the memhygiene RPC results;
+// setupmemory.tsx renders them.
 
 import { fmtClock } from "./runcompletion";
 import type { Tone } from "./setupmodel";
-
-// claude code loads only this much of MEMORY.md; pkg/memhygiene/types.go holds the same two values.
-export const LIMIT_LINES = 200;
-export const LIMIT_BYTES = 25000;
 
 export interface StatusText {
     text: string;
     tone: Tone;
 }
-
-const NO_INDEX: MemIndexStats = { exists: false, lines: 0, bytes: 0 };
 
 function count(n: number, one: string, many = `${one}s`): string {
     return `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
@@ -26,10 +19,6 @@ function count(n: number, one: string, many = `${one}s`): string {
 
 function kb(bytes: number): string {
     return bytes === 0 ? "0" : (bytes / 1000).toFixed(1);
-}
-
-function pctOf(n: number, of: number): number {
-    return Math.max(0, Math.min(100, Math.round((100 * n) / of)));
 }
 
 function basename(path: string): string {
@@ -83,333 +72,17 @@ function sameFolder(a: string, b: string): boolean {
 
 // an undecided change: open, or found changed on disk and waiting on a fresh check. memhygiene.Pending
 // in pkg/memhygiene/split.go mirrors it.
-export function isPending(c: MemChange): boolean {
+function isPending(c: MemChange): boolean {
     return c.status !== "applied" && c.status !== "kept";
 }
 
 // a project sharing a folder with other registered projects gets the split, not ordinary changes.
-export function isSplit(p: MemHygieneProject): boolean {
+function isSplit(p: MemHygieneProject): boolean {
     return (p.sharedwith?.length ?? 0) > 0;
 }
 
 function settingsChange(p: MemHygieneProject): MemChange | undefined {
     return p.changes.find((c) => c.kind === "settings");
-}
-
-function switched(p: MemHygieneProject): boolean {
-    return isSplit(p) && settingsChange(p)?.status === "applied";
-}
-
-// the user kept the shared memory: its move-here changes are moot until Review again, and the weekly
-// sweep skips it (sweepDue in pkg/memhygiene/sweep.go)
-function keptSharing(p: MemHygieneProject): boolean {
-    return isSplit(p) && settingsChange(p)?.status === "kept";
-}
-
-// the note beside Check now once a check the user started has ended. a check with nothing new to judge
-// ends in well under a second, so without it the click reads as dead. a failure's reason is on the check line.
-export function checkResult(p: MemHygieneProject): StatusText {
-    if (p.lasterror) {
-        return { text: "Check failed", tone: "warn" };
-    }
-    const n = p.changes.filter(isPending).length;
-    return n > 0
-        ? { text: `Checked · ${n} to review`, tone: "warn" }
-        : { text: "Checked · nothing to review", tone: "ok" };
-}
-
-function hasPending(p: MemHygieneProject): boolean {
-    return !keptSharing(p) && p.changes.some(isPending);
-}
-
-export function projectsToReview(projects: MemHygieneProject[]): number {
-    return projects.filter(hasPending).length;
-}
-
-// projects with something to review lead the rail, each half in the backend's order
-export function railOrder(projects: MemHygieneProject[]): MemHygieneProject[] {
-    return [...projects.filter(hasPending), ...projects.filter((p) => !hasPending(p))];
-}
-
-export function toolbarStatus(projects: MemHygieneProject[]): StatusText {
-    const n = projectsToReview(projects);
-    const failed = projects.filter((p) => p.lasterror).length;
-    const unchecked = projects.filter((p) => !p.checkedat && !p.lasterror).length;
-    if (n > 0) {
-        const tail = failed > 0 ? ` · ${count(failed, "check")} failed` : "";
-        return { text: `${count(n, "project")} to review${tail}`, tone: "warn" };
-    }
-    if (failed > 0) {
-        return { text: `${count(failed, "check")} failed`, tone: "warn" };
-    }
-    if (unchecked > 0) {
-        return { text: `${unchecked.toLocaleString("en-US")} not checked yet`, tone: "none" };
-    }
-    return { text: "Every project checked", tone: "ok" };
-}
-
-export function railFoot(projects: MemHygieneProject[]): string {
-    const kept = projects.filter(keptSharing).length;
-    const except = kept === 0 ? "" : `, except ${kept === 1 ? "one" : kept} kept sharing`;
-    return (
-        `Claude Code loads the first ${LIMIT_LINES} lines or ${LIMIT_BYTES / 1000} KB of a project's MEMORY.md. ` +
-        `Arc checks every project once a week${except}.`
-    );
-}
-
-export interface RailRow {
-    name: string;
-    pct: number;
-    meter: string;
-    status: string;
-    tone: Tone;
-    // checked, with an empty index and nothing to review: the rail draws it on one line
-    empty: boolean;
-}
-
-function indexMeter(ix: MemIndexStats): string {
-    return `${count(ix.lines, "line")} · ${kb(ix.bytes)} of ${LIMIT_BYTES / 1000} KB`;
-}
-
-function railStatus(p: MemHygieneProject): StatusText {
-    if (p.checking) {
-        return { text: "Checking…", tone: "none" };
-    }
-    // a state file that could not be read lists with only lasterror set
-    if (!p.checkedat) {
-        return p.lasterror ? { text: "Last check failed", tone: "warn" } : { text: "Not checked yet", tone: "none" };
-    }
-    if (keptSharing(p)) {
-        return { text: "Kept sharing", tone: "none" };
-    }
-    const n = p.changes.filter(isPending).length;
-    if (n > 0) {
-        return { text: `${n} to review`, tone: "warn" };
-    }
-    if (p.lasterror) {
-        return { text: "Last check failed", tone: "warn" };
-    }
-    return { text: "Nothing to review", tone: "ok" };
-}
-
-export function railRow(p: MemHygieneProject): RailRow {
-    const { text: status, tone } = railStatus(p);
-    const empty = tone === "ok" && !isSplit(p) && p.index.lines === 0;
-    const row = { name: p.project, status, tone, empty };
-    if (!p.checkedat) {
-        // the status already says why there is nothing to meter; repeating it shows it twice
-        return { ...row, pct: 0, meter: "" };
-    }
-    if (isSplit(p) && !switched(p)) {
-        return {
-            ...row,
-            pct: pctOf(p.index.lines, LIMIT_LINES),
-            meter: `Shares ${sharedRepo(p)}’s memory · ${count(p.index.lines, "line")}`,
-        };
-    }
-    const ix = isSplit(p) ? (p.ownindex ?? NO_INDEX) : p.index;
-    return {
-        ...row,
-        pct: Math.max(pctOf(ix.lines, LIMIT_LINES), pctOf(ix.bytes, LIMIT_BYTES)),
-        meter: indexMeter(ix),
-    };
-}
-
-export function checkLine(p: MemHygieneProject, now: number): string {
-    if (p.checking) {
-        return "Checking…";
-    }
-    let line = "Not checked yet";
-    if (p.checkedat) {
-        // during a split the memory count is the shared folder's, which isn't this project's
-        const counts = isSplit(p)
-            ? count(p.sessions, "session")
-            : `${count(p.memories, "memory", "memories")}, ${count(p.sessions, "session")}`;
-        const parts = [`Checked ${dayName(p.checkedat, now)} at ${fmtClock(p.checkedat)}`, counts];
-        if (p.nextcheckat) {
-            parts.push(`next check ${monthDay(p.nextcheckat)}`);
-        }
-        line = parts.join(" · ");
-    }
-    if (p.lasterror) {
-        line += ` · Last check failed: ${p.lasterror}`;
-    }
-    return line;
-}
-
-export function splitText(p: MemHygieneProject): string {
-    if (!isSplit(p) || switched(p)) {
-        return "";
-    }
-    const others = p.sharedwith;
-    const names =
-        others.length === 1 ? others[0] : `${others.slice(0, -1).join(", ")} and ${others[others.length - 1]}`;
-    return (
-        `Claude Code gives a git repo one memory, so ${p.project} sessions load ${sharedRepo(p)}’s MEMORY.md, ` +
-        `which ${names} ${others.length === 1 ? "shares" : "share"}. These changes give ${p.project} its own.`
-    );
-}
-
-export interface IndexCard {
-    label: string;
-    role: string;
-    lines: string;
-    kb: string;
-    linesPct: number;
-    kbPct: number;
-    after: string;
-}
-
-// the stored index is re-measured after every apply and undo, so it already holds applied changes;
-// only the changes still to review move the after-total.
-function indexCard(
-    p: MemHygieneProject,
-    label: string,
-    role: string,
-    ix: MemIndexStats,
-    delta: "indexdelta" | "ownindexdelta"
-): IndexCard {
-    const has = ix.exists || ix.lines > 0;
-    const rest = p.changes
-        .filter(isPending)
-        .map((c) => c[delta])
-        .filter((d) => d && (d.lines || d.bytes));
-    const lines = ix.lines + rest.reduce((a, d) => a + d.lines, 0);
-    const bytes = ix.bytes + rest.reduce((a, d) => a + d.bytes, 0);
-    return {
-        label,
-        role,
-        lines: has ? `${ix.lines} of ${LIMIT_LINES}` : "none yet",
-        kb: has ? `${kb(ix.bytes)} of ${LIMIT_BYTES / 1000} KB` : "none yet",
-        linesPct: pctOf(ix.lines, LIMIT_LINES),
-        kbPct: pctOf(ix.bytes, LIMIT_BYTES),
-        after: !p.checkedat
-            ? "Not checked yet."
-            : rest.length > 0
-              ? `After the changes still to review: ${count(lines, "line")} · ${kb(bytes)} KB`
-              : "Nothing left to review here.",
-    };
-}
-
-export function indexCards(p: MemHygieneProject): IndexCard[] {
-    if (!isSplit(p)) {
-        return [indexCard(p, "MEMORY.md", `Loaded by ${p.project}`, p.index, "indexdelta")];
-    }
-    const done = switched(p);
-    return [
-        indexCard(
-            p,
-            `${sharedRepo(p)}’s MEMORY.md`,
-            done ? "No longer loaded here" : `Loaded by ${p.project} today`,
-            p.index,
-            "indexdelta"
-        ),
-        indexCard(
-            p,
-            `${p.project}’s MEMORY.md`,
-            done ? `Loaded by ${p.project}` : "Loaded once you switch over",
-            p.ownindex ?? NO_INDEX,
-            "ownindexdelta"
-        ),
-    ];
-}
-
-export interface ChangeGroup {
-    key: string;
-    label: string;
-    hint: string;
-    changes: MemChange[];
-}
-
-// a split lists its groups in review order: what comes over from the shared memory, what's already
-// in the own folder, then the switch-over. an empty group is left out.
-export function changeGroups(p: MemHygieneProject): ChangeGroup[] {
-    if (!isSplit(p)) {
-        return [{ key: "", label: "", hint: "", changes: p.changes }];
-    }
-    const repo = sharedRepo(p);
-    const groups: ChangeGroup[] = [
-        {
-            key: "shared",
-            label: `From ${repo}’s memory`,
-            hint: p.memories
-                ? `Memories about ${p.project}, out of ${repo}’s ${p.memories.toLocaleString("en-US")}`
-                : `Memories about ${p.project}`,
-            changes: [],
-        },
-        {
-            key: "own",
-            label: `${p.project}’s own memory`,
-            hint: switched(p) ? `Loaded by ${p.project} sessions` : "Loaded once you switch over",
-            changes: [],
-        },
-        { key: "switch", label: "Switch over", hint: "", changes: [] },
-    ];
-    for (const g of groups) {
-        g.changes = p.changes.filter((c) => c.group === g.key);
-    }
-    return groups.filter((g) => g.changes.length > 0);
-}
-
-// the changes in the order the table lists them
-function changeOrder(p: MemHygieneProject): MemChange[] {
-    return changeGroups(p).flatMap((g) => g.changes);
-}
-
-// with nothing chosen yet, or the chosen one gone, open the first change still to review. with nothing
-// pending, open none: a decided change shown unasked put a live Undo under a stray u.
-export function pickChange(p: MemHygieneProject, id: string | null): MemChange | null {
-    const order = changeOrder(p);
-    return order.find((c) => c.id === id) ?? order.find(isPending) ?? null;
-}
-
-export interface MemorySelection {
-    project: MemHygieneProject | null;
-    change: MemChange | null;
-}
-
-// the rail opens on its first project, so with nothing chosen that is one with changes to review
-export function resolveSelection(
-    projects: MemHygieneProject[] | null,
-    projectName: string | null,
-    changeId: string | null
-): MemorySelection {
-    const project = projects?.find((x) => x.project === projectName) ?? railOrder(projects ?? [])[0] ?? null;
-    return { project, change: project == null ? null : pickChange(project, changeId) };
-}
-
-// j and k: the change delta rows away in table order, stopping at either end
-export function stepChange(p: MemHygieneProject, id: string | null, delta: number): string | null {
-    const order = changeOrder(p);
-    if (order.length === 0) {
-        return null;
-    }
-    const i = order.findIndex((c) => c.id === id);
-    const next = i < 0 ? 0 : Math.max(0, Math.min(order.length - 1, i + delta));
-    return order[next].id;
-}
-
-// after a verdict, the next change still to review below the decided one, else the first above it
-export function nextPending(p: MemHygieneProject, id: string): string | null {
-    const order = changeOrder(p);
-    const i = order.findIndex((c) => c.id === id);
-    const rotated = [...order.slice(i + 1), ...order.slice(0, Math.max(i, 0))];
-    return rotated.find(isPending)?.id ?? null;
-}
-
-// a conflict needs a fresh check, and the switch-over waits on the shared changes
-export function canApply(p: MemHygieneProject, change: MemChange): boolean {
-    return isPending(change) && change.status !== "conflict" && !switchGate(p, change).blocked;
-}
-
-// a labelled group short of the switch-over can be applied as a whole: the split's moves and copies run to
-// dozens, each already sorted by the check. conflicts are left for their own review.
-export function applyAllIds(g: ChangeGroup): string[] {
-    if (g.key === "" || g.key === "switch") {
-        return [];
-    }
-    const ids = g.changes.filter((c) => c.status === "open").map((c) => c.id);
-    return ids.length > 1 ? ids : [];
 }
 
 export type KindTone = "remove" | "add" | "edit";
@@ -426,73 +99,6 @@ export function kindTone(kind: string): KindTone {
             return "add";
         default:
             return "edit";
-    }
-}
-
-export interface Gate {
-    blocked: boolean;
-    text: string;
-}
-
-// switching first would drop the memories still waiting to come over from the shared folder.
-export function switchGate(p: MemHygieneProject, change: MemChange): Gate {
-    if (change.kind !== "settings" || !isPending(change)) {
-        return { blocked: false, text: "" };
-    }
-    const n = p.changes.filter((c) => c.group === "shared" && isPending(c)).length;
-    if (n === 0) {
-        return { blocked: false, text: "" };
-    }
-    return {
-        blocked: true,
-        text:
-            `Review the ${count(n, "change")} from ${sharedRepo(p)}’s memory first. ` +
-            `Switching now would drop those memories from ${p.project} sessions.`,
-    };
-}
-
-// an applied change whose backup is gone can't be undone (entryUndo refuses it)
-export function undoExpired(change: MemChange, now: number): boolean {
-    return change.status === "applied" && change.backupuntil > 0 && change.backupuntil < now;
-}
-
-export function closedText(p: MemHygieneProject, change: MemChange, now: number): string {
-    if (change.status === "kept") {
-        return change.kind === "settings"
-            ? `Kept sharing. Arc no longer checks ${p.project} each week; Check now still does.`
-            : "Kept as is. The next check skips it unless the memory changes.";
-    }
-    if (change.status !== "applied") {
-        return "";
-    }
-    let when = "";
-    if (change.decidedat) {
-        const day = dayName(change.decidedat, now);
-        when = `${day === "today" ? "" : ` ${day}`} at ${fmtClock(change.decidedat)}`;
-    }
-    const settings = change.kind === "settings";
-    let text = `Applied${when}.`;
-    if (settings) {
-        text += ` New ${p.project} sessions load its own memory.`;
-    }
-    if (undoExpired(change, now)) {
-        text += ` The backup expired on ${monthDay(change.backupuntil)}, so this can't be undone.`;
-    } else if (change.backupuntil) {
-        text += ` Arc kept a copy of the old ${settings ? "settings" : "files"} until ${monthDay(change.backupuntil)}.`;
-    }
-    return text;
-}
-
-export function statusOf(change: MemChange): StatusText {
-    switch (change.status) {
-        case "applied":
-            return { text: "Applied", tone: "ok" };
-        case "kept":
-            return { text: "Kept", tone: "none" };
-        case "conflict":
-            return { text: "Changed on disk", tone: "warn" };
-        default:
-            return { text: "To review", tone: "warn" };
     }
 }
 
@@ -521,7 +127,7 @@ export function kindLabel(p: MemHygieneProject, change: MemChange): string {
     }
 }
 
-// a diff's file named by its role, as the index cards name them: a MEMORY.md in the shared (or former
+// a diff's file named by its role, a MEMORY.md in the shared (or former
 // shared) folder is the repo's, one in the own folder the project's; anything else goes by its name.
 export function diffLabel(p: MemHygieneProject, path: string): string {
     const name = basename(path);
@@ -538,23 +144,551 @@ export function diffLabel(p: MemHygieneProject, path: string): string {
     return name;
 }
 
-// below this measured tab width the change detail overlays the table: at 1000x700 a 400px column left the
-// center 258px
-export const MEMORY_OVERLAY_PX = 1200;
+// ---- the one-page tab: what waits for the user, and what Arc did this week ----
 
-export function memoryDetailLayout(width: number): "column" | "overlay" {
-    // 0 = not measured yet; a column first avoids an overlay that flashes and vanishes
-    return width > 0 && width < MEMORY_OVERLAY_PX ? "overlay" : "column";
+// what Arc applies after each check without asking. mirrors routineKind in pkg/memhygiene/auto.go.
+export const ROUTINE_KINDS: readonly string[] = ["trim", "delete", "merge", "add-to-index"];
+
+// the check interval: each check's line lasts until the next check's
+export const DID_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+const SPOT_CHECK = 4;
+
+export type RowKind = "split" | "cleanup" | "doc" | "failed";
+
+export interface WaitingRow {
+    key: string;
+    kind: RowKind;
+    project: string;
+    changeId: string; // a doc move's change; "" otherwise
+    chip: string;
+    title: string;
+    sub: string;
 }
 
-// the memory files a change acts on, for the table's second line.
-export function fileLabel(change: MemChange): string {
-    if (change.kind === "settings") {
-        return change.op.settingspath;
+// <kind>/<project>, or doc/<project>/<changeId> for a doc move: data-memory-row and the scenario select by it
+export function rowKey(kind: RowKind, project: string, changeId = ""): string {
+    return kind === "doc" ? `doc/${project}/${changeId}` : `${kind}/${project}`;
+}
+
+function andList(names: string[]): string {
+    return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+function memCount(changes: MemChange[]): number {
+    return changes.reduce((n, c) => n + (c.op.memories?.length ?? 0), 0);
+}
+
+// "today at 09:40", or "on Nov 20 at 09:07"
+function whenAt(ts: number, now: number): string {
+    const day = dayName(ts, now);
+    return `${day === "today" || day === "yesterday" ? day : `on ${day}`} at ${fmtClock(ts)}`;
+}
+
+function sharedMoves(p: MemHygieneProject): MemChange[] {
+    return p.changes.filter((c) => c.group === "shared" && (c.kind === "move-here" || c.kind === "copy-here"));
+}
+
+// a split waits while its switch-over is undecided; a kept one (Keep sharing) or a switched one doesn't
+function pendingSplit(p: MemHygieneProject): boolean {
+    const s = settingsChange(p);
+    return isSplit(p) && s != null && isPending(s);
+}
+
+function openRemovals(p: MemHygieneProject): MemChange[] {
+    return p.changes.filter((c) => c.kind === "remove-shared" && c.status === "open");
+}
+
+function docName(c: MemChange): string {
+    return basename(c.op.docpath) || "AGENTS.md";
+}
+
+export interface SplitCounts {
+    comeOver: number;
+    move: number;
+    copy: number;
+    stay: number;
+    leftOut: number;
+    here: number;
+    total: number;
+    changed: number;
+}
+
+// memories, not changes: memories on one index line come over together. a left-out (kept) memory stays.
+export function splitCounts(p: MemHygieneProject): SplitCounts {
+    const moves = sharedMoves(p);
+    const coming = moves.filter((c) => c.status !== "kept");
+    const move = memCount(coming.filter((c) => c.kind === "move-here"));
+    const copy = memCount(coming.filter((c) => c.kind === "copy-here"));
+    return {
+        comeOver: move + copy,
+        move,
+        copy,
+        stay: Math.max(0, p.memories - move - copy),
+        leftOut: memCount(moves.filter((c) => c.status === "kept")),
+        here: memCount(moves.filter((c) => c.status === "applied")),
+        total: move + copy,
+        changed: memCount(moves.filter((c) => c.status === "conflict")),
+    };
+}
+
+function splitSub(p: MemHygieneProject): string {
+    const n = splitCounts(p);
+    const stay = `${n.stay} stay in ${sharedRepo(p)}’s`;
+    return n.leftOut > 0
+        ? `${n.comeOver} come over · ${n.leftOut} left out · ${stay}`
+        : `${n.comeOver} come over: ${n.move} move, ${n.copy} copy · ${stay}`;
+}
+
+function cleanupTook(p: MemHygieneProject): string {
+    return p.switchedat ? `${p.project} took them on ${monthDay(p.switchedat)}` : `${p.project} took them`;
+}
+
+// one row per decision, in the order splits, cleanups, doc moves, failed checks. Waiting in
+// pkg/memhygiene/rows.go counts by the same rule: a pending split not kept sharing, a project with open
+// remove-shared changes, an open move-to-doc, a project whose last check failed.
+export function waitingRows(projects: MemHygieneProject[]): WaitingRow[] {
+    const row = (kind: RowKind, p: MemHygieneProject, chip: string, title: string, sub: string, changeId = "") => ({
+        key: rowKey(kind, p.project, changeId),
+        kind,
+        project: p.project,
+        changeId,
+        chip,
+        title,
+        sub,
+    });
+    return [
+        ...projects
+            .filter(pendingSplit)
+            .map((p) => row("split", p, "Own memory", `Give ${p.project} its own memory`, splitSub(p))),
+        ...projects
+            .filter((p) => openRemovals(p).length > 0)
+            .map((p) =>
+                row(
+                    "cleanup",
+                    p,
+                    "Clear",
+                    `Clear ${count(memCount(openRemovals(p)), "memory", "memories")} no project loads from ${sharedRepo(p)}’s memory`,
+                    cleanupTook(p)
+                )
+            ),
+        ...projects.flatMap((p) =>
+            p.changes
+                .filter((c) => c.kind === "move-to-doc" && c.status === "open")
+                .map((c) =>
+                    row(
+                        "doc",
+                        p,
+                        kindLabel(p, c),
+                        c.title,
+                        `${p.project} · edits ${docName(c)} in your working tree`,
+                        c.id
+                    )
+                )
+        ),
+        ...projects
+            .filter((p) => p.lasterror)
+            .map((p) =>
+                row(
+                    "failed",
+                    p,
+                    "Check failed",
+                    `${p.project}’s last check failed`,
+                    [p.lasterror, p.checkedat ? `checked ${monthDay(p.checkedat)} at ${fmtClock(p.checkedat)}` : ""]
+                        .filter((s) => s !== "")
+                        .join(" · ")
+                )
+            ),
+    ];
+}
+
+// a memhygiene:<project> address opens the project's first row; a project with nothing waiting opens none
+export function firstRowKey(projects: MemHygieneProject[], project: string): string | null {
+    return waitingRows(projects).find((r) => r.project === project)?.key ?? null;
+}
+
+export function waitingStatus(projects: MemHygieneProject[]): StatusText {
+    const rows = waitingRows(projects);
+    if (rows.length === 0) {
+        return { text: "Nothing waits for you", tone: "ok" };
     }
-    const names = change.op.memories?.length ? change.op.memories : change.files.map((f) => basename(f.path));
-    if (names.length <= 2) {
-        return names.join(" + ");
+    const failed = rows.filter((r) => r.kind === "failed").length;
+    const tail = failed > 0 ? ` · ${count(failed, "check")} failed` : "";
+    return { text: `${rows.length} waiting for you${tail}`, tone: "warn" };
+}
+
+export function emptyText(projects: MemHygieneProject[]): string {
+    const next = projects.map((p) => p.nextcheckat).filter((t) => t > 0);
+    if (next.length === 0) {
+        return "Nothing waits for you.";
     }
-    return `${names[0]} + ${names.length - 1} more`;
+    const day = new Date(Math.min(...next)).toLocaleDateString("en-US", {
+        weekday: "long",
+        month: "short",
+        day: "numeric",
+    });
+    return `Nothing waits for you. The next check runs ${day}.`;
+}
+
+// the changes a row's keep button keeps: Keep sharing keeps the switch-over, Keep them each open removal
+export function keepIds(p: MemHygieneProject, row: WaitingRow): string[] {
+    switch (row.kind) {
+        case "split":
+            return [settingsChange(p)?.id].filter((id) => id != null);
+        case "cleanup":
+            return openRemovals(p).map((c) => c.id);
+        case "doc":
+            return [row.changeId];
+        default:
+            return [];
+    }
+}
+
+// a few of each kind to look over before applying, left-out ones aside
+export function spotCheck(p: MemHygieneProject): MemChange[] {
+    const coming = sharedMoves(p).filter((c) => c.status !== "kept");
+    const moves = coming.filter((c) => c.kind === "move-here");
+    const copies = coming.filter((c) => c.kind === "copy-here");
+    const half = SPOT_CHECK / 2;
+    return [...moves.slice(0, half), ...copies.slice(0, half), ...moves.slice(half), ...copies.slice(half)].slice(
+        0,
+        SPOT_CHECK
+    );
+}
+
+export interface SplitListGroup {
+    label: string;
+    count: number; // memories, left-out ones included
+    changes: MemChange[];
+}
+
+export function splitList(p: MemHygieneProject): SplitListGroup[] {
+    const moves = sharedMoves(p);
+    return [
+        { label: "Move here", kind: "move-here" },
+        { label: "Copy here", kind: "copy-here" },
+    ]
+        .map(({ label, kind }) => {
+            const changes = moves.filter((c) => c.kind === kind);
+            return { label, count: memCount(changes), changes };
+        })
+        .filter((g) => g.changes.length > 0);
+}
+
+export function splitItemChip(c: MemChange): string {
+    if (c.status === "kept") {
+        return "Left out";
+    }
+    return c.kind === "copy-here" ? "Copy" : "Move";
+}
+
+export type SplitStateKind = "open" | "applying" | "partial" | "changed" | "newer" | "failed";
+
+export interface SplitState {
+    state: SplitStateKind;
+    tag: string; // beside the row's sub-line
+    text: string;
+    undo: string; // "" = no Undo
+    next: string; // "Check now", "Try again" or ""
+}
+
+function memoriesText(n: number): { n: string; them: string; were: string; have: string } {
+    return n === 1
+        ? { n: "1 memory", them: "it", were: "was", have: "has" }
+        : { n: `${n.toLocaleString("en-US")} memories`, them: "them", were: "were", have: "have" };
+}
+
+// changed comes from stored conflicts, so it survives a restart; newer and failed only from the last Apply's
+// result, and only while no check has run since it
+export function splitState(p: MemHygieneProject, applying: boolean, result: MemRowResult | null): SplitState {
+    const n = splitCounts(p);
+    const of = `${n.here} of ${n.total}`;
+    const repo = sharedRepo(p);
+    const stopped = (state: SplitStateKind, text: string, next: string): SplitState => ({
+        state,
+        tag: `${of} here`,
+        text,
+        undo: n.here > 0 ? `Undo the ${n.here}` : "",
+        next,
+    });
+    if (applying) {
+        return {
+            state: "applying",
+            tag: "Applying",
+            text: `Bringing over ${of}, then switching over…`,
+            undo: "",
+            next: "",
+        };
+    }
+    const r = result?.project.checkedat === p.checkedat ? result : null;
+    if (r?.stop === "failed") {
+        const verb = p.changes.find((c) => c.title === r.failed)?.kind === "copy-here" ? "copy" : "move";
+        const stay = n.here > 0 ? `; the ${n.here} already here stay` : "";
+        return stopped(
+            "failed",
+            `Stopped at ${n.here + 1} of ${n.total}. “${r.failed}” did not ${verb}: ${r.error.replace(/\.$/, "")}. ` +
+                `${p.project} is not switched over${stay}.`,
+            "Try again"
+        );
+    }
+    if (r?.stop === "newer") {
+        const m = memoriesText(r.newer);
+        return stopped(
+            "newer",
+            `${of} already here, not switched over. ${m.n} ${m.were} written to ${repo}’s memory after the check ` +
+                `and ${m.have} no sort yet; switching now would leave ${m.them} out of ${p.project}’s sessions. ` +
+                "Check again, then Apply switches over.",
+            "Check now"
+        );
+    }
+    if (n.changed > 0) {
+        const m = memoriesText(n.changed);
+        const those = n.changed === 1 ? "it" : `those ${n.changed}`;
+        return stopped(
+            "changed",
+            `${of} already here. ${m.n} changed on disk after the ${monthDay(p.checkedat)} check, so Arc left ` +
+                `${m.them} in ${repo}’s memory and has not switched over. Check again to sort ${those}; Apply then ` +
+                `brings ${m.them} over and switches.`,
+            "Check now"
+        );
+    }
+    if (n.here > 0) {
+        return stopped("partial", "", "");
+    }
+    return { state: "open", tag: "", text: "", undo: "", next: "" };
+}
+
+export interface RowButton {
+    label: string;
+    disabled: boolean;
+}
+
+export interface RowButtons {
+    // the row's main button, which a runs: an apply, or a check where only a fresh check can go on
+    primary: (RowButton & { action: "apply" | "check" }) | null;
+    keep: RowButton | null; // x
+    undo: (RowButton & { batchId: string }) | null; // a split's "Undo the N", which undoes its batch
+}
+
+export interface RowContext {
+    applying: boolean; // this row's Apply is in flight
+    busy: boolean; // another decision is in flight
+    result: MemRowResult | null; // the project's last row Apply
+}
+
+// the buttons an opened row shows, and whether each can be pressed now: the buttons and the keys both read this
+export function rowButtons(p: MemHygieneProject, row: WaitingRow, ctx: RowContext): RowButtons {
+    const held = ctx.busy || ctx.applying;
+    const btn = (label: string) => ({ label, disabled: held });
+    const apply = (label: string) => ({ ...btn(label), action: "apply" as const });
+    const check = { label: "Check now", disabled: held || p.checking, action: "check" as const };
+    switch (row.kind) {
+        case "split": {
+            const st = splitState(p, ctx.applying, ctx.result);
+            if (st.state === "applying") {
+                return { primary: null, keep: null, undo: null };
+            }
+            const batch = p.batches?.find((b) => b.kind === "split");
+            const undo = st.undo !== "" && batch != null ? { ...btn(st.undo), batchId: batch.id } : null;
+            if (st.state === "open" || st.state === "partial") {
+                return { primary: apply("Apply and switch over"), keep: btn("Keep sharing"), undo };
+            }
+            return { primary: st.next === "Try again" ? apply(st.next) : check, keep: null, undo };
+        }
+        case "cleanup":
+            return {
+                primary: apply(`Clear ${memCount(openRemovals(p)).toLocaleString("en-US")}`),
+                keep: btn("Keep them"),
+                undo: null,
+            };
+        case "doc":
+            // the chip is the move's own label: "Move to CLAUDE.md"
+            return { primary: apply(row.chip), keep: btn("Keep"), undo: null };
+        default:
+            return { primary: check, keep: null, undo: null };
+    }
+}
+
+export interface CleanupDetail {
+    count: number; // memories
+    opened: string; // the sub-line once opened
+    body: string;
+    changes: MemChange[];
+}
+
+// only open removals: a kept one was left out, and one changed on disk is the next check's
+export function cleanupDetail(p: MemHygieneProject, projects: MemHygieneProject[]): CleanupDetail {
+    const changes = openRemovals(p);
+    const loaders = projects
+        .filter((q) => q.project !== p.project && sameFolder(q.folder, p.formershared))
+        .map((q) => q.project);
+    const repo = sharedRepo(p);
+    const which =
+        loaders.length === 0
+            ? "which no project loads any more"
+            : `which ${andList(loaders)} load${loaders.length === 1 ? "s" : ""}`;
+    return {
+        count: memCount(changes),
+        opened: `${cleanupTook(p)}; no other project loads them`,
+        body: `These stay in ${p.project}’s own memory. Clearing them only takes them out of ${repo}’s, ${which}.`,
+        changes,
+    };
+}
+
+export interface DidLine {
+    key: string; // <project>/<batchId>: data-memory-line selects by it
+    project: string;
+    batch: MemBatch;
+    title: string;
+    text: string;
+    applied: MemChange[]; // the batch's changes still applied, in apply order
+    refusal: string; // why Undo is refused; "" = it isn't
+    see: "memories" | "changes"; // what See … opens: a split or cleanup moved memories
+}
+
+const KIND_NOUN: Record<string, [string, string]> = {
+    trim: ["trim", "trims"],
+    delete: ["delete", "deletes"],
+    merge: ["merge", "merges"],
+    "add-to-index": ["index add", "index adds"],
+};
+
+function kindCount(n: number, kind: string): string {
+    const [one, many] = KIND_NOUN[kind] ?? [kind, kind];
+    return count(n, one, many);
+}
+
+// most first; a tie in routine-kind order
+function byKind(changes: MemChange[]): string {
+    const counts = new Map<string, number>();
+    for (const c of changes) {
+        counts.set(c.kind, (counts.get(c.kind) ?? 0) + 1);
+    }
+    const rank = (k: string) => (ROUTINE_KINDS.includes(k) ? ROUTINE_KINDS.indexOf(k) : ROUTINE_KINDS.length);
+    return [...counts]
+        .sort(([a, n], [b, m]) => m - n || rank(a) - rank(b))
+        .map(([k, n]) => kindCount(n, k))
+        .join(", ");
+}
+
+function skipReason(s: MemSkip): string {
+    switch (s.reason) {
+        case "changed":
+            return "changed after the check";
+        case "overlap":
+            return "another change Arc made touched its memory";
+        default:
+            return `its apply failed (${s.error})`;
+    }
+}
+
+// one phrase per kind and reason, in the order first skipped
+function skipsText(skipped: MemSkip[]): string[] {
+    const groups = new Map<string, { kind: string; n: number; reason: string }>();
+    for (const s of skipped) {
+        const key = `${s.kind}\u0000${s.reason}`;
+        const g = groups.get(key) ?? { kind: s.kind, n: 0, reason: skipReason(s) };
+        g.n++;
+        groups.set(key, g);
+    }
+    return [...groups.values()].map((g) => `${kindCount(g.n, g.kind)} skipped: ${g.reason}`);
+}
+
+function didText(p: MemHygieneProject, b: MemBatch, applied: MemChange[], now: number): string {
+    switch (b.kind) {
+        case "split": {
+            const leftOut = splitCounts(p).leftOut;
+            const left = leftOut > 0 ? `, ${leftOut} left out in ${sharedRepo(p)}’s` : "";
+            const day = dayName(b.at, now);
+            return `Own memory since ${day} at ${fmtClock(b.at)} · ${memCount(applied.filter((c) => c.group === "shared"))} came over${left} · switched over`;
+        }
+        case "cleanup":
+            return `Cleared ${count(memCount(applied), "memory", "memories")} no project loads ${whenAt(b.at, now)}`;
+        case "doc":
+            return `Moved to ${docName(applied[0])} ${whenAt(b.at, now)} · ${applied[0].title}`;
+        default:
+            return [
+                `${count(applied.length, "change")} ${whenAt(b.at, now)}`,
+                byKind(applied),
+                ...skipsText(b.skipped ?? []),
+            ].join(" · ");
+    }
+}
+
+function refusalText(p: MemHygieneProject, b: MemBatch): string {
+    const block = b.undoblock;
+    if (block == null) {
+        return "";
+    }
+    const m = memoriesText(block.memories);
+    return (
+        `Can’t undo yet. Clearing ${sharedRepo(p)}’s memory on ${monthDay(block.at)} removed ${m.n} this split ` +
+        `brought over; undoing the split now would leave ${p.project}’s sessions without ${m.them}. ` +
+        "Undo that cleanup first."
+    );
+}
+
+// one line per batch applied this week, newest first across projects. a split shows once it switched over;
+// a batch with nothing still applied shows nothing.
+export function didLines(projects: MemHygieneProject[], now: number): DidLine[] {
+    const lines: DidLine[] = [];
+    for (const p of projects) {
+        for (const b of p.batches ?? []) {
+            if (b.at < now - DID_WINDOW_MS || (b.kind === "split" && settingsChange(p)?.status !== "applied")) {
+                continue;
+            }
+            const applied = (b.changeids ?? [])
+                .map((id) => p.changes.find((c) => c.id === id))
+                .filter((c) => c?.status === "applied");
+            if (applied.length === 0) {
+                continue;
+            }
+            lines.push({
+                key: `${p.project}/${b.id}`,
+                project: p.project,
+                batch: b,
+                title: b.kind === "cleanup" ? `${sharedRepo(p)}’s memory` : p.project,
+                text: didText(p, b, applied, now),
+                applied,
+                refusal: refusalText(p, b),
+                see: b.kind === "split" || b.kind === "cleanup" ? "memories" : "changes",
+            });
+        }
+    }
+    return lines.sort((a, b) => b.batch.at - a.batch.at);
+}
+
+export interface Digest {
+    changes: MemChange[];
+    undoEach: boolean; // a split undoes only as a whole
+    index: string; // a routine batch's index, after and before; "" otherwise
+    undoAll: string;
+}
+
+export function digest(line: DidLine): Digest {
+    const b = line.batch;
+    const ix = (s: MemIndexStats) => `${count(s.lines, "line")}, ${kb(s.bytes)} KB`;
+    return {
+        changes: line.applied,
+        undoEach: b.kind !== "split",
+        index:
+            b.kind === "routine"
+                ? `${line.project}’s MEMORY.md: ${ix(b.indexafter)} after these, from ${ix(b.indexbefore)}`
+                : "",
+        undoAll: `Undo all ${line.applied.length}`,
+    };
+}
+
+// j and k walk the waiting rows, then the did lines, in the order the page draws them
+export function focusOrder(projects: MemHygieneProject[], now: number): string[] {
+    return [...waitingRows(projects).map((r) => r.key), ...didLines(projects, now).map((l) => l.key)];
+}
+
+// the key delta places from current, stopping at either end; from nothing, or from a key gone, the first
+export function stepFocus(order: string[], current: string | null, delta: number): string | null {
+    if (order.length === 0) {
+        return null;
+    }
+    const i = order.indexOf(current ?? "");
+    return order[i < 0 ? 0 : Math.max(0, Math.min(order.length - 1, i + delta))];
 }

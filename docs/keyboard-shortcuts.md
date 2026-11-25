@@ -307,11 +307,12 @@ The canvas keeps Excalidraw's own tool keys while it has focus.
 
 | Keys | Action |
 |---|---|
-| `j` / `k` (or `↓` / `↑`) | Next / previous change in the table |
-| `a` | Apply the selected change (when its Apply button is enabled), then move to the next change to review |
-| `x` | Keep the selected change as is, then move to the next change to review |
-| `u` | Undo an applied change (not once its backup has expired), or review a kept one again |
-| `Esc` | On a tab under 1200 px wide, close the change detail sheet |
+| `j` / `k` (or `↓` / `↑`) | Next / previous row: the waiting rows, then the "Arc did this week" lines |
+| `Enter` | Open or close the focused row or line |
+| `Esc` | Close the opened row or line |
+| `a` | Press the opened row's main button (Apply and switch over, Clear N, Move to …, Try again or Check now), when it is enabled |
+| `x` | Press the opened row's keep button (Keep sharing, Keep them or Keep), when it is enabled |
+| `u` | Undo the focused "Arc did this week" line; a split a cleanup has emptied says to undo that cleanup first |
 
 ### Route DAG (the orchestrator run's graph)
 

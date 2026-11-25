@@ -1,84 +1,92 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-// The Setup surface's Memory tab: every registered project's Claude Code auto memory, the changes the
-// weekly check proposes, and the selected change's evidence and diff with its verdict buttons. All
-// derivation is in memorymodel.ts, the atoms and RPCs in memorystore.ts.
+// The Setup surface's Memory tab: one centered page of what waits for the user (a split, a cleanup, a move into
+// a repo doc, a failed check), each row opening in place, then what Arc did this week with Undo. All derivation
+// is in memorymodel.ts, the atoms, RPCs and key actions in memorystore.ts.
 
-import { KeyCap } from "@/app/element/keycap";
-import { widthTween } from "@/app/element/meter";
-import { microFade, viewFade } from "@/app/element/motiontokens";
+import { barFillClass, cardVariants, errorNudge, morphTransition } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
+import { TickNumber } from "@/app/element/ticknumber";
+import { atoms } from "@/app/store/global-atoms";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildMemoryBindings } from "@/app/store/keybindings/bindings";
 import { useKeybindings } from "@/app/store/keybindings/store";
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn, fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { RefreshCw, TriangleAlert, X } from "lucide-react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { RefreshCw } from "lucide-react";
+import { AnimatePresence, motion, type Transition } from "motion/react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode, type Ref } from "react";
 import {
-    applyAllIds,
-    canApply,
-    changeGroups,
-    checkLine,
-    closedText,
+    cleanupDetail,
+    didLines,
     diffLabel,
-    fileLabel,
-    indexCards,
-    isPending,
+    digest,
+    emptyText,
     kindLabel,
     kindTone,
-    memoryDetailLayout,
-    railFoot,
-    railOrder,
-    railRow,
-    resolveSelection,
-    splitText,
-    statusOf,
-    switchGate,
-    toolbarStatus,
-    undoExpired,
-    type ChangeGroup,
-    type IndexCard,
+    rowButtons,
+    splitCounts,
+    splitItemChip,
+    splitList,
+    splitState,
+    spotCheck,
+    waitingRows,
+    waitingStatus,
+    type DidLine,
     type KindTone,
+    type RowButtons,
+    type RowKind,
+    type SplitState,
+    type WaitingRow,
 } from "./memorymodel";
 import {
-    applyMemoryGroup,
+    bringBackMemory,
     checkMemory,
-    decideMemory,
+    leaveOutMemory,
     loadMemory,
-    memoryBulkAtom,
+    memoryApplyingAtom,
     memoryBusyAtom,
-    memoryCheckResultAtom,
-    memoryDetailOpenAtom,
     memoryErrorAtom,
+    memoryFocusAtom,
+    memoryOpenAtom,
     memoryProjectsAtom,
-    memorySelectedChangeAtom,
-    memorySelectedProjectAtom,
-    memoryTabWidthAtom,
-    openMemoryChange,
-    selectMemoryProject,
+    memoryRefusedAtom,
+    memoryRowResultsAtom,
+    runRowButton,
     subscribeMemory,
+    toggleMemoryOpen,
+    undoMemoryBatch,
+    undoMemoryLine,
 } from "./memorystore";
-import { PathTail } from "./pathtail";
-import { fmtClock } from "./runcompletion";
 import type { Tone } from "./setupmodel";
+
+const INTRO =
+    "Arc tidies every project’s memory once a week. Trims, deletes, merges and index adds it applies itself; a " +
+    "project getting its own memory, memories leaving a shared one, and moves into a repo doc wait for you.";
 
 const SECTION_HEAD = cn(REGION_LABEL, "text-muted");
 const BTN_SECONDARY =
     "h-8 flex-none cursor-pointer rounded border border-edge-mid bg-surface-raised px-3 text-[13px] font-semibold text-ink-mid hover:border-edge-strong hover:bg-surface-hover hover:text-primary disabled:cursor-default disabled:text-ink-faint disabled:hover:border-edge-mid disabled:hover:bg-surface-raised";
 const BTN_PRIMARY =
-    "h-8 cursor-pointer rounded border-0 bg-accent px-[14px] text-[13px] font-bold text-background shadow-inset-highlight hover:bg-accenthover disabled:cursor-default disabled:opacity-40 disabled:hover:bg-accent";
+    "h-8 flex-none cursor-pointer rounded border-0 bg-accent px-[14px] text-[13px] font-bold text-background shadow-inset-highlight hover:bg-accenthover disabled:cursor-default disabled:opacity-40 disabled:hover:bg-accent";
+const BTN_SMALL = cn(BTN_SECONDARY, "h-[26px] px-2.5 text-[12px]");
+const BTN_TEXT =
+    "h-6 flex-none cursor-pointer rounded-md border-0 bg-transparent px-2 text-[12px] font-semibold hover:bg-surface-hover disabled:cursor-default disabled:text-ink-faint disabled:hover:bg-transparent";
 const KIND_CHIP =
-    "inline-flex h-[22px] items-center whitespace-nowrap rounded-md border px-2 text-[11px] font-semibold";
+    "inline-flex h-[22px] flex-none items-center whitespace-nowrap rounded-md border px-2 text-[11px] font-semibold";
 // a removal reads apart from what comes in and from an edit in place
 const KIND_TONE: Record<KindTone, string> = {
     remove: "border-error/30 bg-error/10 text-error-soft",
     add: "border-accent/30 bg-accentbg text-accent-soft",
     edit: "border-edge-mid bg-surface-hover text-ink-mid",
 };
-const TABLE_GRID = "grid grid-cols-[148px_minmax(0,1fr)_128px_92px] items-center px-3";
+const ROW_TONE: Record<RowKind, KindTone> = { split: "add", cleanup: "remove", doc: "add", failed: "remove" };
+const ITEM_ROW = "flex min-h-8 items-center gap-2 border-b border-edge-faint";
+const ITEM_TITLE = "min-w-0 flex-1 truncate text-[12.5px]";
+// an opened row's body sits under its title, clear of the chip
+const OPENED_BODY = "flex flex-col gap-2.5 pb-3.5 pl-[120px] pr-3 pt-0.5";
 
 const TONE_DOT: Record<Tone, string> = { ok: "bg-success", warn: "bg-warning", none: "bg-ink-faint" };
 const TONE_TEXT: Record<Tone, string> = { ok: "text-ink-mid", warn: "text-warning-soft", none: "text-muted" };
@@ -88,29 +96,63 @@ const DIFF_LINE: Record<string, string> = {
     "+": "bg-(--diff-added-tint) text-diff-added",
 };
 
-function toTone(s: string): Tone {
-    return s === "ok" || s === "warn" ? s : "none";
-}
+const INSTANT: Transition = { duration: 0 };
 
 function Dot({ tone, className }: { tone: Tone; className?: string }) {
     return <span className={cn("h-1.5 w-1.5 flex-none rounded-full", TONE_DOT[tone], className)} />;
 }
 
-function Meter({ pct }: { pct: number }) {
-    const reduce = useReducedMotion();
+function Chip({ tone, children }: { tone: KindTone; children: ReactNode }) {
+    return <span className={cn(KIND_CHIP, KIND_TONE[tone])}>{children}</span>;
+}
+
+function toTone(s: string): Tone {
+    return s === "ok" || s === "warn" ? s : "none";
+}
+
+// the lead sentence of a stop or refusal reads in bold, as on the boards
+function LeadText({ text, strong }: { text: string; strong: string }) {
+    const at = text.indexOf(". ");
+    const [lead, rest] = at < 0 ? [text, ""] : [text.slice(0, at + 1), text.slice(at + 1)];
     return (
-        <span className="block h-1 overflow-hidden rounded-full bg-edge-mid">
-            <span className="block h-1 bg-success" style={{ width: `${pct}%`, transition: widthTween(reduce) }} />
+        <span className="flex-1 text-[12.5px] leading-[1.55] text-secondary">
+            <strong className={strong}>{lead}</strong>
+            {rest}
         </span>
     );
 }
 
-function KindChip({ p, change }: { p: MemHygieneProject; change: MemChange }) {
-    return <span className={cn(KIND_CHIP, KIND_TONE[kindTone(change.kind)])}>{kindLabel(p, change)}</span>;
-}
+const STOP_TONE = {
+    warn: { box: "border-warning/30 bg-warning/10", strong: "text-warning-soft" },
+    error: { box: "border-error/30 bg-error/10", strong: "text-error-soft" },
+};
 
-function baseName(path: string): string {
-    return path.split(/[\\/]/).pop() ?? path;
+// a stop or a refusal (moment 13). Callers mount it under an AnimatePresence initial={false} that is already
+// there, so it shakes once when it appears after the user's action and not when its row opens on it.
+function StopBox({
+    tone,
+    text,
+    attrs,
+    children,
+}: {
+    tone: keyof typeof STOP_TONE;
+    text: string;
+    attrs: Record<string, string>;
+    children: ReactNode;
+}) {
+    return (
+        <motion.div
+            role="status"
+            {...attrs}
+            variants={errorNudge}
+            initial="initial"
+            animate="animate"
+            className={cn("flex items-center gap-3 rounded border px-3.5 py-2.5", STOP_TONE[tone].box)}
+        >
+            <LeadText text={text} strong={STOP_TONE[tone].strong} />
+            {children}
+        </motion.div>
+    );
 }
 
 export function MemoryHeader() {
@@ -118,7 +160,7 @@ export function MemoryHeader() {
     if (projects == null) {
         return null;
     }
-    const s = toolbarStatus(projects);
+    const s = waitingStatus(projects);
     return (
         <div className={cn("flex items-center gap-2 text-[12px]", TONE_TEXT[s.tone])}>
             <Dot tone={s.tone} className="h-[7px] w-[7px]" />
@@ -127,375 +169,196 @@ export function MemoryHeader() {
     );
 }
 
-// ---- project rail ----
+// ---- a waiting row's buttons ----
 
-function ProjectRail({ projects, selected }: { projects: MemHygieneProject[]; selected: string }) {
+function CheckLabel({ p, label }: { p: MemHygieneProject; label: string }) {
     return (
-        <aside
-            aria-label="Projects"
-            className="flex w-[264px] flex-none flex-col gap-1 overflow-y-auto border-r border-border bg-surface px-2.5 py-3.5"
-        >
-            <div className={cn(SECTION_HEAD, "px-2 pb-1.5")}>Projects</div>
-            {railOrder(projects).map((p) => {
-                const row = railRow(p);
-                const on = row.name === selected;
-                const pick = () => selectMemoryProject(row.name);
-                if (row.empty) {
-                    return (
-                        <button
-                            key={row.name}
-                            type="button"
-                            data-memory-project={row.name}
-                            data-memory-empty
-                            aria-pressed={on}
-                            onClick={pick}
-                            className={cn(
-                                "flex w-full cursor-pointer items-center gap-2 rounded border-0 px-2.5 py-1.5 text-left",
-                                on
-                                    ? "bg-surface-selected ring-1 ring-edge-strong ring-inset"
-                                    : "bg-transparent hover:bg-surface-hover"
-                            )}
-                        >
-                            <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-mid">{row.name}</span>
-                            <span className="flex-none text-[11px] text-muted">No memory yet</span>
-                        </button>
-                    );
-                }
-                return (
-                    <button
-                        key={row.name}
-                        type="button"
-                        data-memory-project={row.name}
-                        aria-pressed={on}
-                        onClick={pick}
-                        className={cn(
-                            "flex w-full cursor-pointer flex-col gap-[5px] rounded border-0 px-2.5 py-[9px] text-left text-secondary",
-                            on
-                                ? "bg-surface-selected ring-1 ring-edge-strong ring-inset"
-                                : "bg-transparent hover:bg-surface-hover"
-                        )}
-                    >
-                        <span className="text-[13px] font-semibold text-primary">{row.name}</span>
-                        <span className="mt-0.5">
-                            <Meter pct={row.pct} />
-                        </span>
-                        {row.meter ? (
-                            <span className="font-mono text-[10.5px] text-ink-mid">{row.meter}</span>
-                        ) : null}
-                        <span className={cn("flex items-center gap-1.5 text-[11px]", TONE_TEXT[row.tone])}>
-                            <Dot tone={row.tone} />
-                            {row.status}
-                        </span>
-                    </button>
-                );
-            })}
-            {projects.length === 0 ? <div className="px-2 text-[12px] text-muted">No registered projects.</div> : null}
+        <>
+            <RefreshCw size={13} className={cn(p.checking && "animate-spin motion-reduce:animate-none")} />
+            {p.checking ? "Checking…" : label}
+        </>
+    );
+}
+
+function RowActions({ p, row, b, lead }: { p: MemHygieneProject; row: WaitingRow; b: RowButtons; lead?: ReactNode }) {
+    const check = b.primary?.action === "check";
+    return (
+        <div className="flex items-center justify-end gap-2">
+            {lead}
             <span className="flex-1" />
-            <p data-memory-rail-foot className="m-0 px-2 text-[11.5px] leading-[1.5] text-muted">
-                {railFoot(projects)}
-            </p>
-        </aside>
-    );
-}
-
-// ---- center ----
-
-function IndexCardView({ card }: { card: IndexCard }) {
-    const stat = (label: string, value: string, pct: number) => (
-        <div className="flex min-w-0 flex-col gap-1.5">
-            <div className="flex justify-between gap-3 text-[12px]">
-                <span data-memory-stat-label className="flex-none text-ink-mid">
-                    {label}
-                </span>
-                <span data-memory-stat-value className="min-w-0 truncate font-mono text-secondary">
-                    {value}
-                </span>
-            </div>
-            <Meter pct={pct} />
-        </div>
-    );
-    return (
-        <div
-            data-memory-card
-            className="flex min-w-0 flex-col gap-2 rounded border border-edge-mid bg-surface-raised px-3.5 py-3"
-        >
-            <div className="flex justify-between gap-3 text-[12px]">
-                <span className="flex-none font-semibold text-secondary">{card.label}</span>
-                <span title={card.role} className="min-w-0 truncate text-muted">
-                    {card.role}
-                </span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-                {stat("Lines", card.lines, card.linesPct)}
-                {stat("Size", card.kb, card.kbPct)}
-            </div>
-            <div className="text-[12px] text-accent-soft">{card.after}</div>
-        </div>
-    );
-}
-
-// first click arms, second applies: a split group runs to dozens of changes, each undone on its own
-function ApplyAll({ p, group }: { p: MemHygieneProject; group: ChangeGroup }) {
-    const busy = useAtomValue(memoryBusyAtom);
-    const bulk = useAtomValue(memoryBulkAtom);
-    const [armed, setArmed] = useState(false);
-    const ids = applyAllIds(group);
-    const running = bulk?.project === p.project && bulk.group === group.key;
-    if (ids.length === 0 && !running) {
-        return null;
-    }
-    if (running) {
-        return (
-            <span role="status" className="ml-auto text-[11.5px] text-ink-mid">
-                Applying {bulk.done + 1} of {bulk.total}…
-            </span>
-        );
-    }
-    const apply = () => {
-        setArmed(false);
-        fireAndForget(() => applyMemoryGroup(p.project, group.key, ids));
-    };
-    return (
-        <span className="ml-auto flex items-center gap-1.5">
-            {armed ? (
+            {b.undo ? (
                 <button
                     type="button"
-                    onClick={() => setArmed(false)}
-                    className={cn(BTN_SECONDARY, "h-[26px] px-2.5 text-[12px]")}
+                    data-memory-undo="split"
+                    disabled={b.undo.disabled}
+                    onClick={() => runRowButton(row, "undo")}
+                    className={BTN_SECONDARY}
                 >
-                    Cancel
+                    {b.undo.label}
                 </button>
             ) : null}
-            <button
-                type="button"
-                data-memory-apply-all={group.key}
-                disabled={busy}
-                onClick={armed ? apply : () => setArmed(true)}
-                className={cn(armed ? BTN_PRIMARY : BTN_SECONDARY, "h-[26px] px-2.5 text-[12px]")}
-            >
-                {armed ? `Apply ${ids.length} changes` : `Apply all ${ids.length}`}
-            </button>
-        </span>
+            {b.keep ? (
+                <button
+                    type="button"
+                    data-memory-keep
+                    disabled={b.keep.disabled}
+                    onClick={() => runRowButton(row, "keep")}
+                    className={BTN_SECONDARY}
+                >
+                    {b.keep.label}
+                </button>
+            ) : null}
+            {b.primary ? (
+                <button
+                    type="button"
+                    data-memory-apply={check ? undefined : true}
+                    data-memory-check={check || undefined}
+                    disabled={b.primary.disabled}
+                    onClick={() => runRowButton(row, "primary")}
+                    className={cn(BTN_PRIMARY, check && "inline-flex items-center gap-1.5")}
+                >
+                    {check ? <CheckLabel p={p} label={b.primary.label} /> : b.primary.label}
+                </button>
+            ) : null}
+        </div>
     );
 }
 
-function ChangeTable({ p, selected }: { p: MemHygieneProject; selected: string | null }) {
-    const groups = changeGroups(p);
-    // j and k, and the move to the next change after a verdict, can land on a row scrolled out of view
-    useEffect(() => {
-        if (selected != null) {
-            document
-                .querySelector(`[data-memory-change="${CSS.escape(selected)}"]`)
-                ?.scrollIntoView({ block: "nearest" });
-        }
-    }, [selected]);
-    const onKey = (e: KeyboardEvent, id: string) => {
-        if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            openMemoryChange(id);
-        }
-    };
-    // on a narrow tab the detail sheet covers the table's right side; a click on the table outside a row
-    // dismisses it
-    const onTableClick = (e: MouseEvent) => {
-        if (!(e.target as Element).closest("[data-memory-change]")) {
-            globalStore.set(memoryDetailOpenAtom, false);
-        }
-    };
+// ---- a split ----
+
+function SplitItem({ p, c }: { p: MemHygieneProject; c: MemChange }) {
+    const busy = useAtomValue(memoryBusyAtom);
+    const left = c.status === "kept";
     return (
-        <div
-            role="table"
-            aria-label="Proposed changes"
-            onClick={onTableClick}
-            className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-edge-mid bg-surface"
-        >
-            <div
-                role="row"
-                className={cn(
-                    TABLE_GRID,
-                    "min-h-9 flex-none border-b border-edge-mid bg-surface-raised text-[11px] font-bold tracking-[0.04em] text-ink-mid"
-                )}
-            >
-                <span role="columnheader">Change</span>
-                <span role="columnheader">Memory</span>
-                <span role="columnheader">Effect</span>
-                <span role="columnheader">Status</span>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-                {p.changes.length === 0 ? (
-                    <div className="px-3 py-6 text-center text-[12.5px] text-muted">Nothing to review.</div>
+        <div data-memory-item={c.id} className={ITEM_ROW}>
+            <Chip tone={left ? "edit" : "add"}>{splitItemChip(c)}</Chip>
+            <span title={c.title} className={cn(ITEM_TITLE, left ? "text-muted" : "text-ink-hi")}>
+                {c.title}
+            </span>
+            {/* one already brought over stays: leaving it out is an Undo of the split */}
+            {c.status !== "applied" ? (
+                <button
+                    type="button"
+                    data-memory-leaveout
+                    disabled={busy}
+                    onClick={() =>
+                        fireAndForget(() => (left ? bringBackMemory(p.project, c.id) : leaveOutMemory(p.project, c.id)))
+                    }
+                    className={cn(BTN_TEXT, left ? "text-accent" : "text-muted")}
+                >
+                    {left ? "Bring back" : "Leave out"}
+                </button>
+            ) : null}
+        </div>
+    );
+}
+
+function SplitBody({ p, row, st, b }: { p: MemHygieneProject; row: WaitingRow; st: SplitState; b: RowButtons }) {
+    const stopped = st.state === "changed" || st.state === "newer" || st.state === "failed";
+    return (
+        <>
+            <AnimatePresence initial={false}>
+                {stopped ? (
+                    <StopBox
+                        key={st.state}
+                        tone={st.state === "failed" ? "error" : "warn"}
+                        text={st.text}
+                        attrs={{ "data-memory-stop": st.state }}
+                    >
+                        <RowActions p={p} row={row} b={b} />
+                    </StopBox>
                 ) : null}
-                {groups.map((g) => (
-                    <div key={g.key} role="rowgroup" aria-label={g.label || undefined}>
-                        {g.label ? (
-                            <div className="flex items-center gap-2.5 border-b border-edge-faint px-3 pb-1.5 pt-3">
-                                <span className={cn(SECTION_HEAD, "flex-none")}>{g.label}</span>
-                                <span className="min-w-0 truncate text-[11.5px] text-muted">{g.hint}</span>
-                                <ApplyAll p={p} group={g} />
-                            </div>
-                        ) : null}
-                        {g.changes.map((c) => {
-                            const on = c.id === selected;
-                            const status = statusOf(c);
-                            return (
-                                <div
-                                    key={c.id}
-                                    role="row"
-                                    tabIndex={0}
-                                    data-memory-change={c.id}
-                                    aria-selected={on}
-                                    onClick={() => openMemoryChange(c.id)}
-                                    onKeyDown={(e) => onKey(e, c.id)}
-                                    className={cn(
-                                        TABLE_GRID,
-                                        "min-h-[54px] cursor-pointer border-b border-edge-faint outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:ring-inset",
-                                        on
-                                            ? "bg-surface-selected shadow-[inset_2px_0_0_var(--color-accent)]"
-                                            : "hover:bg-surface-hover"
-                                    )}
-                                >
-                                    <span role="cell">
-                                        <KindChip p={p} change={c} />
-                                    </span>
-                                    <span role="cell" className="flex min-w-0 flex-col gap-[3px] pr-3">
-                                        <span
-                                            className={cn(
-                                                "text-[13px] font-medium",
-                                                isPending(c) ? "text-ink-hi" : "text-muted"
-                                            )}
-                                        >
-                                            {c.title}
-                                        </span>
-                                        <PathTail path={fileLabel(c)} />
-                                    </span>
-                                    <span role="cell" className="font-mono text-[11px] text-ink-mid">
-                                        {c.effect}
-                                    </span>
-                                    <motion.span
-                                        key={status.text}
-                                        variants={microFade}
-                                        initial="initial"
-                                        animate="animate"
-                                        role="cell"
-                                        className={cn(
-                                            "flex items-center gap-1.5 text-[11.5px]",
-                                            TONE_TEXT[status.tone]
-                                        )}
-                                    >
-                                        <Dot tone={status.tone} />
-                                        {status.text}
-                                    </motion.span>
-                                </div>
-                            );
-                        })}
+            </AnimatePresence>
+            {st.state === "applying" ? <SplitProgress p={p} text={st.text} /> : null}
+            {st.state === "open" || st.state === "partial" ? <SplitReview p={p} row={row} b={b} /> : null}
+        </>
+    );
+}
+
+// moment 11: the fill grows by what each re-list brought over
+function SplitProgress({ p, text }: { p: MemHygieneProject; text: string }) {
+    const n = splitCounts(p);
+    const pct = n.total === 0 ? 0 : Math.round((100 * n.here) / n.total);
+    return (
+        <div data-memory-progress className="flex flex-col gap-1.5">
+            <span className="text-[12.5px] text-secondary">{text}</span>
+            <span className="block h-1 overflow-hidden rounded-full bg-edge-mid">
+                <span className={cn("block h-1 bg-accent", barFillClass)} style={{ width: `${pct}%` }} />
+            </span>
+        </div>
+    );
+}
+
+function SplitReview({ p, row, b }: { p: MemHygieneProject; row: WaitingRow; b: RowButtons }) {
+    const [all, setAll] = useState(false);
+    const n = splitCounts(p);
+    const showAll = (
+        <button
+            type="button"
+            data-memory-showall
+            onClick={() => setAll(!all)}
+            className={cn(BTN_TEXT, "px-0 text-accent hover:bg-transparent")}
+        >
+            {all ? "Show fewer" : `Show all ${(n.comeOver + n.leftOut).toLocaleString("en-US")}`}
+        </button>
+    );
+    return (
+        <>
+            {all ? (
+                <div className="flex max-h-[420px] flex-col overflow-y-auto border-t border-edge-faint">
+                    {splitList(p).map((g) => (
+                        <div key={g.label} className="flex flex-col">
+                            <span className={cn(SECTION_HEAD, "pb-1 pt-2.5")}>
+                                {g.label} · {g.count.toLocaleString("en-US")}
+                            </span>
+                            {g.changes.map((c) => (
+                                <SplitItem key={c.id} p={p} c={c} />
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div className="flex flex-col">
+                    {spotCheck(p).map((c) => (
+                        <SplitItem key={c.id} p={p} c={c} />
+                    ))}
+                </div>
+            )}
+            <RowActions p={p} row={row} b={b} lead={showAll} />
+        </>
+    );
+}
+
+// ---- a cleanup, a doc move, a failed check ----
+
+function CleanupBody({ p, row, b }: { p: MemHygieneProject; row: WaitingRow; b: RowButtons }) {
+    const projects = useAtomValue(memoryProjectsAtom) ?? [];
+    const busy = useAtomValue(memoryBusyAtom);
+    const d = cleanupDetail(p, projects);
+    return (
+        <>
+            <p className="m-0 text-[12.5px] leading-[1.5] text-secondary">{d.body}</p>
+            <div className="flex flex-col">
+                {d.changes.map((c) => (
+                    <div key={c.id} data-memory-item={c.id} className={ITEM_ROW}>
+                        <Chip tone="remove">Clear</Chip>
+                        <span title={c.title} className={cn(ITEM_TITLE, "text-ink-hi")}>
+                            {c.title}
+                        </span>
+                        <button
+                            type="button"
+                            data-memory-leaveout
+                            disabled={busy}
+                            onClick={() => fireAndForget(() => leaveOutMemory(p.project, c.id))}
+                            className={cn(BTN_TEXT, "text-muted")}
+                        >
+                            Leave out
+                        </button>
                     </div>
                 ))}
             </div>
-        </div>
-    );
-}
-
-// Check now and Check again: the spin and label carry a running check, which the disabled state alone did
-// not. a check with nothing new ends before a list can read it running; the result note covers that one.
-function CheckButton({
-    p,
-    label,
-    className,
-    marked,
-}: {
-    p: MemHygieneProject;
-    label: string;
-    className?: string;
-    marked?: boolean;
-}) {
-    // busy also covers a decision in flight, which disables the button but is not a check
-    const busy = useAtomValue(memoryBusyAtom);
-    return (
-        <button
-            type="button"
-            data-memory-check={marked || undefined}
-            disabled={busy || p.checking}
-            onClick={() => fireAndForget(() => checkMemory(p.project))}
-            className={cn(BTN_SECONDARY, "inline-flex items-center gap-1.5", className)}
-        >
-            <RefreshCw size={13} className={cn(p.checking && "animate-spin motion-reduce:animate-none")} />
-            {p.checking ? "Checking…" : label}
-        </button>
-    );
-}
-
-function ProjectPane({ p, selected }: { p: MemHygieneProject; selected: string | null }) {
-    const result = useAtomValue(memoryCheckResultAtom);
-    const cards = indexCards(p);
-    const split = splitText(p);
-    return (
-        <motion.main
-            key={p.project}
-            variants={viewFade}
-            initial="initial"
-            animate="animate"
-            className="@container flex min-w-0 flex-1 flex-col gap-3.5 px-5 pb-[18px] pt-4"
-        >
-            <div className="flex items-center gap-3.5">
-                <div className="flex min-w-0 flex-col gap-[3px]">
-                    <div className="text-[15px] font-semibold text-primary">{p.project}</div>
-                    <div className="text-[12px] text-muted">{checkLine(p, Date.now())}</div>
-                </div>
-                <span className="flex-1" />
-                <AnimatePresence>
-                    {result?.project === p.project ? (
-                        <motion.span
-                            key="result"
-                            variants={microFade}
-                            initial="initial"
-                            animate="animate"
-                            exit="exit"
-                            role="status"
-                            data-memory-check-result
-                            className={cn("flex items-center gap-1.5 text-[12px]", TONE_TEXT[result.tone])}
-                        >
-                            <Dot tone={result.tone} />
-                            {result.text}
-                        </motion.span>
-                    ) : null}
-                </AnimatePresence>
-                <CheckButton p={p} label="Check now" marked />
-            </div>
-            {split ? <p className="m-0 text-[12.5px] leading-[1.5] text-secondary">{split}</p> : null}
-            <section
-                aria-label="Index size"
-                className={cn("grid grid-cols-1 gap-3", cards.length > 1 && "@min-[560px]:grid-cols-2")}
-            >
-                {cards.map((c) => (
-                    <IndexCardView key={c.label} card={c} />
-                ))}
-            </section>
-            <ChangeTable p={p} selected={selected} />
-        </motion.main>
-    );
-}
-
-// ---- detail rail ----
-
-function ConflictAlert({ p, change }: { p: MemHygieneProject; change: MemChange }) {
-    const what = change.conflictfile ? baseName(change.conflictfile) : "A file this change touches";
-    return (
-        <div
-            role="alert"
-            data-memory-conflict
-            className="flex flex-col gap-2.5 rounded border border-warning/30 bg-warning/10 px-3.5 py-2.5"
-        >
-            <span className="flex gap-2 text-[12.5px] leading-[1.5] text-secondary">
-                <TriangleAlert size={16} strokeWidth={2} className="mt-0.5 flex-none text-warning" />
-                <span>
-                    <span className="font-semibold text-warning-soft">Changed on disk since the check.</span> {what}{" "}
-                    changed after Arc checked it at {fmtClock(p.checkedat)}. Check it again before applying.
-                </span>
-            </span>
-            <span>
-                <CheckButton p={p} label="Check again" className="h-[30px] text-[12.5px]" />
-            </span>
-        </div>
+            <RowActions p={p} row={row} b={b} />
+        </>
     );
 }
 
@@ -503,7 +366,7 @@ function DiffBlock({ p, diff }: { p: MemHygieneProject; diff: MemDiff }) {
     return (
         <div data-memory-diff className="overflow-hidden rounded border border-edge-mid bg-surface-code">
             <div className="flex h-7 items-center gap-2.5 border-b border-edge-faint px-2.5 font-mono text-[11px] text-muted">
-                <span data-memory-diff-label title={diff.path} className="min-w-0 truncate">
+                <span title={diff.path} className="min-w-0 truncate">
                     {diffLabel(p, diff.path)}
                 </span>
                 <span className="flex-1" />
@@ -520,12 +383,7 @@ function DiffBlock({ p, diff }: { p: MemHygieneProject; diff: MemDiff }) {
                             )}
                         >
                             <span className="w-2 flex-none">{ln.sign}</span>
-                            <span
-                                data-memory-diff-text
-                                className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]"
-                            >
-                                {ln.text}
-                            </span>
+                            <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{ln.text}</span>
                         </div>
                     ))}
                 </div>
@@ -534,167 +392,384 @@ function DiffBlock({ p, diff }: { p: MemHygieneProject; diff: MemDiff }) {
     );
 }
 
-function Verdict({ p, change }: { p: MemHygieneProject; change: MemChange }) {
-    const busy = useAtomValue(memoryBusyAtom);
-    const decide = (verdict: "apply" | "keep" | "undo" | "reopen") =>
-        fireAndForget(() => decideMemory(p.project, change.id, verdict));
-    if (!isPending(change)) {
-        const status = statusOf(change);
-        const applied = change.status === "applied";
-        const expired = undoExpired(change, Date.now());
-        return (
-            <div className="flex items-center gap-3">
-                <div
-                    role="status"
-                    className={cn(
-                        "flex min-w-0 flex-1 items-start gap-2 text-[12.5px] leading-[1.5]",
-                        TONE_TEXT[status.tone]
-                    )}
-                >
-                    <Dot tone={status.tone} className="mt-1.5 h-[7px] w-[7px]" />
-                    {closedText(p, change, Date.now())}
-                </div>
-                <button
-                    type="button"
-                    data-memory-undo
-                    disabled={busy || expired}
-                    onClick={() => decide(applied ? "undo" : "reopen")}
-                    className={BTN_SECONDARY}
-                >
-                    {applied ? "Undo" : "Review again"}
-                </button>
-            </div>
-        );
+function DocBody({ p, row, b }: { p: MemHygieneProject; row: WaitingRow; b: RowButtons }) {
+    const c = p.changes.find((x) => x.id === row.changeId);
+    if (c == null) {
+        return null;
     }
     return (
-        <div className="flex flex-col items-end gap-2">
-            {/* left, clear of the avatar over the rail's bottom-right corner */}
-            <span aria-hidden className="flex items-center gap-1.5 self-start text-[11px] text-muted">
-                <KeyCap chord="a" variant="inline" />
-                apply
-                <KeyCap chord="x" variant="inline" />
-                keep
-                <KeyCap chord="j" variant="inline" />
-                <KeyCap chord="k" variant="inline" />
-                move
-            </span>
-            <div className="flex gap-2">
+        <>
+            {c.evidence?.map((e, i) => (
+                <div
+                    key={i}
+                    data-memory-evidence
+                    className="flex items-start gap-2 text-[12px] leading-[1.5] text-secondary"
+                >
+                    <Dot tone={toTone(e.tone)} className="mt-1.5" />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                        <span>{e.text}</span>
+                        {e.code ? (
+                            <span className="font-mono text-[11px] text-ink-hi [overflow-wrap:anywhere]">{e.code}</span>
+                        ) : null}
+                    </span>
+                </div>
+            ))}
+            {(c.diffs ?? []).map((d, i) => (
+                <DiffBlock key={i} p={p} diff={d} />
+            ))}
+            {c.note ? <p className="m-0 text-[11.5px] leading-[1.5] text-muted">{c.note}</p> : null}
+            <RowActions p={p} row={row} b={b} />
+        </>
+    );
+}
+
+function FailedBody({ p, row, b }: { p: MemHygieneProject; row: WaitingRow; b: RowButtons }) {
+    return (
+        <div className="flex items-center gap-3">
+            <span className="flex-1 text-[12.5px] leading-[1.5] text-secondary">{p.lasterror}</span>
+            <RowActions p={p} row={row} b={b} />
+        </div>
+    );
+}
+
+// ---- rows and lines ----
+
+// a waiting row and the did line its apply leaves are one element changing sections (moment 17), unless both
+// show at once (a cleanup batch from an earlier Clear while more removals wait), where one id would name two
+function rowMorph(row: WaitingRow): string {
+    return row.kind === "doc" ? `doc:${row.changeId}` : `${row.kind}:${row.project}`;
+}
+
+function lineMorph(line: DidLine): string {
+    return line.batch.kind === "doc" ? `doc:${line.batch.changeids?.[0] ?? ""}` : `${line.batch.kind}:${line.project}`;
+}
+
+function morphId(key: string, other: Set<string>): string | undefined {
+    return other.has(key) ? undefined : `memory-morph:${key}`;
+}
+
+function frame(open: boolean, focused: boolean): string {
+    return cn(
+        "rounded-[9px]",
+        open ? "bg-surface-selected ring-1 ring-accent/70 ring-inset" : focused && "ring-1 ring-edge-strong ring-inset"
+    );
+}
+
+function WaitingRowView({
+    row,
+    p,
+    open,
+    focused,
+    layoutId,
+    ref,
+}: {
+    row: WaitingRow;
+    p: MemHygieneProject;
+    open: boolean;
+    focused: boolean;
+    layoutId: string | undefined;
+    // popLayout measures the leaving row through this ref
+    ref?: Ref<HTMLDivElement>;
+}) {
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
+    const applying = useAtomValue(memoryApplyingAtom).includes(row.key);
+    const result = useAtomValue(memoryRowResultsAtom)[p.project] ?? null;
+    const busy = useAtomValue(memoryBusyAtom);
+    const projects = useAtomValue(memoryProjectsAtom) ?? [];
+    const b = rowButtons(p, row, { applying, busy, result });
+    const st = row.kind === "split" ? splitState(p, applying, result) : null;
+    const sub = open && row.kind === "cleanup" ? cleanupDetail(p, projects).opened : row.sub;
+    const toggle = () => toggleMemoryOpen(row.key);
+    const checkHere = (e: MouseEvent) => {
+        e.stopPropagation();
+        fireAndForget(() => checkMemory(p.project));
+    };
+    return (
+        <motion.div
+            ref={ref}
+            data-memory-row={row.key}
+            data-open={open || undefined}
+            layout="position"
+            layoutId={layoutId}
+            transition={reduce ? INSTANT : morphTransition}
+            variants={cardVariants}
+            initial={false}
+            animate="animate"
+            exit="exit"
+            className={frame(open, focused)}
+        >
+            <div
+                onClick={toggle}
+                className={cn(
+                    "flex min-h-[50px] cursor-pointer items-center gap-3 px-3",
+                    !open && "border-b border-edge-faint"
+                )}
+            >
+                <Chip tone={ROW_TONE[row.kind]}>{row.chip}</Chip>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="text-[13px] font-semibold text-primary">{row.title}</span>
+                    <span className="text-[12px] text-muted">{sub}</span>
+                </span>
+                {st?.tag ? (
+                    <span
+                        className={cn(
+                            "flex flex-none items-center gap-1.5 text-[11.5px]",
+                            TONE_TEXT[st.state === "applying" ? "none" : "warn"]
+                        )}
+                    >
+                        <Dot tone={st.state === "applying" ? "none" : "warn"} />
+                        {st.tag}
+                    </span>
+                ) : null}
+                {open ? null : row.kind === "failed" ? (
+                    <button
+                        type="button"
+                        data-memory-check
+                        disabled={busy || p.checking}
+                        onClick={checkHere}
+                        className={cn(BTN_SMALL, "inline-flex items-center gap-1.5")}
+                    >
+                        <CheckLabel p={p} label="Check now" />
+                    </button>
+                ) : (
+                    <button type="button" className={BTN_SMALL}>
+                        Review
+                    </button>
+                )}
+            </div>
+            <PaneReveal open={open}>
+                <div className={OPENED_BODY}>
+                    {row.kind === "split" && st != null ? <SplitBody p={p} row={row} st={st} b={b} /> : null}
+                    {row.kind === "cleanup" ? <CleanupBody p={p} row={row} b={b} /> : null}
+                    {row.kind === "doc" ? <DocBody p={p} row={row} b={b} /> : null}
+                    {row.kind === "failed" ? <FailedBody p={p} row={row} b={b} /> : null}
+                </div>
+            </PaneReveal>
+        </motion.div>
+    );
+}
+
+function DigestBody({ line, p }: { line: DidLine; p: MemHygieneProject }) {
+    const busy = useAtomValue(memoryBusyAtom);
+    const d = digest(line);
+    return (
+        <div className={cn(OPENED_BODY, "pl-[116px]")}>
+            <div className="flex flex-col">
+                {d.changes.map((c) => (
+                    <div key={c.id} data-memory-item={c.id} className={ITEM_ROW}>
+                        <Chip tone={kindTone(c.kind)}>{kindLabel(p, c)}</Chip>
+                        <span title={c.title} className={cn(ITEM_TITLE, "text-ink-hi")}>
+                            {c.title}
+                        </span>
+                        {d.undoEach ? (
+                            <button
+                                type="button"
+                                data-memory-undo="change"
+                                disabled={busy}
+                                onClick={() => fireAndForget(() => undoMemoryBatch(line.project, line.batch.id, c.id))}
+                                className={cn(BTN_TEXT, "text-ink-mid")}
+                            >
+                                Undo
+                            </button>
+                        ) : null}
+                    </div>
+                ))}
+            </div>
+            <div className="flex items-center gap-2">
+                <span className="text-[12px] text-muted">{d.index}</span>
+                <span className="flex-1" />
                 <button
                     type="button"
-                    data-memory-keep
+                    data-memory-undo="all"
                     disabled={busy}
-                    onClick={() => decide("keep")}
+                    onClick={() => undoMemoryLine(line.key)}
                     className={BTN_SECONDARY}
                 >
-                    Keep as is
-                </button>
-                <button
-                    type="button"
-                    data-memory-apply
-                    disabled={busy || !canApply(p, change)}
-                    onClick={() => decide("apply")}
-                    className={BTN_PRIMARY}
-                >
-                    {change.applylabel || kindLabel(p, change)}
+                    {d.undoAll}
                 </button>
             </div>
         </div>
     );
 }
 
-function ChangeDetail({ p, change, overlay }: { p: MemHygieneProject; change: MemChange; overlay: boolean }) {
-    // up by the title with the conflict alert, not above the buttons: the avatar's bottom-right corner
-    // sits over the rail's foot
-    const gate = switchGate(p, change);
+function Refusal({ line }: { line: DidLine }) {
+    const busy = useAtomValue(memoryBusyAtom);
+    const block = line.batch.undoblock;
     return (
-        <motion.aside
-            key={change.id}
-            variants={viewFade}
-            initial="initial"
-            animate="animate"
-            aria-label="Change detail"
-            data-memory-detail={overlay ? "overlay" : "column"}
-            className={cn(
-                "flex flex-col gap-3.5 overflow-y-auto border-l border-border bg-surface p-4",
-                overlay
-                    ? "absolute inset-y-0 right-0 z-[4] w-[min(400px,92cqw)] shadow-sheet-side"
-                    : "w-[400px] flex-none"
-            )}
-        >
-            <div className="flex flex-col gap-1.5">
-                <span className="flex items-start justify-between gap-2">
-                    <KindChip p={p} change={change} />
-                    {overlay ? (
-                        <button
-                            type="button"
-                            aria-label="Close the change detail"
-                            data-memory-detail-close
-                            onClick={() => globalStore.set(memoryDetailOpenAtom, false)}
-                            className="-mr-1 -mt-1 flex h-7 w-7 cursor-pointer items-center justify-center rounded border-0 bg-transparent text-muted hover:bg-surface-hover hover:text-primary"
-                        >
-                            <X size={15} />
-                        </button>
-                    ) : null}
-                </span>
-                <div className="text-[14px] font-semibold text-primary">{change.title}</div>
-                <div className="break-all font-mono text-[10.5px] text-muted">{fileLabel(change)}</div>
-            </div>
-            {change.status === "conflict" ? <ConflictAlert p={p} change={change} /> : null}
-            {isPending(change) && gate.blocked ? (
-                <p role="status" data-memory-gate className="m-0 text-[12px] leading-[1.5] text-warning-soft">
-                    {gate.text}
-                </p>
-            ) : null}
-            {change.evidence?.length ? (
-                <div className="flex flex-col gap-2">
-                    <div className={SECTION_HEAD}>Why</div>
-                    {change.evidence.map((e, i) => (
-                        <div
-                            key={i}
-                            data-memory-evidence
-                            className="flex items-start gap-2 text-[12px] leading-[1.5] text-secondary"
-                        >
-                            <Dot tone={toTone(e.tone)} className="mt-1.5" />
-                            <span className="flex min-w-0 flex-col gap-0.5">
-                                <span data-memory-evidence-text>{e.text}</span>
-                                {e.code ? (
-                                    <span
-                                        data-memory-evidence-code
-                                        className="font-mono text-[11px] text-ink-hi [overflow-wrap:anywhere]"
-                                    >
-                                        {e.code}
-                                    </span>
-                                ) : null}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            ) : null}
-            {change.diffs?.length || change.note ? (
-                <div className="flex flex-col gap-2">
-                    <div className={SECTION_HEAD}>Change</div>
-                    {(change.diffs ?? []).map((d, i) => (
-                        <DiffBlock key={i} p={p} diff={d} />
-                    ))}
-                    {change.note ? <p className="m-0 text-[11.5px] leading-[1.5] text-muted">{change.note}</p> : null}
-                </div>
-            ) : null}
-            <span className="flex-1" />
-            <Verdict p={p} change={change} />
-        </motion.aside>
+        <div className={cn(OPENED_BODY, "pl-[116px]")}>
+            <StopBox tone="error" text={line.refusal} attrs={{ "data-memory-undo-refused": "" }}>
+                {block ? (
+                    <button
+                        type="button"
+                        data-memory-undo="cleanup"
+                        disabled={busy}
+                        onClick={() => {
+                            globalStore.set(memoryRefusedAtom, null);
+                            fireAndForget(() => undoMemoryBatch(block.project, block.batchid));
+                        }}
+                        className={BTN_SECONDARY}
+                    >
+                        Undo the cleanup
+                    </button>
+                ) : null}
+            </StopBox>
+        </div>
     );
 }
 
-// ---- tab ----
+function DidLineView({
+    line,
+    p,
+    open,
+    focused,
+    refused,
+    layoutId,
+    ref,
+}: {
+    line: DidLine;
+    p: MemHygieneProject;
+    open: boolean;
+    focused: boolean;
+    refused: boolean;
+    layoutId: string | undefined;
+    ref?: Ref<HTMLDivElement>;
+}) {
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
+    const busy = useAtomValue(memoryBusyAtom);
+    return (
+        <motion.div
+            ref={ref}
+            data-memory-line={line.key}
+            data-open={open || undefined}
+            layout="position"
+            layoutId={layoutId}
+            transition={reduce ? INSTANT : morphTransition}
+            variants={cardVariants}
+            initial={false}
+            animate="animate"
+            exit="exit"
+            className={frame(open, focused)}
+        >
+            <div className={cn("flex min-h-[50px] items-center gap-3 px-3", !open && "border-b border-edge-faint")}>
+                <span className="flex w-[92px] flex-none items-center gap-1.5 text-[11.5px] text-ink-mid">
+                    <Dot tone="ok" />
+                    Applied
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="text-[13px] font-semibold text-primary">{line.title}</span>
+                    <span className="text-[12px] text-muted">{line.text}</span>
+                </span>
+                <button
+                    type="button"
+                    data-memory-see
+                    onClick={() => toggleMemoryOpen(line.key)}
+                    className={cn(BTN_TEXT, "text-ink-mid")}
+                >
+                    {open ? `Hide ${line.see}` : `See ${line.see}`}
+                </button>
+                {open ? null : (
+                    <button
+                        type="button"
+                        data-memory-undo="line"
+                        disabled={busy}
+                        onClick={() => undoMemoryLine(line.key)}
+                        className={BTN_SMALL}
+                    >
+                        Undo
+                    </button>
+                )}
+            </div>
+            <AnimatePresence initial={false}>
+                {refused && line.refusal !== "" ? <Refusal key="refusal" line={line} /> : null}
+            </AnimatePresence>
+            <PaneReveal open={open}>
+                <DigestBody line={line} p={p} />
+            </PaneReveal>
+        </motion.div>
+    );
+}
+
+// ---- the page ----
+
+function MemoryPage({ projects }: { projects: MemHygieneProject[] }) {
+    const open = useAtomValue(memoryOpenAtom);
+    const focus = useAtomValue(memoryFocusAtom);
+    const refused = useAtomValue(memoryRefusedAtom);
+    const rows = waitingRows(projects);
+    const lines = didLines(projects, Date.now());
+    const byName = new Map(projects.map((p) => [p.project, p]));
+    const rowMorphs = new Set(rows.map(rowMorph));
+    const lineMorphs = new Set(lines.map(lineMorph));
+    // j and k can land on a row or line scrolled out of view
+    useEffect(() => {
+        if (focus != null) {
+            document
+                .querySelector(`[data-memory-row="${CSS.escape(focus)}"], [data-memory-line="${CSS.escape(focus)}"]`)
+                ?.scrollIntoView({ block: "nearest" });
+        }
+    }, [focus]);
+    return (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto box-border flex w-full max-w-[880px] flex-col gap-[22px] px-5 py-7">
+                <div className="flex flex-col gap-1">
+                    <h2 className="m-0 text-[18px] font-semibold text-primary">Memory</h2>
+                    <span className="text-[12.5px] leading-[1.5] text-muted">{INTRO}</span>
+                </div>
+                {rows.length === 0 ? (
+                    <div data-memory-empty className="px-3 text-[13px] text-secondary">
+                        {emptyText(projects)}
+                    </div>
+                ) : (
+                    <section data-memory-waiting aria-label="Waiting for you" className="flex flex-col gap-1.5">
+                        <span className={cn(SECTION_HEAD, "px-3 pb-1")}>
+                            Waiting for you · <TickNumber value={rows.length} />
+                        </span>
+                        <div className="relative flex flex-col">
+                            {/* popLayout lifts a leaving row out of the flow, so it travels to its did line rather
+                                than below a gap that then closes in one frame (moment 2 reflow) */}
+                            <AnimatePresence initial={false} mode="popLayout">
+                                {rows.map((r) => (
+                                    <WaitingRowView
+                                        key={r.key}
+                                        row={r}
+                                        p={byName.get(r.project)!}
+                                        open={open === r.key}
+                                        focused={focus === r.key}
+                                        layoutId={morphId(rowMorph(r), lineMorphs)}
+                                    />
+                                ))}
+                            </AnimatePresence>
+                        </div>
+                    </section>
+                )}
+                {lines.length > 0 ? (
+                    <section data-memory-did aria-label="Arc did this week" className="flex flex-col gap-1.5">
+                        <span className={cn(SECTION_HEAD, "px-3 pb-1")}>Arc did this week</span>
+                        <div className="relative flex flex-col">
+                            <AnimatePresence initial={false} mode="popLayout">
+                                {lines.map((l) => (
+                                    <DidLineView
+                                        key={l.key}
+                                        line={l}
+                                        p={byName.get(l.project)!}
+                                        open={open === l.key}
+                                        focused={focus === l.key}
+                                        refused={refused === l.key}
+                                        layoutId={morphId(lineMorph(l), rowMorphs)}
+                                    />
+                                ))}
+                            </AnimatePresence>
+                        </div>
+                    </section>
+                ) : null}
+            </div>
+        </div>
+    );
+}
 
 export function MemoryTab() {
     const projects = useAtomValue(memoryProjectsAtom);
-    const selectedName = useAtomValue(memorySelectedProjectAtom);
-    const selectedChange = useAtomValue(memorySelectedChangeAtom);
     const error = useAtomValue(memoryErrorAtom);
-    const width = useAtomValue(memoryTabWidthAtom);
-    const sheetOpen = useAtomValue(memoryDetailOpenAtom);
-    const rootRef = useRef<HTMLDivElement>(null);
     // re-read on every visit, and on every state write while the tab is open. a failure from an earlier
     // visit must not leave its banner over fresh data.
     useEffect(() => {
@@ -702,31 +777,11 @@ export function MemoryTab() {
         fireAndForget(loadMemory);
         return subscribeMemory();
     }, []);
-    useEffect(() => {
-        const el = rootRef.current;
-        if (el == null) {
-            return;
-        }
-        const measure = () => globalStore.set(memoryTabWidthAtom, el.clientWidth);
-        const ro = new ResizeObserver(measure);
-        ro.observe(el);
-        measure();
-        return () => ro.disconnect();
-    }, []);
-    const layout = memoryDetailLayout(width);
-    // a sheet left open by clicks while wide must not cover the table the moment the tab narrows
-    useEffect(() => {
-        if (layout === "overlay") {
-            globalStore.set(memoryDetailOpenAtom, false);
-        }
-    }, [layout]);
     const bindings = useMemo(() => buildMemoryBindings(), []);
     useKeybindings(bindings);
-    const { project: p, change } = resolveSelection(projects, selectedName, selectedChange);
     const listFailed = projects == null && error != null;
-    const showDetail = p != null && change != null && (layout === "column" || sheetOpen);
     return (
-        <div ref={rootRef} className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col">
             {error && !listFailed ? (
                 <div
                     role="alert"
@@ -736,36 +791,30 @@ export function MemoryTab() {
                     {error}
                 </div>
             ) : null}
-            <div className="@container relative flex min-h-0 flex-1">
-                {listFailed ? (
-                    <div
-                        role="alert"
-                        data-memory-list-error
-                        className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center text-[13px] text-error-soft"
+            {listFailed ? (
+                <div
+                    role="alert"
+                    data-memory-error
+                    className="flex flex-1 flex-col items-center justify-center gap-3 px-5 text-center text-[13px] text-error-soft"
+                >
+                    <span>{error}</span>
+                    <button
+                        type="button"
+                        data-memory-retry
+                        onClick={() => {
+                            globalStore.set(memoryErrorAtom, null);
+                            fireAndForget(loadMemory);
+                        }}
+                        className={BTN_SECONDARY}
                     >
-                        <span>{error}</span>
-                        <button
-                            type="button"
-                            data-memory-retry
-                            onClick={() => {
-                                globalStore.set(memoryErrorAtom, null);
-                                fireAndForget(loadMemory);
-                            }}
-                            className={BTN_SECONDARY}
-                        >
-                            Retry
-                        </button>
-                    </div>
-                ) : projects == null ? (
-                    <div className="flex flex-1 items-center justify-center text-[13px] text-muted">Reading…</div>
-                ) : (
-                    <>
-                        <ProjectRail projects={projects} selected={p?.project ?? ""} />
-                        {p != null ? <ProjectPane p={p} selected={change?.id ?? null} /> : null}
-                        {showDetail ? <ChangeDetail p={p} change={change} overlay={layout === "overlay"} /> : null}
-                    </>
-                )}
-            </div>
+                        Retry
+                    </button>
+                </div>
+            ) : projects == null ? (
+                <div className="flex flex-1 items-center justify-center text-[13px] text-muted">Reading…</div>
+            ) : (
+                <MemoryPage projects={projects} />
+            )}
         </div>
     );
 }
