@@ -300,7 +300,14 @@ func checkRemoveShared(ctx context.Context, project string, prev *State, registr
 	if err != nil {
 		return nil, err
 	}
-	changes := RemoveShared(project, shared, sorted, stillLoading, switched)
+	leftOut, err := rowsLeftOut(registry)
+	if err != nil {
+		return nil, err
+	}
+	// a memory any project left out of its split was kept by the user, so it is never proposed
+	changes := slices.DeleteFunc(RemoveShared(project, shared, sorted, stillLoading, switched), func(c wshrpc.MemChange) bool {
+		return rowsAnyIn(checkMemoryPaths(c), leftOut)
+	})
 	for i := range changes {
 		// it edits the shared index, which this project no longer loads
 		changes[i].IndexDelta = wshrpc.MemIndexDelta{}
@@ -329,6 +336,7 @@ func checkStore(project string, startedAt time.Time, out checkOutcome) error {
 	_, err := Update(project, func(st *State) error {
 		r := out.r
 		st.Changes = checkMerge(st.Changes, out.changes, startedAt.UnixMilli(), now)
+		pruneBatches(st)
 		st.Checking = false
 		st.LastError = ""
 		st.CheckedAt = now.UnixMilli()
