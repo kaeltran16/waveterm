@@ -1,19 +1,21 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+    MEMORY_DID_WINDOW_MS,
+    MEMORY_PROJECTS,
     buildMemoryFixture,
     indexStats,
-    MEMORY_LONG_TOKEN,
-    MEMORY_PROJECTS,
-    MEMORY_TIGHT_EVIDENCE,
-    MEMORY_UNREADABLE_STATE,
+    memoryBackupDir,
+    memoryBackupsUnder,
     memoryChangeId,
     memoryFileName,
     memoryStatePath,
     settleMemoryStates,
     sha256File,
+    writeMemoryBackups,
     writeMemoryStates,
 } from "./memory-fixtures.mjs";
 
@@ -27,6 +29,8 @@ afterEach(() => {
     for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
 });
 
+const NOW = 1_800_000_000_000;
+
 const under = (root, path) => {
     const rel = relative(root, path);
     return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
@@ -34,7 +38,7 @@ const under = (root, path) => {
 
 // every absolute path a state names: the project, its folders, and each change's files and op targets
 function statePaths(state) {
-    const out = [state.path, state.folder, state.ownfolder].filter(Boolean);
+    const out = [state.path, state.folder, state.ownfolder, state.formershared].filter(Boolean);
     for (const c of state.changes) {
         out.push(...c.files.map((f) => f.path));
         const op = c.op;
@@ -44,6 +48,10 @@ function statePaths(state) {
     }
     return out;
 }
+
+const pending = (c) => c.status !== "applied" && c.status !== "kept";
+const allChanges = (fx) => Object.values(fx.states).flatMap((s) => s.changes);
+const mdNames = (folder) => readdirSync(folder).filter((n) => n.endsWith(".md") && n !== "MEMORY.md");
 
 describe("memoryFileName mirrors pkg/memhygiene FileName", () => {
     it("matches the Go test's fixed example", () => {
@@ -64,104 +72,131 @@ describe("memoryFileName mirrors pkg/memhygiene FileName", () => {
 describe("buildMemoryFixture", () => {
     it("writes only under its temp root and names no path outside it", () => {
         const root = tempRoot();
-        const fx = buildMemoryFixture(root);
+        const fx = buildMemoryFixture(root, NOW);
         expect(fx.written.length).toBeGreaterThan(0);
         for (const p of fx.written) expect(under(root, p), p).toBe(true);
         for (const { path } of fx.projects) expect(under(root, path), path).toBe(true);
         for (const state of Object.values(fx.states)) {
             for (const p of statePaths(state)) expect(under(root, p), `${state.project}: ${p}`).toBe(true);
         }
+        for (const b of fx.backups) {
+            for (const f of b.manifest.files) expect(under(root, f.path), f.path).toBe(true);
+        }
         expect(JSON.stringify(fx.states)).not.toContain(join(homedir(), ".claude"));
     }, 30_000);
 
-    it("hashes every file a change names as it is on disk, and ids the change the way the backend does", () => {
-        const fx = buildMemoryFixture(tempRoot());
-        const changes = Object.values(fx.states).flatMap((s) => s.changes);
-        expect(changes.length).toBe(15);
-        for (const c of changes) {
+    it("hashes every undecided change's files as they are on disk, and ids each change the way the backend does", () => {
+        const fx = buildMemoryFixture(tempRoot(), NOW);
+        const open = allChanges(fx).filter((c) => c.status === "open");
+        expect(open.length).toBeGreaterThan(60);
+        for (const c of open) {
             for (const f of c.files) {
                 expect(f.sha256, f.path).toBe(sha256File(f.path));
                 // "" = must not exist yet
                 expect(existsSync(f.path), f.path).toBe(f.sha256 !== "");
             }
-            expect(c.id).toBe(memoryChangeId(c.kind, c.files));
         }
+        for (const c of allChanges(fx)) expect(c.id).toBe(memoryChangeId(c.kind, c.files));
         // a changed hash is a different change
-        const [first] = changes;
+        const [first] = open;
         expect(memoryChangeId(first.kind, [{ ...first.files[0], sha256: "0".repeat(64) }])).not.toBe(first.id);
     }, 30_000);
 
+    it("gives each sharing state a sort entry with its sha256 for every memory in the shared folder", () => {
+        const fx = buildMemoryFixture(tempRoot(), NOW);
+        const sharing = Object.values(fx.states).filter((s) => s.sharedwith.length > 0);
+        expect(sharing.map((s) => s.project).sort()).toEqual([MEMORY_PROJECTS.splitA, MEMORY_PROJECTS.splitB]);
+        const names = mdNames(fx.paths.shared);
+        expect(names.length).toBe(fx.states[MEMORY_PROJECTS.splitA].memories);
+        for (const s of sharing) {
+            expect(Object.keys(s.sort).sort(), s.project).toEqual([...names].sort());
+            for (const n of names) expect(s.sort[n].sha256, `${s.project}: ${n}`).toBe(sha256File(join(fx.paths.shared, n)));
+        }
+    }, 30_000);
+
+    it("rebuilt in the same root, drops what an earlier apply left and gives the same changes", () => {
+        const root = tempRoot();
+        const first = buildMemoryFixture(root, NOW);
+        const settings = first.splitA.settings.op.settingspath;
+        mkdirSync(join(settings, ".."), { recursive: true });
+        writeFileSync(settings, "{}");
+        writeFileSync(join(first.paths.ownA, "copied.md"), "left by an apply");
+        writeFileSync(join(first.paths.shared, "written-later.md"), "unsorted");
+        const again = buildMemoryFixture(root, NOW);
+        expect(existsSync(settings)).toBe(false);
+        expect(existsSync(join(first.paths.ownA, "copied.md"))).toBe(false);
+        expect(existsSync(join(first.paths.shared, "written-later.md"))).toBe(false);
+        expect(allChanges(again).map((c) => c.id)).toEqual(allChanges(first).map((c) => c.id));
+    }, 30_000);
+
+    it("backs up each routine change the way Apply does, so Undo finds no conflict and restores the original", () => {
+        const fx = buildMemoryFixture(tempRoot(), NOW);
+        const own = fx.states[MEMORY_PROJECTS.own];
+        const batch = own.batches.find((b) => b.id === fx.batches.ownRoutine);
+        const byApplyId = new Map(fx.backups.map((b) => [b.id, b]));
+        for (const id of batch.changeids) {
+            const c = own.changes.find((x) => x.id === id);
+            expect(c.status).toBe("applied");
+            const backup = byApplyId.get(c.applyid);
+            expect(backup, c.title).toBeDefined();
+            for (const [i, f] of backup.manifest.files.entries()) {
+                expect(f.post, f.path).toBe(sha256File(f.path));
+                const saved = backup.files.find((x) => x.rel === f.backup);
+                expect(f.backup).toBe(join("files", String(i)));
+                expect(sha256File(f.path) === f.pre).toBe(false);
+                expect(createHash("sha256").update(saved.data).digest("hex")).toBe(f.pre);
+            }
+        }
+    }, 30_000);
+
     it("measures each index the way the backend does", () => {
-        const fx = buildMemoryFixture(tempRoot());
+        const fx = buildMemoryFixture(tempRoot(), NOW);
         const own = fx.states[MEMORY_PROJECTS.own];
         expect(own.index).toEqual(indexStats(fx.paths.ownIndex));
-        expect(own.index).toEqual({ exists: true, lines: 7, bytes: readFileSync(fx.paths.ownIndex).length });
+        expect(own.index.exists).toBe(true);
+        expect(fx.states[MEMORY_PROJECTS.splitA].index).toEqual(indexStats(join(fx.paths.shared, "MEMORY.md")));
         expect(fx.states[MEMORY_PROJECTS.splitA].ownindex).toEqual({ exists: false, lines: 0, bytes: 0 });
     }, 30_000);
 
-    it("gives the own project five changes and split-a the split's three groups", () => {
-        const fx = buildMemoryFixture(tempRoot());
-        expect(fx.states[MEMORY_PROJECTS.own].changes.map((c) => c.kind)).toEqual([
-            "trim",
-            "delete",
-            "merge",
-            "move-to-doc",
-            "add-to-index",
-        ]);
-        expect(fx.states[MEMORY_PROJECTS.splitA].changes.map((c) => `${c.group}:${c.kind}`)).toEqual([
-            "shared:move-here",
-            "shared:move-here",
-            "shared:copy-here",
-            "own:delete",
-            "switch:settings",
-        ]);
-        expect(fx.states[MEMORY_PROJECTS.fresh]).toBeUndefined();
-        expect(fx.states[MEMORY_PROJECTS.checking].checking).toBe(true);
-    }, 30_000);
-
-    it("gives the setup review steps what they read (D5)", () => {
-        const fx = buildMemoryFixture(tempRoot(), 1_000_000_000_000);
-        const changes = Object.values(fx.states).flatMap((s) => s.changes);
-        // F20: an evidence text runs straight into its code quote
-        const tight = changes.flatMap((c) => c.evidence).find((e) => e.code !== "" && !/\s$/.test(e.text));
-        expect(tight).toEqual(MEMORY_TIGHT_EVIDENCE);
-        // F21: a move-here with the shared folder's and the own folder's MEMORY.md
-        const move = fx.splitChanges.moveBuild;
-        expect(move.diffs.map((d) => d.path)).toEqual([join(fx.paths.shared, "MEMORY.md"), join(fx.paths.ownA, "MEMORY.md")]);
-        // F23: a diff line with an unbroken 120-character token
-        expect(MEMORY_LONG_TOKEN).toMatch(/^\S{120}$/);
-        const lines = changes.flatMap((c) => c.diffs.flatMap((d) => d.lines.map((l) => l.text)));
-        expect(lines.some((t) => t.includes(MEMORY_LONG_TOKEN))).toBe(true);
-        expect(readFileSync(fx.paths.harvested, "utf8")).toContain(MEMORY_LONG_TOKEN);
-        // F10: an applied change whose backup is past
-        expect(fx.expiredChange).toMatchObject({ status: "applied" });
-        expect(fx.expiredChange.backupuntil).toBeGreaterThan(0);
-        expect(fx.expiredChange.backupuntil).toBeLessThan(1_000_000_000_000);
-        expect(fx.states[MEMORY_PROJECTS.expired].changes).toEqual([fx.expiredChange]);
-        // F8: a kept-sharing project with a pending shared change
-        const kept = fx.states[MEMORY_PROJECTS.kept];
-        expect(kept.sharedwith.length).toBeGreaterThan(0);
-        expect(kept.changes.map((c) => `${c.group}:${c.kind}:${c.status}`)).toEqual([
-            "shared:move-here:open",
-            "switch:settings:kept",
-        ]);
-        // F12: a registered project whose state file is not JSON
-        expect(fx.projects.map((p) => p.name)).toContain(MEMORY_PROJECTS.unreadable);
-        expect(fx.states[MEMORY_PROJECTS.unreadable]).toBeUndefined();
-        expect(() => JSON.parse(fx.brokenStates[MEMORY_PROJECTS.unreadable])).toThrow();
-    }, 30_000);
-
-    it("has a trim whose passage occurs once in a crlf file", () => {
-        const fx = buildMemoryFixture(tempRoot());
-        const text = readFileSync(fx.paths.trim, "utf8");
-        expect(text).toContain("\r\n");
-        expect(text.split(fx.trim.old).length).toBe(2);
+    it("gives every board its state", () => {
+        const fx = buildMemoryFixture(tempRoot(), NOW);
+        const s = fx.states;
+        // three projects on one shared folder: two splits waiting, one switched
+        for (const name of [MEMORY_PROJECTS.splitA, MEMORY_PROJECTS.splitB]) {
+            expect(s[name].folder).toBe(fx.paths.shared);
+            expect(s[name].changes.find((c) => c.kind === "settings").status).toBe("open");
+        }
+        expect(s[MEMORY_PROJECTS.splitC].formershared).toBe(fx.paths.shared);
+        expect(s[MEMORY_PROJECTS.splitC].changes.find((c) => c.kind === "settings").status).toBe("applied");
+        // the big split: enough changes for its Apply's progress to be caught, moves before copies
+        const shared = s[MEMORY_PROJECTS.splitA].changes.filter((c) => c.group === "shared");
+        expect(shared.length).toBeGreaterThanOrEqual(40);
+        expect(shared.findIndex((c) => c.kind === "copy-here")).toBeGreaterThan(fx.splitA.failAt);
+        // the former-shared project: open removals, two open doc moves, a failed check
+        const former = s[MEMORY_PROJECTS.former];
+        expect(former.formershared).toBe(fx.paths.shared);
+        expect(former.changes.filter((c) => c.kind === "remove-shared" && c.status === "open").length).toBeGreaterThan(0);
+        expect(former.changes.filter((c) => c.kind === "move-to-doc" && c.status === "open").length).toBe(2);
+        expect(former.lasterror).toBe("Check interrupted by a restart");
+        // its applied cleanup removed a memory split-c's switched split copied: that split's Undo is refused
+        const cleanup = former.batches.find((b) => b.id === fx.batches.formerCleanup);
+        const removed = former.changes.filter((c) => cleanup.changeids.includes(c.id)).map((c) => join(c.op.folder, c.op.memories[0]));
+        const split = s[MEMORY_PROJECTS.splitC].batches.find((b) => b.id === fx.batches.splitC);
+        const copied = s[MEMORY_PROJECTS.splitC].changes
+            .filter((c) => split.changeids.includes(c.id) && c.kind === "copy-here" && c.status === "applied")
+            .map((c) => join(c.op.folder, c.op.memories[0]));
+        expect(removed.some((p) => copied.includes(p))).toBe(true);
+        expect(cleanup.at).toBeGreaterThan(split.at);
+        // routine batches inside and outside the week, with skips
+        const routine = Object.values(s).flatMap((st) => (st.batches ?? []).filter((b) => b.kind === "routine"));
+        expect(routine.some((b) => b.at >= NOW - MEMORY_DID_WINDOW_MS && b.skipped.length > 0)).toBe(true);
+        expect(routine.some((b) => b.at < NOW - MEMORY_DID_WINDOW_MS)).toBe(true);
     }, 30_000);
 });
 
 describe("writeMemoryStates", () => {
     it("writes each state under <data dir>/memhygiene and nothing else", () => {
-        const fx = buildMemoryFixture(tempRoot());
+        const fx = buildMemoryFixture(tempRoot(), NOW);
         const dataDir = tempRoot("memory-fixtures-data-");
         const paths = writeMemoryStates(dataDir, fx.states);
         expect(readdirSync(dataDir)).toEqual(["memhygiene"]);
@@ -172,36 +207,36 @@ describe("writeMemoryStates", () => {
             fx.states[MEMORY_PROJECTS.own]
         );
     }, 30_000);
+});
 
-    it("writes a broken state as is", () => {
-        const fx = buildMemoryFixture(tempRoot());
+describe("memory backups", () => {
+    it("writes each backup's manifest and files, and finds only the backups of files under a root", () => {
+        const root = tempRoot();
+        const fx = buildMemoryFixture(root, NOW);
         const dataDir = tempRoot("memory-fixtures-data-");
-        writeMemoryStates(dataDir, fx.brokenStates);
-        expect(readFileSync(memoryStatePath(dataDir, MEMORY_PROJECTS.unreadable), "utf8")).toBe(MEMORY_UNREADABLE_STATE);
+        writeMemoryBackups(dataDir, fx.backups);
+        const [b] = fx.backups;
+        expect(JSON.parse(readFileSync(join(memoryBackupDir(dataDir, b.id), "manifest.json"), "utf8"))).toEqual(b.manifest);
+        expect(readFileSync(join(memoryBackupDir(dataDir, b.id), b.files[0].rel), "utf8")).toBe(b.files[0].data);
+        // a backup of the user's own files is not the fixture's
+        writeMemoryBackups(dataDir, [
+            { id: "theirs", manifest: { ...b.manifest, applyid: "theirs", files: [{ ...b.manifest.files[0], path: join(tempRoot(), "x.md") }] }, files: [] },
+        ]);
+        expect(memoryBackupsUnder(dataDir, root).sort()).toEqual(fx.backups.map((x) => x.id).sort());
+        expect(memoryBackupsUnder(tempRoot("memory-fixtures-empty-"), root)).toEqual([]);
     }, 30_000);
 });
 
 describe("settleMemoryStates", () => {
-    it("leaves no change to review and keeps decided ones as they were", () => {
-        const fx = buildMemoryFixture(tempRoot());
+    it("leaves nothing waiting: every undecided change kept, no failed check, decided ones as they were", () => {
+        const fx = buildMemoryFixture(tempRoot(), NOW);
         const settled = settleMemoryStates(fx.states, 1234);
         for (const s of Object.values(settled)) {
-            for (const c of s.changes) expect(["applied", "kept"]).toContain(c.status);
-        }
-        const failed = settled[MEMORY_PROJECTS.failed].changes[0];
-        expect(failed).toEqual(fx.states[MEMORY_PROJECTS.failed].changes[0]);
-        expect(settled[MEMORY_PROJECTS.own].changes[0].decidedat).toBe(1234);
-    }, 30_000);
-
-    it("leaves every project checked with no failure, the unchecked ones included", () => {
-        const fx = buildMemoryFixture(tempRoot());
-        const settled = settleMemoryStates({ ...fx.states, ...fx.uncheckedStates }, 1234);
-        expect(Object.keys(settled).sort()).toEqual(Object.values(MEMORY_PROJECTS).sort());
-        for (const s of Object.values(settled)) {
-            expect(s.checkedat, s.project).toBeGreaterThan(0);
             expect(s.lasterror, s.project).toBe("");
-            expect(s.checking, s.project).toBe(false);
+            for (const c of s.changes) expect(pending(c), `${s.project}: ${c.title}`).toBe(false);
         }
-        expect(settled[MEMORY_PROJECTS.own].checkedat).toBe(fx.states[MEMORY_PROJECTS.own].checkedat);
+        const applied = fx.states[MEMORY_PROJECTS.own].changes.find((c) => c.status === "applied");
+        expect(settled[MEMORY_PROJECTS.own].changes.find((c) => c.id === applied.id)).toEqual(applied);
+        expect(settled[MEMORY_PROJECTS.splitA].batches).toEqual(fx.states[MEMORY_PROJECTS.splitA].batches);
     }, 30_000);
 });
