@@ -222,19 +222,29 @@ export function openBrainstormBoard(
     openCanvasWindow(agentId, { board, scope });
 }
 
+// the open question's window scope: what openQuestionBoard opens, and what the Canvas tab's row tags read. null when
+// no scope applies (no question, the agent writing over it outside the judge's wait, or none of its boards on the canvas)
+export function openQuestionScope(s: BrainstormState | null): WindowScope | null {
+    const f = shownBrainstormFile(s);
+    if (s == null || f == null) {
+        return null;
+    }
+    return questionScope(
+        f,
+        s.boards.map((b) => b.name),
+        judgeWait(f, s.sent != null)
+    );
+}
+
 // a chip on the open question: the window scoped to the question, on the chip's board. Unscoped when no scope applies
-// (the agent writing over the question outside the judge's wait) or the board has no tab in it (not on the canvas)
+// or the board has no tab in it (not on the canvas)
 export function openQuestionBoard(agentId: string, board: string, now: number = Date.now()): void {
     const s = getBrainstorm(agentId);
     const f = shownBrainstormFile(s);
     if (s == null || f?.canvas == null) {
         return;
     }
-    const scope = questionScope(
-        f,
-        s.boards.map((b) => b.name),
-        judgeWait(f, s.sent != null)
-    );
+    const scope = openQuestionScope(s);
     const tabbed = scope?.tabs.some((t) => t.board === board) === true;
     openBrainstormBoard(agentId, f.canvas, board, now, tabbed ? scope! : undefined);
 }

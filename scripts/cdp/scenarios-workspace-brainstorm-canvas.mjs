@@ -1,8 +1,9 @@
 // Scenario `workspace-brainstorm-canvas`: the workspace pane's Brainstorm and Canvas tabs (Task 8 of
 // docs/superpowers/plans/2026-11-17-workspace-pane.md; the Brainstorm and Canvas boards). One fixture claude agent in
 // the Rendered view (scenarios-rendered-brainstorm.mjs's kit arranges it), first with a brainstorm whose file the steps
-// rewrite, then with only a canvas. In Rendered the cards' open links open a tab beside the transcript; in Terminal the
-// tree's chips still take over the center. The viewport and the agent's tabs are put back in teardown.
+// rewrite, then with only a canvas, and last with a brainstorm asking on that canvas. In Rendered the cards' open links
+// open a tab beside the transcript; in Terminal the tree's chips still take over the center. The viewport and the
+// agent's tabs are put back in teardown.
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -371,6 +372,100 @@ const base = scenario(NAME, { file: WORKING }, async (h, ctx, step) => {
         return [
             terminal && chip && loaded && onBoard && focus.page && focus.board && stepped && left && rendered,
             { terminal, chip, loaded, onBoard, focus, before, after, left, rendered },
+        ];
+    });
+
+    // a brainstorm on the canvas the tab lists asks question 4, its first answer naming the first board
+    const [named, unnamed] = CANVAS_BOARDS;
+    const tagLabel = `1 · ${BS_Q4.options[0].label}`;
+    const rowEl = (board) => `${CANVAS_IN_TAB}?.querySelector('[data-canvas-tab-preview="${board}"]')`;
+
+    await step("with question 4 open, the Canvas tab's named row carries the tag line with 4 and the answer's label, an unnamed row none (QuestionCanvasTabTagged board)", async () => {
+        const [first, ...rest] = BS_Q4.options;
+        writeFile(ctx, {
+            ...WORKING,
+            working: null,
+            canvas: `${ctx.topic}-canvas`,
+            question: { ...BS_Q4, options: [{ ...first, boards: [named] }, ...rest] },
+        });
+        await store(
+            h,
+            ctx,
+            `window.__cockpitRosterFixture?.patch(id, { brainstormFile: ${JSON.stringify(ctx.file)} });
+            S.attachBrainstorm(id, { topic: ${JSON.stringify(ctx.topic)}, cwd: ${JSON.stringify(ctx.cwd)} }, Date.now());
+            return true;`
+        );
+        // a pane in use keeps its tab, so the Canvas tab still shows; the click only guards a pane that lost it
+        await h.ev(`(() => { ${TAB("canvas")}?.querySelector('[role="tab"]')?.click(); return true; })()`);
+        const tagged = await polishWaitFor(h, `${rowEl(named)}?.querySelector("[data-canvas-tab-answer]") != null`, RBS_KIT.BS_POLL_WAIT_MS);
+        await polishNap(SETTLE_MS);
+        const rows = await h.ev(`[...(${CANVAS_IN_TAB}?.querySelectorAll("[data-canvas-tab-preview]") ?? [])].map((el) => {
+            const tag = el.querySelector("[data-canvas-tab-answer]");
+            return { board: el.getAttribute("data-canvas-tab-preview"), n: tag?.firstElementChild?.textContent ?? null, label: tag?.lastElementChild?.textContent ?? null };
+        })`);
+        const p = await readPane(h);
+        await h.shot(SHOT(8, "canvas-tab-tagged"));
+        const byBoard = Object.fromEntries(rows.map((r) => [r.board, r]));
+        return [
+            tagged &&
+                p.active === "canvas" &&
+                byBoard[named]?.n === "4" &&
+                byBoard[named]?.label === tagLabel &&
+                byBoard[unnamed] != null &&
+                byBoard[unnamed].n == null &&
+                p.sideways === 0,
+            { tagged, rows, ...p },
+        ];
+    });
+
+    await step("a tagged row opens the canvas window on its board with the question's answer tabs, band and Pick; an untagged row opens it with no band (QuestionWindow board)", async () => {
+        const readWindow = () =>
+            h.ev(`(() => {
+                const win = ${C_WIN};
+                return {
+                    board: win?.querySelector("[data-canvas-board]")?.getAttribute("data-canvas-frame") ?? null,
+                    tabs: [...(win?.querySelectorAll('[role="tab"]') ?? [])].map((t) => t.textContent.trim()),
+                    source: win?.querySelector("[data-canvas-scope-source]")?.textContent.trim() ?? null,
+                    band: win?.querySelector("[data-brainstorm-band]") != null,
+                    pick: win?.querySelector("[data-brainstorm-band-pick]") != null,
+                };
+            })()`);
+        const close = async () => {
+            await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
+            return polishWaitFor(h, `${C_WIN} == null`, WAIT_MS);
+        };
+        const open = async (board) => {
+            const clicked = await h.ev(`(() => { const r = ${rowEl(board)}; r?.click(); return r != null; })()`);
+            const shown = await polishWaitFor(h, `${C_WIN}?.querySelector('[data-canvas-board][data-canvas-frame="${board}"]') != null`, WAIT_MS);
+            return clicked && shown;
+        };
+
+        const openedTagged = await open(named);
+        const banded = await polishWaitFor(h, `${C_WIN}?.querySelector("[data-brainstorm-band-pick]") != null`, WAIT_MS);
+        await polishNap(SETTLE_MS);
+        const scoped = await readWindow();
+        await h.shot(SHOT(9, "question-window"));
+        const closedTagged = await close();
+
+        const openedPlain = await open(unnamed);
+        await polishNap(SETTLE_MS);
+        const plain = await readWindow();
+        const closedPlain = await close();
+        return [
+            openedTagged &&
+                banded &&
+                scoped.board === named &&
+                scoped.tabs.includes(tagLabel) &&
+                (scoped.source ?? "").startsWith("4") &&
+                scoped.band &&
+                scoped.pick &&
+                closedTagged &&
+                openedPlain &&
+                plain.board === unnamed &&
+                plain.source == null &&
+                !plain.band &&
+                closedPlain,
+            { openedTagged, banded, scoped, closedTagged, openedPlain, plain, closedPlain },
         ];
     });
 });

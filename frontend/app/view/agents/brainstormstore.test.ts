@@ -23,6 +23,7 @@ import {
     openBrainstormDesign,
     openBrainstormHistory,
     openQuestionBoard,
+    openQuestionScope,
     setBrainstormMode,
     setReviewCursor,
     toggleReviewRow,
@@ -346,6 +347,17 @@ describe("openBrainstormAt", () => {
             updateBrainstorm("a1", (s) => ({ ...s, sent: { kind: "answer", at: 1, modifiedMs: null } }));
             openQuestionBoard("a1", RAIL);
             expect(scope()).toBeNull();
+        });
+
+        it("openQuestionScope is the approaches' scope during the judge's wait, and none once a line is sent", () => {
+            expect(openQuestionScope(null)).toBeNull();
+            arrangeOn(WEIGHING);
+            expect(openQuestionScope(getBrainstorm("a1")!)?.tabs.map((t) => t.label)).toEqual([
+                "1 · Strip first",
+                "2 · Rail first",
+            ]);
+            updateBrainstorm("a1", (s) => ({ ...s, sent: { kind: "answer", at: 1, modifiedMs: null } }));
+            expect(openQuestionScope(getBrainstorm("a1")!)).toBeNull();
         });
 
         it("opens unscoped on a board with no tab in the question's scope", () => {
