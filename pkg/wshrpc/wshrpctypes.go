@@ -280,6 +280,9 @@ type SessionActivity struct {
 	StageRunId string `json:"stagerunid,omitempty"`
 	// empty = the session resumes; else why it cannot (its project folder is gone, say)
 	ResumeBlocker string `json:"resumeblocker,omitempty"`
+	// its first prompt is one an orchestrator run starts an agent with, linked here or not; the server's lists
+	// filter on it, so it stays off the wire
+	RunAgent bool `json:"-"`
 }
 
 type PathCommandData struct {

@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -254,6 +255,24 @@ func TestEngineRunPromptsPutTheContractOverPrinciples(t *testing.T) {
 	}
 	if strings.Contains(BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude"}), ContractWinsLine) {
 		t.Fatal("with no principles there is nothing for the contract to win over")
+	}
+}
+
+// the session list drops a run's agents by their prompt when no store it reads holds the run
+func TestLeadPromptsReadAsRunPrompts(t *testing.T) {
+	ps := waveobj.PrincipleList{{ID: "wt", Text: "Use worktree"}}
+	for name, p := range map[string]string{
+		"plan lead":       PlanLeadPrompt(ps, "r1", "", "/repo/plan.md", "", false, "wake"),
+		"asking lead":     BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth\nwith tests", Principles: ps, Runtime: "claude"}),
+		"autonomous lead": BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude", Autonomous: true}),
+		"design lead":     BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude", Spec: "/repo/spec.md"}),
+	} {
+		if !agentsessions.IsRunPrompt(p) {
+			t.Errorf("%s prompt does not read as a run's:\n%s", name, p)
+		}
+	}
+	if agentsessions.IsRunPrompt(BuildQuickPrompt("ship auth", ps, "claude")) {
+		t.Error("a quick run's prompt is the user's own work, not a run agent's")
 	}
 }
 

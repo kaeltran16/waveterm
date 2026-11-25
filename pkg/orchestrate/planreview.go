@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wcore"
@@ -335,7 +336,7 @@ func planReviewSession(ctx context.Context, g *waveobj.TaskGroup, tree, lens str
 // writePlanReviewOpening is the opening and doc lines every plan reviewer's brief starts with. It reads the docs
 // in tree, the landing tree, where a branch-landed dag committed them at submit.
 func writePlanReviewOpening(b *strings.Builder, g *waveobj.TaskGroup, tree string) {
-	fmt.Fprintf(b, "You are the plan reviewer for run %s. Before any worker starts, judge whether the plan can be run as written.\n", g.RunID)
+	fmt.Fprintf(b, agentsessions.RunPlanReviewerOpening+"%s. Before any worker starts, judge whether the plan can be run as written.\n", g.RunID)
 	switch {
 	case g.SpecPath != "":
 		fmt.Fprintf(b, "Read the spec at %s, ", DocPath(g, tree, g.SpecPath))
@@ -435,7 +436,7 @@ const (
 // lead's reasoning stays out. A reviewer otherwise spends its time reading these same files.
 func planLightPrompt(g *waveobj.TaskGroup, tree string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are the plan reviewer for run %s. Before any worker starts, judge whether the plan can be run as written. It is a small plan: you are its only reviewer, and there is no second round. Below is what the engine packed for you; you can still read the repository in your working directory for anything the pack leaves out.\n\n", g.RunID)
+	fmt.Fprintf(&b, agentsessions.RunPlanReviewerOpening+"%s. Before any worker starts, judge whether the plan can be run as written. It is a small plan: you are its only reviewer, and there is no second round. Below is what the engine packed for you; you can still read the repository in your working directory for anything the pack leaves out.\n\n", g.RunID)
 	b.WriteString("The plan's commands:\n")
 	for _, c := range []struct{ name, value string }{{"Setup", g.Setup}, {"Verify", g.Verify}, {"Check", g.Check}, {"Final", g.FinalCmd}} {
 		if c.value == "" {

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -167,7 +168,7 @@ func recordEndReviewVerdictLocked(ctx context.Context, g *waveobj.TaskGroup, cal
 func endReviewPrompt(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) string {
 	f := g.Final
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are the end reviewer for run %s. Every task has landed, none of them reviewed on its own; review the run's whole change in this tree, %s, before the run is done.\n", g.RunID, f.Tree)
+	fmt.Fprintf(&b, agentsessions.RunEndReviewerOpening+"%s. Every task has landed, none of them reviewed on its own; review the run's whole change in this tree, %s, before the run is done.\n", g.RunID, f.Tree)
 	if g.SpecPath != "" {
 		fmt.Fprintf(&b, "The spec is at %s.\n", DocPath(g, f.Tree, g.SpecPath))
 	}

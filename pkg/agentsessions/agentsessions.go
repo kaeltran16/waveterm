@@ -137,12 +137,75 @@ func preambleBody(t string) string {
 	}
 	for _, line := range lines[1:] {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, dispatchBulletPrefix) || strings.HasPrefix(line, dispatchConflictLead) {
+		if isPreambleLine(line) {
 			continue
 		}
 		return line
 	}
 	return ""
+}
+
+// isPreambleLine reports whether a trimmed line after the principles' lead line still belongs to the preamble.
+func isPreambleLine(line string) bool {
+	return line == "" || strings.HasPrefix(line, dispatchBulletPrefix) || strings.HasPrefix(line, dispatchConflictLead)
+}
+
+// The openings of the prompts an orchestrator run starts its agents with; the builders in jarvis and orchestrate
+// write them. A session that opens with one is a run's agent even when no store this app reads holds its run (a
+// dev app's run seen from the packaged app, say), so it can never be linked to the run and is not the user's own.
+const (
+	RunLeadOpening         = "You are the lead for run "
+	RunWorkerOpening       = "You are the worker for task "
+	RunReviewerOpening     = "You are the reviewer for task "
+	RunPlanReviewerOpening = "You are the plan reviewer for run "
+	RunEndReviewerOpening  = "You are the end reviewer for run "
+	RunVerifierOpening     = "You are the final verifier for run "
+	// a lead launched on a goal opens with its Goal line, which may run to several lines, and then one of these
+	RunAutonomousLeadOpening = "Work this goal on your own: "
+	RunAskingLeadOpening     = "Work this goal; the human is at this terminal."
+	RunDesignLeadOpening     = "The design for this goal is approved:"
+)
+
+var (
+	runAgentOpenings = []string{RunLeadOpening, RunWorkerOpening, RunReviewerOpening, RunPlanReviewerOpening, RunEndReviewerOpening, RunVerifierOpening}
+	runGoalLeadLines = []string{RunAutonomousLeadOpening, RunAskingLeadOpening, RunDesignLeadOpening}
+)
+
+// IsRunPrompt reports whether a session's first prompt is one an orchestrator run starts an agent with: past the
+// principles preamble, a run-agent opening, or a Goal line with a goal lead's opening on a later line.
+func IsRunPrompt(raw string) bool {
+	lines := strings.Split(strings.TrimSpace(raw), "\n")
+	if strings.HasPrefix(lines[0], dispatchPreambleLead) {
+		i := 1
+		for i < len(lines) && isPreambleLine(strings.TrimSpace(lines[i])) {
+			i++
+		}
+		lines = lines[i:]
+	}
+	if len(lines) == 0 {
+		return false
+	}
+	if hasAnyPrefix(lines[0], runAgentOpenings) {
+		return true
+	}
+	if !strings.HasPrefix(lines[0], dispatchGoalPrefix) {
+		return false
+	}
+	for _, line := range lines[1:] {
+		if hasAnyPrefix(line, runGoalLeadLines) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyPrefix(s string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // SessionInfo is one resumable past agent session.
@@ -165,6 +228,7 @@ type SessionInfo struct {
 	StartedTs      int64  // first event ts, UnixMilli
 	DurationMs     int64  // last event ts - first event ts
 	Events         []SessionEvent
+	RunAgent       bool // its first prompt is one an orchestrator run starts an agent with (IsRunPrompt)
 }
 
 // claudeLine is the part of a claude transcript line that the session, its events, its prompts
@@ -242,6 +306,7 @@ func claudeSessionFrom(id string, recs []claudeLine) *SessionInfo {
 				}
 			} else {
 				s.Task = trimTo(title, maxTaskLen)
+				s.RunAgent = IsRunPrompt(raw)
 				hasTask = true
 			}
 		}
@@ -1173,6 +1238,12 @@ func extractPiSession(file *pisession.File, path string) *SessionInfo {
 		return nil // no human task: nothing worth resuming
 	}
 	s.Task = trimTo(task, maxTaskLen)
+	for _, e := range branch {
+		if txt := pisession.UserText(e.Message); txt != "" {
+			s.RunAgent = IsRunPrompt(txt)
+			break
+		}
+	}
 	for _, e := range file.Entries {
 		if e.Usage == nil {
 			continue

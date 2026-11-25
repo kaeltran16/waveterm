@@ -38,7 +38,7 @@ func searchResults(sessions []agentsessions.IndexedSession, q agentsessions.Quer
 	out := make([]wshrpc.SessionSearchResult, 0, len(matched))
 	for i, r := range matched {
 		r.Session = activity[i]
-		if !runAgents && isRunAgent(r.Session.Role) {
+		if !runAgents && (isRunAgent(r.Session.Role) || isStrayRunAgent(r.Session)) {
 			continue
 		}
 		out = append(out, r)

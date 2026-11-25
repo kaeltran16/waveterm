@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -50,7 +51,7 @@ const unverifiedGuidance = "`--unverified` leaves the whole result unverified, s
 func verifierPrompt(ctx context.Context, g *waveobj.TaskGroup, owner *waveobj.Run) string {
 	f := g.Final
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are the final verifier for run %s. Every task has landed; judge the combined result in this tree, %s, before the run is done.\n", g.RunID, f.Tree)
+	fmt.Fprintf(&b, agentsessions.RunVerifierOpening+"%s. Every task has landed; judge the combined result in this tree, %s, before the run is done.\n", g.RunID, f.Tree)
 	if g.SpecPath != "" {
 		fmt.Fprintf(&b, "The spec is at %s.\n", DocPath(g, f.Tree, g.SpecPath))
 	}

@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
@@ -612,7 +613,7 @@ const reviewTestsAgainstCriteria = "The task states acceptance criteria and the 
 // merge. The reviewer works in the worker's tree, so that is where it reads the docs.
 func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.Run, told []string, findings []wshrpc.GoalpostFinding) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are the reviewer for task %s", task.ID)
+	b.WriteString(agentsessions.RunReviewerOpening + task.ID)
 	if g.PlanPath != "" {
 		fmt.Fprintf(&b, " of the plan at %s", DocPath(g, worker.ProjectPath, g.PlanPath))
 	}

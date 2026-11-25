@@ -70,6 +70,12 @@ func isRunAgent(role string) bool {
 	return role != "" && role != sessionRole_Lead
 }
 
+// isStrayRunAgent reports whether a session is a run's agent by its prompt yet links to no run: its run is in
+// another app's store (a dev app's run seen from the packaged app) or gone, so no run entry can hold it.
+func isStrayRunAgent(s wshrpc.SessionActivity) bool {
+	return s.RunAgent && s.RunId == ""
+}
+
 // runsBySession maps each requested id to the run launched under it, as its current session, an earlier lead
 // session or a consult session.
 func runsBySession(ctx context.Context, ids []string) (map[string]*waveobj.Run, error) {

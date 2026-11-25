@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/harness"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/memgate"
@@ -1221,13 +1222,13 @@ func workerContract(g *waveobj.TaskGroup, task *waveobj.TaskNode, runtime, tree 
 	}
 	var b strings.Builder
 	if g.PlanPath != "" {
-		fmt.Fprintf(&b, "You are the worker for task %s of the plan at %s", strings.TrimPrefix(task.ID, "t-"), DocPath(g, tree, g.PlanPath))
+		fmt.Fprintf(&b, agentsessions.RunWorkerOpening+"%s of the plan at %s", strings.TrimPrefix(task.ID, "t-"), DocPath(g, tree, g.PlanPath))
 		if g.SpecPath != "" {
 			fmt.Fprintf(&b, " (spec: %s)", DocPath(g, tree, g.SpecPath))
 		}
 		b.WriteString(".\n")
 	} else {
-		fmt.Fprintf(&b, "You are the worker for task %s of this run's dag.\n", task.ID)
+		fmt.Fprintf(&b, agentsessions.RunWorkerOpening+"%s of this run's dag.\n", task.ID)
 	}
 	fmt.Fprintf(&b, "The plan is approved: don't re-plan or pause for design approval. If a consequential decision isn't pinned, or the plan and the code disagree, ask once with %s and concrete options, then wait; the lead or the human answers.\n", jarvis.AskTool(runtime))
 	b.WriteString("A reviewer checks your commit against this task and the spec before it lands, and the lead reads your report.\n")
