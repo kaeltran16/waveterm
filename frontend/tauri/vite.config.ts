@@ -63,6 +63,26 @@ function monacoWithoutTsMode(): Plugin {
     };
 }
 
+// the CDP scenarios find the app's own module urls in the resource timings (APP_MOD, scripts/cdp/scenarios-shared.mjs).
+// The default buffer keeps 250 entries and a dev page loads ~3,500 modules, so a module past it resolved to its bare
+// url: after HMR the app holds it as ?t=, and the scenario got a second instance. The buffer grows before main.tsx
+// loads; dev only, so the bundle's HTML carries no inline script for its CSP to refuse
+const DEV_RESOURCE_TIMINGS = 100_000;
+
+function devResourceTimings(): Plugin {
+    return {
+        name: "arc-dev-resource-timings",
+        apply: "serve",
+        transformIndexHtml: () => [
+            {
+                tag: "script",
+                children: `performance.setResourceTimingBufferSize(${DEV_RESOURCE_TIMINGS});`,
+                injectTo: "head-prepend",
+            },
+        ],
+    };
+}
+
 // Mirror tsconfig.json "paths" exactly (deterministic prefix aliases; @/store -> app/store, etc.).
 // A flat "@" -> frontend alias would mis-resolve @/store, @/view, @/element, @/shadcn.
 export default defineConfig({
@@ -74,7 +94,7 @@ export default defineConfig({
     // every dev app on the machine: one re-optimizing mid-boot swaps the deps under another and loads two reacts.
     // scripts/cdp/final-verify.mjs gives its dev app a cache of its own; unset keeps vite's default
     cacheDir: process.env.ARC_VITE_CACHE_DIR || undefined,
-    plugins: [react(), tailwindcss(), excalidrawFonts(), monacoWithoutTsMode()],
+    plugins: [react(), tailwindcss(), excalidrawFonts(), monacoWithoutTsMode(), devResourceTimings()],
     resolve: {
         alias: {
             "@/app": resolve(fe, "app"),
