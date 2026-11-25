@@ -83,6 +83,8 @@ func removeItem(ctx context.Context, fresh wshrpc.StorageItem) error {
 		return clearErr(orchestrate.RemoveRunWorktreeExclusive(ctx, fresh.ProjectPath, key, ""))
 	case wshrpc.StorageKind_LegacyGroup, wshrpc.StorageKind_FinalOut:
 		return removeMembers(fresh.Paths)
+	case wshrpc.StorageKind_RunTranscripts:
+		return removeRunTranscripts(ctx, fresh)
 	}
 	return fmt.Errorf("%s: clearing a %s row is not supported", fresh.Id, fresh.Kind)
 }

@@ -206,7 +206,21 @@ func scan(ctx context.Context) ([]wshrpc.StorageItem, []wshrpc.StorageScanError,
 	if err != nil {
 		return nil, nil, err
 	}
+	home, err := userHomeDir()
+	if err != nil {
+		return nil, nil, fmt.Errorf("finding the home folder: %w", err)
+	}
+	runTranscripts, held, err := s.runTranscriptItems(home, rootDirs)
+	if err != nil {
+		return nil, nil, err
+	}
+	for i := range kept {
+		if kept[i].Kind == wshrpc.StorageKind_Transcripts {
+			kept[i].Size -= held[kept[i].Harness]
+		}
+	}
 	items = append(items, kept...)
+	items = append(items, runTranscripts...)
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
@@ -613,6 +627,11 @@ func probe(ctx context.Context, item wshrpc.StorageItem) (wshrpc.StorageItem, er
 			return fresh, ErrGone
 		}
 		fresh = legacyGroup(proj, item.Path, members)
+	case wshrpc.StorageKind_RunTranscripts:
+		var err error
+		if fresh, err = s.probeRunTranscripts(item); err != nil {
+			return fresh, err
+		}
 	default:
 		paths := item.Paths
 		if !groupKinds[item.Kind] {
