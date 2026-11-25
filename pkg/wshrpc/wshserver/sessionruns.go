@@ -77,9 +77,13 @@ func isStrayRunAgent(s wshrpc.SessionActivity) bool {
 }
 
 // runsBySession maps each requested id to the run launched under it, as its current session, an earlier lead
-// session or a consult session.
+// session or a consult session. It matches in memory against every run: All time names every session ever kept,
+// more than one SQL statement may bind, and the shared read re-decodes only the runs written since the last one.
 func runsBySession(ctx context.Context, ids []string) (map[string]*waveobj.Run, error) {
-	runs, err := wstore.GetRunsBySessionIds(ctx, ids)
+	if len(ids) == 0 {
+		return map[string]*waveobj.Run{}, nil
+	}
+	runs, err := wstore.GetAllRunsShared(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("loading runs by session: %w", err)
 	}

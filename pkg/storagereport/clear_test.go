@@ -6,14 +6,18 @@ package storagereport
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/orchestrate"
+	"github.com/wavetermdev/waveterm/pkg/usagestats"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -437,6 +441,91 @@ func TestClearGroups(t *testing.T) {
 	}
 	if !exists(legacy) || !exists(env.temp) {
 		t.Fatal("a group's parent folder was removed")
+	}
+}
+
+// leftOverRunTranscripts stores a run done 15 days ago with a lead folder holding one billed claude turn of a
+// fresh session, scans, and returns its run-transcripts row and the session.
+func leftOverRunTranscripts(t *testing.T, env scanEnv) (wshrpc.StorageItem, string) {
+	t.Helper()
+	run := storeRun(t, &waveobj.Run{Status: "done", CompletedTs: time.Now().Add(-15 * day).UnixMilli()})
+	session := uuid.NewString()
+	line := fmt.Sprintf(`{"type":"assistant","timestamp":%q,"cwd":"/tree","requestId":"req_%s","message":{"id":"msg_%s","model":"claude-opus-4-8","usage":{"input_tokens":10,"output_tokens":7}}}`+"\n",
+		time.Now().Add(-16*day).UTC().Format(time.RFC3339), session, session)
+	writeFile(t, filepath.Join(claudeRunFolder(env, run.OID[:8]), session+".jsonl"), line)
+	writeFile(t, filepath.Join(claudeRunFolder(env, run.OID[:8]+"-t-1"), uuid.NewString()+".jsonl"), "{}\n")
+	mkdirs(t, env.root)
+	rows := runTranscriptRows(scanItems(t))
+	if len(rows) != 1 {
+		t.Fatalf("run-transcripts rows %+v, want one", rows)
+	}
+	return rows[0], session
+}
+
+func keptOutput(t *testing.T, session string) int {
+	t.Helper()
+	buckets, _, err := usagestats.Kept(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := 0
+	for _, b := range buckets {
+		if b.Session == session {
+			out += b.Output
+		}
+	}
+	return out
+}
+
+func TestClearRunTranscriptsKeepsTheirUsageFirst(t *testing.T) {
+	env := useScanEnv(t)
+	row, session := leftOverRunTranscripts(t, env)
+	freed, err := clearItem(context.Background(), row, false, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if freed != row.Size {
+		t.Fatalf("freed %d, want the row's %d", freed, row.Size)
+	}
+	for _, p := range row.Paths {
+		if exists(p) {
+			t.Fatalf("%s is still on disk", p)
+		}
+	}
+	if out := keptOutput(t, session); out != 7 {
+		t.Fatalf("kept %d output tokens of the cleared session, want 7", out)
+	}
+}
+
+func TestClearRunTranscriptsDeletesNothingWhenKeepingFails(t *testing.T) {
+	env := useScanEnv(t)
+	row, _ := leftOverRunTranscripts(t, env)
+	prev := keepTranscriptDirs
+	keepTranscriptDirs = func(context.Context, []string) error { return errors.New("database is locked") }
+	t.Cleanup(func() { keepTranscriptDirs = prev })
+	_, err := clearItem(context.Background(), row, false, "")
+	var ce *ClearError
+	if err == nil || (errors.As(err, &ce) && ce.Skipped) || !strings.Contains(err.Error(), "database is locked") {
+		t.Fatalf("clear = %v, want a failure naming the keep's error", err)
+	}
+	for _, p := range row.Paths {
+		if !exists(p) {
+			t.Fatalf("%s was deleted though its usage was not kept", p)
+		}
+	}
+}
+
+func TestClearRunTranscriptsSkipsARunWithATreeAgain(t *testing.T) {
+	env := useScanEnv(t)
+	row, _ := leftOverRunTranscripts(t, env)
+	prefix := strings.TrimPrefix(row.Id, wshrpc.StorageKind_RunTranscripts+":")
+	mkdirs(t, filepath.Join(env.root, prefix+"-t-2"))
+	_, err := clearItem(context.Background(), row, false, "")
+	wantClearError(t, err, true, false, "tree")
+	for _, p := range row.Paths {
+		if !exists(p) {
+			t.Fatalf("%s was deleted though its run has a tree on disk", p)
+		}
 	}
 }
 

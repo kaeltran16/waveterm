@@ -540,6 +540,10 @@ const STORAGE_SKIPPED_TIP = "ad962fe1b3c4d5e6f708192a3b4c5d6e7f809a1b";
 const STORAGE_LIVE_ROW = `runtree:${STORAGE_WT}\\dca34385`;
 const STORAGE_LIVE_RUN = "dca34385-7b2e-4c1a-9f3d-2e8b6a1c4d70";
 const STORAGE_HELD_ROW = `runtree:${STORAGE_WT}\\3425249d`;
+// the run-transcripts rows: one run the fixture store knows, one it does not
+const STORAGE_KNOWN_TRANSCRIPTS = "runtranscripts:4b7e2a91";
+const STORAGE_KNOWN_TRANSCRIPTS_TITLE = "Clear run-tree transcripts, keep Usage history";
+const STORAGE_UNKNOWN_TRANSCRIPTS = "runtranscripts:c03f9e12";
 // clearPlan(STORAGE_SCENARIOS.storage).ids
 const STORAGE_CLEAR_IDS = [
     ...["bd67b1fe", "3425249d", "009152b3", "866e3b50", "a6cf3f86"].map((k) => `runtree:${STORAGE_WT}\\${k}`),
@@ -548,6 +552,8 @@ const STORAGE_CLEAR_IDS = [
     `branch:${STORAGE_SIEM}:refs/heads/wave/f15cd1a3-d509-48b6-b505-2155fee20b96`,
     String.raw`finalout:C:\Users\arc\AppData\Local\Temp\arc-final-*`,
     String.raw`finalout:C:\Users\arc\AppData\Local\arc-final-out-*`,
+    STORAGE_KNOWN_TRANSCRIPTS,
+    STORAGE_UNKNOWN_TRANSCRIPTS,
 ];
 const STORAGE_RUN_GONE = "That run no longer exists";
 const storageRow = (id) =>
@@ -593,14 +599,21 @@ export const settingsStorage = {
                 clear: ${storageText(STORAGE_CLEAR)},
                 nav: ${storageText(STORAGE_NAV)},
                 autoScan: window.__storageLastAction ?? null,
+                transcripts: [${JSON.stringify(STORAGE_KNOWN_TRANSCRIPTS)}, ${JSON.stringify(STORAGE_UNKNOWN_TRANSCRIPTS)}].map((id) => {
+                    const r = [...(pane.querySelector('[data-storage-group="left"]')?.querySelectorAll('[data-storage-row]') ?? [])]
+                        .find((el) => el.getAttribute("data-storage-row") === id);
+                    return r ? { owner: (r.children[1]?.firstElementChild?.textContent || "").trim() } : null;
+                }),
             };
         })()`);
         rec(
-            "1. storage: three groups, the 9e473bf8 row offers Delete anyway, Clear reads 314 MB, the index row says left over",
+            "1. storage: three groups, the 9e473bf8 row offers Delete anyway, both run-transcripts rows list in Left over (one by run title, one by prefix), Clear reads 326 MB, the index row says left over",
             main != null &&
                 JSON.stringify(main.groups) === JSON.stringify(["left", "inuse", "kept"]) &&
                 main.skippedDelete &&
-                main.clear === "Clear 314 MB left over" &&
+                main.transcripts[0]?.owner === STORAGE_KNOWN_TRANSCRIPTS_TITLE &&
+                main.transcripts[1]?.owner === "c03f9e12" &&
+                main.clear === "Clear 326 MB left over" &&
                 main.nav.includes("left over") &&
                 main.autoScan == null,
             JSON.stringify(main)
@@ -631,9 +644,10 @@ export const settingsStorage = {
         const confirmGone = await polishWaitFor(h, `${STORAGE_CONFIRM} == null`, 3000);
         const afterCancel = await storageAction(h);
         rec(
-            "2. confirm: Clear asks with the three kind lines, the 9e473bf8 skip and the tail; Cancel closes it and sends nothing",
+            "2. confirm: Clear asks with the four kind lines (the run transcripts' says replay is lost and Usage kept), the 9e473bf8 skip and the tail; Cancel closes it and sends nothing",
             confirm != null &&
-                confirm.lines.length === 3 &&
+                confirm.lines.length === 4 &&
+                /agent transcript folders.*replay.*keep their Usage/.test(confirm.lines[3]) &&
                 confirm.text.includes(String.raw`Skips .waveterm\worktrees\9e473bf8`) &&
                 confirm.text.includes("Live runs and kept items are never touched.") &&
                 confirmGone &&
@@ -649,7 +663,7 @@ export const settingsStorage = {
         const cleared = await storageAction(h);
         await shot("3-clear-cta");
         rec(
-            "3. Clear left over closes the dialog and clears the 10 clearable fixture ids",
+            "3. Clear left over closes the dialog and clears the 12 clearable fixture ids",
             ctaGone &&
                 cleared?.kind === "clear" &&
                 JSON.stringify([...(cleared.ids ?? [])].sort()) === JSON.stringify([...STORAGE_CLEAR_IDS].sort()),
@@ -733,9 +747,9 @@ export const settingsStorage = {
             };
         })()`);
         rec(
-            "8. clearing: Clear reads Clearing 7 of 10… and is disabled, Rescan too; rows say Cleared and Clearing…; no Delete anyway",
+            "8. clearing: Clear reads Clearing 7 of 12… and is disabled, Rescan too; rows say Cleared and Clearing…; no Delete anyway",
             clearing != null &&
-                clearing.clear === "Clearing 7 of 10…" &&
+                clearing.clear === "Clearing 7 of 12…" &&
                 clearing.clearDisabled === true &&
                 clearing.rescanDisabled === true &&
                 clearing.text.includes("Cleared") &&

@@ -24,6 +24,8 @@ const (
 	StorageKind_FinalShots  = "finalshots"  // <data>\final-shots, one row
 	StorageKind_FinalOut    = "finalout"    // hand-run Final output, one row per location
 	StorageKind_Transcripts = "transcripts" // ~/.claude/projects or ~/.pi, one row each
+	// a left-over run's transcript folders under ~/.claude/projects and ~/.pi/agent/sessions, one row per run
+	StorageKind_RunTranscripts = "runtranscripts"
 
 	StorageGroup_Left  = "left"
 	StorageGroup_InUse = "inuse"
@@ -45,7 +47,7 @@ type StorageCommit struct {
 }
 
 type StorageItem struct {
-	Id      string   `json:"id"`              // kind + ":" + full path, or kind + ":" + project path + ":" + ref for a branch; stable across scans
+	Id      string   `json:"id"`              // kind + ":" + full path, or kind + ":" + project path + ":" + ref for a branch, or kind + ":" + run prefix for runtranscripts; stable across scans
 	Kind    string   `json:"kind"`            // StorageKind_*
 	Group   string   `json:"group"`           // StorageGroup_*
 	Path    string   `json:"path,omitempty"`  // full path; a grouped row's parent folder; "" for a branch-only row

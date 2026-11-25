@@ -61,6 +61,7 @@ func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.Comma
 	if err != nil {
 		return nil, fmt.Errorf("scanning usage: %w", err)
 	}
+	buckets, metas = withKeptUsage(ctx, data.WindowDays, buckets, metas)
 	out := make([]wshrpc.UsageBucket, len(buckets))
 	for i, b := range buckets {
 		out[i] = usageBucketToWire(b)
@@ -70,6 +71,22 @@ func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.Comma
 		return nil, fmt.Errorf("linking usage sessions to runs: %w", err)
 	}
 	return &wshrpc.CommandGetUsageStatsRtnData{Buckets: out, Sessions: sessions, Efforts: usageEfforts(ctx, sessions)}, nil
+}
+
+// withKeptUsage keeps what a scan of the last windowDays read and answers with the kept record of that window, so a
+// session whose transcript is gone still counts and keeps its title. A failed keep or read is logged and the scan
+// alone answers.
+func withKeptUsage(ctx context.Context, windowDays int, buckets []usagestats.Bucket, metas []usagestats.SessionMeta) ([]usagestats.Bucket, []usagestats.SessionMeta) {
+	if err := usagestats.Keep(ctx, buckets, metas); err != nil {
+		log.Printf("usage: answering from the scan alone: %v", err)
+		return buckets, metas
+	}
+	kept, keptMetas, err := usagestats.Kept(ctx, usagestats.WindowStartDay(windowDays))
+	if err != nil {
+		log.Printf("usage: answering from the scan alone: %v", err)
+		return buckets, metas
+	}
+	return kept, keptMetas
 }
 
 func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.CommandGetRecentSessionsData) (*wshrpc.CommandGetRecentSessionsRtnData, error) {

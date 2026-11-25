@@ -95,6 +95,31 @@ function finalOut(now: number, parent: string, prefix: string, n: number, size: 
     };
 }
 
+// one run's agent transcript folders under a harness root, named from the run tree's path as the harness does
+function runTranscripts(
+    now: number,
+    prefix: string,
+    root: string,
+    folder: (key: string) => string,
+    keys: string[],
+    size: number,
+    ago: number,
+    run: Partial<StorageItem> = {}
+): StorageItem {
+    return {
+        id: `runtranscripts:${prefix}`,
+        kind: "runtranscripts",
+        group: "left",
+        path: root,
+        paths: keys.map((k) => `${root}\\${folder(k)}`),
+        count: keys.length,
+        ...run,
+        size,
+        modts: now - ago,
+        clearable: true,
+    };
+}
+
 function kept(
     now: number,
     kind: string,
@@ -198,6 +223,32 @@ function storageItems(now: number): StorageItem[] {
         ),
         finalOut(now, `${LOCAL}\\Temp`, "arc-final-", 21, 208 * MB, DAY),
         finalOut(now, LOCAL, "arc-final-out-", 2, 106 * MB, 14 * DAY),
+        runTranscripts(
+            now,
+            "4b7e2a91",
+            `${HOME}\\.claude\\projects`,
+            (k) => `C--Users-arc-AppData-Local-arc-wt-${k}`,
+            ["4b7e2a91", "4b7e2a91-t-1", "4b7e2a91-t-2"],
+            9 * MB,
+            16 * DAY,
+            {
+                runid: "4b7e2a91-6c3d-4e8f-a1b2-c3d4e5f60718",
+                runchannelid: "8f2d6a40-3b1c-4e7a-9d5f-0c1b2a3d4e5f",
+                runtitle: "Clear run-tree transcripts, keep Usage history",
+                runstatus: "done",
+                runlandstate: "landed",
+                runts: now - 16 * DAY,
+            }
+        ),
+        runTranscripts(
+            now,
+            "c03f9e12",
+            `${HOME}\\.pi\\agent\\sessions`,
+            (k) => `--C--Users-arc-AppData-Local-arc-wt-${k}--`,
+            ["c03f9e12", "c03f9e12-t-1"],
+            3 * MB,
+            20 * DAY
+        ),
         {
             id: `runtree:${WT}\\dca34385`,
             kind: "runtree",
@@ -249,7 +300,7 @@ function clearing(now: number): StorageReportData {
         }
         return it.id === CLEARING_NOW ? { ...it, clearstate: "clearing" } : it;
     });
-    return { scants: now, clearing: true, cleartotal: 10, cleardone: 6, items };
+    return { scants: now, clearing: true, cleartotal: 12, cleardone: 6, items };
 }
 
 function cleared(now: number): StorageReportData {

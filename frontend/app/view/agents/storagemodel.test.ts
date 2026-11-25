@@ -45,14 +45,14 @@ function item(r: StorageReportData, shortPath: string): StorageItem {
 const text = (parts: { text: string }[]) => parts.map((p) => p.text).join("");
 
 describe("storage (board Main)", () => {
-    it("lists three sections with 11 Left over rows", () => {
+    it("lists three sections with 13 Left over rows", () => {
         const sections = storageSections(S.storage, NOW);
         expect(sections.map((s) => [s.group, s.title, s.meta])).toEqual([
             ["left", "Left over", "its run finished, or no run owns it"],
             ["inuse", "In use", "a run is working in it"],
             ["kept", "Kept on purpose", "caches and history Arc reads"],
         ]);
-        expect(sections.map((s) => s.rows.length)).toEqual([11, 1, 7]);
+        expect(sections.map((s) => s.rows.length)).toEqual([13, 1, 7]);
     });
     it("orders Left over by kind then newest, and Kept by size", () => {
         const [left, , kept] = storageSections(S.storage, NOW);
@@ -68,6 +68,8 @@ describe("storage (board Main)", () => {
             "wave/021cb57c",
             "Temp\\arc-final-* (21)",
             "arc-final-out-* (2)",
+            ".claude\\projects\\*-4b7e2a91* (3)",
+            ".pi\\*-c03f9e12* (2)",
         ]);
         expect(kept.rows.map((w) => w.path)).toEqual([
             "arc-final\\target",
@@ -81,7 +83,7 @@ describe("storage (board Main)", () => {
     });
     it("shows the stat tiles, the Clear button and the nav summary", () => {
         expect(storageStats(S.storage)).toEqual([
-            { group: "left", label: "Left over", value: "363 MB", bytes: expect.any(Number), sub: "11 items" },
+            { group: "left", label: "Left over", value: "375 MB", bytes: expect.any(Number), sub: "13 items" },
             { group: "inuse", label: "In use", value: "51 MB", bytes: expect.any(Number), sub: "1 live run" },
             {
                 group: "kept",
@@ -92,10 +94,10 @@ describe("storage (board Main)", () => {
             },
         ]);
         // the tile rolls bytes, so it has to be the number the shown value was formatted from
-        expect(storageStats(S.storage).map((t) => fmtSize(t.bytes ?? -1))).toEqual(["363 MB", "51 MB", "14.2 GB"]);
-        expect(clearButton(S.storage)).toEqual({ show: true, enabled: true, label: "Clear 314 MB left over" });
+        expect(storageStats(S.storage).map((t) => fmtSize(t.bytes ?? -1))).toEqual(["375 MB", "51 MB", "14.2 GB"]);
+        expect(clearButton(S.storage)).toEqual({ show: true, enabled: true, label: "Clear 326 MB left over" });
         expect(rescanEnabled(S.storage)).toBe(true);
-        expect(navSummary(S.storage)).toEqual({ count: "14.6 GB", pill: "363 MB left over" });
+        expect(navSummary(S.storage)).toEqual({ count: "14.6 GB", pill: "375 MB left over" });
         expect(scannedLabel(S.storage, NOW)).toBe("scanned 09:40");
         expect(resultNotice(S.storage)).toBeNull();
         expect(pollWanted(S.storage)).toBe(false);
@@ -177,28 +179,73 @@ describe("storage (board Main)", () => {
         });
         expect(row(S.storage, "arc-final\\stores-* (2)")).toMatchObject({ idle: "2d+", loses: "Nothing" });
     });
+    it("titles a run's transcripts by its run, else by the prefix, aged from when the run finished", () => {
+        expect(row(S.storage, ".claude\\projects\\*-4b7e2a91* (3)")).toMatchObject({
+            kind: "agent transcripts of a finished run",
+            owner: "Clear run-tree transcripts, keep Usage history",
+            ownerMeta: "landed 09-28",
+            run: { kind: "run", runId: "4b7e2a91-6c3d-4e8f-a1b2-c3d4e5f60718" },
+            size: "9 MB",
+            idle: "16d",
+            loses: "Its agent replay; Usage keeps its tokens",
+            losesMuted: false,
+            tag: null,
+            canDelete: false,
+        });
+        expect(row(S.storage, ".pi\\*-c03f9e12* (2)")).toMatchObject({
+            owner: "c03f9e12",
+            ownerMeta: "no stored run · aged by last write",
+            run: null,
+            size: "3 MB",
+            idle: "20d",
+        });
+    });
 });
 
 describe("clearPlan (board Confirm)", () => {
     it("counts member folders, lists what it skips, and sums the clearable rows", () => {
         const plan = clearPlan(S.storage);
-        expect(plan.title).toBe("Clear 314 MB left over?");
+        expect(plan.title).toBe("Clear 326 MB left over?");
         expect(plan.lead).toBe(CLEAR_LEAD);
         expect(plan.lead).toBe("Deletes what no run needs and loses nothing:");
         expect(plan.lines).toEqual([
             "21 empty run folders",
             "2 wave branches whose commits are on other branches",
             "23 output folders of Finals run by hand",
+            "5 agent transcript folders of finished runs: those runs lose their agent replay but keep their Usage",
         ]);
         expect(plan.skipped).toEqual([{ path: SKIPPED, reason: "2 commits are only on its branch." }]);
         expect(plan.tail).toBe(CLEAR_TAIL);
         expect(plan.tail).toBe("Live runs and kept items are never touched.");
-        expect(plan.ids).toHaveLength(10);
+        expect(plan.ids).toHaveLength(12);
         expect(plan.ids).not.toContain(row(S.storage, SKIPPED).id);
     });
     it("drops a line whose count is 0", () => {
         const onlyBranches = { ...S.storage, items: S.storage.items.filter((it) => it.kind === "branch") };
         expect(clearPlan(onlyBranches).lines).toEqual(["2 wave branches whose commits are on other branches"]);
+    });
+    it("clears run transcripts alone with their ids, size and folder count", () => {
+        const only = { ...S.storage, items: S.storage.items.filter((it) => it.kind === "runtranscripts") };
+        const plan = clearPlan(only);
+        expect(plan.ids).toEqual(["runtranscripts:4b7e2a91", "runtranscripts:c03f9e12"]);
+        expect(plan.title).toBe("Clear 12 MB left over?");
+        expect(plan.lines).toEqual([
+            "5 agent transcript folders of finished runs: those runs lose their agent replay but keep their Usage",
+        ]);
+    });
+    it("names one folder in the singular", () => {
+        const one: StorageItem = {
+            id: "runtranscripts:77aa11bb",
+            kind: "runtranscripts",
+            group: "left",
+            paths: ["C:\\h\\.claude\\projects\\C--arc-wt-77aa11bb"],
+            count: 1,
+            size: 1024,
+            clearable: true,
+        };
+        expect(clearPlan({ scants: 1, items: [one] }).lines).toEqual([
+            "1 agent transcript folder of a finished run: that run loses its agent replay but keeps its Usage",
+        ]);
     });
 });
 
@@ -264,7 +311,7 @@ describe("deletePlan (board DeleteOne)", () => {
 
 describe("states", () => {
     it("clearing: progress on the button, row tags, no Delete anyway, no Rescan", () => {
-        expect(clearButton(S.clearing)).toEqual({ show: true, enabled: false, label: "Clearing 7 of 10…" });
+        expect(clearButton(S.clearing)).toEqual({ show: true, enabled: false, label: "Clearing 7 of 12…" });
         expect(rescanEnabled(S.clearing)).toBe(false);
         expect(pollWanted(S.clearing)).toBe(true);
         const all = rows(S.clearing);
@@ -278,7 +325,7 @@ describe("states", () => {
     });
     it("cleared: the notice names the held folder and that row says why", () => {
         expect(resultNotice(S.cleared)).toEqual({
-            text: "Cleared 9 items, 314 MB freed.",
+            text: "Cleared 11 items, 326 MB freed.",
             failure: "1 couldn’t be cleared",
             failureWhy: "a process still has arc-wt\\3425249d open.",
         });
@@ -308,7 +355,7 @@ describe("states", () => {
     });
     it("a Rescan with a result keeps Clear shown but disabled", () => {
         const rescan = { ...S.storage, scanning: true };
-        expect(clearButton(rescan)).toEqual({ show: true, enabled: false, label: "Clear 314 MB left over" });
+        expect(clearButton(rescan)).toEqual({ show: true, enabled: false, label: "Clear 326 MB left over" });
         expect(storageSections(rescan, NOW)).toHaveLength(3);
         expect(rows(rescan).some((w) => w.canDelete)).toBe(false);
     });
@@ -318,7 +365,7 @@ describe("states", () => {
         ]);
         const all = rows(S.error);
         expect(all.some((w) => (w.ownerMeta + w.full).includes("cyber_anomaly_detector"))).toBe(false);
-        expect(storageSections(S.error, NOW)[0].rows).toHaveLength(7);
+        expect(storageSections(S.error, NOW)[0].rows).toHaveLength(9);
     });
     it("clean: no Clear, an empty Left over, no pill", () => {
         expect(clearButton(S.clean).show).toBe(false);
