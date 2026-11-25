@@ -830,6 +830,10 @@ function CheckFoldRow({ ctx, compact }: { ctx: TranscriptContext; compact: boole
     );
 }
 
+// name over detail, as the pane's dropped list: side by side, ragged name widths left every detail at its own indent
+const JUDGE_ROW = "flex flex-col gap-0.5";
+const JUDGE_ROW_RULE = "mt-2 border-t border-edge-faint pt-2";
+
 // the judge's result on a question, from the brainstorm file's record of it
 function JudgedRow({ path, ctx, compact }: { path: string; ctx: TranscriptContext; compact: boolean }) {
     const [open, setOpen] = useState(true);
@@ -855,28 +859,18 @@ function JudgedRow({ path, ctx, compact }: { path: string; ctx: TranscriptContex
                         <div
                             key={`k${i}`}
                             data-judge-kept
-                            className={cn(
-                                "flex items-baseline gap-2.5",
-                                i > 0 && "mt-1.5 border-t border-edge-faint pt-1.5",
-                                !k.pick && "text-ink-mid"
-                            )}
+                            className={cn(JUDGE_ROW, i > 0 && JUDGE_ROW_RULE, !k.pick && "text-ink-mid")}
                         >
-                            <span
-                                className={cn("shrink-0", k.pick ? "font-semibold text-foreground" : "text-secondary")}
-                            >
+                            <span className={cn("font-semibold", k.pick ? "text-foreground" : "text-secondary")}>
                                 {k.name}
                             </span>
-                            {k.detail ? <span className="min-w-0 [overflow-wrap:anywhere]">{k.detail}</span> : null}
+                            {k.detail ? <span className="[overflow-wrap:anywhere]">{k.detail}</span> : null}
                         </div>
                     ))}
                     {result.dropped.map((d, i) => (
-                        <div
-                            key={`d${i}`}
-                            data-judge-dropped
-                            className="mt-1.5 flex items-baseline gap-2.5 border-t border-edge-faint pt-1.5 text-muted"
-                        >
-                            <span className="shrink-0 line-through">{d.name}</span>
-                            <span className="min-w-0 [overflow-wrap:anywhere]">{d.reason}</span>
+                        <div key={`d${i}`} data-judge-dropped className={cn(JUDGE_ROW, JUDGE_ROW_RULE, "text-muted")}>
+                            <span className="font-semibold line-through">{d.name}</span>
+                            <span className="[overflow-wrap:anywhere]">{d.reason}</span>
                         </div>
                     ))}
                 </EventBody>
