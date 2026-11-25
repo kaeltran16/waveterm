@@ -14,8 +14,10 @@ import type { AgentVM } from "./agentsviewmodel";
 import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
 import { leadLandFacts } from "./leadland";
 import { loadRailForAgent, railStateAtom, type RailGitState } from "./railstore";
+import { leadRunAtom, type LeadRun } from "./runlineagestore";
 
 export const NO_BLOCK: Atom<Block | undefined> = atom(undefined as Block | undefined);
+const NO_LEAD: Atom<LeadRun | undefined> = atom(undefined as LeadRun | undefined);
 
 let holders = 0;
 let loadedKey = "";
@@ -25,7 +27,7 @@ let loadedAgent = "";
 // so the next mount reads again as the rail did on each open. A new agent blanks the list while it loads; the same
 // agent's later edits reload under the list it shows.
 export function holdRailGit(
-    agent: Pick<AgentVM, "id" | "transcriptPath" | "blockId" | "agent">,
+    agent: Pick<AgentVM, "id" | "transcriptPath" | "blockId" | "agent" | "runId">,
     key: string
 ): () => void {
     holders++;
@@ -47,7 +49,10 @@ export function useRailGit(agent: AgentVM): RailGitState | null {
     const block = useAtomValue(
         agent.blockId ? WOS.getWaveObjectAtom<Block>(WOS.makeORef("block", agent.blockId)) : NO_BLOCK
     );
-    const key = railReloadKey(agent, block?.meta?.["agent:lasteditts"]);
+    // a lead's list is its run's, so it reloads as a task merges into the run's tree and when the run lands
+    const lead = useAtomValue(agent.runId ? leadRunAtom(agent.runId) : NO_LEAD);
+    const runKey = lead ? `${lead.merged}|${lead.run.land?.state ?? ""}|${lead.run.land?.commit ?? ""}` : "";
+    const key = `${railReloadKey(agent, block?.meta?.["agent:lasteditts"])}|${runKey}`;
     useEffect(() => holdRailGit(agent, key), [key]);
     return useAtomValue(railStateAtom);
 }

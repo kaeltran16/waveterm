@@ -13,6 +13,11 @@ vi.mock("@/app/store/wshclientapi", () => ({
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 vi.mock("./agentcwdresolve", () => ({ resolveCwd: vi.fn(async () => "C:/src/demo") }));
 vi.mock("./agentsessionstore", () => ({ ensureSessionStart: vi.fn(async () => null) }));
+const leadRun = vi.fn();
+vi.mock("./runlineagestore", async () => {
+    const { atom } = await import("jotai");
+    return { leadRunAtom: () => atom(() => leadRun()) };
+});
 
 // a non-Claude agent reads its checkout since the session started
 const pi = { transcriptPath: "t.jsonl", agent: "pi" };
@@ -78,5 +83,20 @@ describe("loadRailForAgent", () => {
         expect(RpcApi.GitChangesCommand).toHaveBeenLastCalledWith({}, { cwd: "C:/src/demo", ref: "B", end: "H" });
         expect(globalStore.get(railStateAtom)).toMatchObject({ ref: "B", end: "H", edits: true });
         expect(globalStore.get(railStateAtom)?.changes?.files.map((f) => f.path)).toEqual(["mine.ts"]);
+    });
+
+    // a lead writes little itself: what it reviews is what its workers merged into the run's tree
+    it("lists a lead's run's changes, read in the run's tree from its base", async () => {
+        vi.mocked(RpcApi.GitAgentEditsCommand).mockClear();
+        leadRun.mockReturnValueOnce({
+            run: { id: "r1", projectpath: "C:/src/demo", landpath: "C:/wt/r1", basecommit: "BASE" },
+            merged: 2,
+        });
+        vi.mocked(RpcApi.GitChangesCommand).mockResolvedValueOnce({ ...changes("worker.ts"), ref: "BASE" });
+        await loadRailForAgent({ ...claude, runId: "r1" });
+        expect(RpcApi.GitAgentEditsCommand).not.toHaveBeenCalled();
+        expect(RpcApi.GitChangesCommand).toHaveBeenLastCalledWith({}, { cwd: "C:/wt/r1", ref: "BASE", end: undefined });
+        expect(globalStore.get(railStateAtom)).toMatchObject({ cwd: "C:/wt/r1", ref: "BASE", run: true, edits: false });
+        expect(globalStore.get(railStateAtom)?.changes?.files.map((f) => f.path)).toEqual(["worker.ts"]);
     });
 });

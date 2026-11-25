@@ -11,7 +11,7 @@ import { useAtomValue } from "jotai";
 import { ArrowLeft, ArrowUpRight, ChevronLeft } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { driveAgent, NUDGE_INPUT } from "./agentactions";
-import { agentDiffScope, openDiff } from "./agentdiffnav";
+import { openAgentDiff } from "./agentdiffnav";
 import {
     checkoutFacts,
     contextLevel,
@@ -247,7 +247,7 @@ function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: Ag
     // A path is only worth linking when the rail resolved a working directory to resolve it against.
     const openFileDiff = (path?: string) => {
         globalStore.set(model.focusIdAtom, agent.id);
-        openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent), railState?.cwd && path ? path : undefined);
+        openAgentDiff(model, agent, railState?.cwd && path ? path : undefined);
     };
     const drive = (data: string) => driveAgent(agent.blockId, data);
 

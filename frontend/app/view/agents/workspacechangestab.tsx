@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { motion, type Transition } from "motion/react";
 import { useEffect, useMemo, useRef, type ReactNode } from "react";
-import { agentDiffScope, openDiff } from "./agentdiffnav";
+import { openAgentDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { DIFF_NOTES, DiffHunks } from "./diffhunks";
@@ -242,7 +242,7 @@ export function ChangesTab({
                 <button
                     type="button"
                     data-workspace-open-diff
-                    onClick={() => openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent))}
+                    onClick={() => openAgentDiff(model, agent)}
                     className={cn(barBtn, "gap-[3px] px-[6px] text-[11px] font-semibold text-accent-soft")}
                 >
                     Open on Diff

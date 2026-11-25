@@ -210,7 +210,8 @@ export function checkoutFacts(input: {
     }
     const files = git.changes?.files ?? [];
     const facts = { branch, worktree: git.worktree, worktreePath: git.cwd ?? undefined };
-    if (landed || !git.isRepo || files.length === 0) {
+    // a lead's list read once its run landed is what the run landed, so it still counts
+    if ((landed && !git.run) || !git.isRepo || files.length === 0) {
         return { ...facts, chip: null };
     }
     const { count, adds, dels } = fileTotals(files);
@@ -218,8 +219,8 @@ export function checkoutFacts(input: {
     if (lineCountsShown(git.changes)) {
         chip.lines = { adds, dels };
     }
-    // the agent's own edits are its own however many agents share the checkout
-    if (sharedBy > 1 && !git.edits) {
+    // the agent's own edits, or a lead's run's changes, are its own however many agents share the checkout
+    if (sharedBy > 1 && !git.edits && !git.run) {
         chip.prefix = "repo";
         chip.title = `All changes in this checkout, shared by ${sharedBy} agents`;
     }

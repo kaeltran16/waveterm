@@ -10,10 +10,12 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { landOn } from "@/app/view/jarvis/returnsurface";
+import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import { defaultRangeFor, scopeKey, type DiffOrigin, type DiffScope } from "./diffscope";
 import { requestFileLink } from "./filesstore";
 import { HISTORY_RPC_TIMEOUT_MS } from "./historyquery";
+import { leadRunAtom } from "./runlineagestore";
 import { runTree } from "./runmodel";
 
 // runtime is the AgentVM's `agent` field; it decides whether the scope opens on the agent's edits
@@ -31,11 +33,6 @@ export function runDiffScope(runId: string, cwd: string, baseCommit?: string, he
         ? { kind: "run", runId, cwd, baseCommit: baseCommit ?? "", headCommit }
         : { kind: "run", runId, cwd, baseCommit: baseCommit ?? "" };
     return { repo: { origin, label: `run ${runId.slice(0, 8)}` }, range: defaultRangeFor(origin) };
-}
-
-// a run's changes live where its lanes landed: its own branch tree when it has one, else the checkout
-export function diffScopeOfRun(run: Pick<Run, "id" | "projectpath" | "landpath" | "land" | "basecommit">): DiffScope {
-    return runDiffScope(run.id, runTree(run), run.basecommit);
 }
 
 // The checkout's repo root, which git lists as the main worktree. A project can be a subfolder of its repo, and the
@@ -88,17 +85,36 @@ async function landCommitParents(cwd: string, landCommit: string | undefined): P
     }
 }
 
-// A landed run's tree is removed, and its commits are merged into the checkout. Its tree was a worktree of the whole
-// repo, so the checkout is read from its repo root, bounded at the run's own tip so later commits are not counted.
-export async function openRunDiff(model: AgentsViewModel, run: Run, file?: string): Promise<void> {
-    let scope = diffScopeOfRun(run);
-    if (run.land?.state === "landed") {
-        const root = (await checkoutRoot(run.projectpath)) ?? runTree(run);
-        const parents = await landCommitParents(root, run.land.commit);
-        const tip = landedRunTip(run.land.commit, parents, run.endcommit);
-        scope = runDiffScope(run.id, root, run.basecommit, tip);
+// Where a run's changes are read: its tree from its base while it runs. A landed run's tree is removed, and its
+// commits are merged into the checkout. Its tree was a worktree of the whole repo, so the checkout is read from its
+// repo root, bounded at the run's own tip so later commits are not counted. end "" reads up to the working tree.
+export async function runChangesRange(run: Run): Promise<{ cwd: string; base: string; end: string }> {
+    const base = run.basecommit ?? "";
+    if (run.land?.state !== "landed") {
+        return { cwd: runTree(run), base, end: "" };
     }
-    openDiff(model, scope, file);
+    const root = (await checkoutRoot(run.projectpath)) ?? runTree(run);
+    const parents = await landCommitParents(root, run.land.commit);
+    return { cwd: root, base, end: landedRunTip(run.land.commit, parents, run.endcommit) };
+}
+
+export async function openRunDiff(model: AgentsViewModel, run: Run, file?: string): Promise<void> {
+    const { cwd, end } = await runChangesRange(run);
+    openDiff(model, runDiffScope(run.id, cwd, run.basecommit, end), file);
+}
+
+// an agent's changes in the Diff surface: a lead's are its run's, which its workers made; any other agent's its own
+export function openAgentDiff(
+    model: AgentsViewModel,
+    agent: { id: string; name: string; agent?: string; runId?: string },
+    file?: string
+): void {
+    const lead = agent.runId ? globalStore.get(leadRunAtom(agent.runId)) : undefined;
+    if (lead) {
+        fireAndForget(() => openRunDiff(model, lead.run, file));
+        return;
+    }
+    openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent), file);
 }
 
 export function projectDiffScope(name: string, path: string): DiffScope {
