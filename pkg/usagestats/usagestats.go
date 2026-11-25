@@ -437,9 +437,15 @@ func SessionIdOf(harness, path string) string {
 // included), pruning by modtime against cutoff and skipping the backend's own headless passes —
 // those tokens are real, but they are Wave's maintenance work rather than the user's agent activity.
 func walkClaudeFiles(root string, cutoff time.Time) []scanFile {
+	return walkClaudeDir(root, root, cutoff)
+}
+
+// walkClaudeDir is walkClaudeFiles over dir alone, a folder under root, its sessions named as a walk of root
+// names them.
+func walkClaudeDir(root, dir string, cutoff time.Time) []scanFile {
 	var files []scanFile
 	headlessSlug := agentobserve.HeadlessAgentSlug()
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
