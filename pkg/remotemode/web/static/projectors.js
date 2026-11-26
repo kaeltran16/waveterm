@@ -835,6 +835,12 @@ function editDetailFor(name, args) {
   }
   return void 0;
 }
+function thoughtOf(content) {
+  if (textBlocks(content).length > 0) {
+    return "";
+  }
+  return content.filter((b) => b?.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim() !== "").map((b) => b.thinking.trim()).join("\n\n");
+}
 function mapAssistantContent(rec, entries, actionById) {
   const content = rec.message?.content;
   for (const text of textBlocks(content)) {
@@ -842,6 +848,10 @@ function mapAssistantContent(rec, entries, actionById) {
   }
   if (!Array.isArray(content)) {
     return;
+  }
+  const thought = thoughtOf(content);
+  if (thought !== "") {
+    entries.push({ kind: "thought", text: thought, ...recTs2(rec) });
   }
   for (const b of content) {
     if (b == null || b.type !== "toolCall" && b.type !== "tool_use" || typeof b.name !== "string" || b.name === "") {
