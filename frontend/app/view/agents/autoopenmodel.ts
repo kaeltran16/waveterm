@@ -60,8 +60,9 @@ export function offers(input: OfferInput): Arrival[] {
         out.push({ kind: "canvas", id: topic, tab: { kind: "canvas" } });
     }
     const start = lastCall(input.entries, "runs-start");
-    const started = start != null && (start.ts ?? 0) > input.since ? startedRunId(start) : null;
-    const runId = input.leadRun ?? started;
+    const started = start != null && (start.ts ?? 0) > input.since ? startedRun(start) : null;
+    // a quick run's agent has its own row in the tree and its transcript is the run, so it opens no Run tab here
+    const runId = input.leadRun ?? (started != null && started.mode !== QUICK_MODE ? started.id : null);
     if (runId != null) {
         out.push({ kind: "run", id: runId, tab: { kind: "run", runId, view: "tasks" } });
     }
@@ -121,15 +122,20 @@ function autoOpenKind(tab: WorkspaceTab): AutoOpenKind | null {
         : tab.kind;
 }
 
-// the run a `wsh runs start` created: its --json, else the id in its "started run <id> ..." line
-export function startedRunId(a: AgentActionEntry): string | null {
+// mirrors jarvis.RunMode_Quick
+const QUICK_MODE = "quick";
+
+// the run a `wsh runs start` created and its mode: its --json, else its "started run <id> (<mode>, <status>) ..."
+// line. The mode is the one the server resolved, so an unset --mode reads as the quick run it became.
+export function startedRun(a: AgentActionEntry): { id: string; mode?: string } | null {
     const output = a.detail?.kind === "bash" ? a.detail.output : undefined;
     const exit = a.detail?.kind === "bash" ? a.detail.exit : undefined;
-    const json = wshJsonOutput<{ id?: string }>(actionCommand(a), output, exit);
+    const json = wshJsonOutput<{ id?: string; mode?: string }>(actionCommand(a), output, exit);
     if (json?.id) {
-        return json.id;
+        return { id: json.id, mode: json.mode };
     }
-    return /^started run (\S+)/m.exec(output ?? "")?.[1] ?? null;
+    const line = /^started run (\S+)(?: \(([^,)]+))?/m.exec(output ?? "");
+    return line ? { id: line[1], mode: line[2] } : null;
 }
 
 function callArg(a: AgentActionEntry): string | undefined {

@@ -27,7 +27,15 @@ import { ASK_OWNER_USER, childAskKey } from "./childaskmodel";
 import { bindChildAsks, childAskErrorAtom, childAsksAtom, takeOverChildAsk } from "./childaskstore";
 import { useFinalStageView } from "./finalstageviews";
 import { useRunEvents } from "./runeventstore";
-import { formatLeft, leadAgentOf, leadDisplayName, runProgress, taskAgentOf, type RunInfo } from "./runlineage";
+import {
+    formatLeft,
+    leadAgentOf,
+    leadDisplayName,
+    runAgentOf,
+    runProgress,
+    taskAgentOf,
+    type RunInfo,
+} from "./runlineage";
 import { runStatusView } from "./runmodel";
 import {
     laneRows,
@@ -126,6 +134,7 @@ export function openRunDag(model: AgentsViewModel, run: RunInfo, taskId?: string
 
 // openRunBeside opens a run's link: in the Rendered view, its Run tab beside the transcript of the agent the link
 // sits in (a new tab on view, an open one as it was); anywhere else, or with Ctrl held, the run as it opened before.
+// A quick run opens its own agent instead: its transcript is the run, and the tree already gives it a row.
 export function openRunBeside(
     model: AgentsViewModel,
     agentId: string | undefined,
@@ -133,6 +142,11 @@ export function openRunBeside(
     event?: React.MouseEvent,
     view: RunView = "tasks"
 ): void {
+    const own = runAgentOf(globalStore.get(model.lineageAtom), globalStore.get(model.agentsAtom), runId);
+    if (own != null) {
+        void openOrPeek(model, { kind: "agent", tabId: own.id }, event);
+        return;
+    }
     if (agentId && openBeside(model, agentId, { kind: "run", runId, view }, event)) {
         return;
     }
