@@ -29,7 +29,9 @@ export type ToolRendererKey = "image" | "git-diff" | "test";
 // git [global flags] diff|show, anywhere in a compound command; a flag's value never starts with "-",
 // so a flag and a value can't both claim one token (that ambiguity backtracks exponentially)
 const GIT_DIFF_CMD = /(?:^|[\s;&|(])git\s+(?:-\S+\s+(?:[^-\s]\S*\s+)?)*?(?:diff|show)\b/;
-const TEST_CMD = /(?:^|[\s;&|(])(?:go\s+test|vitest)\b/;
+// Arc's own runners: verify.mjs (go packages), the CDP runners and the task that wraps one; either path separator
+const TEST_CMD =
+    /(?:^|[\s;&|(])(?:go\s+test|vitest|task\s+verify:ui)\b|(?:^|[\s;&|(/\\])scripts[\\/](?:cdp[\\/](?:final-)?)?verify\.mjs\b/;
 
 export function isGitDiffCommand(cmd: string): boolean {
     return GIT_DIFF_CMD.test(cmd);

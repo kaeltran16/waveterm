@@ -24,6 +24,11 @@ describe("toolRendererKey", () => {
         expect(toolRendererKey(bash("go test ./pkg/x", GO_TEST))).toBe("test");
         expect(toolRendererKey(bash("npx vitest run a.test.ts", " Tests  2 passed (2)"))).toBe("test");
     });
+    it("renders a final-verify run whose output parses", () => {
+        expect(toolRendererKey(bash("node scripts/cdp/final-verify.mjs final-stage", "\n# s\n  PASS  1. a"))).toBe(
+            "test"
+        );
+    });
     it("returns null when the output does not parse", () => {
         expect(toolRendererKey(bash("git diff", ""))).toBeNull();
         expect(toolRendererKey(bash("go test ./...", "no idea what this is"))).toBeNull();
@@ -57,6 +62,19 @@ describe("isGitDiffCommand / isTestCommand", () => {
         expect(isTestCommand("npx vitest run x")).toBe(true);
         expect(isTestCommand("go build ./...")).toBe(false);
         expect(isTestCommand("npm run lint")).toBe(false);
+    });
+    it.each([
+        "node scripts/verify.mjs ./pkg/x",
+        "node scripts\\cdp\\final-verify.mjs final-stage",
+        "ARC_FINAL_OUT=/tmp/o node scripts/cdp/final-verify.mjs final-stage",
+        "node scripts/cdp/verify.mjs motion-final",
+        "task verify:ui -- final-stage",
+    ])("matches Arc's own runner: %s", (cmd) => {
+        expect(isTestCommand(cmd)).toBe(true);
+    });
+    it("does not match other scripts or tasks", () => {
+        expect(isTestCommand("node scripts/cdp-shot.mjs")).toBe(false);
+        expect(isTestCommand("task check:ts")).toBe(false);
     });
 });
 

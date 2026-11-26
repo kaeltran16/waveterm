@@ -116,13 +116,27 @@ function BashCardShell({
     );
 }
 
+const RUNNER_LABEL: Record<TestSummary["runner"], string> = {
+    go: "go test",
+    vitest: "vitest",
+    "final-verify": "final-verify",
+};
+
 function Count({ n, word, tone }: { n: number; word: string; tone: string }) {
     return <span className={n > 0 ? tone : "text-muted"}>{`${n} ${word}`}</span>;
 }
 
 // collapsed, each failure's message is clamped to whole lines and the failures cut to the body's cap; expanded, every
 // failure shows with its whole message
-function TestCard({ summary, output, collapsed }: { summary: TestSummary; output: string; collapsed?: boolean }) {
+export function TestCard({
+    summary,
+    output,
+    collapsed,
+}: {
+    summary: TestSummary;
+    output: string;
+    collapsed?: boolean;
+}) {
     const [expanded, setExpanded] = useState(false);
     const cut = capFailures(summary.failures);
     const shown = expanded ? summary.failures : cut.failures;
@@ -171,7 +185,7 @@ function TestCard({ summary, output, collapsed }: { summary: TestSummary; output
         <BashCardShell
             kind="test"
             label="Tests"
-            runner={summary.runner === "go" ? "go test" : "vitest"}
+            runner={RUNNER_LABEL[summary.runner]}
             counts={() => counts}
             output={output}
             collapsed={collapsed}
