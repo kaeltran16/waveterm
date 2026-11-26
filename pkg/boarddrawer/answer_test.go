@@ -9,13 +9,13 @@ import (
 	"testing"
 )
 
-// checkScene holds two drawings: f1 (box, note, link, wire) and f2 (other), and the loose shape loose.
+// checkScene holds three drawings: f1 (box, note, link, wire), f2 (other) and the empty f3, and the loose shape loose.
 var checkScene = Scene{
 	Types: map[string]string{
 		"box": "rectangle", "note": "text", "link": "arrow", "wire": "line", "f1": "frame",
-		"other": "rectangle", "f2": "frame", "loose": "ellipse",
+		"other": "rectangle", "f2": "frame", "f3": "frame", "loose": "ellipse",
 	},
-	Frames:  map[string]string{"f1": "Cache", "f2": "API"},
+	Frames:  map[string]string{"f1": "Cache", "f2": "API", "f3": "Empty"},
 	FrameOf: map[string]string{"box": "f1", "note": "f1", "link": "f1", "wire": "f1", "other": "f2"},
 	Shapes:  6,
 }
@@ -86,10 +86,19 @@ func TestCheckAnswerGraph(t *testing.T) {
 	if _, err := CheckAnswer(answerWith(graphWith("")+bound), checkScene, false, ""); err != nil {
 		t.Errorf("an add arrow binding a graph node must pass: %v", err)
 	}
-	// an edit with a graph redraws the drawing in view, and says which
-	e, err := CheckAnswer(answerWith(`,"edit":true`+graphWith("")), checkScene, false, "f1")
-	if err != nil || !e.Edit || e.Graph == "" {
-		t.Errorf("an edit with a graph must pass: %+v %v", e, err)
+	// an edit with a graph redraws the drawing in view, and counts every shape of that drawing as removed
+	redraws := []struct {
+		drawing     string
+		wantRemoved int
+	}{
+		{"f1", 4},
+		{"f3", 0},
+	}
+	for _, r := range redraws {
+		e, err := CheckAnswer(answerWith(`,"edit":true`+graphWith("")), checkScene, false, r.drawing)
+		if err != nil || !e.Edit || e.Graph == "" || e.Added != 2 || e.Removed != r.wantRemoved {
+			t.Errorf("an edit with a graph of %s must pass, removing %d: %+v %v", r.drawing, r.wantRemoved, e, err)
+		}
 	}
 
 	edit := func(fields string) string { return answerWith(`,"edit":true` + fields) }

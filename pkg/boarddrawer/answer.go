@@ -48,7 +48,8 @@ var (
 
 // Answer is a checked drawer reply: a drawing, a question flagged for the board's agent, or elsewhere. Add and
 // Update are compact JSON arrays, Graph a compact JSON object, "" when empty. A drawing is new, or with Edit, a
-// change to the drawing in view. Added counts add entries plus the graph's nodes, edges and groups.
+// change to the drawing in view. Added counts add entries plus the graph's nodes, edges and groups; Removed counts
+// remove entries, or for an edit with a graph, every shape of the drawing it redraws.
 type Answer struct {
 	Title, Add, Update, Graph string
 	Remove                    []string
@@ -162,6 +163,10 @@ func CheckAnswer(reply string, scene Scene, allowElsewhere bool, drawing string)
 	if err := checkScope(a, append(updated, raw.Remove...), scene, drawing); err != nil {
 		return Answer{}, err
 	}
+	// set only after the checks, which bound the reply's own counts, not the redraw's
+	if graph != nil && a.Edit {
+		a.Removed = shapesIn(scene, drawing)
+	}
 	if a.Add, err = compactArray(raw.Add); err != nil {
 		return Answer{}, err
 	}
@@ -214,6 +219,17 @@ func checkScope(a Answer, changed []string, scene Scene, drawing string) error {
 		}
 	}
 	return nil
+}
+
+// shapesIn is how many shapes the scene puts in the drawing, its frame not counted.
+func shapesIn(scene Scene, drawing string) int {
+	n := 0
+	for id, frame := range scene.FrameOf {
+		if frame == drawing && id != drawing {
+			n++
+		}
+	}
+	return n
 }
 
 // tooWordy is the words a text or label has, when over MaxLabelWords; else 0.
