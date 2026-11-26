@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { formatResults } from "../../../../scripts/cdp/report.mjs";
 import { failureLabel, isTestCommand, parseTestOutput } from "./testoutput";
 
 const J = (o: Record<string, unknown>) => JSON.stringify(o);
@@ -293,6 +294,26 @@ describe("parseTestOutput final-verify", () => {
             { pkg: "a", test: "x", message: "failed" },
             { pkg: "b", test: "y", message: "why" },
         ]);
+    });
+
+    it("keeps every line of a multi-line step detail that formatResults prints", () => {
+        const printed = formatResults([
+            {
+                name: "final-stage",
+                steps: [
+                    { step: "1. the pane opens", ok: true },
+                    { step: "2. the row", ok: false, detail: "expected a card\nfound a plain block" },
+                ],
+            },
+        ]);
+        expect(parseTestOutput(printed)).toEqual({
+            runner: "final-verify",
+            unit: "test",
+            pass: 1,
+            fail: 1,
+            skip: 0,
+            failures: [{ pkg: "final-stage", test: "2. the row", message: "expected a card\nfound a plain block" }],
+        });
     });
 
     it("reads a scenario that threw as a failure named the scenario threw", () => {

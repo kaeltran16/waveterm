@@ -28,7 +28,8 @@ export function formatResults(scenarioResults) {
                 if (st.ok) pass++;
             }
             lines.push(`  ${st.skip ? "SKIP" : st.ok ? "PASS" : "FAIL"}  ${st.step}`);
-            if (st.detail) lines.push(`        ${st.detail}`);
+            // every line, so a multi-line detail stays one block under its step (testoutput.ts reads it that way)
+            if (st.detail) lines.push(...String(st.detail).split("\n").map((l) => `        ${l}`));
         }
     }
     lines.push(`\n${pass}/${ran} steps passed${skipped > 0 ? `, ${skipped} skipped` : ""}`);

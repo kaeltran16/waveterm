@@ -40,6 +40,21 @@ describe("formatResults", () => {
         expect(out).toContain("SKIP  c");
         expect(out).toContain("1/1 steps passed, 1 skipped");
     });
+    it("indents every line of a step detail under its step", () => {
+        const multi = { name: "s5", steps: [{ step: "e", ok: false, detail: "first\nsecond" }] };
+        expect(formatResults([multi]).split("\n")).toEqual([
+            "",
+            "# s5",
+            "  FAIL  e",
+            "        first",
+            "        second",
+            "",
+            "0/1 steps passed",
+        ]);
+    });
+    it("prints a one-line detail indented eight spaces under its step", () => {
+        expect(formatResults([fail]).split("\n")).toEqual(["", "# s2", "  FAIL  b", "        boom", "", "0/1 steps passed"]);
+    });
     it("says nothing about skips when there are none", () => {
         expect(formatResults([pass, fail])).toContain("1/2 steps passed");
         expect(formatResults([pass, fail])).not.toContain("skipped");
