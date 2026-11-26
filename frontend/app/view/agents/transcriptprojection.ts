@@ -864,6 +864,11 @@ export function extractSubagentSpawns(lines: string[]): SubagentSpawn[] {
         } catch {
             continue;
         }
+        // an api-request-blob replays the request's messages: its copied launch ack has no toolUseResult, so it read as
+        // the spawn finishing and the tree hid the still-running subagent
+        if (rec?.type !== "user" && rec?.type !== "assistant") {
+            continue;
+        }
         const content = rec?.message?.content;
         if (typeof content === "string") {
             applyTaskNotification(spawns, content);

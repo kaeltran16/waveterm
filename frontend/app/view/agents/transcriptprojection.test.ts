@@ -1034,6 +1034,20 @@ describe("extractSubagentSpawns", () => {
         expect(byFlag[0]).toMatchObject({ done: false, failed: false, background: true });
     });
 
+    it("ignores api-request-blob copies of a background spawn and its launch ack", () => {
+        const blob = (role: string, blocks: any[]) =>
+            JSON.stringify({ type: "api-request-blob", hash: "h", message: { role, content: blocks } });
+        const lines = [
+            spawnAgent("b1"),
+            launchAck("b1", { isAsync: true }),
+            blob("assistant", [{ type: "tool_use", id: "b1", name: "Agent", input: { prompt: "dig" } }]),
+            blob("user", [{ type: "tool_result", tool_use_id: "b1", content: "Async agent launched successfully" }]),
+        ];
+        expect(extractSubagentSpawns(lines)).toStrictEqual([
+            { toolUseId: "b1", subagentType: "Explore", prompt: "dig", done: false, failed: false, background: true },
+        ]);
+    });
+
     it("task notification ends a background spawn", () => {
         const lines = [spawnAgent("b1"), launchAck("b1", { isAsync: true }), notification("b1", "completed")];
         expect(extractSubagentSpawns(lines)[0]).toMatchObject({ done: true, failed: false, background: true });
