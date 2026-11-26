@@ -149,6 +149,9 @@ describe("cardBody", () => {
     it("is feed once there are entries", () => {
         expect(cardBody(agent({ state: "idle" }), true)).toBe("feed");
     });
+    it.each([true, false])("is stopped for a stopped worker, entries %s", (hasEntries) => {
+        expect(cardBody(agent({ state: "idle", stopped: true }), hasEntries)).toBe("stopped");
+    });
 });
 
 describe("cockpitCounts", () => {

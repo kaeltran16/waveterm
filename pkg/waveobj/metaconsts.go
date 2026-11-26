@@ -92,6 +92,7 @@ const (
 
 	MetaKey_AgentTranscriptPath              = "agent:transcriptpath"
 	MetaKey_AgentLastCommitTs                = "agent:lastcommitts"
+	MetaKey_AgentLastCommitBranch            = "agent:lastcommitbranch"
 	MetaKey_AgentLastEditTs                  = "agent:lasteditts"
 	MetaKey_AgentTurnStartTs                 = "agent:turnstartts"
 	MetaKey_AgentTranscripts                 = "agent:transcripts"

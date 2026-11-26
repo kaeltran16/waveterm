@@ -55,7 +55,7 @@ import { brainstormAtom, brainstormWaitOf, shownBrainstormFile } from "./brainst
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
-import { CommitTick, useCommitDone } from "./committick";
+import { CommitTick, useCommitMark } from "./committick";
 import { loadRecentSessions, recentSessionsAtom } from "./recentsessionsstore";
 import { renamingRowAtom } from "./rowrenameatom";
 import { RuntimeMark } from "./runtimemark";
@@ -626,7 +626,7 @@ function ParentRow({
     const mark = lead != null ? leadMark(lead.run, agent) : null;
     const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standing = isStandingBy(agent.state, tasks, allSubs);
-    const commitDone = useCommitDone(agent.blockId, agent.state === "idle" && !standing);
+    const commit = useCommitMark(agent.blockId, agent.state === "idle" && !standing);
     const runDone = agentRunDone(agent, standing);
     // undefined until the user folds: open while a task runs, as the subagent fold defaults
     const [tasksOverride, setTasksOverride] = useState<boolean>();
@@ -738,8 +738,8 @@ function ParentRow({
                             title={agent.startError}
                             className="h-[7px] w-[7px] shrink-0 rounded-full bg-error"
                         />
-                    ) : runDone || commitDone ? (
-                        <CommitTick runDone={runDone} />
+                    ) : runDone || commit ? (
+                        <CommitTick runDone={runDone} commit={commit} />
                     ) : (
                         <StatusDot
                             state={agent.state}
