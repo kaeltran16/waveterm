@@ -4,11 +4,16 @@
 // The working line drawn under a working agent's last transcript item: the spinner's verb, the turn's elapsed time,
 // its output tokens and tool count. Derived from the transcript entries, the agent's state, the block's last hook and
 // the parsed spinner row. Pure, unit-tested in nowline.test.ts; nowlineview.tsx renders it. A finished turn's time
-// and count are the fold line's, and the running call's verb and target its step row's.
+// and count are the fold line's, and the running call's verb and target its step row's. The agent's running
+// background subagents join the line (subagentNowLine): named on their own while the parent is idle, a chip at the
+// working line's end while it works.
 
 import type { AgentEntry, AgentState } from "./agentsviewmodel";
 import { fmtDuration } from "./runcompletion";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import type { SpinnerRead } from "./spinnerrow";
+import { runningBackground, subagentElapsedMs } from "./subagentmodel";
+import { stepTitle } from "./transcriptlayout";
 
 // a hook that opens a turn later than the transcript's turn start by more than this is a turn not yet transcribed
 export const TURN_SKEW_MS = 2000;
@@ -44,6 +49,52 @@ export type NowLine =
           tokens?: string;
           tools: number;
       };
+
+export type SubagentNowLine =
+    | { kind: "hidden" }
+    // the parent is idle: the most recently started one named; count only with more than one running
+    | {
+          kind: "named";
+          sub: SubagentVM;
+          call?: { title: string; mono?: string };
+          elapsedMs?: number;
+          count?: number;
+      }
+    // the parent works: a chip at the working line's end that opens the most recent one
+    | { kind: "chip"; sub: SubagentVM; count: number };
+
+/** The parent's running background subagents in its now line, decided by whether the parent's working line shows. */
+export function subagentNowLine(subs: SubagentVM[], parentWorking: boolean, now: number): SubagentNowLine {
+    const running = runningBackground(subs);
+    if (running.length === 0) {
+        return { kind: "hidden" };
+    }
+    const sub = running[0];
+    if (parentWorking) {
+        return { kind: "chip", sub, count: running.length };
+    }
+    const line: SubagentNowLine = { kind: "named", sub };
+    if (sub.currentCall != null) {
+        const { title, mono } = stepTitle(sub.currentCall);
+        line.call = mono == null ? { title } : { title, mono };
+    }
+    const elapsedMs = subagentElapsedMs(sub, now);
+    if (elapsedMs != null) {
+        line.elapsedMs = elapsedMs;
+    }
+    if (running.length > 1) {
+        line.count = running.length;
+    }
+    return line;
+}
+
+export function subagentsRunningText(n: number): string {
+    return `${n} subagents running`;
+}
+
+export function subagentChipText(n: number): string {
+    return n === 1 ? "1 subagent" : `${n} subagents`;
+}
 
 /** The turn that starts at the last user entry or user-typed command; null when there is none. */
 export function summarizeTurn(entries: AgentEntry[]): TurnSummary | null {
