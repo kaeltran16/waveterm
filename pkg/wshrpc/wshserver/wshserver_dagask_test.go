@@ -296,6 +296,9 @@ func TestDagAnswerRecordsChildAnsweredOnce(t *testing.T) {
 	if rows[0]["askid"] != "ask-answered" || rows[0]["taskid"] != "t-0" {
 		t.Fatalf("answered row must carry the raised ask id: %+v", rows[0])
 	}
+	if rows[0]["answer"] != "B" {
+		t.Fatalf("answered row must say what was answered, got %+v", rows[0])
+	}
 	// the run's question card would otherwise go on showing the answered question
 	if got := published(); len(got) != 1 || got[0] {
 		t.Fatalf("an answer must tell the run its question queue changed once, after the question left it; pending at each publish: %v", got)

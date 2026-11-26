@@ -63,16 +63,21 @@ func askRow(t AskTarget) map[string]any {
 }
 
 // RecordAskLifecycle appends one closing ask lifecycle row: child-answered when any path delivers an
-// answer, child-ask-cleared when it goes away unanswered, with detail the clear reason bounded by
-// MaxAskSummaryLen. The raise records through recordChildAsk. Best-effort: a target with nothing to
-// attach to, or a failed append, records nothing and never fails the ask path.
+// answer, child-ask-cleared when it goes away unanswered, with detail the answer given or the clear reason,
+// bounded by MaxAskSummaryLen. The raise records through recordChildAsk. Best-effort: a target with nothing
+// to attach to, or a failed append, records nothing and never fails the ask path.
 func RecordAskLifecycle(ctx context.Context, t AskTarget, kind, detail string) {
 	d := askRow(t)
 	if d == nil {
 		return
 	}
-	if detail != "" && kind == waveobj.RunEventKindChildAskCleared {
-		d["reason"] = truncateText(detail, MaxAskSummaryLen)
+	if detail != "" {
+		switch kind {
+		case waveobj.RunEventKindChildAskCleared:
+			d["reason"] = truncateText(detail, MaxAskSummaryLen)
+		case waveobj.RunEventKindChildAnswered:
+			d["answer"] = truncateText(detail, MaxAskSummaryLen)
+		}
 	}
 	appendRunEvent(ctx, t.ChannelId, t.RunID, kind, nil, d)
 }

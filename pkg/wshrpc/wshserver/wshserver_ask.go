@@ -221,7 +221,7 @@ func recordAskTransition(oref, askId, kind, detail string) {
 // nothing, so without this an answered question stayed on screen until it aged out. The publish goes
 // first: recordAskTransition walks block -> run -> dag against the store, and the dismissal must not
 // wait on it.
-func RecordAskAnswered(oref, askId string) {
+func RecordAskAnswered(oref, askId, answer string) {
 	publishAgentAsk(baseds.AgentAskData{ORef: oref, AskId: askId, Cleared: true})
-	recordAskTransition(oref, askId, waveobj.RunEventKindChildAnswered, "")
+	recordAskTransition(oref, askId, waveobj.RunEventKindChildAnswered, answer)
 }

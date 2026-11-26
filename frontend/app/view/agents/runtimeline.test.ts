@@ -129,6 +129,9 @@ describe("eventText", () => {
         expect(eventText(eventWith("3", 1, "child-ask", { taskid: "t-4", question: "hide it?" }))).toBe(
             "t-4 asked · hide it?"
         );
+        expect(eventText(eventWith("3a", 1, "child-answered", { taskid: "t-4", answer: "yes" }))).toBe(
+            "t-4 answered · yes"
+        );
         expect(eventText(eventWith("4", 1, "task-merged", { taskid: "t-1" }))).toBe("Task merged · t-1");
         expect(eventText(eventWith("5", 1, "dag-done"))).toBe("DAG complete");
         expect(

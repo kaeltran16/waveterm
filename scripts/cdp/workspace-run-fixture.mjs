@@ -54,6 +54,7 @@ export const OPTIONS = ["Yes, the same URL", "No, different URLs"];
 export const ASK_ID = "fx-workspace-run-ask";
 // t-1's question, which the lead answered
 export const ANSWERED_Q = 'Count a bookmark with no tags under an "untagged" key?';
+export const ANSWERED_A = "Yes, under untagged";
 export const FORWARD_NOTE = "a scope call on trailing slashes";
 export const T6_FAIL = "--- FAIL: TestPocketImport/tags (0.02s)\npocket_test.go:48: got 3 bookmarks, want 4\nFAIL\tlinkshelf/internal/importer\t0.41s";
 
@@ -278,7 +279,7 @@ function eventsOf(now, finished) {
         ev(5, "task-spawned", { taskid: "t-5" }),
         ev(5, "task-spawned", { taskid: "t-6" }),
         ev(6, "child-ask", { taskid: "t-1", question: ANSWERED_Q }),
-        ev(7, "child-answered", { taskid: "t-1" }),
+        ev(7, "child-answered", { taskid: "t-1", answer: ANSWERED_A }),
         ev(7.6, "task-done", { taskid: "t-1" }),
         ev(7.8, "task-review-passed", { taskid: "t-1" }),
         ev(8, "task-merged", { taskid: "t-1" }),

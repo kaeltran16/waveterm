@@ -33,7 +33,7 @@ const KIND_TITLE: Record<string, string> = {
     "task-failed": "Task failed",
     "dag-cancelled": "DAG cancelled",
     "child-ask": "Child asked a question",
-    "child-answered": "Child answered",
+    "child-answered": "Question answered",
     "child-ask-cleared": "Question cleared",
     "task-merge-started": "Merge started",
     "task-merge-blocked": "Merge blocked",
@@ -240,6 +240,7 @@ export function eventText(event: RunEvent): string {
         by?: string;
         note?: string;
         question?: string;
+        answer?: string;
         text?: string;
         held?: number;
         reason?: string;
@@ -266,7 +267,7 @@ export function eventText(event: RunEvent): string {
         case "child-ask":
             return [`${task} asked`, d?.question].filter(Boolean).join(" · ");
         case "child-answered":
-            return `${task} answered`;
+            return [`${task} answered`, d?.answer].filter(Boolean).join(" · ");
         case "task-told":
             return [`you told ${task}`, d?.text?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
         case "task-lead-told":
