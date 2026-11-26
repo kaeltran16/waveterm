@@ -35,6 +35,7 @@ const VERB_BY_TOOL: Record<string, string> = {
     Grep: "grep",
     Glob: "glob",
     Task: "spawned",
+    Agent: "spawned",
     Skill: "skill",
     AskUserQuestion: "asked",
 };

@@ -184,11 +184,12 @@ function isBareCommand(action: AgentActionEntry): boolean {
 }
 
 // open: an opened bare command shows its whole command, wrapped, since its body leaves it out
-// the projection's verb for an Agent call (readableVerb, as no verb is mapped for it); a Task spawn reads "Spawned"
-const AGENT_VERB = "agent";
+// the projection's verb for an Agent or Task call
+const SPAWN_VERB = "spawned";
 
 // background: the step spawned a background subagent, tagged after its description
-// subagentType: the linked subagent's type, which heads an Agent step in place of the generic "Agent"
+// subagentType: the linked subagent's type, which heads a spawn step in place of "Spawned", its description after it
+// drawn mono
 function StepTitle({
     step,
     compact,
@@ -206,7 +207,7 @@ function StepTitle({
 }) {
     const named = stepTitle(step.action);
     const { title, mono, subject } =
-        subagentType && step.action.verb === AGENT_VERB ? { ...named, title: subagentType } : named;
+        subagentType && step.action.verb === SPAWN_VERB ? { title: subagentType, mono: named.subject } : named;
     const head = subject != null && title.endsWith(subject) ? title.slice(0, title.length - subject.length) : title;
     const answer = askAnswer(step.action);
     const totals = editTotals(step.action);

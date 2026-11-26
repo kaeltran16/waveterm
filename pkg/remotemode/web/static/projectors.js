@@ -185,6 +185,7 @@ var VERB_BY_TOOL = {
   Grep: "grep",
   Glob: "glob",
   Task: "spawned",
+  Agent: "spawned",
   Skill: "skill",
   AskUserQuestion: "asked"
 };

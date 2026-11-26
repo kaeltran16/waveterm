@@ -32,6 +32,9 @@ const WANT_STATES = {
     [S.find.agentId]: "working",
 };
 
+// the ended fixture turn's Agent calls left in its fold: the two held running background ones draw after it
+const FOLDED_SPAWNS = [S.tests, S.find].length;
+
 const FEED = `document.querySelector("[data-rendered-feed]")`;
 // the Open on a subagent's finish notice, drawn as either notification row
 const NOTICE_OPEN = "[data-task-notification] [data-subagent-open], [data-notice] [data-subagent-open]";
@@ -186,8 +189,10 @@ export default function (_kit) {
                 const after4 = await h.ev(AFTER_FOLD);
                 await h.shot("cdp-shots/transcript-subagents-step-4-held.png");
                 rec(
-                    "4. the ended turn folds into Worked for, both running background steps right under the fold line",
-                    heldBoth(after4),
+                    "4. the ended turn folds into Worked for, counting its folded Agent calls as spawned agents, both running background steps right under the fold line",
+                    heldBoth(after4) &&
+                        after4.line.includes(`spawned ${FOLDED_SPAWNS} agents`) &&
+                        !after4.line.includes("other tool"),
                     JSON.stringify(after4)
                 );
 

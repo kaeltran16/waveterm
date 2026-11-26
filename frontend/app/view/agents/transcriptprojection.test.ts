@@ -76,14 +76,27 @@ describe("projectTranscript", () => {
         expect(projectTranscript(["garbage", "{bad"])).toEqual([]);
     });
 
-    it("maps unknown tools to a spaced lowercase verb and the salient input", () => {
+    it.each([
+        [
+            "an unknown tool to a spaced lowercase verb",
+            "WebFetch",
+            { pattern: "abc" },
+            { verb: "web fetch", target: "abc" },
+        ],
+        [
+            "an Agent call to a spawn",
+            "Agent",
+            { subagent_type: "Explore", description: "Find it", prompt: "p" },
+            { verb: "spawned", target: "Find it", toolUseId: "x" },
+        ],
+    ])("maps %s and the salient input", (_case, name, input, want) => {
         const out = projectTranscript([
             JSON.stringify({
                 type: "assistant",
-                message: { content: [{ type: "tool_use", id: "x", name: "WebFetch", input: { pattern: "abc" } }] },
+                message: { content: [{ type: "tool_use", id: "x", name, input }] },
             }),
         ]);
-        expect(out).toEqual([{ kind: "action", verb: "web fetch", target: "abc", pending: true }]);
+        expect(out).toEqual([{ kind: "action", pending: true, ...want }]);
     });
 
     it("emits an action with no outcome when tool_use has no id (result can't be matched)", () => {
