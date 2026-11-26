@@ -1022,6 +1022,30 @@ func TestDrawerEditsTheDrawingInView(t *testing.T) {
 	}
 }
 
+func TestDrawerDeliversAGraph(t *testing.T) {
+	const graph = `{"direction":"LR","nodes":[{"id":"a","label":"A"},{"id":"b","label":"B"}],"edges":[{"from":"a","to":"b","label":"go"}]}`
+	for _, c := range []struct{ name, answer, drawing, wantDrawing string }{
+		{"a new drawing", `{"title":"Flow","graph":` + graph + `}`, "", ""},
+		{"an edit", `{"title":"Flow, again","edit":true,"graph":` + graph + `}`, "f1", "f1"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFake(reply(c.answer))
+			f.files["b1"] = framedSceneFile
+			d := New(f.deps())
+			if _, err := d.Ask(board, wshrpc.BoardTurn{Question: "Draw the flow.", DrawingId: c.drawing}); err != nil {
+				t.Fatal(err)
+			}
+			got := settled(t, f, d).Turns[0]
+			if got.State != StateAnswered || got.Added != 3 {
+				t.Errorf("turn: %+v", got)
+			}
+			if len(f.delivered) != 1 || f.delivered[0].Graph != graph || f.delivered[0].Add != "" || f.delivered[0].DrawingId != c.wantDrawing {
+				t.Errorf("delivered: %+v", f.delivered)
+			}
+		})
+	}
+}
+
 // an agent's request arrives with no view, so it is always a new drawing, even on a board with drawings
 func TestDrawerAgentRequestsMakeNewDrawings(t *testing.T) {
 	brief := &wshrpc.BoardBriefing{From: "claude · waveterm", Text: "facts", Ask: "Draw the store."}

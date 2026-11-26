@@ -21,6 +21,31 @@ func mustScene(t *testing.T, file string, selected []string) Scene {
 	return s
 }
 
+// the example replies that carry a graph are the format the checker parses: each must be a usable answer, one a new
+// drawing and one an edit
+func TestPromptGraphExamples(t *testing.T) {
+	prompt := firstPrompt(firstInput{BoardName: "b"}, turnInput{Question: "q"})
+	var edits, drawings int
+	for _, line := range strings.Split(prompt, "\n") {
+		if !strings.HasPrefix(line, "{") || !strings.Contains(line, `"graph":`) {
+			continue
+		}
+		// the edit example's drawing is the scene's frame f1; a new drawing ignores it
+		a, err := CheckAnswer(line, checkScene, false, "f1")
+		if err != nil || a.Graph == "" {
+			t.Errorf("example reply is not a usable graph answer: %v\n%s", err, line)
+		}
+		if a.Edit {
+			edits++
+		} else {
+			drawings++
+		}
+	}
+	if edits == 0 || drawings == 0 {
+		t.Errorf("the prompt needs a graph example for a new drawing and for an edit, found %d and %d", drawings, edits)
+	}
+}
+
 func TestPrompt(t *testing.T) {
 	agent := wshrpc.BoardSource{Kind: "agent", Ref: "t1", Title: "claude · waveterm"}
 	handoff := &wshrpc.BoardHandoff{FromBoardId: "b0", FromName: "Data model", Summary: "They asked how wavesrv stores boards.", Shapes: 14}

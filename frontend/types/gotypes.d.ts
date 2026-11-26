@@ -331,6 +331,7 @@ declare global {
         turnid: string;
         add?: string;
         update?: string;
+        graph?: string;
         remove?: string[];
         title?: string;
         drawingid?: string;
