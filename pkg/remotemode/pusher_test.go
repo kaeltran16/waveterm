@@ -87,6 +87,11 @@ func TestPushNotes(t *testing.T) {
 		t.Errorf("unknown kind: notes = %+v, want body %q", notes, pusherWaitingWord)
 	}
 
+	orphan := WaitingList{Shown: []WaitingShown{{Key: "worker-orphan:t1", Kind: jarvis.AttentionWorkerOrphan, Title: "fix-auth"}}}
+	if notes := pushNotes(map[string]bool{}, orphan); len(notes) != 1 || notes[0].Body != "Parent ended" {
+		t.Errorf("orphaned worker: notes = %+v, want body %q", notes, "Parent ended")
+	}
+
 	all := pushNotes(map[string]bool{}, second)
 	raw, _ := json.Marshal(all)
 	if strings.Contains(string(raw), pusherTestQuestionText) || strings.Contains(string(raw), pusherTestReason) {

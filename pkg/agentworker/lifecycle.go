@@ -160,8 +160,9 @@ func blockTranscript(blockId string) string {
 	return block.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
 }
 
-// settleLocked sends an idle worker's owed notice and stops it, once no worker of its own and no background task it
-// started still runs: a stopped worker would have no process to receive their notices, and a stop kills its tasks.
+// settleLocked sends an idle worker's owed notice, or raises it as an orphan when its parent's tab is gone, and stops
+// it, once no worker of its own and no background task it started still runs: a stopped worker would have no process
+// to receive their notices, and a stop kills its tasks.
 func settleLocked(ctx context.Context, tab *waveobj.Tab, blockId string) {
 	delete(standingBy, blockId)
 	block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
@@ -180,9 +181,14 @@ func settleLocked(ctx context.Context, tab *waveobj.Tab, blockId string) {
 		logErr("clearing the owed notice of worker %s: %v", tab.OID, err)
 		return
 	}
-	parentTab, parentBlock := loadTab(ctx, ParentOf(tab))
-	if parentTab == nil {
-		return // the parent's tab is closed: the notice is dropped
+	parentId := ParentOf(tab)
+	parentTab, parentBlock := loadTab(ctx, parentId)
+	if parentGone(parentTab, parentId) {
+		raiseOrphan(ctx, tab, block)
+		if err := stopLocked(ctx, tab.OID, false); err != nil {
+			logErr("stopping orphaned worker %s: %v", tab.OID, err)
+		}
+		return
 	}
 	if !agentLive(parentTab.OID, parentBlock) {
 		if err := setBlockMeta(ctx, blockId, MetaNoticeHeld, true); err != nil {
@@ -211,8 +217,7 @@ func deliverHeldLocked(ctx context.Context, parentTabId, parentBlock string) {
 			continue
 		}
 		deliverNotice(parentBlock, agentmsg.WorkerNotice(child.Name, child.OID))
-		if shellRunning(blockId) && orchestrate.LatestAgentStatus(blockId, child.OID).State == baseds.AgentState_Idle &&
-			!backgroundTasksRunning(child, block) {
+		if idleAndStoppable(child, block) {
 			if err := stopLocked(ctx, child.OID, false); err != nil {
 				logErr("stopping worker %s after its held notice: %v", child.OID, err)
 			}

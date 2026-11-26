@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentmsg"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
@@ -145,8 +144,13 @@ func TestIdleWorkerNotifiesItsRunningParentOnceThenStops(t *testing.T) {
 // appendAnswer writes a claude answer recorded at `at` to the transcript.
 func appendAnswer(t *testing.T, path string, at time.Time) {
 	t.Helper()
-	appendLine(t, path, fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"role":"assistant","content":[{"type":"text","text":"PONG"}]}}`,
-		at.UTC().Format(time.RFC3339Nano)))
+	appendAnswerText(t, path, at, "PONG")
+}
+
+func appendAnswerText(t *testing.T, path string, at time.Time, text string) {
+	t.Helper()
+	appendLine(t, path, fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"role":"assistant","content":[{"type":"text","text":%q}]}}`,
+		at.UTC().Format(time.RFC3339Nano), text))
 }
 
 // appendShellTask writes the start of a claude background shell task, and appendShellTaskEnd its finish notification.
@@ -369,22 +373,6 @@ func TestNoticeHeldForAParentWithNoProcessIsDeliveredOnceWhenItRuns(t *testing.T
 	}
 	if armed(t, workerBlock) {
 		t.Error("the worker is still armed after its held notice went out")
-	}
-}
-
-func TestNoticeForAClosedParentIsDropped(t *testing.T) {
-	f := fakeLife(t)
-	_, workerBlock := f.agent(t, uuid.NewString(), true)
-
-	f.report(t, workerBlock, baseds.AgentState_Working, baseds.AgentHook_UserPromptSubmit)
-	f.report(t, workerBlock, baseds.AgentState_Idle, baseds.AgentHook_Stop)
-
-	if len(f.delivered) != 0 {
-		t.Errorf("delivered %+v for a parent whose tab is gone", f.delivered)
-	}
-	meta := blockMeta(t, workerBlock)
-	if meta.GetBool(MetaNoticeHeld, false) || meta.GetBool(MetaNoticeOwed, false) {
-		t.Errorf("a dropped notice left owed=%v held=%v", meta.GetBool(MetaNoticeOwed, false), meta.GetBool(MetaNoticeHeld, false))
 	}
 }
 
