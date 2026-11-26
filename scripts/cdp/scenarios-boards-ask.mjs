@@ -112,6 +112,13 @@ const WORKER_GRAPH = {
         { from: "failed", to: "done", label: "give up" },
     ],
 };
+// a follow-up on it as an edit with a graph: the lifecycle plus a queued state; its title differs, and the frame's
+// must not follow it (spec D8)
+const QUEUED_TITLE = "Add the queued state";
+const QUEUED_GRAPH = {
+    nodes: [...WORKER_GRAPH.nodes, { id: "queued", label: "queued" }],
+    edges: [...WORKER_GRAPH.edges, { from: "queued", to: "idle", label: "enqueue" }],
+};
 
 const SURFACE = `document.querySelector("[data-boards-surface]")`;
 const HEADER = `${SURFACE}?.querySelector("[data-surface-toolbar]")`;
@@ -1382,14 +1389,46 @@ export const boardsAsk = {
                 `const L = await mod("app/view/boards/boardlayout.ts");
                 const els = app().scene.getNonDeletedElements().filter((e) => e.frameId === ${q(chip.id)});
                 const labelled = (type) => els.filter((e) => e.type === type && els.some((t) => t.containerId === e.id)).length;
-                return { boxes: labelled("rectangle"), arrows: labelled("arrow"), overlaps: L.textOverlaps(els) };`
+                return {
+                    boxes: labelled("rectangle"), arrows: labelled("arrow"), overlaps: L.textOverlaps(els), ids: els.map((e) => e.id),
+                };`
             );
             await h.shot(SHOT("G1", "laid-out"));
+            ctx.graphDrawing = { boardId: made.info.id, chip, ids: landed.ids };
             const ok =
                 landed.boxes === WORKER_GRAPH.nodes.length &&
                 landed.arrows === WORKER_GRAPH.edges.length &&
                 landed.overlaps.length === 0;
-            return { ok, detail: q({ chip, landed }) };
+            return { ok, detail: q({ chip, landed: { ...landed, ids: landed.ids.length } }) };
+        });
+
+        await run("22. a graph edit redraws the drawing in view: the lifecycle plus a queued state, fed as an edit of step 21's drawing, replaces its shapes in the same frame, laid out with no text overlapping", async () => {
+            const was = ctx.graphDrawing;
+            if (was == null) throw new Error("step 21 left no graph drawing to edit");
+            await feedAnswer(h, was.boardId, "fed-graph-edit", { title: QUEUED_TITLE, drawingid: was.chip.id, graph: QUEUED_GRAPH });
+            const chips = await readRow(h);
+            const redrawn = await page(
+                h,
+                `const L = await mod("app/view/boards/boardlayout.ts");
+                const live = app().scene.getNonDeletedElements();
+                const els = live.filter((e) => e.frameId === ${q(was.chip.id)});
+                const labelled = (type) => els.filter((e) => e.type === type && els.some((t) => t.containerId === e.id)).length;
+                const liveIds = new Set(live.map((e) => e.id));
+                return {
+                    boxes: labelled("rectangle"), arrows: labelled("arrow"), overlaps: L.textOverlaps(els),
+                    stale: ${q(was.ids)}.filter((id) => liveIds.has(id)),
+                };`
+            );
+            await h.shot(SHOT("G2", "redrawn"));
+            const ok =
+                chips.length === 1 &&
+                chips[0].id === was.chip.id &&
+                chips[0].title === was.chip.title &&
+                redrawn.boxes === QUEUED_GRAPH.nodes.length &&
+                redrawn.arrows === QUEUED_GRAPH.edges.length &&
+                redrawn.stale.length === 0 &&
+                redrawn.overlaps.length === 0;
+            return { ok, detail: q({ was: was.chip, chips, redrawn }) };
         });
 
         return steps;
