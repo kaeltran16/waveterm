@@ -293,3 +293,13 @@ export function writeTranscript(dir, name, lines) {
 export function writeSubagent(dir, name, agentId, lines) {
     return writeTranscript(join(dir, name, "subagents"), `agent-${agentId}`, lines);
 }
+
+// the meta file Claude Code writes beside a child's transcript: agentType, description, toolUseId (the spawning Agent
+// call), requestShape ("background" or "foreground"), finished, stoppedByUser
+export function writeSubagentMeta(dir, name, agentId, meta) {
+    const subDir = join(dir, name, "subagents");
+    mkdirSync(subDir, { recursive: true });
+    const path = join(subDir, `agent-${agentId}.meta.json`);
+    writeFileSync(path, JSON.stringify(meta));
+    return path;
+}

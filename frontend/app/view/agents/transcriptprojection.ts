@@ -4,7 +4,7 @@
 // Pure projection of a Claude Code transcript (JSONL lines) into AgentEntry[].
 // No React, no Wave runtime imports. Deterministic; no LLM (spec §5.3).
 
-import type { AgentEntry, CardTask } from "./agentsviewmodel";
+import type { AgentActionEntry, AgentEntry, CardTask } from "./agentsviewmodel";
 import {
     answerAsk,
     askQuestions,
@@ -35,6 +35,7 @@ const VERB_BY_TOOL: Record<string, string> = {
     Grep: "grep",
     Glob: "glob",
     Task: "spawned",
+    Agent: "spawned",
     Skill: "skill",
     AskUserQuestion: "asked",
 };
@@ -255,6 +256,12 @@ function isSubagentFinish(content: string, actionById: Map<string, ActionEntry>)
     return tool != null ? SUBAGENT_TOOLS.has(tool) : content.includes("<result>");
 }
 
+// a subagent finish carries the id of the Agent call it ends, which links it to that call's subagent
+function withFinishId(note: NotificationEntry, content: string): NotificationEntry {
+    const id = note.source === "subagent" ? notificationTag(content, "tool-use-id") : undefined;
+    return id ? { ...note, toolUseId: id } : note;
+}
+
 // a `!` command's two user records in Claude Code's bash mode: the input, then its output
 const BASH_INPUT_RE = /^<bash-input>([^]*)<\/bash-input>$/;
 const BASH_OUTPUT_RE = /^<bash-stdout>([^]*?)<\/bash-stdout>\s*<bash-stderr>([^]*?)<\/bash-stderr>$/;
@@ -307,7 +314,7 @@ function applyCommandOutput(entries: AgentEntry[], content: string): boolean {
 function parseNotice(prompt: string): NotificationEntry | null {
     const structured = prompt.includes("<summary>") ? parseTaskNotification(prompt) : null;
     if (structured != null) {
-        return { ...structured, notice: true };
+        return { ...withFinishId(structured, prompt), notice: true };
     }
     const m = /<task-notification>([^]*?)<\/task-notification>/.exec(prompt);
     const summary = (m ? m[1] : prompt).trim();
@@ -504,6 +511,9 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     if (SHELL_TOOLS.has(block.name) && typeof block.input?.command === "string") {
                         action.command = block.input.command;
                     }
+                    if (SUBAGENT_TOOLS.has(block.name) && typeof block.id === "string") {
+                        action.toolUseId = block.id;
+                    }
                     const cwd = typeof rec.cwd === "string" ? rec.cwd : undefined;
                     const filePath = relativePath(String(block.input?.file_path ?? ""), cwd);
                     if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
@@ -574,11 +584,16 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 if (note != null) {
                     // its own record starts a turn, so the turn's time starts at it. The call it names, when in view,
                     // says whether a subagent finished, which its summary alone may not
-                    entries.push({
-                        ...note,
-                        ...recTs(rec),
-                        ...(isSubagentFinish(content, actionById) ? { source: "subagent" as const } : {}),
-                    });
+                    entries.push(
+                        withFinishId(
+                            {
+                                ...note,
+                                ...recTs(rec),
+                                ...(isSubagentFinish(content, actionById) ? { source: "subagent" as const } : {}),
+                            },
+                            content
+                        )
+                    );
                 } else if (applyCommandOutput(entries, content)) {
                     // handled: the output sits under its command, or draws nothing. Never a user bubble.
                 } else if (opensWith(content, "<local-command-stdout>")) {
@@ -760,6 +775,19 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
     return entries;
 }
 
+/** Pure: a subagent's running call (from its listing) as the pending action its step row would draw, so it is named
+ *  by the same verb, target and title code. */
+export function subagentCallEntry(call: SubagentCall): AgentActionEntry | undefined {
+    const timestamp = call.startedatms ? new Date(call.startedatms).toISOString() : undefined;
+    const rec = {
+        type: "assistant",
+        timestamp,
+        message: { content: [{ type: "tool_use", id: "current", name: call.name, input: call.input ?? {} }] },
+    };
+    const [entry] = projectTranscriptRecords([rec]);
+    return entry?.kind === "action" ? entry : undefined;
+}
+
 /** Pure: the task list from the LATEST TodoWrite tool_use in the transcript, or undefined if the
  *  agent never wrote a todo list. `completed` -> done; every other status is not-done. Malformed
  *  todo entries (missing/non-string content) are skipped; an empty todo list yields []. */
@@ -820,6 +848,7 @@ export interface SubagentSpawn {
     toolUseId: string;
     subagentType: string;
     prompt: string;
+    description?: string;
     done: boolean;
     failed: boolean;
     background: boolean; // its tool_result is only the launch ack; a <task-notification> ends it
@@ -884,6 +913,7 @@ export function extractSubagentSpawns(lines: string[]): SubagentSpawn[] {
                     toolUseId: block.id,
                     subagentType: typeof input.subagent_type === "string" ? input.subagent_type : "",
                     prompt: typeof input.prompt === "string" ? input.prompt : "",
+                    ...(typeof input.description === "string" ? { description: input.description } : {}),
                     done: false,
                     failed: false,
                     background: false,

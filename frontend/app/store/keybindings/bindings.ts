@@ -490,7 +490,10 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 const inTerm = active?.closest?.(".cockpit-focus-pane") != null;
                 const surface = active?.closest?.("[data-cockpit-surface-wrap]");
                 const inSurface = surface != null;
-                const renderedShown = surface?.querySelector("[data-rendered-view]") != null;
+                // Rendered stays mounted, invisible, under an open subagent, whose view is not the parent's session
+                const renderedShown =
+                    surface?.querySelector("[data-rendered-view]")?.checkVisibility({ visibilityProperty: true }) ===
+                    true;
                 if (!ctrlCReachesSession(inTerm, inSurface, focusedShown(model) != null, renderedShown)) {
                     return false;
                 }

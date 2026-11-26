@@ -47,9 +47,11 @@ import {
 } from "./renderedmode";
 import type { ReplyFileLink } from "./replyfilelinks";
 import { getLastHookAtom, getPromptBoundaryAtom } from "./session-models/agentstatusstore";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import { ShowEarlier } from "./showearlier";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { stopAgent } from "./stopsend";
+import { subagentsByIdAtom } from "./subagentsstore";
 import { BODY_BUTTON } from "./tooldetailbody";
 import { useTranscriptContext, type TranscriptContext } from "./transcriptcontext";
 import { lastCanvasReveal } from "./transcriptlayout";
@@ -274,6 +276,14 @@ function useQueuedFoot(agent: AgentVM, entries: AgentEntry[]): FootItem[] {
     );
 }
 
+// the agent's subagents for its timeline. Each listing (every 2s while one works) correlates a fresh list, so it is kept
+// by content: the memoized timeline re-renders only when a subagent's facts change
+function useStableSubagents(agentId: string): SubagentVM[] | undefined {
+    const subs = useAtomValue(subagentsByIdAtom)[agentId];
+    const key = subs == null ? "" : JSON.stringify(subs);
+    return useMemo(() => subs, [key]);
+}
+
 export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const entries = useAtomValue(entriesAtomFor(agent.id));
     const marks = useAtomValue(permissionLogAtom(agent.id));
@@ -305,6 +315,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
             </>
         );
     }, [foot, working]);
+    const subagents = useStableSubagents(agent.id);
     const rowOf = useEntryRowView(agent);
     const pin = usePinnedPrompt(scrollRef, entries, ctx, rowOf);
     const composerRef = useRef<AgentComposerHandle>(null);
@@ -355,6 +366,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                                             ctx={timelineCtx}
                                             tail={tail}
                                             entryRow={entryRow}
+                                            subagents={subagents}
                                         />
                                     </FileLinkContext.Provider>
                                 </div>

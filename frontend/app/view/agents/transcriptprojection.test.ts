@@ -76,14 +76,27 @@ describe("projectTranscript", () => {
         expect(projectTranscript(["garbage", "{bad"])).toEqual([]);
     });
 
-    it("maps unknown tools to a spaced lowercase verb and the salient input", () => {
+    it.each([
+        [
+            "an unknown tool to a spaced lowercase verb",
+            "WebFetch",
+            { pattern: "abc" },
+            { verb: "web fetch", target: "abc" },
+        ],
+        [
+            "an Agent call to a spawn",
+            "Agent",
+            { subagent_type: "Explore", description: "Find it", prompt: "p" },
+            { verb: "spawned", target: "Find it", toolUseId: "x" },
+        ],
+    ])("maps %s and the salient input", (_case, name, input, want) => {
         const out = projectTranscript([
             JSON.stringify({
                 type: "assistant",
-                message: { content: [{ type: "tool_use", id: "x", name: "WebFetch", input: { pattern: "abc" } }] },
+                message: { content: [{ type: "tool_use", id: "x", name, input }] },
             }),
         ]);
-        expect(out).toEqual([{ kind: "action", verb: "web fetch", target: "abc", pending: true }]);
+        expect(out).toEqual([{ kind: "action", pending: true, ...want }]);
     });
 
     it("emits an action with no outcome when tool_use has no id (result can't be matched)", () => {
@@ -349,6 +362,7 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
                 status: "completed",
                 result: "Here is the report.",
                 source: "subagent",
+                toolUseId: "toolu_1",
             },
         ]);
     });
@@ -383,8 +397,21 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
 
         it("keeps a killed subagent, which carries no result, a subagent finish", () => {
             expect(notes([call("toolu_a", "Agent"), finish("toolu_a", "killed", 'Agent "x" was stopped')])).toEqual([
-                { kind: "notification", summary: 'Agent "x" was stopped', status: "killed", source: "subagent" },
+                {
+                    kind: "notification",
+                    summary: 'Agent "x" was stopped',
+                    status: "killed",
+                    source: "subagent",
+                    toolUseId: "toolu_a",
+                },
             ]);
+        });
+
+        it("tags an Agent or Task call with its tool-use id, and leaves other calls untagged", () => {
+            const ids = projectTranscript([call("toolu_a", "Agent"), call("toolu_t", "Task"), call("toolu_b", "Bash")])
+                .filter((e) => e.kind === "action")
+                .map((e) => (e.kind === "action" ? e.toolUseId : null));
+            expect(ids).toEqual(["toolu_a", "toolu_t", undefined]);
         });
     });
 

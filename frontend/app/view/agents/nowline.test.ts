@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import type { AgentEntry, AgentState } from "./agentsviewmodel";
+import type { AgentActionEntry, AgentEntry, AgentState } from "./agentsviewmodel";
 import {
     GLYPH_CYCLE_MS,
     glyphPose,
@@ -13,12 +13,16 @@ import {
     SPINNER_FRAME_MS,
     SPINNER_FRAMES,
     spinnerGlyph,
+    subagentChipText,
+    subagentNowLine,
+    subagentsRunningText,
     summarizeTurn,
     TURN_SKEW_MS,
     turnAwaitingTranscript,
     type NowLine,
 } from "./nowline";
 import { fmtDuration } from "./runcompletion";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import type { SpinnerRead } from "./spinnerrow";
 
 const T0 = 1_800_000_000_000;
@@ -238,5 +242,50 @@ describe("turnAwaitingTranscript", () => {
         ["no record carries a time", [user(), done(), msg()], submit(T0), false],
     ])("%s", (_name, entries, hook, want) => {
         expect(turnAwaitingTranscript(entries as AgentEntry[], hook)).toBe(want);
+    });
+});
+
+describe("subagentNowLine", () => {
+    const NOW = T0 + 600_000;
+    const grep: AgentActionEntry = { kind: "action", verb: "grep", target: "parsePlan(", pending: true };
+    const sub = (over: Partial<SubagentVM>): SubagentVM => ({
+        id: "s",
+        type: "general-purpose",
+        state: "working",
+        background: true,
+        ...over,
+    });
+    const older = sub({ id: "research", startedAtMs: NOW - 290_000 });
+    const newer = sub({ id: "audit", startedAtMs: NOW - 240_000, currentCall: grep });
+
+    it.each([
+        ["no subagents", []],
+        ["only a foreground one", [sub({ background: false, startedAtMs: NOW - 1_000 })]],
+        ["only a finished background one", [sub({ state: "done", startedAtMs: NOW - 1_000 })]],
+    ])("is hidden with %s", (_name, subs) => {
+        expect(subagentNowLine(subs as SubagentVM[], false, NOW)).toEqual({ kind: "hidden" });
+        expect(subagentNowLine(subs as SubagentVM[], true, NOW)).toEqual({ kind: "hidden" });
+    });
+
+    it("names the one running background subagent while the parent is idle, with no count", () => {
+        expect(subagentNowLine([newer], false, NOW)).toEqual({
+            kind: "named",
+            sub: newer,
+            call: { title: "Searched", mono: "parsePlan(" },
+            elapsedMs: 240_000,
+        });
+    });
+
+    it("names the most recently started of two while the parent is idle, and counts them", () => {
+        const line = subagentNowLine([older, newer], false, NOW);
+        expect(line).toMatchObject({ kind: "named", sub: newer, count: 2 });
+        expect(subagentsRunningText(2)).toBe("2 subagents running");
+    });
+
+    it("gives the working parent a chip that counts them and opens the most recent", () => {
+        expect(subagentNowLine([older], true, NOW)).toEqual({ kind: "chip", sub: older, count: 1 });
+        expect(subagentNowLine([older, newer], true, NOW)).toEqual({ kind: "chip", sub: newer, count: 2 });
+        expect(subagentChipText(1)).toBe("1 subagent");
+        expect(subagentChipText(2)).toBe("2 subagents");
     });
 });

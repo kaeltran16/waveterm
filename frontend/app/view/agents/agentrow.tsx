@@ -98,6 +98,7 @@ const SUB_COLOR: Record<SubagentState, string> = {
     success: "var(--color-success)",
     failure: "var(--color-error)",
     done: "var(--color-muted)",
+    stopped: "var(--color-muted)",
 };
 
 // reads the 1s clock itself so the card does not re-render every second

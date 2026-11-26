@@ -1,5 +1,6 @@
 // Pure view-model logic for the session sidebar. No React, no Wave runtime imports.
 
+import type { AgentActionEntry } from "../agentsviewmodel";
 import type { BuilderCheckRecord } from "../brainstormmodel";
 
 export const NO_CWD_LABEL = "ungrouped";
@@ -42,7 +43,8 @@ export function isNeedsYou(status: SessionStatus): boolean {
     return status === "asking" || status === "waiting";
 }
 
-export type SubagentState = "working" | "success" | "failure" | "done";
+// done: finished with no outcome known; stopped: the user stopped it, or it was lost with the parent's session
+export type SubagentState = "working" | "success" | "failure" | "done" | "stopped";
 
 export interface SubagentVM {
     id: string;
@@ -51,6 +53,12 @@ export interface SubagentVM {
     model?: string;
     background?: boolean; // spawned with run_in_background: its tool result is only the launch ack
     transcriptPath?: string; // disk-backed source: the child's own transcript file (undefined for the legacy hook path)
+    toolUseId?: string; // the Agent call that spawned it
+    description?: string;
+    startedAtMs?: number;
+    endedAtMs?: number; // once it finished or stopped
+    toolCount?: number;
+    currentCall?: AgentActionEntry; // its running call, pending, named as a step row names it; only while working
 }
 
 // Couples to the Phase 0 reporter's color constants. Phase 2 replaces this with an explicit

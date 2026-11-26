@@ -150,7 +150,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Enter` | In Rendered, with a question docked and focus outside the composer: send the answer once every question is answered, else move to the next unanswered question |
 | `r` | Review: open the focused agent's Plan review or Plan approval dialog |
 | `p` | Hand the agent to the phone, or take it back |
-| `Esc` | Close an open shell task output peek, or an open subagent (back to the agent's terminal), else back to where you jumped from, else to Cockpit; exits fullscreen first |
+| `Esc` | Close an open shell task output peek, or an open subagent (back to the parent's Rendered view where it was scrolled, or its terminal when the subagent was opened from the Terminal view), else back to where you jumped from, else to Cockpit; exits fullscreen first |
 | `Shift`+`Esc` | Return focus to the nav (from inside the terminal) |
 | `Enter` | With focus inside an open code peek card: open the peeked file in Code, at the clicked line |
 | `Esc` | With focus inside an open code peek card: close it. With focus in the terminal, `Esc` still reaches the agent and leaves the card open |
