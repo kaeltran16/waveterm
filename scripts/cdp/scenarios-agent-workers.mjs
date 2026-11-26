@@ -61,6 +61,41 @@ const treeRows = (ids) => `(() => {
         });
 })()`;
 
+// Scenario `agent-workers-live`: a live worker, not a fixture roster row, so the stopped mark comes from the backend.
+// Its block is armed on a command that exits at once; a forced resync runs it, and the worker's exit path
+// disarms the block. The tree must mark it stopped with no reload, and after a reload still name it by its task.
+const LIVE_NAME = "agent-workers-live";
+const SHOT_LIVE = (n, what) => `cdp-shots/${LIVE_NAME}-${n}-${what}.png`;
+const LIVE_PARENT = "live workers parent";
+const LIVE_TASK = "Run the parser tests and report";
+
+// the rows in the tree's order, each with its padding, its name and the stopped mark it shows
+const liveRows = (ids) => `(() => {
+    const ids = ${JSON.stringify(ids)};
+    return [...document.querySelectorAll("[data-agent-tree] [data-tree-agent]")]
+        .filter((el) => ids.includes(el.getAttribute("data-tree-agent")))
+        .map((el) => ({
+            id: el.getAttribute("data-tree-agent"),
+            pad: parseFloat(getComputedStyle(el).paddingLeft),
+            name: el.querySelector(".truncate")?.textContent.trim() ?? null,
+            stopped: el.querySelector("[data-tree-stopped]")?.textContent.trim() ?? null,
+        }));
+})()`;
+
+// an idle agent:status as the hook publishes it: retained, so a reloaded page still lists the agent, and with a ts past
+// every earlier one or the server drops it as stale
+async function publishIdle(h, ctx, blockId) {
+    const ts = Math.max(Date.now(), (ctx.lastTs ?? 0) + 1);
+    ctx.lastTs = ts;
+    const oref = `block:${blockId}`;
+    await h.rpc("eventpublish", {
+        event: "agent:status",
+        scopes: [oref],
+        persist: 1,
+        data: { oref, agent: "claude", state: "idle", ts },
+    });
+}
+
 const focusedView = `(() => {
     const pill = ${HEADER_PILL};
     const box = document.querySelector("[data-rendered-composer] textarea");
@@ -206,6 +241,108 @@ export default function (_kit) {
                 await step("restore the roster", () => restoreRoster(h));
                 await step("close the fixture tabs", () => closeTabs(h, ctx));
                 await step("remove the fixture transcript", () => rmSync(ctx.dir, { recursive: true, force: true }));
+                await step("go home", () => h.goto("cockpit"));
+            },
+        },
+        {
+            name: LIVE_NAME,
+            surface: "agent",
+            async arrange(h) {
+                const ctx = {};
+                try {
+                    await h.goto("agent");
+                    // the live roster, not a fixture one: the stopped mark must come from the backend's write. A row is
+                    // live only with a term block that names its cwd.
+                    await setRoster(h, null);
+                    const parent = await makeTab(h, ctx, {
+                        label: LIVE_PARENT,
+                        blockMeta: { view: "term", controller: null, "cmd:cwd": tmpdir() },
+                        tabMeta: { "session:project": PROJECT },
+                    });
+                    // armed as a worker's block is, on a command that exits at once: a forced resync runs it, and
+                    // the backend's exit path for a worker disarms it. runonstart false keeps any other resync idle.
+                    const worker = await makeTab(h, ctx, {
+                        label: LIVE_TASK,
+                        blockMeta: {
+                            view: "term",
+                            controller: "cmd",
+                            "cmd:cwd": tmpdir(),
+                            cmd: "arc-verify-no-such-binary",
+                            "cmd:args": [],
+                            "cmd:shell": false,
+                            "cmd:runonstart": false,
+                            // as a worker's: its exit must not close the tab
+                            "cmd:keeponexit": true,
+                        },
+                        tabMeta: {
+                            "session:project": PROJECT,
+                            "session:label": LIVE_TASK,
+                            "agent:parenttab": parent.tabId,
+                        },
+                    });
+                    ctx.ids = { parent: parent.tabId, worker: worker.tabId };
+                    ctx.workerBlock = worker.blockId;
+                    await publishIdle(h, ctx, parent.blockId);
+                    await publishIdle(h, ctx, worker.blockId);
+                    await focusAgent(h, parent.tabId);
+                } catch (e) {
+                    ctx.arrangeError = String(e?.message ?? e);
+                }
+                return ctx;
+            },
+            async assert(h, ctx) {
+                const steps = [];
+                const rec = (step, ok, detail) => steps.push({ step, ok, detail });
+                if (ctx.arrangeError != null) {
+                    rec("arrange the live agents", false, ctx.arrangeError);
+                    return steps;
+                }
+                const { parent, worker } = ctx.ids;
+                const order = [parent, worker];
+                const rows = () => h.ev(liveRows(order));
+                const nested = (r) => r.length === 2 && r[0].id === parent && r[1].id === worker && r[1].pad > r[0].pad;
+
+                await polishWaitFor(h, `${liveRows(order)}.length === 2`, LOAD_WAIT_MS);
+                const before = await rows();
+                await h.rpc("controllerresync", { tabid: worker, blockid: ctx.workerBlock, forcerestart: true });
+                const shown = await polishWaitFor(h, `${liveRows(order)}[1]?.stopped === "stopped"`, LOAD_WAIT_MS);
+                const after = await rows();
+                await h.shot(SHOT_LIVE(1, "stopped-live"));
+                rec(
+                    "3. a live worker named by its task, running, reads stopped once the backend stops it, with no reload",
+                    nested(before) &&
+                        before[1].name === LIVE_TASK &&
+                        before[1].stopped == null &&
+                        shown &&
+                        nested(after) &&
+                        after[1].stopped === "stopped",
+                    JSON.stringify({ before, after })
+                );
+
+                await h.reload();
+                await h.goto("agent");
+                await setRoster(h, null);
+                await focusAgent(h, parent);
+                await polishWaitFor(h, `${liveRows(order)}.length === 2`, LOAD_WAIT_MS);
+                const reloaded = await rows();
+                await h.shot(SHOT_LIVE(2, "reloaded"));
+                rec(
+                    "4. after a reload the stopped worker still reads its task name, not its project's, nested under its parent",
+                    nested(reloaded) && reloaded[1].name === LIVE_TASK && reloaded[1].stopped === "stopped",
+                    JSON.stringify(reloaded)
+                );
+                return steps;
+            },
+            async teardown(h, ctx) {
+                const step = async (what, fn) => {
+                    try {
+                        await fn();
+                    } catch (e) {
+                        console.error(`${LIVE_NAME} teardown: ${what} failed: ${e?.message ?? e}`);
+                    }
+                };
+                await step("restore the roster", () => restoreRoster(h));
+                await step("close the live tabs", () => closeTabs(h, ctx));
                 await step("go home", () => h.goto("cockpit"));
             },
         },

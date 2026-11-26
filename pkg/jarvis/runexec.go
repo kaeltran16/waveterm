@@ -183,8 +183,19 @@ var createWorkerTab = wcore.CreateTab
 // deleteWorkerTab removes the tab of a spawn that failed part-way; a seam for the same reason.
 var deleteWorkerTab = wcore.DeleteTab
 
-// sendWorkerTabUpdates broadcasts the object updates a spawn collected. A var so tests can record them.
+// sendWorkerTabUpdates broadcasts the object updates a spawn or a stop collected. A var so tests can record them.
 var sendWorkerTabUpdates = func(updates waveobj.UpdatesRtnType) { wps.Broker.SendUpdateEvents(updates) }
+
+// CollectUpdates returns ctx collecting the object updates its writes make, and the flush that broadcasts them:
+// wstore pushes nothing to the frontend for a write on a ctx that collects none. A ctx that already collects them
+// comes back as is with a no-op flush, since its owner flushes on its own schedule.
+func CollectUpdates(ctx context.Context) (context.Context, func()) {
+	if waveobj.ContextGetUpdates(ctx) != nil {
+		return ctx, func() {}
+	}
+	ctx = waveobj.ContextWithUpdates(ctx)
+	return ctx, func() { sendWorkerTabUpdates(waveobj.ContextGetUpdatesRtn(ctx)) }
+}
 
 var persistWorkerBlockMeta = func(ctx context.Context, blockID string, meta waveobj.MetaMapType) error {
     _, err := wstore.UpdateObjectMeta(ctx, waveobj.MakeORef(waveobj.OType_Block, blockID), meta, false)
@@ -370,10 +381,8 @@ func OpenAgentTab(ctx context.Context, spec AgentTabSpec) (string, string, error
 	if spec.WorkspaceId == "" {
 		return "", "", fmt.Errorf("workspaceId is required to open an agent tab")
 	}
-	if waveobj.ContextGetUpdates(ctx) == nil {
-		ctx = waveobj.ContextWithUpdates(ctx)
-		defer func() { sendWorkerTabUpdates(waveobj.ContextGetUpdatesRtn(ctx)) }()
-	}
+	ctx, flush := CollectUpdates(ctx)
+	defer flush()
 	// wcore.CreateTab returns the tab's id with an error when the tab exists but its block failed
 	tabId, err := createWorkerTab(ctx, spec.WorkspaceId, spec.TabName, false, false)
 	// a failure from here returns no id, so no caller can remove the tab; uncancelled, since an expired ctx

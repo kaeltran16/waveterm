@@ -45,6 +45,10 @@ var (
 	// endedTurns holds, per worker block waiting for its answer, when its latest ended turn opened, so a wait for an
 	// older turn's answer leaves the settle to the newer one.
 	endedTurns = map[string]int64{}
+	// standingBy holds, per worker block whose settle waits on a background task it started, when the settle found it
+	// running. The task's finish opens the turn that answers, and that turn may report no working status of its own,
+	// so the worker's next idle ends a turn too.
+	standingBy = map[string]int64{}
 )
 
 // seams for tests, which run no processes
@@ -92,10 +96,18 @@ func turnEnded(blockId string, data *baseds.AgentStatusData) (opened int64, ende
 			openTurns[blockId] = data.Ts
 		}
 	case baseds.AgentState_Idle:
-		opened, open := openTurns[blockId]
 		// a mid-turn compaction's SessionStart does not end the turn
-		if data.Hook == baseds.AgentHook_SessionStart || !open {
+		if data.Hook == baseds.AgentHook_SessionStart {
 			return 0, false
+		}
+		opened, open := openTurns[blockId]
+		if !open {
+			since, standing := standingBy[blockId]
+			if !standing {
+				return 0, false
+			}
+			delete(standingBy, blockId)
+			opened = since
 		}
 		delete(openTurns, blockId)
 		endedTurns[blockId] = opened
@@ -148,15 +160,20 @@ func blockTranscript(blockId string) string {
 	return block.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
 }
 
-// settleLocked sends an idle worker's owed notice and stops it, once no worker of its own still runs: a stopped
-// worker would have no process to receive their notices.
+// settleLocked sends an idle worker's owed notice and stops it, once no worker of its own and no background task it
+// started still runs: a stopped worker would have no process to receive their notices, and a stop kills its tasks.
 func settleLocked(ctx context.Context, tab *waveobj.Tab, blockId string) {
+	delete(standingBy, blockId)
 	block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
 	if err != nil || block == nil {
 		logErr("loading worker block %s: %v", blockId, err)
 		return
 	}
 	if !block.Meta.GetBool(MetaNoticeOwed, false) || hasRunningChild(ctx, tab.OID) {
+		return
+	}
+	if backgroundTasksRunning(tab, block) {
+		standingBy[blockId] = now().UnixMilli()
 		return
 	}
 	if err := SetNoticeOwed(ctx, blockId, false); err != nil {
@@ -194,7 +211,8 @@ func deliverHeldLocked(ctx context.Context, parentTabId, parentBlock string) {
 			continue
 		}
 		deliverNotice(parentBlock, agentmsg.WorkerNotice(child.Name, child.OID))
-		if shellRunning(blockId) && orchestrate.LatestAgentStatus(blockId, child.OID).State == baseds.AgentState_Idle {
+		if shellRunning(blockId) && orchestrate.LatestAgentStatus(blockId, child.OID).State == baseds.AgentState_Idle &&
+			!backgroundTasksRunning(child, block) {
 			if err := stopLocked(ctx, child.OID, false); err != nil {
 				logErr("stopping worker %s after its held notice: %v", child.OID, err)
 			}
@@ -241,6 +259,8 @@ func recheckParentLocked(ctx context.Context, childTabId string) {
 func onAgentExit(ctx context.Context, tabId, blockId string) {
 	lifeMu.Lock()
 	defer lifeMu.Unlock()
+	// its tasks died with it
+	delete(standingBy, blockId)
 	tab, _ := loadTab(ctx, tabId)
 	if tab == nil || ParentOf(tab) == "" {
 		return
@@ -299,10 +319,20 @@ func idleTooLong(ctx context.Context, tab *waveobj.Tab) bool {
 		return false
 	}
 	block, err := wstore.DBGet[*waveobj.Block](ctx, blockId)
-	if err != nil || block == nil || block.Meta.GetBool(MetaNoticeOwed, false) {
+	if err != nil || block == nil || block.Meta.GetBool(MetaNoticeOwed, false) || backgroundTasksRunning(tab, block) {
 		return false
 	}
 	return !hasRunningChild(ctx, tab.OID)
+}
+
+// backgroundTasksRunning reports whether the worker's transcript shows a background shell task or monitor it started
+// still running. A worker whose transcript is unknown has none to wait on.
+func backgroundTasksRunning(tab *waveobj.Tab, block *waveobj.Block) bool {
+	transcript := block.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
+	if transcript == "" {
+		return false
+	}
+	return agentsessions.RunningBackgroundTasks(transcript, tab.Meta.GetString(metaTabHarness, ""), now()) > 0
 }
 
 func hasRunningChild(ctx context.Context, tabId string) bool {

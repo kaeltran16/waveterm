@@ -128,7 +128,8 @@ func TestPublishStatusReadsHarnessCwdAndTranscriptFromMeta(t *testing.T) {
 		waveobj.MetaMapType{"session:agent": "pi"},
 		waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: "/work/proj", waveobj.MetaKey_AgentTranscriptPath: "/t/s.jsonl"})
 
-	if err := PublishStatus(context.Background(), blockId, baseds.AgentState_Idle); err != nil {
+	at := time.UnixMilli(1_700_000_000_000)
+	if err := PublishStatus(context.Background(), blockId, baseds.AgentState_Idle, at); err != nil {
 		t.Fatalf("PublishStatus: %v", err)
 	}
 	oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
@@ -140,8 +141,8 @@ func TestPublishStatusReadsHarnessCwdAndTranscriptFromMeta(t *testing.T) {
 	if !ok {
 		t.Fatalf("event data is %T, want baseds.AgentStatusData", events[0].Data)
 	}
-	if got.State != baseds.AgentState_Idle || got.Agent != "pi" || got.Cwd != "/work/proj" || got.TranscriptPath != "/t/s.jsonl" || got.ORef != oref || got.Ts == 0 {
-		t.Errorf("published %+v, want idle pi at /work/proj with the transcript and a timestamp", got)
+	if got.State != baseds.AgentState_Idle || got.Agent != "pi" || got.Cwd != "/work/proj" || got.TranscriptPath != "/t/s.jsonl" || got.ORef != oref || got.Ts != at.UnixMilli() {
+		t.Errorf("published %+v, want idle pi at /work/proj with the transcript, as of %d", got, at.UnixMilli())
 	}
 }
 

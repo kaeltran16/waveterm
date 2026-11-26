@@ -34,6 +34,9 @@ func StopRunWorker(ctx context.Context, workerORef string) error {
 	if err != nil {
 		return fmt.Errorf("loading tab %q: %w", workerORef, err)
 	}
+	// the disarm reaches the frontend at once, so a stopped worker reads stopped without a reload
+	ctx, flush := CollectUpdates(ctx)
+	defer flush()
 	var errs []error
 	for _, blockId := range tab.BlockIds {
 		// clearing runonstart alone is not a durable stop: the block keeps its controller name, and any
