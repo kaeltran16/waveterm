@@ -127,7 +127,7 @@ const STEP_TONES: Record<FinalStepState, FinalTone> = {
     unverified: "warn",
     stopped: "warn",
 };
-const STEP_WORDS: Record<FinalStepState, string> = {
+export const STEP_WORDS: Record<FinalStepState, string> = {
     waiting: "waiting",
     notrun: "not run",
     running: "running",
@@ -633,9 +633,10 @@ export function finalRowFocusId(
     return agent?.id ?? finalStageId(run.runId);
 }
 
-/** Pure: whether a step's output can be opened: a command running, or one that ended and kept its output. */
-export function stepHasOutput(step: FinalStep): boolean {
-    return step.kept != null || (step.state === "running" && KEPT_STEPS.has(step.key));
+/** Pure: whether a step's row opens to a body: a command running once it printed, or one that ended and kept its
+ *  output. */
+export function finalStepOpens(view: FinalStageView, step: FinalStep): boolean {
+    return step.kept != null || (step.state === "running" && step.key === view.running && view.output !== "");
 }
 
 const RERUN_HINT = "Rerun it if the failure was outside the code.";
@@ -645,13 +646,6 @@ export function finalFailedNote(lead: { asking: boolean } | undefined): string {
     if (lead == null) return `This failure is yours. ${RERUN_HINT}`;
     if (lead.asking) return `The lead is asking you about this failure. ${RERUN_HINT}`;
     return "The lead has this failure and decides what happens next.";
-}
-
-/** Pure: the step whose output a site shows: the one picked while it has output to open, else the running command
- *  once it has printed. */
-export function shownStep(view: FinalStageView, picked: FinalStepKey | null): FinalStep | undefined {
-    const pick = view.steps.find((s) => s.key === picked && stepHasOutput(s));
-    return pick ?? (view.output !== "" ? view.steps.find((s) => s.key === view.running) : undefined);
 }
 
 export type FinalKept = { status: LocalImageStatus; text: string };

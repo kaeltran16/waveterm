@@ -23,12 +23,11 @@ const WAIT_MS = 10_000;
 // how an element looks now: what the moments move
 const READ = `(el) => {
     const cs = getComputedStyle(el);
-    const path = el.querySelector?.("path");
     return {
         opacity: cs.opacity,
         transform: cs.transform,
         width: Math.round(el.getBoundingClientRect().width),
-        dash: path ? getComputedStyle(path).strokeDasharray : null,
+        height: Math.round(el.getBoundingClientRect().height),
     };
 }`;
 
@@ -93,7 +92,11 @@ const exitOf = (h, clickExpr, nodeExpr) =>
         if (!node || !btn) return null;
         btn.click();
         await new Promise((r) => setTimeout(r, 90));
-        const mid = { attached: node.isConnected, opacity: Number(getComputedStyle(node).opacity) };
+        const mid = {
+            attached: node.isConnected,
+            opacity: Number(getComputedStyle(node).opacity),
+            height: Math.round(node.getBoundingClientRect().height),
+        };
         await new Promise((r) => setTimeout(r, 700));
         return { mid, goneAfter: !node.isConnected };
     })()`);
@@ -119,6 +122,11 @@ const keyJs = (key) => `(() => {
 const key = (h, k) => h.ev(keyJs(k));
 
 const paneStates = `[...(${PANE}?.querySelectorAll("[data-final-step]") ?? [])].map((s) => s.getAttribute("data-final-step-state")).join(",")`;
+const paneHead = (key) => `${PANE}?.querySelector('[data-final-step="${key}"] [data-final-step-head]')`;
+// the PaneReveal a pane row's opened body sits in
+const paneBodyPane = (key) => `${PANE}?.querySelector('[data-final-step-body="${key}"]')?.parentElement`;
+// a refused rerun's reason, beside its button: the failed step's exit chip is a span.text-error too
+const REFUSAL = `${PANE}?.querySelector("[data-final-rerun]")?.parentElement?.querySelector("span.text-error")`;
 // the step container StepSwap mounts inside the viewer's stage
 const SHOT_STEP = `(n) => (n.parentElement?.matches("[data-final-shots-stage]") ? n : null)`;
 
@@ -174,18 +182,26 @@ export const motionFinal = {
         );
 
         await focusStageRow(h);
-        // Tree passes while the pane shows it: its dot cross-fades away and a check draws on in its place
-        await arm(h, "glyph", `(n) => (n.matches('[data-crossfade="pass"]') && n.closest('[data-final-pane] [data-final-step="tree"]') ? n : null)`);
-        await arm(h, "check", `(n) => (n.matches("svg") && n.closest('[data-final-pane] [data-final-step="tree"]') ? n : null)`);
+        // Tree passes while the pane shows it: its mark slot cross-fades from the spinner to the check square
+        const treeMark = `${PANE}?.querySelector('[data-final-step="tree"] [data-final-step-mark]')`;
+        const markBefore = await h.ev(`${treeMark}?.getAttribute("data-final-step-mark") ?? null`);
+        await arm(h, "glyph", `(n) => (n.matches('[data-crossfade="passed"]') && n.closest('[data-final-pane] [data-final-step="tree"]') ? n : null)`);
         const wait = await fstShow(h, ctx, "alongside");
         await polishWaitFor(h, `${paneStates}.startsWith("passed")`, WAIT_MS);
         if (!(await h.ev(`${paneStates}.startsWith("passed")`))) await wait.nudge?.();
         const glyph = await collect(h, "glyph");
-        const check = await collect(h, "check", `${PANE}?.querySelector('[data-final-step="tree"] svg')`);
+        const markAfter = await h.ev(`(() => {
+            const slot = ${treeMark};
+            return {
+                kind: slot?.getAttribute("data-final-step-mark") ?? null,
+                glyphs: slot?.querySelectorAll("[data-crossfade]").length ?? 0,
+                label: slot?.querySelector('[data-crossfade="passed"] [role="img"]')?.getAttribute("aria-label") ?? null,
+            };
+        })()`);
         rec(
-            "2. a step that passes on screen swaps its mark with a cross-fade and draws its check from an empty stroke",
-            fadedIn(glyph) && /^0(px)?,/.test(check.first?.dash ?? "") && /^1(px)?,/.test(check.settled?.dash ?? ""),
-            { glyph, check }
+            "2. a step that passes on screen cross-fades its mark slot from its spinner to the check square",
+            markBefore === "running" && fadedIn(glyph) && markAfter.kind === "passed" && markAfter.glyphs === 1 && markAfter.label === "Succeeded",
+            { markBefore, glyph, markAfter }
         );
         await h.shot("cdp-shots/motion-final-1-check.png");
 
@@ -232,17 +248,20 @@ export const motionFinal = {
         const note = await collect(h, "note");
         rec("4. a failure nobody asked for fades its note in, with no nudge", fadedIn(note) && note.moved === 0, note);
 
-        // a step that ended opens its kept output: the pane trades views with a fade, the rail reveals it beneath
+        // a step that ended opens its kept output: the pane's row reveals its body in place and collapses it on a
+        // second click, the rail reveals it beneath its row
         const keptDir = join(ctx.out, "1-steps");
         mkdirSync(keptDir, { recursive: true });
         writeFileSync(join(keptDir, "check.txt"), `${KEPT_MARK}\n`);
         await polishWaitFor(h, `${paneStates} === "passed,passed,passed,failed,notrun"`, WAIT_MS);
         if (!(await h.ev(`${paneStates} === "passed,passed,passed,failed,notrun"`))) await failWait.nudge?.();
-        await arm(h, "paneView", `(n) => (n.matches('[data-final-pane-view="kept"]') ? n : null)`);
-        await click(h, `${PANE}?.querySelector('[data-final-step="check"]')`);
-        const paneView = await collect(h, "paneView");
-        await click(h, `${PANE}?.querySelector('[data-final-step="check"]')`);
-        await polishWaitFor(h, `!!${PANE}?.querySelector('[data-final-pane-view="outcome"]')`, WAIT_MS);
+        await arm(h, "paneBody", `(n) => (n.querySelector?.(':scope > [data-final-step-body="check"]') && n.closest("[data-final-pane]") ? n : null)`);
+        const paneClosed = await h.ev(`${paneHead("check")}?.getAttribute("aria-expanded") === "false"`);
+        await click(h, paneHead("check"));
+        const paneBody = await collect(h, "paneBody");
+        const paneText = await h.ev(`(${paneBodyPane("check")}?.textContent ?? "").includes(${JSON.stringify(KEPT_MARK)})`);
+        const paneExit = await exitOf(h, paneHead("check"), paneBodyPane("check"));
+        const paneCollapsed = paneExit != null && paneBody.settled != null && paneExit.mid.height < paneBody.settled.height;
         await arm(h, "railOut", `(n) => (n.querySelector?.('[data-final-step-output="check"]') ? n : null)`);
         const railCheck = `${RAIL}?.querySelector('[data-final-step="check"]')`;
         await click(h, railCheck);
@@ -251,9 +270,18 @@ export const motionFinal = {
         await h.shot("cdp-shots/motion-final-3-kept.png");
         const railExit = await exitOf(h, railCheck, `${RAIL}?.querySelector('[data-final-step-output="check"]')?.parentElement`);
         rec(
-            "5. a kept output fades in as the pane's view and reveals under the rail's row, and closing the rail's fades it out attached",
-            fadedIn(paneView) && fadedIn(railOut) && railText && leftOnScreen(railExit),
-            { paneView, railOut, railText, railExit }
+            "5. a kept output reveals in the pane's row from no height and collapses on close, and reveals under the rail's row, closing fading it out attached",
+            paneClosed &&
+                fadedIn(paneBody) &&
+                paneBody.first.height === 0 &&
+                paneBody.settled.height > 0 &&
+                paneText &&
+                leftOnScreen(paneExit) &&
+                paneCollapsed &&
+                fadedIn(railOut) &&
+                railText &&
+                leftOnScreen(railExit),
+            { paneClosed, paneBody, paneText, paneExit, railOut, railText, railExit }
         );
 
         // the human reruns the failed stage and it fails again: this time the note nudges. Round 2, because the
@@ -287,11 +315,11 @@ export const motionFinal = {
         const oref = `dag:${ctx.dagId}`;
         const stored = await waveService(h, "object", "GetObject", [oref]);
         await waveService(h, "object", "UpdateObject", [{ ...stored, otype: "dag", final: { ...stored.final, state: "checking" } }, false], FINAL_SHOTS_UICTX);
-        await arm(h, "refusal", `(n) => (n.matches("span.text-error") && n.closest("[data-final-pane]") ? n : null)`, { frames: true });
+        await arm(h, "refusal", `(n) => (n.matches("span.text-error") && n.parentElement?.querySelector("[data-final-rerun]") ? n : null)`, { frames: true });
         await click(h, rerun);
-        await polishWaitFor(h, `!!${PANE}?.querySelector("span.text-error")`, WAIT_MS);
+        await polishWaitFor(h, `!!${REFUSAL}`, WAIT_MS);
         const refusal = await collect(h, "refusal");
-        const refusalText = await h.ev(`${PANE}?.querySelector("span.text-error")?.textContent ?? null`);
+        const refusalText = await h.ev(`${REFUSAL}?.textContent ?? null`);
         await h.shot("cdp-shots/motion-final-4b-refused.png");
         await seedFinalShots(h, ctx, round2Failed);
         rec(
@@ -300,33 +328,8 @@ export const motionFinal = {
             { refusal, refusalText }
         );
 
-        // the human reruns, opens a kept output, and the stage fails behind it: the note's moment is not armed, so
-        // closing the output shows the note settled, with no late nudge
-        await polishWaitFor(h, `!!${rerun} && !!${PANE}?.querySelector("[data-final-note]")`, WAIT_MS);
-        await click(h, rerun);
-        const reset2 = await polishWaitFor(h, `!${rerun} && !!${PANE} && !${PANE}.querySelector("[data-final-note]")`, 15_000);
-        await polishNap(RERUN_TICK_MS);
-        // round 2 under review again: its steps ended, so check has its output to open
-        await seedFinalShots(h, ctx, { final: { ...round1, round: 2, state: "verifying", detail: "" }, pastfinals: [round1] });
-        const paneCheck = `${PANE}?.querySelector('[data-final-step="check"]')`;
-        const keptView = `!!${PANE}?.querySelector('[data-final-pane-view="kept"]')`;
-        await polishWaitFor(h, `!!${paneCheck}`, WAIT_MS);
-        await click(h, paneCheck);
-        const keptOpen = await polishWaitFor(h, keptView, WAIT_MS);
-        await seedFinalShots(h, ctx, round2Failed);
-        const failedBehind = await polishWaitFor(h, `!!${rerun} && ${keptView}`, WAIT_MS);
-        await polishNap(SETTLE_MS);
-        await arm(h, "late", `(n) => (n.matches("[data-final-note]") ? n : n.querySelector?.("[data-final-note]"))`, { frames: true });
-        await click(h, paneCheck);
-        await polishWaitFor(h, `!!${PANE}?.querySelector("[data-final-note]")`, WAIT_MS);
-        const late = await collect(h, "late", `${PANE}?.querySelector("[data-final-note]")`);
-        rec(
-            "6c. a failure after the human's rerun that lands behind a kept output does not nudge its note when the output closes",
-            reset2 && keptOpen && failedBehind && late.first != null && late.moved === 0,
-            { reset2, keptOpen, failedBehind, late }
-        );
-
         // --- the screenshot viewer, on round 1 ---
+        await polishWaitFor(h, `!!${rerun} && !!${PANE}?.querySelector("[data-final-note]")`, WAIT_MS);
         await arm(h, "viewer", `(n) => (n.matches("[data-final-shots-viewer]") ? n : n.querySelector?.("[data-final-shots-viewer]"))`);
         await click(h, `${PANE}?.querySelector("[data-final-shots-link]")`);
         const viewer = await collect(h, "viewer");

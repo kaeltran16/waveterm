@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { formatResults } from "./report.mjs";
 
 // A step this profile cannot run: no record holding a decision, no pi session focused. Neither a pass nor a
 // failure — report.mjs tallies it apart and exitCode ignores it. The detail must name what to seed, so a
@@ -459,11 +460,46 @@ export const seedFinalShots = (h, ctx, { final, pastfinals }) =>
 export const FST_CHECK = "node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit";
 const FST_VERIFY = "node scripts/verify.mjs ./pkg/waveobj";
 const FST_COMMIT = "c0ffee5a".padEnd(40, "0");
+// round 1's Final failures: the engine's detail names them, and the output the step kept prints them with their details
+export const FST_FINAL_SCENARIO = "jarvis-peek";
+export const FST_FINAL_FAILURES = [
+    {
+        step: "4. the narrow panel stays bounded with a pinned header, no horizontal overflow, and an unclipped harness picker",
+        detail: '{"scrollWidth":468,"clientWidth":440,"pickerClipped":true}',
+    },
+    {
+        step: "5. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
+        detail: '{"expanded":true,"cursor":null,"focused":"BODY"}',
+    },
+];
 export const FST_DETAIL = [
     `Final \`${FINAL_SHOTS_CMD}\` failed (exit 1):`,
-    "FAIL jarvis-peek 4. the narrow panel stays bounded with a pinned header, no horizontal overflow, and an unclipped harness picker",
-    "FAIL jarvis-peek 5. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
+    ...FST_FINAL_FAILURES.map((f) => `FAIL ${FST_FINAL_SCENARIO} ${f.step}`),
     "2 of 43 steps failed across 5 scenarios",
+].join("\n");
+// what round 1's Final and Verify kept (keepFinalStepOutput): the CDP runner's own report, and scripts/verify.mjs
+// naming the go test it runs before go's own lines
+export const FST_FINAL_KEPT = formatResults([
+    {
+        name: "final-shots",
+        steps: [
+            { step: "1. a finished Final keeps its screenshots under the run", ok: true },
+            { step: "2. the viewer opens on the latest round", ok: true, detail: '{"round":1}' },
+        ],
+    },
+    {
+        name: FST_FINAL_SCENARIO,
+        steps: [
+            { step: "1. the peek opens beside the run", ok: true },
+            ...FST_FINAL_FAILURES.map((f) => ({ ...f, ok: false })),
+            { step: "6. no scan report to cite", skip: true, detail: "seed a scan report" },
+        ],
+    },
+]);
+export const FST_VERIFY_KEPT = [
+    "verify: go test ./pkg/waveobj",
+    "ok  \tgithub.com/wavetermdev/waveterm/pkg/waveobj\t0.412s",
+    "",
 ].join("\n");
 export const FST_UNVERIFIED =
     "verifier: the narrow jarvis-peek panel could not be compared with its board, because the board has no artboard at 440px wide";

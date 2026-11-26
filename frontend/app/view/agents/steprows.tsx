@@ -330,8 +330,30 @@ function StepBody({
         </div>
     ) : null;
     return (
-        <div data-tool-panel className="mt-2.5 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code">
-            {error && note == null ? (
+        <ToolPanel error={note == null ? error : undefined} className="mt-2.5">
+            {noteUnder ? null : note}
+            {detail ? <ToolDetailBody detail={detail} variant="inline" capped hideCommand={bare} /> : null}
+            {noteUnder ? note : null}
+        </ToolPanel>
+    );
+}
+
+// a tool's opened panel: its error, when it has one, as the red block on top of what it drew
+export function ToolPanel({
+    error,
+    className,
+    children,
+}: {
+    error?: string;
+    className?: string;
+    children?: ReactNode;
+}) {
+    return (
+        <div
+            data-tool-panel
+            className={cn("overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code", className)}
+        >
+            {error ? (
                 <div
                     data-tool-error
                     className={cn(
@@ -342,9 +364,7 @@ function StepBody({
                     {error}
                 </div>
             ) : null}
-            {noteUnder ? null : note}
-            {detail ? <ToolDetailBody detail={detail} variant="inline" capped hideCommand={bare} /> : null}
-            {noteUnder ? note : null}
+            {children}
         </div>
     );
 }

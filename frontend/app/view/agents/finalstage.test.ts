@@ -12,12 +12,11 @@ import {
     finalStageView,
     finalStepBody,
     finalStepExit,
+    finalStepOpens,
     finalStepOpensByDefault,
     isFinalStageId,
     KEPT_NOTE,
     outputTail,
-    shownStep,
-    stepHasOutput,
     type FinalKept,
     type FinalStageView,
 } from "./finalstage";
@@ -445,7 +444,7 @@ describe("finalStageView, the steps", () => {
             verifier: undefined,
         });
         // the running Final opens its live tail; Tree and the Verifier have no output of their own
-        expect(v.steps.filter(stepHasOutput).map((s) => s.key)).toEqual(["check", "verify", "final"]);
+        expect(v.steps.filter((s) => finalStepOpens(v, s)).map((s) => s.key)).toEqual(["check", "verify", "final"]);
     });
 
     it("keeps no output for a step with no event, or a stage with no out dir", () => {
@@ -455,19 +454,16 @@ describe("finalStageView, the steps", () => {
         expect(finalStageView(dag(withDir), [], NOW).steps.some((s) => s.kept)).toBe(false);
     });
 
-    it("shows the picked step while it has output, else the running command once it printed", () => {
+    it("opens a running command only once it printed, and an ended one only when it kept output", () => {
         const final = { state: "checking", round: 1, step: "verify", stepts: NOW, outdir: "/d/1", output: "" };
         const events = [ev("tree", S), ev("check", S)];
         const quiet = finalStageView(dag(final), events, NOW);
-        expect(shownStep(quiet, null)).toBeUndefined();
-        expect(shownStep(quiet, "check")?.key).toBe("check");
-        // Tree keeps nothing and the Final has not run: a pick of either falls back
-        expect(shownStep(quiet, "tree")).toBeUndefined();
-        expect(shownStep(quiet, "final")).toBeUndefined();
+        expect(quiet.steps.filter((s) => finalStepOpens(quiet, s)).map((s) => s.key)).toEqual(["check"]);
         const printing = finalStageView(dag({ ...final, output: "ok pkg/x" }), events, NOW);
-        expect(shownStep(printing, null)?.key).toBe("verify");
-        expect(shownStep(printing, "tree")?.key).toBe("verify");
-        expect(shownStep(printing, "check")?.key).toBe("check");
+        expect(printing.steps.filter((s) => finalStepOpens(printing, s)).map((s) => s.key)).toEqual([
+            "check",
+            "verify",
+        ]);
     });
 
     it("is invisible with nothing running for no dag and for a dag with no tasks", () => {
