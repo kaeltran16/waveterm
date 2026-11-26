@@ -143,6 +143,44 @@ func TestHumanPromptsSkipAgentMessages(t *testing.T) {
 	}
 }
 
+// a turn opens at a prompt a person typed or another agent sent; tool output and claude's own notices after it
+// open none
+func TestLastPromptTsIsTheLastTypedOrSentPrompt(t *testing.T) {
+	msg := agentmsg.Envelope("design lead", "tab-1234", "apply the review notes")
+	claude := writeTranscript(t, []string{
+		`{"type":"user","timestamp":"2026-09-17T06:02:05.000Z","origin":{"kind":"human"},"message":{"role":"user","content":"build the panel"}}`,
+		`{"type":"assistant","timestamp":"2026-09-17T06:02:06.000Z","message":{"content":[{"type":"text","text":"built"}]}}`,
+		`{"type":"user","timestamp":"2026-09-17T06:02:07.000Z","origin":{"kind":"human"},"message":{"role":"user","content":` + jsonString(t, msg) + `}}`,
+		`{"type":"user","timestamp":"2026-09-17T06:02:08.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"a.go"}]}}`,
+		`{"type":"user","timestamp":"2026-09-17T06:02:09.000Z","message":{"role":"user","content":"[Request interrupted by user]"}}`,
+		`{"type":"user","timestamp":"2026-09-17T06:02:10.000Z","isSidechain":true,"message":{"role":"user","content":"a subagent's prompt"}}`,
+	})
+	pi := writeTranscript(t, []string{
+		`{"type":"session","version":3,"id":"s1","timestamp":"2026-09-17T06:00:00Z","cwd":"C:\\repo"}`,
+		`{"type":"message","id":"u1","parentId":null,"timestamp":"2026-09-17T06:00:01Z","message":{"role":"user","content":"build the panel"}}`,
+		`{"type":"message","id":"u2","parentId":"u1","timestamp":"2026-09-17T06:00:02Z","message":{"role":"user","content":[{"type":"text","text":` + jsonString(t, msg) + `}]}}`,
+		`{"type":"message","id":"r1","parentId":"u2","timestamp":"2026-09-17T06:00:03Z","message":{"role":"toolResult","content":[{"type":"text","text":"a.go"}]}}`,
+	})
+	unprompted := writeTranscript(t, []string{
+		`{"type":"assistant","timestamp":"2026-09-17T06:02:06.000Z","message":{"content":[{"type":"text","text":"done"}]}}`,
+	})
+	for _, c := range []struct {
+		name, path, runtime string
+		want                int64
+	}{
+		{"claude: an agent's message after a typed prompt", claude, "claude", 1789624927000},
+		{"pi: an agent's message after a typed prompt", pi, "pi", 1789624802000},
+		{"claude with no prompt", unprompted, "claude", 0},
+		{"codex", claude, "codex", 0},
+		{"missing claude file", "does-not-exist.jsonl", "claude", 0},
+		{"missing pi file", "does-not-exist.jsonl", "pi", 0},
+	} {
+		if got := LastPromptTs(c.path, c.runtime); got != c.want {
+			t.Errorf("%s: LastPromptTs = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
 func TestHumanPromptsHasNoneForAnotherRuntimeOrAMissingFile(t *testing.T) {
 	if got := HumanPrompts(writeTranscript(t, []string{`{"type":"user","message":{"content":"x"}}`}), "codex"); got != nil {
 		t.Fatalf("codex HumanPrompts = %+v, want none", got)

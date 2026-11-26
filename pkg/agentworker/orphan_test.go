@@ -50,10 +50,15 @@ func orphanMark(t *testing.T, tabId string) (raised int64, answer string, marked
 }
 
 func TestOrphanFinishesItsTurnThenRaisesItsAnswerAndStops(t *testing.T) {
-	tests := []struct{ name, answer, want string }{
-		{"the answer's first line, whitespace collapsed", "Fixed  the\ttoken refresh\nDetails follow.", "Fixed the token refresh"},
-		{"a long line cut to the ask row's bound", strings.Repeat("é", 150), strings.Repeat("é", 140) + "…"},
-		{"a turn that wrote no answer", "", ""},
+	tests := []struct {
+		name, answer, want string
+		// earlier is an answer an earlier turn wrote, "" for none
+		earlier string
+	}{
+		{"the answer's first line, whitespace collapsed", "Fixed  the\ttoken refresh\nDetails follow.", "Fixed the token refresh", ""},
+		{"a long line cut to the ask row's bound", strings.Repeat("é", 150), strings.Repeat("é", 140) + "…", ""},
+		{"a turn that wrote no answer", "", "", ""},
+		{"a turn that wrote no answer after one that did", "", "", "Earlier turn's answer"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -61,6 +66,9 @@ func TestOrphanFinishesItsTurnThenRaisesItsAnswerAndStops(t *testing.T) {
 			parentTab, _ := f.agent(t, "", false)
 			workerTab, workerBlock := f.agent(t, parentTab, true)
 			transcript := workerTranscript(t, workerBlock)
+			if tt.earlier != "" {
+				appendAnswerText(t, transcript, f.now.Add(-time.Minute), tt.earlier)
+			}
 
 			f.report(t, workerBlock, baseds.AgentState_Working, baseds.AgentHook_UserPromptSubmit)
 			f.closeTab(t, parentTab)
@@ -130,6 +138,36 @@ func TestParentGoneRaisesAnIdleWorkerItOwesAtOnce(t *testing.T) {
 			}
 			if len(f.delivered) != 0 {
 				t.Errorf("delivered %+v", f.delivered)
+			}
+		})
+	}
+}
+
+// a held notice raises at the close, after its turn settled, so the raise reads the answer bound from that turn
+func TestHeldNoticeRaisedAtTheCloseShowsOnlyItsTurnsAnswer(t *testing.T) {
+	tests := []struct{ name, answer, want string }{
+		{"its turn's answer", "Migrated the schema", "Migrated the schema"},
+		{"its turn wrote none after one that did", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := fakeLife(t)
+			parentTab, parentBlock := f.agent(t, "", false)
+			workerTab, workerBlock := f.agent(t, parentTab, true)
+			transcript := workerTranscript(t, workerBlock)
+			appendAnswerText(t, transcript, f.now.Add(-time.Minute), "Earlier turn's answer")
+			f.running[parentBlock] = false
+			f.report(t, workerBlock, baseds.AgentState_Working, baseds.AgentHook_UserPromptSubmit)
+			if tt.answer != "" {
+				appendAnswerText(t, transcript, f.now, tt.answer)
+			}
+			f.report(t, workerBlock, baseds.AgentState_Idle, baseds.AgentHook_Stop)
+			f.now = f.now.Add(time.Minute)
+
+			f.closeTab(t, parentTab)
+
+			if _, answer, marked := orphanMark(t, workerTab); !marked || answer != tt.want {
+				t.Errorf("mark %v answer %q, want raised with %q", marked, answer, tt.want)
 			}
 		})
 	}

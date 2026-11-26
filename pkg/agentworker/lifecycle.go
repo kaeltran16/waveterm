@@ -45,6 +45,9 @@ var (
 	// endedTurns holds, per worker block waiting for its answer, when its latest ended turn opened, so a wait for an
 	// older turn's answer leaves the settle to the newer one.
 	endedTurns = map[string]int64{}
+	// lastTurns holds, per worker block, when its latest ended turn opened. It outlives the settle, since a held
+	// notice raises as an orphan only at its parent's close, and an answer older than that turn is not its answer.
+	lastTurns = map[string]int64{}
 	// standingBy holds, per worker block whose settle waits on a background task it started, when the settle found it
 	// running. The task's finish opens the turn that answers, and that turn may report no working status of its own,
 	// so the worker's next idle ends a turn too.
@@ -111,6 +114,7 @@ func turnEnded(blockId string, data *baseds.AgentStatusData) (opened int64, ende
 		}
 		delete(openTurns, blockId)
 		endedTurns[blockId] = opened
+		lastTurns[blockId] = opened
 		return opened, true
 	}
 	return 0, false

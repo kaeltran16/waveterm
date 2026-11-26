@@ -15,7 +15,8 @@ import (
 
 // ResumeWorkersAtBoot settles the workers the previous wavesrv left: no process survived it, so every armed worker is
 // disarmed before a block resync can replay its first prompt, and one cut off mid-task (its parent's turn unanswered)
-// resumes in its own session with the nudge. A refused resume leaves the worker stopped with its notice owed. Event
+// resumes in its own session with the nudge. A refused resume leaves the worker stopped with its notice owed, raised
+// as an orphan when its parent's tab is gone, since no settle will come. Event
 // history did not survive either, so each stopped worker is published idle for the roster, as of its transcript's
 // last write: the time it went idle, not the boot's.
 func ResumeWorkersAtBoot(ctx context.Context) {
@@ -51,6 +52,9 @@ func resumeAtBoot(ctx context.Context, tab *waveobj.Tab) {
 			}
 			logErr("boot: resuming worker %s: %v", tab.OID, err)
 		}
+	}
+	if block.Meta.GetBool(MetaNoticeOwed, false) {
+		raiseStoppedOrphan(ctx, tab, block)
 	}
 	idleAt, ok := lastTranscriptWrite(block)
 	if !ok {

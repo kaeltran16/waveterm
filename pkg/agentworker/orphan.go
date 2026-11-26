@@ -83,12 +83,38 @@ func idleAndStoppable(tab *waveobj.Tab, block *waveobj.Block) bool {
 		!backgroundTasksRunning(tab, block)
 }
 
+// raiseStoppedOrphan raises a stopped worker that owes its notice to a parent whose tab is gone, as its settle would:
+// with no process it never settles. One whose parent remains keeps its notice owed for its next resume.
+func raiseStoppedOrphan(ctx context.Context, tab *waveobj.Tab, block *waveobj.Block) {
+	lifeMu.Lock()
+	defer lifeMu.Unlock()
+	parentId := ParentOf(tab)
+	if parentTab, _ := loadTab(ctx, parentId); !parentGone(parentTab, parentId) {
+		return
+	}
+	if err := SetNoticeOwed(ctx, block.OID, false); err != nil {
+		logErr("clearing the owed notice of orphaned worker %s: %v", tab.OID, err)
+		return
+	}
+	raiseOrphan(ctx, tab, block)
+}
+
 // raiseOrphan marks the worker's tab with its answer's first line, which the attention list shows until it is
 // acknowledged. The answer is read once here, since the cockpit polls the list and a transcript read is whole-file.
+// One written before the worker's latest turn opened is an earlier turn's, so that turn wrote none. With no turn
+// known (none ended since Arc started, as at boot) the turn opened at the transcript's last prompt.
 func raiseOrphan(ctx context.Context, tab *waveobj.Tab, block *waveobj.Block) {
 	answer := ""
 	if transcript := block.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, ""); transcript != "" {
-		answer, _ = agentsessions.LastAnswer(transcript, tab.Meta.GetString(metaTabHarness, ""))
+		harness := tab.Meta.GetString(metaTabHarness, "")
+		text, ts := agentsessions.LastAnswer(transcript, harness)
+		opened, known := lastTurns[block.OID]
+		if !known {
+			opened = agentsessions.LastPromptTs(transcript, harness)
+		}
+		if ts >= opened {
+			answer = text
+		}
 	}
 	meta := waveobj.MetaMapType{
 		jarvis.MetaWorkerOrphaned:     now().UnixMilli(),
