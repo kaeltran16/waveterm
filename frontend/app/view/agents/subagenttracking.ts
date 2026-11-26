@@ -22,7 +22,7 @@ import {
 } from "./shelltasksstore";
 import { dropSubagents, refreshSubagents, scheduleSubagents } from "./subagentsstore";
 
-type Trackable = { id: string; transcriptPath?: string; state?: AgentState; idleSince?: number };
+type Trackable = { id: string; transcriptPath?: string; blockId?: string; state?: AgentState; idleSince?: number };
 
 // an idle episode is keyed by its idleSince, so each Stop is read once
 const idleEpisode = (a: Trackable): string => (a.state === "idle" ? `idle:${a.idleSince ?? ""}` : "");
@@ -76,7 +76,7 @@ export function useSubagentTracking(agents: Trackable[]): void {
         const byId = new Map(agents.map((a) => [a.id, a]));
         for (const id of enterRefreshes(trackedRef.current, agents)) {
             const a = byId.get(id)!;
-            void refreshSubagents(a.id, a.transcriptPath);
+            void refreshSubagents(a.id, a.transcriptPath, a.blockId);
             void refreshShellTasks(a.id, a.transcriptPath, currentAgent);
         }
         for (const id of trackedRef.current.keys()) {
@@ -97,7 +97,7 @@ export function useSubagentTracking(agents: Trackable[]): void {
         const byId = new Map(agents.map((a) => [a.id, a]));
         for (const id of advanced) {
             const a = byId.get(id)!;
-            scheduleSubagents(a.id, a.transcriptPath);
+            scheduleSubagents(a.id, a.transcriptPath, a.blockId);
             scheduleShellTasks(a.id, a.transcriptPath, currentAgent);
         }
     }, [lastActivity]);

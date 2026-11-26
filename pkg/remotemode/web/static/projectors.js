@@ -335,6 +335,10 @@ function isSubagentFinish(content, actionById) {
   const tool = id != null ? actionById.get(id)?._tool : void 0;
   return tool != null ? SUBAGENT_TOOLS.has(tool) : content.includes("<result>");
 }
+function withFinishId(note, content) {
+  const id = note.source === "subagent" ? notificationTag(content, "tool-use-id") : void 0;
+  return id ? { ...note, toolUseId: id } : note;
+}
 var BASH_INPUT_RE = /^<bash-input>([^]*)<\/bash-input>$/;
 var BASH_OUTPUT_RE = /^<bash-stdout>([^]*?)<\/bash-stdout>\s*<bash-stderr>([^]*?)<\/bash-stderr>$/;
 function applyBashRecord(entries, content, rec) {
@@ -376,7 +380,7 @@ function applyCommandOutput(entries, content) {
 function parseNotice(prompt) {
   const structured = prompt.includes("<summary>") ? parseTaskNotification(prompt) : null;
   if (structured != null) {
-    return { ...structured, notice: true };
+    return { ...withFinishId(structured, prompt), notice: true };
   }
   const m = /<task-notification>([^]*?)<\/task-notification>/.exec(prompt);
   const summary = (m ? m[1] : prompt).trim();
@@ -521,6 +525,9 @@ function projectTranscriptRecords(records) {
           if (SHELL_TOOLS.has(block.name) && typeof block.input?.command === "string") {
             action.command = block.input.command;
           }
+          if (SUBAGENT_TOOLS.has(block.name) && typeof block.id === "string") {
+            action.toolUseId = block.id;
+          }
           const cwd = typeof rec.cwd === "string" ? rec.cwd : void 0;
           const filePath = relativePath(String(block.input?.file_path ?? ""), cwd);
           if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
@@ -574,11 +581,16 @@ function projectTranscriptRecords(records) {
         }
         const note = parseTaskNotification(content);
         if (note != null) {
-          entries.push({
-            ...note,
-            ...recTs(rec),
-            ...isSubagentFinish(content, actionById) ? { source: "subagent" } : {}
-          });
+          entries.push(
+            withFinishId(
+              {
+                ...note,
+                ...recTs(rec),
+                ...isSubagentFinish(content, actionById) ? { source: "subagent" } : {}
+              },
+              content
+            )
+          );
         } else if (applyCommandOutput(entries, content)) {
         } else if (opensWith(content, "<local-command-stdout>")) {
         } else if (isInterrupted(content)) {
@@ -745,6 +757,10 @@ function projectTranscriptRecords(records) {
   }
   return entries;
 }
+function notificationTag(text, tag) {
+  const m = new RegExp(`<${tag}>([^]*?)</${tag}>`).exec(text);
+  return m ? m[1].trim() : void 0;
+}
 
 // frontend/app/view/agents/pitranscriptprojection.ts
 var READ_MODAL_MAX_LINES2 = 400;
@@ -835,6 +851,12 @@ function editDetailFor(name, args) {
   }
   return void 0;
 }
+function thoughtOf(content) {
+  if (textBlocks(content).length > 0) {
+    return "";
+  }
+  return content.filter((b) => b?.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim() !== "").map((b) => b.thinking.trim()).join("\n\n");
+}
 function mapAssistantContent(rec, entries, actionById) {
   const content = rec.message?.content;
   for (const text of textBlocks(content)) {
@@ -842,6 +864,10 @@ function mapAssistantContent(rec, entries, actionById) {
   }
   if (!Array.isArray(content)) {
     return;
+  }
+  const thought = thoughtOf(content);
+  if (thought !== "") {
+    entries.push({ kind: "thought", text: thought, ...recTs2(rec) });
   }
   for (const b of content) {
     if (b == null || b.type !== "toolCall" && b.type !== "tool_use" || typeof b.name !== "string" || b.name === "") {

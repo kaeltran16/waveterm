@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { correlateSubagents } from "./subagentcorrelate";
+import { stepTitle } from "./transcriptlayout";
 import type { SubagentSpawn } from "./transcriptprojection";
 
 const spawn = (over: Partial<SubagentSpawn>): SubagentSpawn => ({
@@ -25,7 +26,16 @@ describe("correlateSubagents", () => {
     it("takes type + success state from a matched, completed spawn", () => {
         const out = correlateSubagents([spawn({ done: true })], [file({})]);
         expect(out).toEqual([
-            { id: "a1", type: "Explore", state: "success", background: false, transcriptPath: "/p/agent-a1.jsonl" },
+            {
+                id: "a1",
+                type: "Explore",
+                state: "success",
+                background: false,
+                transcriptPath: "/p/agent-a1.jsonl",
+                startedAtMs: 1,
+                toolCount: 0,
+                toolUseId: "t",
+            },
         ]);
     });
 
@@ -105,5 +115,76 @@ describe("correlateSubagents", () => {
 
     it("labels an unmatched file with a blank prompt as subagent", () => {
         expect(labelOf("  \n ")).toBe("subagent");
+    });
+
+    it("joins a file to the spawn its meta names, over a spawn whose prompt matches", () => {
+        const named = spawn({
+            toolUseId: "tu_audit",
+            subagentType: "general-purpose",
+            prompt: "Audit the release notes for 2.4",
+            background: true,
+            done: true,
+            failed: true,
+        });
+        const decoy = spawn({ toolUseId: "tu_other", subagentType: "Explore", prompt: "reworded prompt", done: true });
+        const [out] = correlateSubagents([decoy, named], [file({ firstprompt: "reworded prompt", tooluseid: "tu_audit" })]);
+        expect([out.type, out.background, out.state, out.toolUseId]).toEqual([
+            "general-purpose",
+            true,
+            "failure",
+            "tu_audit",
+        ]);
+    });
+
+    // file stopped, then the spawn's result or notification, then file finished, then parent ended, else working
+    it.each([
+        [
+            "a stopped file over a successful notification",
+            spawn({ background: true, done: true }),
+            file({ stopped: true }),
+            false,
+            "stopped",
+        ],
+        ["a finished file with no result yet", spawn({ done: false }), file({ done: true }), false, "done"],
+        ["an unfinished file once the parent ended", spawn({ done: false }), file({ done: false }), true, "stopped"],
+    ] as const)("resolves %s", (_name, s, f, parentEnded, want) => {
+        expect(correlateSubagents([s], [f], { parentEnded })[0].state).toBe(want);
+    });
+
+    it("copies the file's facts, its description falling back to the spawn's", () => {
+        const [withMeta, noMeta] = correlateSubagents(
+            [spawn({ toolUseId: "tu_b", prompt: "P2", description: "from the call" })],
+            [
+                file({
+                    agentid: "f1",
+                    firstprompt: "P1",
+                    tooluseid: "tu_a",
+                    description: "from the meta",
+                    agenttype: "Plan",
+                    startedatms: 100,
+                    endedatms: 900,
+                    done: true,
+                    toolcount: 14,
+                }),
+                file({ agentid: "f2", firstprompt: "P2" }),
+            ]
+        );
+        expect(withMeta).toMatchObject({
+            type: "Plan",
+            toolUseId: "tu_a",
+            description: "from the meta",
+            startedAtMs: 100,
+            endedAtMs: 900,
+            toolCount: 14,
+        });
+        expect([noMeta.toolUseId, noMeta.description]).toEqual(["tu_b", "from the call"]);
+    });
+
+    it("names the running call as a step row names it, and drops it once the subagent is not working", () => {
+        const running = file({ currentcall: { name: "Grep", input: { pattern: "parsePlan(", path: "pkg/" }, startedatms: 5 } });
+        const [out] = correlateSubagents([], [running]);
+        expect(stepTitle(out.currentCall!)).toEqual({ title: "Searched", mono: "parsePlan(" });
+        expect([out.currentCall!.pending, out.currentCall!.startedTs]).toEqual([true, 5]);
+        expect(correlateSubagents([], [running], { parentEnded: true })[0].currentCall).toBeUndefined();
     });
 });

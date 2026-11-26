@@ -153,7 +153,7 @@ export function glyphPose(phase: number): { glyph: string; rotate: number; scale
     };
 }
 
-function toolCount(n: number): string {
+export function toolCount(n: number): string {
     return n === 1 ? "1 tool" : `${n} tools`;
 }
 

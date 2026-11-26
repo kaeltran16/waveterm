@@ -75,6 +75,7 @@ export type AgentEntry =
           notice?: true;
           ts?: number;
           source?: "command" | "monitor" | "subagent";
+          toolUseId?: string; // a subagent finish's Agent/Task call id
       }
     // the human interrupted the agent mid-turn ([Request interrupted by user])
     | { kind: "interrupted" }
@@ -106,6 +107,7 @@ export type AgentEntry =
           startedTs?: number; // tool_use time while the call has no outcome yet, so a live call can show its elapsed
           ts?: number; // tool_use time, Claude's projection only
           command?: string; // the raw Bash command at tool_use, so a running wsh call is recognised before its result
+          toolUseId?: string; // an Agent/Task call's id, which its subagent's meta names
           // no tool_result yet: running, waiting on a permission prompt, or never finished. Claude's projection only;
           // absent reads as done.
           pending?: true;

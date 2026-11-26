@@ -120,13 +120,14 @@ import {
     shellTasksByIdAtom,
 } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
-import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
+import { focusSubagentAtom, openSubagent, subagentsByIdAtom } from "./subagentsstore";
 
 const SUB_COLOR: Record<SubagentState, string> = {
     working: "var(--color-accent)",
     success: "var(--color-success)",
     failure: "var(--color-error)",
     done: "var(--color-muted)",
+    stopped: "var(--color-muted)",
 };
 
 function startRowRename(tabId: string): void {
@@ -829,12 +830,7 @@ function ParentRow({
                                         return;
                                     }
                                     globalStore.set(model.focusIdAtom, agent.id);
-                                    globalStore.set(focusSubagentAtom, {
-                                        parentId: agent.id,
-                                        agentId: s.id,
-                                        transcriptPath: s.transcriptPath,
-                                        label: s.type || "subagent",
-                                    });
+                                    openSubagent(agent.id, s);
                                 }}
                                 className={cn(
                                     "relative flex items-center gap-[9px] rounded-[9px] py-[6px] pr-[11px] hover:bg-surface-hover",
