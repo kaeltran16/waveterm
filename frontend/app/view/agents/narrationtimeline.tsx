@@ -725,7 +725,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     className?: string;
     // what the host knows about the agent, for wsh cards' links and Arc's messages
     ctx?: TranscriptContext;
-    // a card-width host (agent row, lead card, subagent interior)
+    // a card-width host (agent row, lead card)
     compact?: boolean;
     // drawn after the last item, inside the column
     tail?: React.ReactNode;
