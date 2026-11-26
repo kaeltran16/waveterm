@@ -5,7 +5,7 @@ import { Mermaid } from "@/app/element/mermaid";
 import { createElement, type ComponentType } from "react";
 import type { ActionDetail, AgentActionEntry, EditFile } from "./agentsviewmodel";
 import { ChartCard } from "./chartcard";
-import { parseTestOutput, type TestSummary } from "./testoutput";
+import { isTestCommand, parseTestOutput, type TestSummary } from "./testoutput";
 import { parseUnifiedDiff } from "./unifieddiff";
 
 // The registry for fenced blocks and tool output. Fenced blocks are keyed by language and consulted by
@@ -29,16 +29,9 @@ export type ToolRendererKey = "image" | "git-diff" | "test";
 // git [global flags] diff|show, anywhere in a compound command; a flag's value never starts with "-",
 // so a flag and a value can't both claim one token (that ambiguity backtracks exponentially)
 const GIT_DIFF_CMD = /(?:^|[\s;&|(])git\s+(?:-\S+\s+(?:[^-\s]\S*\s+)?)*?(?:diff|show)\b/;
-// Arc's own runners: verify.mjs (go packages), the CDP runners and the task that wraps one; either path separator
-const TEST_CMD =
-    /(?:^|[\s;&|(])(?:go\s+test|vitest|task\s+verify:ui)\b|(?:^|[\s;&|(/\\])scripts[\\/](?:cdp[\\/](?:final-)?)?verify\.mjs\b/;
 
 export function isGitDiffCommand(cmd: string): boolean {
     return GIT_DIFF_CMD.test(cmd);
-}
-
-export function isTestCommand(cmd: string): boolean {
-    return TEST_CMD.test(cmd);
 }
 
 export type BashCard = { key: "git-diff"; files: EditFile[] } | { key: "test"; summary: TestSummary };

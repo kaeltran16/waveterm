@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { failureLabel, parseTestOutput } from "./testoutput";
+import { failureLabel, isTestCommand, parseTestOutput } from "./testoutput";
 
 const J = (o: Record<string, unknown>) => JSON.stringify(o);
 
@@ -367,5 +367,27 @@ describe("failureLabel", () => {
             where: "x_test.go:9",
             whereFull: "x_test.go:9",
         });
+    });
+});
+
+describe("isTestCommand", () => {
+    it("matches go test and vitest", () => {
+        expect(isTestCommand("go test -json ./...")).toBe(true);
+        expect(isTestCommand("npx vitest run x")).toBe(true);
+        expect(isTestCommand("go build ./...")).toBe(false);
+        expect(isTestCommand("npm run lint")).toBe(false);
+    });
+    it.each([
+        "node scripts/verify.mjs ./pkg/x",
+        "node scripts\\cdp\\final-verify.mjs final-stage",
+        "ARC_FINAL_OUT=/tmp/o node scripts/cdp/final-verify.mjs final-stage",
+        "node scripts/cdp/verify.mjs motion-final",
+        "task verify:ui -- final-stage",
+    ])("matches Arc's own runner: %s", (cmd) => {
+        expect(isTestCommand(cmd)).toBe(true);
+    });
+    it("does not match other scripts or tasks", () => {
+        expect(isTestCommand("node scripts/cdp-shot.mjs")).toBe(false);
+        expect(isTestCommand("task check:ts")).toBe(false);
     });
 });

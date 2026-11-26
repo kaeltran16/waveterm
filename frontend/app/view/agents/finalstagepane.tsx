@@ -318,7 +318,7 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
             setRerunAsked(false);
         }
     }
-    const detailAbove = view.detail !== "" && finalDetailAbove(view);
+    const detailAbove = finalDetailAbove(view);
 
     return (
         <div data-final-pane className="flex min-h-0 flex-1 flex-col bg-background">
@@ -348,9 +348,9 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
             <div className="sc min-h-0 flex-1 overflow-y-auto px-6 py-[18px]">
                 <div className={TRANSCRIPT_COLUMN}>
                     {/* a failure no command step's panel holds (the verifier's, the end review's, a human's end) */}
-                    {detailAbove ? (
+                    {detailAbove !== "" ? (
                         <div data-final-detail className="mt-2.5">
-                            <ToolPanel error={view.detail} />
+                            <ToolPanel error={detailAbove} />
                         </div>
                     ) : null}
                     {view.steps.length > 0 ? (

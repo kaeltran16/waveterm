@@ -28,6 +28,14 @@ export function stripAnsi(s: string): string {
     return s.replace(CSI_RE, "");
 }
 
+// Arc's own runners: verify.mjs (go packages), the CDP runners and the task that wraps one; either path separator
+const TEST_CMD =
+    /(?:^|[\s;&|(])(?:go\s+test|vitest|task\s+verify:ui)\b|(?:^|[\s;&|(/\\])scripts[\\/](?:cdp[\\/](?:final-)?)?verify\.mjs\b/;
+
+export function isTestCommand(cmd: string): boolean {
+    return TEST_CMD.test(cmd);
+}
+
 // a t.Errorf line: "    plan_test.go:88: want 3 tasks, got 1"
 const GO_LOC_LINE = /^(\s*)([\w.\-/\\]+\.go:\d+): ?(.*)$/;
 // go indents a log line's continuation this much past the line itself

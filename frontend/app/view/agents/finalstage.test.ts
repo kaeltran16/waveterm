@@ -907,15 +907,40 @@ describe("the pane's step decisions", () => {
         });
     });
 
+    const FINDINGS = "[End review] t-2's test asserts nothing";
+    const FINAL_FAILED = "Final `x` failed (exit 1):\nboom";
+    const endReviewFailed = { state: "failed", text: "t-2's test asserts nothing" };
+
     it.each([
-        ["Verifier", { state: "failed", round: 1, detail: "defects", verifierrunid: "v-run" }, true],
-        ["a human ended the stage", { state: "failed", round: 1, detail: HUMAN }, true],
-        ["a command that kept output", { state: "failed", round: 1, detail: "Check `x` failed (exit 1):\nx" }, false],
-    ])("places the failure detail above the box for %s: %s", (_name, final, above) => {
-        const events = [ev("tree", S), ev("check", S), ev("verify", S), ev("final", S)];
-        const withDir = { ...final, outdir: OUTDIR };
-        const failedCommand = above === false ? [ev("tree", S), ev("check", S, false)] : events;
-        expect(finalDetailAbove(finalStageView(dag(withDir), failedCommand, NOW))).toBe(above);
+        ["Verifier", { state: "failed", round: 1, detail: "defects", verifierrunid: "v-run" }, "", "defects"],
+        ["a human ended the stage", { state: "failed", round: 1, detail: HUMAN }, "", HUMAN],
+        ["a command that kept output", { state: "failed", round: 1, detail: FINAL_FAILED }, "final", ""],
+        [
+            "a command that kept output and a failed end review",
+            { state: "failed", round: 1, detail: `${FINAL_FAILED}\n\n${FINDINGS}`, endreview: endReviewFailed },
+            "final",
+            FINDINGS,
+        ],
+    ])("draws above the box for %s", (_name, final, failedStep, above) => {
+        const events = ["tree", "check", "verify", "final"].map((s) => ev(s, S, s !== failedStep));
+        const v = finalStageView(dag({ ...final, outdir: OUTDIR }), events, NOW);
+        expect(finalDetailAbove(v)).toBe(above);
+    });
+
+    it("a failed Check's panel error is the command's part alone when the end review also failed", () => {
+        const command = "Check `x` failed (exit 1):\nboom";
+        const final = {
+            state: "failed",
+            round: 1,
+            detail: `${command}\n\n${FINDINGS}`,
+            endreview: endReviewFailed,
+            outdir: OUTDIR,
+        };
+        const v = finalStageView(dag(final, { check: "tsc --noEmit" }), [ev("tree", S), ev("check", S, false)], NOW);
+        expect(finalStepBody(v, step(v, "check"), kept("ok", "src/a.ts(1,1): error TS2322"))).toMatchObject({
+            kind: "panel",
+            error: command,
+        });
     });
 
     it("opens the running command with output and the failed step with kept output, no other", () => {

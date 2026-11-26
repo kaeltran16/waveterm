@@ -1461,6 +1461,44 @@ export const finalStageScenario = {
             }
         );
 
+        // B5's stage with a failed end review too: applyEndReview appends the findings to the Final's detail
+        await fstShow(h, ctx, "failed");
+        const erDetail = `${FST_DETAIL}\n\n[End review] ${FST_ER_FINDING}`;
+        const erNudge = await seedDag(
+            h,
+            ctx,
+            (dag) => ({
+                ...dag,
+                final: { ...dag.final, detail: erDetail, endreview: { state: "failed", text: FST_ER_FINDING } },
+            }),
+            (dag) => JSON.stringify([dag?.final?.state ?? "", dag?.final?.endreview?.state ?? "", dag?.final?.detail ?? ""])
+        );
+        a = await fstAgent(
+            h,
+            // fstShow publishes the step events afresh, so the Final's kept output is read again
+            (s) =>
+                paneStep(s, "review")?.state === "failed" &&
+                (s.pane?.detail ?? "").includes(FST_ER_FINDING) &&
+                paneStep(s, "final")?.body?.card != null,
+            { nudge: erNudge }
+        );
+        await shot("b5c-failed-end-review");
+        const erFinal = paneStep(a, "final");
+        rec(
+            "B5c. B5's stage with a failed end review: the Final row still opens as a final-verify card with no error, End review reads failed, and the findings alone are the red block above the step box",
+            () =>
+                erFinal.state === "failed" &&
+                erFinal.expanded === "true" &&
+                erFinal.body.card.runner === "final-verify" &&
+                erFinal.body.error == null &&
+                paneStep(a, "review").state === "failed" &&
+                a.pane.detailAbove &&
+                a.pane.detail.includes(FST_ER_FINDING) &&
+                FST_DETAIL.split("\n").every((line) => !a.pane.detail.includes(fstFlat(line))) &&
+                a.pane.errors === 1,
+            { steps: a?.pane?.steps, detail: a?.pane?.detail, detailAbove: a?.pane?.detailAbove, errors: a?.pane?.errors }
+        );
+
         wait = await fstShow(h, ctx, "fixing");
         a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("round 2") && s.rows[0].tone === "wait", wait);
         await shot("b6-fixing-pane");
