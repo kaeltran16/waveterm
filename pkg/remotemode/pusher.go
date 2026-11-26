@@ -36,6 +36,7 @@ var pusherKindWords = map[string]string{
 	jarvis.AttentionEscalation:    "Escalated",
 	jarvis.AttentionRunUnverified: "Run unverified",
 	jarvis.AttentionWorkflowScan:  "Workflow scan",
+	jarvis.AttentionWorkerOrphan:  "Parent ended",
 }
 
 // PushNote is the encrypted body of one push: the agent or run name, the question's header or the kind

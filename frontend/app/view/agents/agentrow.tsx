@@ -56,7 +56,7 @@ import { cardCwdByIdAtom, diffStatsByIdAtom, sharedCheckoutCount } from "./cardg
 import type { CardShare } from "./cardgridlayout";
 import { finishes, nextSnap, type AgentSnap } from "./cockpitevents";
 import { cardBody } from "./cockpitsurfacemodel";
-import { CommitTick, useCommitDone } from "./committick";
+import { CommitTick, useCommitMark } from "./committick";
 import { editsApply } from "./diffscope";
 import { parseDocReview } from "./docreview";
 import { entriesAtomFor, tasksAtomFor } from "./livetranscriptatoms";
@@ -379,7 +379,7 @@ export const AgentRow = memo(function AgentRow({
     const subs = useAtomValue(subagentsByIdAtom)[agent.id] ?? [];
     const shellTasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standingBy = isStandingBy(agent.state, shellTasks, subs);
-    const commitDone = useCommitDone(agent.blockId, idle && !standingBy);
+    const commit = useCommitMark(agent.blockId, idle && !standingBy);
     const runDone = agentRunDone(agent, standingBy);
     const readPending = shellReadPending(agent, useAtomValue(shellReadAtByIdAtom)[agent.id]);
     const tasks = useAtomValue(tasksAtomFor(agent.id));
@@ -459,7 +459,7 @@ export const AgentRow = memo(function AgentRow({
                 <StatusLine
                     agent={agent}
                     nowAtom={nowAtom}
-                    mark={runDone || commitDone ? <CommitTick runDone={runDone} /> : undefined}
+                    mark={runDone || commit ? <CommitTick runDone={runDone} commit={commit} /> : undefined}
                     standing={standingBy}
                     className="min-w-0 flex-1 overflow-hidden"
                     projectClassName={WIDE_ONLY}
@@ -689,6 +689,15 @@ export const AgentRow = memo(function AgentRow({
                         </div>
                     ) : (
                         <div className="shrink-0 grow px-3 py-1.5">
+                            {/* a stopped worker's terminal has no process: its last turn shows, and the composer wakes it */}
+                            {body === "stopped" ? (
+                                <div
+                                    data-card-stopped
+                                    className="mb-1.5 border-b border-edge-mid pb-1.5 text-[12px] text-muted"
+                                >
+                                    Stopped, a message resumes it
+                                </div>
+                            ) : null}
                             {working ? (
                                 <ActivityLine
                                     agent={agent}

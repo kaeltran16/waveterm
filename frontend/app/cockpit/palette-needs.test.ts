@@ -131,6 +131,12 @@ describe("palette-needs", () => {
             expect(target(scan)).toEqual({ kind: "open", target: { kind: "workflowscan", runId: "r1" } });
         });
 
+        it("opens an orphaned worker's tab by its oref, and nothing without one", () => {
+            const orphan = at({ kind: "worker-orphan", key: "worker-orphan:w1", oref: "tab:w1" });
+            expect(target(orphan)).toEqual({ kind: "open", target: { kind: "agent", tabId: "w1" } });
+            expect(target(at({ kind: "worker-orphan", key: "worker-orphan:w1" }))).toBeNull();
+        });
+
         it("an ask whose agent left the roster opens its channel, never an answer", () => {
             expect(target({ ...item("ask", "ask:block:gone"), channelid: "c1" } as AttentionItem)).toEqual({
                 kind: "channel",

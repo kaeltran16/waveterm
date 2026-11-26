@@ -681,6 +681,34 @@ func TestListWorktreesLinkedWithBranch(t *testing.T) {
 	}
 }
 
+func TestLinkedWorktreeBranch(t *testing.T) {
+	ctx := context.Background()
+	dir := repoWithChange(t)
+	wt, err := CreateWorktree(ctx, dir, "feat/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(wt, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, cwd, want string
+	}{
+		{"linked worktree", wt, "feat/x"},
+		{"subdir of a linked worktree", sub, "feat/x"},
+		{"main checkout", dir, ""},
+	} {
+		got, err := LinkedWorktreeBranch(ctx, c.cwd)
+		if err != nil || got != c.want {
+			t.Errorf("%s: got %q, %v; want %q", c.name, got, err, c.want)
+		}
+	}
+	if _, err := LinkedWorktreeBranch(ctx, t.TempDir()); err == nil {
+		t.Error("not a repo: want an error")
+	}
+}
+
 // the Code surface browses a worktree and still needs to know which repository it belongs to
 func TestListWorktreesFromALinkedWorktreeListsMainFirst(t *testing.T) {
 	dir := repoWithChange(t)

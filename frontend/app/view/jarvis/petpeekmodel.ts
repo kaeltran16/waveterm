@@ -26,10 +26,12 @@ export interface PeekRow {
     links: PetAct[];
 }
 
+const WORKER_ORPHAN_KIND = "worker-orphan";
+
 // pkg/jarvis/attention.go writes Text per kind, and only these put anything in it that the row's own verb
 // does not already say: an escalation's and an ask's question (askText), a blocked dag's reason. A held land's
-// reason is what says whether to retry or dismiss.
-const DETAIL_KINDS = new Set(["escalation", "dag-blocked", "ask", "run-land-held"]);
+// reason is what says whether to retry or dismiss; an orphaned worker's is its answer.
+const DETAIL_KINDS = new Set(["escalation", "dag-blocked", "ask", "run-land-held", WORKER_ORPHAN_KIND]);
 
 // A row names its kind in a word beside its dot, so the kind never rides on colour alone.
 const ROW_KIND_LABEL: Record<string, string> = {
@@ -39,6 +41,7 @@ const ROW_KIND_LABEL: Record<string, string> = {
     "run-land-held": "Land held",
     "workflow-scan": "Workflow scan",
     "run-unverified": "Unverified",
+    [WORKER_ORPHAN_KIND]: "Orphaned",
 };
 
 export function rowKindLabel(kind: string): string {
@@ -84,10 +87,11 @@ export function queueRows(items: AttentionItem[], agents: ReadonlyArray<AgentVM>
             waitingsince: item.waitingsince,
             // "Review" / "Decide" / "Answer" is the same navigation as "Open", named by what it is for. An
             // act that is not a navigation keeps its own name.
+            // an orphan's action is the Brief's Acknowledge; here it only opens, so it keeps Open
             primary:
                 first == null
                     ? answerInAgent(item, agents)
-                    : first.verb === "open"
+                    : first.verb === "open" && item.kind !== WORKER_ORPHAN_KIND
                       ? { ...first, label: item.action }
                       : first,
             links,

@@ -377,6 +377,19 @@ const actState: WorkState = {
     sources: { runs: true, sessions: true, dossiers: true, efforts: true, attention: "volatile" },
     efforts: ACT_EFFORTS,
 };
+// a worker whose parent's tab closed: its answer waits here (pkg/jarvis/attention.go, brief-act 48)
+const actAttention: AttentionItem[] = [
+    {
+        kind: "worker-orphan",
+        key: "worker-orphan:t-act-orphan",
+        oref: "tab:t-act-orphan",
+        source: "fix login redirect",
+        text: "Parent ended · Fixed the login redirect; the callback now keeps the return path.",
+        action: "Acknowledge",
+        phaseidx: 0,
+        waitingsince: NOW - 2 * HOUR,
+    },
+];
 
 // "review": the 11-05 code review's Waiting and Behind you findings (brief-act steps 12 on). A run-unverified
 // pair and a held land read by their own kind words; the held land offers Retry land and Dismiss; an ask
@@ -579,7 +592,7 @@ export const BRIEFING_FIXTURES: Record<BriefingFixtureName, BriefingFixture> = {
     empty: { load: loaded(emptyState), agents, attention: [] },
     partial: { load: loaded(partialState), agents, attention: [] },
     failed: { load: { snapshot: null, loading: false, error: "fixture failure" }, agents: [], attention: [] },
-    act: { load: loaded(actState), agents: [], attention: [] },
+    act: { load: loaded(actState), agents: [], attention: actAttention },
     review: { load: loaded(reviewState), agents: [REVIEW_ASKER], attention: reviewAttention },
     initiatives: { load: loaded(initiativesState), agents: [], attention: reviewAttention },
     "keyless-one": { load: loaded(keylessState([keylessFirst])), agents: [], attention: [] },

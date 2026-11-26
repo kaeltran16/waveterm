@@ -36,6 +36,7 @@ function fakeDeps(fail = false, land: RunLand = { state: "landed" }) {
             dagAction: rpc(),
             ackRun: rpc(),
             setChunkStatus: rpc(),
+            setMeta: rpc(),
             landRun: vi.fn(() => (fail ? Promise.reject(new Error("refused")) : Promise.resolve(land))),
         },
         undo: { notify: vi.fn(), error: vi.fn() },
@@ -240,6 +241,35 @@ describe("a held land's row", () => {
     it("a refused Dismiss reports through undo.error", async () => {
         const deps = fakeDeps(true);
         await actOnQueue(deps, held, line(null), act("dismiss-land"));
+        expect(deps.undo.error).toHaveBeenCalledWith("refused");
+        expect(deps.undo.notify).not.toHaveBeenCalled();
+    });
+});
+
+describe("an orphaned worker's row", () => {
+    const orphan = row({
+        wireKind: "worker-orphan",
+        source: "fix login",
+        channelId: "",
+        runId: null,
+        nav: { kind: "oref", oref: "tab:t9" },
+    });
+    const [ack] = queueActions(orphan);
+
+    it("Acknowledge clears the orphan mark on the worker's tab", async () => {
+        const deps = fakeDeps();
+        await actOnQueue(deps, orphan, line(null), ack);
+        expect(deps.rpc.setMeta).toHaveBeenCalledWith({
+            oref: "tab:t9",
+            meta: { "agent:orphaned": null, "agent:orphananswer": null },
+        });
+        expect(deps.undo.notify).toHaveBeenCalledWith("Acknowledged · fix login");
+        expect(deps.rpc.ackRun).not.toHaveBeenCalled();
+    });
+
+    it("a refused Acknowledge reports through undo.error", async () => {
+        const deps = fakeDeps(true);
+        await actOnQueue(deps, orphan, line(null), ack);
         expect(deps.undo.error).toHaveBeenCalledWith("refused");
         expect(deps.undo.notify).not.toHaveBeenCalled();
     });

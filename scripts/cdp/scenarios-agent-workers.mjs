@@ -1,5 +1,6 @@
 // Agent scenario `agent-workers`: agents started by another agent nest under it in the Agent tree. A parent with a
-// working worker and a stopped worker, and the stopped worker's own stopped worker one level further down. The
+// working worker, a stopped worker and a done worker whose block carries a worktree commit stamp, and the stopped
+// worker's own stopped worker one level further down. The
 // roster is a page fixture over real tabs with no controller (a fake block id would fail its terminal's resync and
 // read "failed to start"), each worker tab carrying agent:parenttab as the backend stamps it. The stopped worker's
 // transcript lives in a temp dir teardown removes.
@@ -28,6 +29,9 @@ const PARENT = "workers parent";
 const WORKING = "worker working";
 const STOPPED = "worker stopped";
 const GRAND = "worker of worker";
+const COMMITTED = "worker committed";
+const BRANCH = "feat/verify-worker-branch";
+const BRANCH_TITLE = `Done, committed on ${BRANCH}`;
 const ANSWER = "The tree nests every worker under the agent that started it.";
 const LOAD_WAIT_MS = 10_000;
 
@@ -96,6 +100,31 @@ async function publishIdle(h, ctx, blockId) {
     });
 }
 
+const TREE_ROW = (id) => `document.querySelector('[data-agent-tree] [data-tree-agent="${id}"]')`;
+const CARD = (id) => `document.querySelector('[data-cockpit-surface] [data-agent-id="${id}"]')`;
+const branchMark = (scope) => `(${scope})?.querySelector('[title=${JSON.stringify(BRANCH_TITLE)}] svg.lucide-git-branch')`;
+// the branch mark and the commit tick a row or card shows
+const markOf = (scope) => `({
+    branch: !!${branchMark(scope)},
+    tick: !!(${scope})?.querySelector('[title="Done, latest work committed"]'),
+})`;
+
+const STOPPED_LINE = "Stopped, a message resumes it";
+// a card's stopped line, whether the fixture answer shows below it, and whether it reads waiting
+const stoppedCard = (scope) => `(() => {
+    const card = ${scope};
+    const line = card?.querySelector("[data-card-stopped]");
+    const answer = [...(card?.querySelectorAll("*") ?? [])].find(
+        (el) => el.children.length === 0 && el.textContent.includes(${JSON.stringify(ANSWER)})
+    );
+    return {
+        line: line?.textContent.trim() ?? null,
+        answer: answer != null,
+        lineAbove: !!(line && answer && line.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING),
+        waiting: (card?.textContent ?? "").includes("Waiting in its terminal"),
+    };
+})()`;
+
 const focusedView = `(() => {
     const pill = ${HEADER_PILL};
     const box = document.querySelector("[data-rendered-composer] textarea");
@@ -142,11 +171,22 @@ export default function (_kit) {
                         blockMeta: noController,
                         tabMeta: { "agent:parenttab": stopped.tabId },
                     });
+                    // done, with a commit this turn made in a linked worktree, as `wsh agent-hook` stamps it
+                    const committed = await makeTab(h, ctx, {
+                        label: COMMITTED,
+                        blockMeta: {
+                            ...noController,
+                            "agent:lastcommitts": Date.now(),
+                            "agent:lastcommitbranch": BRANCH,
+                        },
+                        tabMeta: { "agent:parenttab": parent.tabId },
+                    });
                     ctx.ids = {
                         parent: parent.tabId,
                         working: working.tabId,
                         stopped: stopped.tabId,
                         grand: grand.tabId,
+                        committed: committed.tabId,
                     };
                     const now = Date.now();
                     const agent = (made, name, extra) => ({
@@ -175,6 +215,7 @@ export default function (_kit) {
                             stopped: true,
                             transcriptPath: ctx.stoppedPath,
                         }),
+                        agent(committed, COMMITTED, { state: "idle", idleSince: now - 5_000, parentTabId: parent.tabId }),
                         agent(parent, PARENT, { state: "idle", idleSince: now - 10_000 }),
                     ]);
                     await focusAgent(h, parent.tabId);
@@ -190,7 +231,7 @@ export default function (_kit) {
                     rec("arrange the fixture agents", false, ctx.arrangeError);
                     return steps;
                 }
-                const { parent, working, stopped, grand } = ctx.ids;
+                const { parent, working, stopped, grand, committed } = ctx.ids;
                 const order = [parent, working, stopped, grand];
 
                 await polishWaitFor(h, `${treeRows(order)}.length === 4`, LOAD_WAIT_MS);
@@ -225,6 +266,42 @@ export default function (_kit) {
                         view.boxDisabled === false &&
                         view.boxReadOnly === false,
                     JSON.stringify(view)
+                );
+
+                const treeMark = await polishWaitFor(h, `!!${branchMark(TREE_ROW(committed))}`, LOAD_WAIT_MS);
+                const inTree = await h.ev(markOf(TREE_ROW(committed)));
+                await h.shot(SHOT(3, "branch-tree"));
+                await h.goto("cockpit");
+                const cardMark = await polishWaitFor(h, `!!${branchMark(CARD(committed))}`, LOAD_WAIT_MS);
+                const onCard = await h.ev(markOf(CARD(committed)));
+                await h.shot(SHOT(4, "branch-card"));
+                await h.goto("agent");
+                rec(
+                    "5. a done worker that committed in a worktree shows the branch icon titled with its branch, not the tick, on its tree row and its card",
+                    treeMark && cardMark && [inTree, onCard].every((m) => m.branch && !m.tick),
+                    JSON.stringify({ inTree, onCard })
+                );
+
+                await h.goto("cockpit");
+                const stoppedShown = await polishWaitFor(
+                    h,
+                    `(${stoppedCard(CARD(stopped))}).answer && (${stoppedCard(CARD(grand))}).line != null`,
+                    LOAD_WAIT_MS
+                );
+                const withTranscript = await h.ev(stoppedCard(CARD(stopped)));
+                const without = await h.ev(stoppedCard(CARD(grand)));
+                await h.shot(SHOT(6, "stopped-card"));
+                await h.goto("agent");
+                rec(
+                    `6. a stopped worker's card reads "${STOPPED_LINE}" above its transcript's last answer, and one with no transcript reads it too; neither reads waiting`,
+                    stoppedShown &&
+                        withTranscript.line === STOPPED_LINE &&
+                        withTranscript.answer &&
+                        withTranscript.lineAbove &&
+                        !withTranscript.waiting &&
+                        without.line === STOPPED_LINE &&
+                        !without.waiting,
+                    JSON.stringify({ withTranscript, without })
                 );
                 return steps;
             },

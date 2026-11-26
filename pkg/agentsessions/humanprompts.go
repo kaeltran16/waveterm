@@ -66,8 +66,51 @@ func claudeHumanPrompts(lines []string) []HumanPrompt {
 	return out
 }
 
+// LastPromptTs is the transcript time (UnixMilli) of the last prompt a claude or pi session received, typed by a
+// person or sent by another agent: the opening of its latest turn. Other runtimes, a file that cannot be read, and
+// a session with no prompt give 0.
+func LastPromptTs(path, runtime string) int64 {
+	switch runtime {
+	case "claude":
+		lines := readLines(path)
+		for i := len(lines) - 1; i >= 0; i-- {
+			if !strings.Contains(lines[i], `"type":"user"`) && !strings.Contains(lines[i], `"queued_command"`) {
+				continue
+			}
+			var rec claudeLine
+			if json.Unmarshal([]byte(lines[i]), &rec) == nil && claudeReceivedPrompt(rec) != "" {
+				return parseTs(rec.Timestamp)
+			}
+		}
+	case "pi":
+		file, err := pisession.Read(path)
+		if err != nil {
+			return 0
+		}
+		branch, err := file.ActiveBranch()
+		if err != nil {
+			return 0
+		}
+		for i := len(branch) - 1; i >= 0; i-- {
+			if pisession.UserText(branch[i].Message) != "" {
+				return parseTs(branch[i].Timestamp)
+			}
+		}
+	}
+	return 0
+}
+
 // claudeTypedText is the text a person typed that a record carries, "" when it carries none.
 func claudeTypedText(rec claudeLine) string {
+	if text := claudeReceivedPrompt(rec); !agentmsg.IsAgentMessage(text) {
+		return text
+	}
+	return ""
+}
+
+// claudeReceivedPrompt is the prompt text a record carries, typed by a person or sent by another agent (which is
+// typed into the session like one), "" when it carries none.
+func claudeReceivedPrompt(rec claudeLine) string {
 	var raw json.RawMessage
 	var origin *claudeOrigin
 	switch {
@@ -88,11 +131,8 @@ func claudeTypedText(rec claudeLine) string {
 	if isClaudeNotice(text) {
 		return ""
 	}
-	// an agent's message is checked once unwrapped: a long one is recorded inside the pasted_content tag
-	if text = pastedContentRe.ReplaceAllString(text, "$1"); agentmsg.IsAgentMessage(text) {
-		return ""
-	}
-	return text
+	// unwrapped, so an agent's message reads as one: a long one is recorded inside the pasted_content tag
+	return pastedContentRe.ReplaceAllString(text, "$1")
 }
 
 // pastedContentRe is the tag claude code wraps a long typed or pasted message in before recording it. The text

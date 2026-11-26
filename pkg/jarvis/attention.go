@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Pure: assemble the cockpit-wide "needs you" list — blocked dags and held lands, Gatekeeper escalations,
-// blocked workers and unverified runs, in that order, oldest first within each kind. This is the single
+// blocked workers, unverified runs and orphaned agent workers, in that order, oldest first within each kind. This is the single
 // definition; the frontend derivations it replaces (railneeds.ts / channelneeds.ts) were deleted, because a
 // snapshot of every channel's runs is not live and could never see an item outside the active channel.
 
@@ -38,6 +38,16 @@ const (
 	AttentionRunUnverified = "run-unverified"
 	// a workflow scan whose agent waits on the owner's picks
 	AttentionWorkflowScan = "workflow-scan"
+	// an agent-started worker whose parent's tab closed before its answer was delivered, acknowledged once read
+	AttentionWorkerOrphan = "worker-orphan"
+)
+
+// The orphan mark is tab meta on the worker, which pkg/agentworker writes and the frontend's Acknowledge clears.
+const (
+	// MetaWorkerOrphaned is when the mark was raised, in UnixMilli.
+	MetaWorkerOrphaned = "agent:orphaned"
+	// MetaWorkerOrphanAnswer is the first line of the worker's answer, "" when its turn wrote none.
+	MetaWorkerOrphanAnswer = "agent:orphananswer"
 )
 
 // mirrors orchestrate.TaskState_*, spelled here for the same reason as the dag statuses above.
@@ -70,6 +80,7 @@ type AttentionInput struct {
 	AskWorker     map[string]string
 	AskWorkerORef map[string]string
 	Dags          []*waveobj.TaskGroup // engine-owned task DAGs (awaiting-review/blocked surface items)
+	OrphanTabs    []*waveobj.Tab       // worker tabs carrying the orphan mark
 }
 
 // runForWorker finds the run whose phases claim this worker tab oref.
@@ -398,9 +409,14 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		})
 	}
 
+	var orphans []wshrpc.AttentionItem
+	for _, tab := range in.OrphanTabs {
+		orphans = append(orphans, orphanItem(tab))
+	}
+
 	// Kind is the priority claim — a hold blocks a whole run, an ask blocks one worker. Age only
 	// breaks ties inside a kind. Key is the final tiebreak so map iteration cannot reorder equal items.
-	for _, group := range [][]wshrpc.AttentionItem{holds, escalations, asks, unverified} {
+	for _, group := range [][]wshrpc.AttentionItem{holds, escalations, asks, unverified, orphans} {
 		g := group
 		sort.SliceStable(g, func(i, j int) bool {
 			if g[i].WaitingSince != g[j].WaitingSince {
@@ -410,13 +426,41 @@ func BuildAttention(in AttentionInput) []wshrpc.AttentionItem {
 		})
 	}
 
-	out := make([]wshrpc.AttentionItem, 0, len(holds)+len(escalations)+len(asks)+len(unverified))
+	out := make([]wshrpc.AttentionItem, 0, len(holds)+len(escalations)+len(asks)+len(unverified)+len(orphans))
 	out = append(out, holds...)
 	out = append(out, escalations...)
 	out = append(out, asks...)
 	// an unverified outcome holds nothing at all: the run is done
 	out = append(out, unverified...)
+	out = append(out, orphans...)
 	return out
+}
+
+// orphanItem is a worker whose parent's tab closed: its answer waits to be read, and the worker is stopped.
+func orphanItem(tab *waveobj.Tab) wshrpc.AttentionItem {
+	source := strings.TrimSpace(tab.Meta.GetString(waveobj.MetaKey_SessionLabel, ""))
+	if source == "" {
+		source = tab.Name
+	}
+	answer := tab.Meta.GetString(MetaWorkerOrphanAnswer, "")
+	if answer == "" {
+		answer = "no answer"
+	}
+	return wshrpc.AttentionItem{
+		Kind:         AttentionWorkerOrphan,
+		Key:          "worker-orphan:" + tab.OID,
+		ORef:         waveobj.MakeORef(waveobj.OType_Tab, tab.OID).String(),
+		Source:       source,
+		Text:         "Parent ended · " + answer,
+		Action:       "Acknowledge",
+		WaitingSince: int64(tab.Meta.GetFloat(MetaWorkerOrphaned, 0)),
+		Why:          "Its parent's tab closed before the answer reached it, so the worker stopped. Open its tab to read the answer, then acknowledge it.",
+	}
+}
+
+// OrphanAnswerLine is the orphan mark's answer: the answer's first line, as one row's text.
+func OrphanAnswerLine(answer string) string {
+	return rowLine(firstLine(strings.TrimSpace(answer)))
 }
 
 // landHeldItem is a done run whose branch the engine did not merge back, with the reason. The run's work is
@@ -537,15 +581,9 @@ func askText(qs []baseds.AgentAskQuestion) string {
 	if len(qs) == 0 {
 		return askFallbackText
 	}
-	// Fields+Join rather than a newline replace: a question is composed for a terminal picker and can
-	// carry hard-wrapped lines and runs of padding, all of which have to collapse for a one-line row.
-	q := strings.Join(strings.Fields(qs[0].Question), " ")
+	q := rowLine(qs[0].Question)
 	if q == "" {
 		return askFallbackText
-	}
-	if r := []rune(q); len(r) > askQuestionMax {
-		// runes, not bytes: a byte slice would cut a multi-byte character in half and emit invalid UTF-8.
-		q = string(r[:askQuestionMax]) + "…"
 	}
 	if len(qs) > 1 {
 		// a multi-question ask is one picker sequence, so say the first question is not all of it —
@@ -553,6 +591,18 @@ func askText(qs []baseds.AgentAskQuestion) string {
 		q = fmt.Sprintf("%s (+%d more)", q, len(qs)-1)
 	}
 	return q
+}
+
+// rowLine is s as one row's text: its whitespace collapsed and cut to askQuestionMax runes.
+func rowLine(s string) string {
+	// Fields+Join rather than a newline replace: a question is composed for a terminal picker and can
+	// carry hard-wrapped lines and runs of padding, all of which have to collapse for a one-line row.
+	line := strings.Join(strings.Fields(s), " ")
+	if r := []rune(line); len(r) > askQuestionMax {
+		// runes, not bytes: a byte slice would cut a multi-byte character in half and emit invalid UTF-8.
+		line = string(r[:askQuestionMax]) + "…"
+	}
+	return line
 }
 
 // dagSource is the attention source line for a dag item: its title, else the owning run's goal.
@@ -649,6 +699,15 @@ func GatherAttentionFromLedger(ctx context.Context, chans []*waveobj.Channel, ru
 			if g, gerr := wstore.GetDagShared(ctx, run.DagORef); gerr == nil {
 				in.Dags = append(in.Dags, g)
 			}
+		}
+	}
+	tabs, err := wstore.DBGetAllObjsByType[*waveobj.Tab](ctx, waveobj.OType_Tab)
+	if err != nil {
+		return nil, fmt.Errorf("listing tabs for orphaned workers: %w", err)
+	}
+	for _, tab := range tabs {
+		if tab.Meta.HasKey(MetaWorkerOrphaned) {
+			in.OrphanTabs = append(in.OrphanTabs, tab)
 		}
 	}
 	return BuildAttention(in), nil

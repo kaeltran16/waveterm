@@ -3268,6 +3268,7 @@ declare global {
         "app:loom"?: boolean;
         "agent:transcriptpath"?: string;
         "agent:lastcommitts"?: number;
+        "agent:lastcommitbranch"?: string;
         "agent:lasteditts"?: number;
         "agent:turnstartts"?: number;
         "agent:transcripts"?: string[];

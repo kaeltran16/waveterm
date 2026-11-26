@@ -85,6 +85,7 @@ const NEEDS_STATUS: Record<string, string> = {
     "run-land-held": "land held",
     "run-unverified": "unverified",
     "workflow-scan": "workflow scan",
+    "worker-orphan": "orphaned",
 };
 
 export function themeRows(themePreset: string, { close }: PaletteDeps): PaletteItem[] {

@@ -139,7 +139,8 @@ func lastTranscriptWrite(block *waveobj.Block) (time.Time, bool) {
 }
 
 // PublishStatus publishes the retained agent:status the roster keys off, as of at, with the block's harness (its tab's
-// session:agent), cwd and transcript path as stored. A stopped worker publishes idle so the roster still lists it.
+// session:agent), cwd and transcript path as stored. A stopped worker publishes idle so the roster still lists it; a
+// working one marks a turn start.
 func PublishStatus(ctx context.Context, blockId, state string, at time.Time) error {
 	block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
 	if err != nil {
@@ -157,6 +158,11 @@ func PublishStatus(ctx context.Context, blockId, state string, at time.Time) err
 	data := ev.Data.(baseds.AgentStatusData)
 	data.Cwd = block.Meta.GetString(waveobj.MetaKey_CmdCwd, "")
 	data.TranscriptPath = block.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
+	if state == baseds.AgentState_Working {
+		// its working callers publish as their prompt is sent, so the turn's timer counts from now, not from the
+		// transcript's last message
+		data.Hook = baseds.AgentHook_UserPromptSubmit
+	}
 	ev.Data = data
 	wps.Broker.Publish(ev)
 	return nil

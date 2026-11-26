@@ -27,6 +27,7 @@ export type PetAct =
 const RUN_UNVERIFIED_KIND = "run-unverified";
 const RUN_LAND_HELD_KIND = "run-land-held";
 const WORKFLOW_SCAN_KIND = "workflow-scan";
+const WORKER_ORPHAN_KIND = "worker-orphan";
 
 // A scan's run is its agent's; what waits on the user is the scan's picks, in Usage › Workflow. So a workflow-scan
 // item opens by its own oref, never by its run. null for any other kind, or an oref the router cannot open.
@@ -56,6 +57,11 @@ export function actsForAttention(item: AttentionItem): PetAct[] {
     const scanOref = item ? workflowScanOref(item) : null;
     if (scanOref != null) {
         return [{ id: `${item.key}:open`, verb: "open", label: "Open", target: { kind: "oref", ref: scanOref } }];
+    }
+    // an orphaned worker names no run: its answer is on its tab, and the ack (clearing the tab's mark) is
+    // the Brief's, since the pet's ack verb acks runs only
+    if (item?.kind === WORKER_ORPHAN_KIND && item.oref) {
+        return [{ id: `${item.key}:open`, verb: "open", label: "Open", target: { kind: "oref", ref: item.oref } }];
     }
     if (!item?.runid) {
         return []; // nothing addressable: an item with no run cannot be opened or resolved

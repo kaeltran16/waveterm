@@ -420,6 +420,11 @@ describe("needsPaletteRows", () => {
         row.run();
         expect(deps.close).not.toHaveBeenCalled();
     });
+
+    it("words an orphaned worker's answer as orphaned", () => {
+        const g = needsGroups(needsRows([item({ kind: "worker-orphan", key: "worker-orphan:t9" })], []));
+        expect(needsPaletteRows(g, deps).inScope[0].status).toEqual({ label: "orphaned", tone: "asking" });
+    });
 });
 
 describe("answerRows", () => {

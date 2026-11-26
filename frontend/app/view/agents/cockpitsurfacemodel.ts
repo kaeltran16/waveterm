@@ -57,8 +57,12 @@ export function cardHasContent(agent: AgentVM, hasEntries: boolean): boolean {
 }
 
 // what a card body shows: the feed, or a "waiting in its terminal" notice for an agent with nothing to show yet
-// (a booting launch, or one stopped at a trust prompt).
-export function cardBody(agent: AgentVM, hasEntries: boolean): "feed" | "waiting" {
+// (a booting launch, or one stopped at a trust prompt). a stopped worker has no process in its terminal, so it gets
+// its own state, with or without a feed.
+export function cardBody(agent: AgentVM, hasEntries: boolean): "feed" | "waiting" | "stopped" {
+    if (agent.stopped) {
+        return "stopped";
+    }
     return agent.booting || !cardHasContent(agent, hasEntries) ? "waiting" : "feed";
 }
 

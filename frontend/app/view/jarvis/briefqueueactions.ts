@@ -15,6 +15,7 @@ export type QueueActionDeps = {
         dagAction: (data: CommandDagActionData) => Promise<void>;
         ackRun: (data: CommandAckRunData) => Promise<void>;
         setChunkStatus: (oref: string, chunk: string, status: string, note?: string) => Promise<void>;
+        setMeta: (data: CommandSetMetaData) => Promise<void>;
         landRun: (data: CommandLandRunData) => Promise<RunLand>;
     };
     undo: Pick<UndoOps, "notify" | "error">;
@@ -27,6 +28,10 @@ export type QueueActionDeps = {
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+// the orphan mark pkg/agentworker writes on a worker's tab (untyped keys, hence the cast); clearing it is
+// what retires the attention item
+const ORPHAN_MARK_CLEARED = { "agent:orphaned": null, "agent:orphananswer": null } as MetaType;
+
 // what a row's click opens: a blocked chunk lands on itself in its initiative's plan, anything else on
 // the row's target
 export function openQueueRow(deps: Pick<QueueActionDeps, "openLine" | "openChunk">, q: QueueRow, line: BriefLine) {
@@ -38,7 +43,7 @@ export function openQueueRow(deps: Pick<QueueActionDeps, "openLine" | "openChunk
 }
 
 // Retry acts on the exact task the server named, Unblock and Done on the row's chunk, Retry land and Dismiss
-// on its run, and anything else opens the row
+// on its run, an orphaned worker's Acknowledge on its tab, and anything else opens the row
 export async function actOnQueue(
     deps: QueueActionDeps,
     q: QueueRow,
@@ -110,6 +115,13 @@ export async function actOnQueue(
             );
         case "ack-run":
             return run(`Acknowledged · ${name}`, () => deps.rpc.ackRun(runIds));
+        case "ack-orphan": {
+            if (q.nav?.kind !== "oref") {
+                return;
+            }
+            const oref = q.nav.oref;
+            return run(`Acknowledged · ${name}`, () => deps.rpc.setMeta({ oref, meta: ORPHAN_MARK_CLEARED }));
+        }
         default:
             openQueueRow(deps, q, line);
     }

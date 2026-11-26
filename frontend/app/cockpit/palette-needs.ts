@@ -25,6 +25,8 @@ const KIND_GROUP: Record<string, NeedsGroup> = {
 // pkg/jarvis/attention.go keys an ask as "ask:" + its block oref, standalone or in a channel
 const ASK_BLOCK_PREFIX = "ask:block:";
 
+const WORKER_ORPHAN_KIND = "worker-orphan";
+
 export interface NeedsRow {
     item: AttentionItem;
     group: NeedsGroup;
@@ -84,6 +86,11 @@ export function needsTarget(row: NeedsRow): NeedsTarget | null {
     const scanOref = workflowScanOref(row.item);
     if (scanOref != null) {
         return { kind: "open", target: parseAddress(scanOref) as OpenTarget };
+    }
+    // an orphaned worker names no channel: its answer is on its tab
+    if (kind === WORKER_ORPHAN_KIND && row.item.oref) {
+        const tab = parseAddress(row.item.oref);
+        return tab.kind === "unsupported" ? null : { kind: "open", target: tab as OpenTarget };
     }
     if (!channelid) {
         return null;
