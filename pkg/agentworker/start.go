@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/wavetermdev/waveterm/pkg/agentsessions"
@@ -27,6 +28,9 @@ import (
 )
 
 const metaTabProject = "session:project"
+
+// workerNameMax caps a worker's name in runes, so it fits a tab and a tree row.
+const workerNameMax = 48
 
 // parentTab is what a worker takes from the agent that starts it.
 type parentTab struct {
@@ -69,13 +73,17 @@ func Start(ctx context.Context, data wshrpc.CommandAgentsStartData) (*wshrpc.Com
 
 	ctx = waveobj.ContextWithUpdates(ctx)
 	defer func() { wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(ctx)) }()
+	// the tab's name is the one its notices and wsh agents list show; session:label is the tree's and the cockpit's,
+	// which outlives a reload as the agent's own title does not
+	name := workerName(data.Prompt)
 	tabId, blockId, err := jarvis.OpenAgentTab(ctx, jarvis.AgentTabSpec{
 		WorkspaceId: parent.workspaceId,
-		TabName:     parent.tab.Meta.GetString(metaTabProject, parent.tab.Name),
+		TabName:     name,
 		TabMeta: waveobj.MetaMapType{
-			metaTabHarness: launch.Harness,
-			metaTabProject: parent.tab.Meta.GetString(metaTabProject, ""),
-			MetaParentTab:  parent.tab.OID,
+			metaTabHarness:               launch.Harness,
+			metaTabProject:               parent.tab.Meta.GetString(metaTabProject, ""),
+			waveobj.MetaKey_SessionLabel: name,
+			MetaParentTab:                parent.tab.OID,
 		},
 		BlockMeta: workerBlockMeta(launch, cwd, sessionId, prompt),
 	})
@@ -97,10 +105,26 @@ func Start(ctx context.Context, data wshrpc.CommandAgentsStartData) (*wshrpc.Com
 	}
 	Bind(claim, blockId)
 	// the worker runs either way; the roster lists it once its own hooks report
-	if err := PublishStatus(ctx, blockId, baseds.AgentState_Working); err != nil {
+	if err := PublishStatus(ctx, blockId, baseds.AgentState_Working, time.Now()); err != nil {
 		log.Printf("agentworker: publishing the first status of worker %s: %v", tabId, err)
 	}
 	return &wshrpc.CommandAgentsStartRtnData{TabId: tabId, Harness: launch.Harness, Cwd: cwd}, nil
+}
+
+// workerName names a worker by its task: the task's first line, cut to workerNameMax. A double quote becomes a single
+// one, since a notice quotes the name.
+func workerName(task string) string {
+	line := ""
+	for _, l := range strings.Split(task, "\n") {
+		if line = strings.Join(strings.Fields(l), " "); line != "" {
+			break
+		}
+	}
+	line = strings.ReplaceAll(line, `"`, "'")
+	if r := []rune(line); len(r) > workerNameMax {
+		return strings.TrimSpace(string(r[:workerNameMax-1])) + "…"
+	}
+	return line
 }
 
 // loadParentTab reads the calling agent's tab, workspace, directory and latest status. Its directory is the one it

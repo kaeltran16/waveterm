@@ -50,10 +50,14 @@ func seedStoppedWorker(t *testing.T, cwd string) (tabId, blockId string) {
 func TestResumeWorkerStartsItsSessionWithTheMessage(t *testing.T) {
 	isolateGate(t)
 	starts := stubStart(t, nil)
+	updates := recordBlockUpdates(t)
 	tabId, blockId := seedStoppedWorker(t, t.TempDir())
 
 	if err := ResumeWorker(context.Background(), tabId, "and the docs"); err != nil {
 		t.Fatalf("ResumeWorker: %v", err)
+	}
+	if c, heard := updates.controller(blockId); !heard || c != "cmd" {
+		t.Errorf("the frontend last heard controller %q (heard %v), want the arm broadcast", c, heard)
 	}
 	t.Cleanup(func() { memgate.ReleaseOwner(jobobject.Owner{Kind: jobobject.OwnerKind_Block, Id: blockId}) })
 	if want := (startCall{tabId, blockId}); len(*starts) != 1 || (*starts)[0] != want {

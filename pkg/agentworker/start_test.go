@@ -100,9 +100,10 @@ func TestStartOpensARunningWorkerUnderItsParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantTabMeta := waveobj.MetaMapType{"session:agent": "claude", "session:project": "proj", MetaParentTab: parent.tabId}
-	if !reflect.DeepEqual(tab.Meta, wantTabMeta) {
-		t.Errorf("tab meta %v, want %v", tab.Meta, wantTabMeta)
+	// named by its task, on the tab its notices read and in the label the tree keeps across a reload
+	wantTabMeta := waveobj.MetaMapType{"session:agent": "claude", "session:project": "proj", "session:label": "fix the parser", MetaParentTab: parent.tabId}
+	if !reflect.DeepEqual(tab.Meta, wantTabMeta) || tab.Name != "fix the parser" {
+		t.Errorf("tab %q meta %v, want named %q with meta %v", tab.Name, tab.Meta, "fix the parser", wantTabMeta)
 	}
 	blockId := tab.BlockIds[0]
 	block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
@@ -332,5 +333,20 @@ func git(t *testing.T, dir string, args ...string) {
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestWorkerName(t *testing.T) {
+	tests := []struct{ name, task, want string }{
+		{"the first non-blank line, spaces collapsed", "\n  Run   the tests\nthen report", "Run the tests"},
+		{"a double quote, which the notice quotes the name in", `Fix the "stopped" mark`, "Fix the 'stopped' mark"},
+		{"a long line cut to the cap", strings.Repeat("a", workerNameMax+5), strings.Repeat("a", workerNameMax-1) + "…"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := workerName(tt.task); got != tt.want {
+				t.Errorf("workerName(%q) = %q, want %q", tt.task, got, tt.want)
+			}
+		})
 	}
 }

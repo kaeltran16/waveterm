@@ -5,8 +5,11 @@ package agentworker
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
@@ -18,7 +21,8 @@ import (
 )
 
 func TestResumeWorkersAtBoot(t *testing.T) {
-	const transcript = `C:\transcripts\sess-1.jsonl`
+	// the worker went idle at its transcript's last write, long before this boot
+	idleAt := time.Now().Add(-72 * time.Hour).Truncate(time.Millisecond)
 	cases := []struct {
 		name       string
 		notWorker  bool
@@ -49,6 +53,13 @@ func TestResumeWorkersAtBoot(t *testing.T) {
 			}
 			starts := stubStart(t, nil)
 			cwd := t.TempDir()
+			transcript := filepath.Join(cwd, "sess-1.jsonl")
+			if err := os.WriteFile(transcript, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chtimes(transcript, idleAt, idleAt); err != nil {
+				t.Fatal(err)
+			}
 			tabMeta := waveobj.MetaMapType{"session:agent": "claude"}
 			if !c.notWorker {
 				tabMeta[MetaParentTab] = "parent-tab"
@@ -111,6 +122,9 @@ func TestResumeWorkersAtBoot(t *testing.T) {
 			data := events[0].Data.(baseds.AgentStatusData)
 			if data.State != c.wantStatus || data.Cwd != cwd || data.TranscriptPath != transcript {
 				t.Errorf("status = %s cwd %q transcript %q, want %s cwd %q transcript %q", data.State, data.Cwd, data.TranscriptPath, c.wantStatus, cwd, transcript)
+			}
+			if c.wantStatus == baseds.AgentState_Idle && data.Ts != idleAt.UnixMilli() {
+				t.Errorf("stopped worker published as of %v, want its transcript's last write %v", time.UnixMilli(data.Ts), idleAt)
 			}
 		})
 	}
