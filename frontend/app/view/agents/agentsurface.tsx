@@ -47,8 +47,8 @@ import { terminalFullscreenAtom } from "./railstore";
 import { canRender, effectiveViewMode, pickerFlipAtom, viewModeAtom } from "./renderedmode";
 import { RenderedView, useUnflipOnPrompt } from "./renderedview";
 import { isEndedWorkerId } from "./runlineage";
-import { SubagentInterior } from "./subagentinterior";
 import { focusSubagentAtom } from "./subagentsstore";
+import { SubagentView } from "./subagentview";
 import { paneShape } from "./workspacemodel";
 import { WorkspacePane } from "./workspacepane";
 import { workspaceAtom } from "./workspacestore";
@@ -82,19 +82,20 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const compacted = brainstorm?.file?.compacted;
     const showCompacted = shown == null && compacted != null && compacted > brainstorm!.lastViewedMs;
     useCanvasPoller(model, agent);
-    // ended workers, the final stage and a subagent interior all win over Rendered
+    // ended workers and the final stage win over Rendered
     const viewMode = effectiveViewMode(
         useAtomValue(viewModeAtom(agent?.id ?? "")),
         useAtomValue(pickerFlipAtom(agent?.id ?? ""))
     );
-    const inRendered =
+    // Rendered stays mounted, laid out but invisible, under an open subagent, so going back keeps its scroll
+    const rendersUnder =
         agent != null &&
         viewMode === "rendered" &&
-        !showSub &&
         canRender(agent, { ended: isEndedWorkerId(agent.id), stage: stage != null && agent.id === stage.agent.id });
+    const inRendered = rendersUnder && !showSub;
     // in Terminal a brainstorm or canvas takes over the center, hiding the terminal and the rail; Rendered keeps the
     // transcript and shows it as a workspace tab
-    const centerPane = inRendered ? null : shown;
+    const centerPane = rendersUnder ? null : shown;
     const paneMode = centerPane != null;
     const ws = useAtomValue(workspaceAtom(agent?.id ?? ""));
     const shape = inRendered ? paneShape(ws) : "none";
@@ -116,7 +117,15 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         }
     }, [stageFocusId, focusId, model]);
 
-    // a stale interior (its parent is no longer focused) closes so the terminal returns
+    // the parent stays laid out, invisible, under its subagent, where a still-focused xterm or message box would take
+    // the keys typed at the subagent view
+    useEffect(() => {
+        if (showSub) {
+            wrapRef.current?.focus({ preventScroll: true });
+        }
+    }, [showSub]);
+
+    // a stale subagent view (its parent is no longer focused) closes so the parent returns
     useEffect(() => {
         if (focusSub != null && focusSub.parentId !== agent?.id) {
             globalStore.set(focusSubagentAtom, null);
@@ -187,7 +196,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     // the surface stays mounted, so the effects above never run on a switch back to it, and arriving left
     // focus on <body>: typing reached the agent only after a click. Arriving hands focus to the live
     // terminal or the Rendered composer, or the wrapper when neither is showing (canvas, brainstorm, subagent
-    // interior, no terminal).
+    // view, no terminal).
     useEffect(() => {
         const wrap = wrapRef.current;
         if (
@@ -236,9 +245,9 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                             shape === "expanded" ? "invisible absolute inset-0" : "flex-1"
                         )}
                     >
-                        {/* terminal stack stays mounted (hidden) while a subagent interior is shown, so
-                            returning to the parent never remounts/replays the live TUI (frame-stacking) */}
-                        <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "hidden")}>
+                        {/* the parent's stack stays mounted and laid out (invisible) while a subagent is shown, so
+                            returning never remounts/replays the live TUI (frame-stacking) and Rendered keeps its scroll */}
+                        <div className={cn("flex min-h-0 flex-1 flex-col", showSub && "invisible absolute inset-0")}>
                             <AgentHeader model={model} agent={agent} />
                             {showCompacted ? (
                                 <div
@@ -260,7 +269,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                             data-agent-terminal={a.id}
                                             className={cn(
                                                 "min-h-0 flex-1",
-                                                terminalClass(a.id === agent.id, paneMode, inRendered)
+                                                terminalClass(a.id === agent.id, paneMode, rendersUnder)
                                             )}
                                         >
                                             <CodePeekContext.Provider
@@ -291,12 +300,12 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                                     <div className="flex flex-1 items-center justify-center text-[13px] text-muted">
                                         No live terminal for this agent.
                                     </div>
-                                ) : inRendered ? (
+                                ) : rendersUnder ? (
                                     <RenderedView key={agent.id} model={model} agent={agent} />
                                 ) : null}
                             </div>
                         </div>
-                        {showSub ? <SubagentInterior model={model} sub={focusSub!} parentName={agent.name} /> : null}
+                        {showSub ? <SubagentView model={model} focus={focusSub!} parentName={agent.name} /> : null}
                     </div>
                     {/* fullscreen hides the tree, not the pane: the pane holds what you opened */}
                     <AnimatePresence>

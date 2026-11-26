@@ -407,7 +407,7 @@ runtime logos stay image assets.
 
 ## Transcript
 
-The Rendered view, agent rows, lead cards, subagent interiors, the Sessions detail and ended transcripts share one
+The Rendered view, agent rows, lead cards, the subagent view, the Sessions detail and ended transcripts share one
 look (`NarrationTimeline`); the direction was decided in the transcript-style run (initiative chunk 6) and uses only
 the tokens above.
 
