@@ -48,7 +48,9 @@ async function step<T>(what: string, fn: () => Promise<T>): Promise<T> {
 export const tauriSendIO: SendIO = {
     ...tauriFileIO,
     async capture() {
-        return new Blob([await invoke<ArrayBuffer>("capture_webview")], { type: "image/png" });
+        // once one ipc fetch fails, tauri answers over postMessage for the page's life, with raw bytes as a number array
+        const bytes = new Uint8Array(await invoke<ArrayBuffer | number[]>("capture_webview"));
+        return new Blob([bytes], { type: "image/png" });
     },
     async crop(png, rect) {
         const bitmap = await createImageBitmap(png);
