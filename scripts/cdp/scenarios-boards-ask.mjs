@@ -95,6 +95,24 @@ const MISSED = { title: "Who judges a rerun", add: row3("rerun", "judge", "land"
 const WHILE_CLOSED = { title: "A crashed worker", add: row3("worker", "restart", "resume") };
 const FOLLOW_UP = "Make it simpler";
 
+// the spec's fixture: the "Agent workers" lifecycle whose hand-placed arrow labels landed stacked on each other
+const GRAPH_BOARD = "Agent workers";
+const WORKER_GRAPH = {
+    nodes: ["idle", "admitted", "running", "blocked", "reviewing", "done", "failed"].map((id) => ({ id, label: id })),
+    edges: [
+        { from: "idle", to: "admitted", label: "admit memory" },
+        { from: "admitted", to: "running", label: "start" },
+        { from: "running", to: "blocked", label: "wait on lock" },
+        { from: "blocked", to: "running", label: "lock freed" },
+        { from: "running", to: "reviewing", label: "submit" },
+        { from: "reviewing", to: "done", label: "approve" },
+        { from: "reviewing", to: "running", label: "reject" },
+        { from: "running", to: "failed", label: "crash" },
+        { from: "failed", to: "idle", label: "retry" },
+        { from: "failed", to: "done", label: "give up" },
+    ],
+};
+
 const SURFACE = `document.querySelector("[data-boards-surface]")`;
 const HEADER = `${SURFACE}?.querySelector("[data-surface-toolbar]")`;
 const TALK = `${SURFACE}?.querySelector("[data-board-talk]")`;
@@ -334,15 +352,19 @@ async function makeSlides(h, ctx, name, slides) {
     return info;
 }
 
-// the drawer's answer, fed through the page's applier as wavesrv delivers one; waits for its ack
+// the drawer's answer, fed through the page's applier as wavesrv delivers one; waits for its ack. Like wavesrv, a
+// graph's nodes, edges and groups each count as one added shape.
 async function feedAnswer(h, boardId, turnId, answer) {
     const answerId = randomUUID();
+    const g = answer.graph;
+    const added = (answer.add?.length ?? 0) + (g ? g.nodes.length + (g.edges?.length ?? 0) + (g.groups?.length ?? 0) : 0);
     await page(
         h,
         `fx.answers.push({
             id: ${q(answerId)}, channelid: fx.channelId, boardid: ${q(boardId)}, turnid: ${q(turnId)},
-            add: ${q(JSON.stringify(answer.add))}, title: ${q(answer.title ?? "")}, drawingid: ${q(answer.drawingid ?? "")},
-            ts: Date.now(), turn: { route: "draw", title: ${q(answer.title ?? "")}, added: ${answer.add.length} },
+            add: ${q(answer.add ? JSON.stringify(answer.add) : undefined)}, graph: ${q(g ? JSON.stringify(g) : undefined)},
+            title: ${q(answer.title ?? "")}, drawingid: ${q(answer.drawingid ?? "")},
+            ts: Date.now(), turn: { route: "draw", title: ${q(answer.title ?? "")}, added: ${added} },
         });
         await feed({ boardid: ${q(boardId)}, what: "answer" });
         return true;`
@@ -1345,6 +1367,29 @@ export const boardsAsk = {
                 chips[0].n === "1" &&
                 q(saved) === q([{ id: chips[0].id, name: EARLIER }]);
             return { ok, detail: q({ chips, saved }) };
+        });
+
+        await run("21. a graph answer lands laid out: the Agent workers lifecycle fed as a graph lands as one drawing of 7 labelled boxes and 10 labelled arrows, and no text on it overlaps another text or crosses a shape's outline", async () => {
+            const made = await makeBoard(h, ctx, GRAPH_BOARD, { talk: () => ({ turns: [] }) });
+            await openBoard(h, ctx, made.info.id);
+            await feedAnswer(h, made.info.id, "fed-graph", { title: GRAPH_BOARD, graph: WORKER_GRAPH });
+            await polishWaitFor(h, `${SURFACE}?.querySelectorAll("[data-board-drawing]").length === 1`, WAIT_MS);
+            const [chip] = await readRow(h);
+            if (chip == null) throw new Error("the graph answer made no drawing");
+            await pickChip(h, chip.id);
+            const landed = await page(
+                h,
+                `const L = await mod("app/view/boards/boardlayout.ts");
+                const els = app().scene.getNonDeletedElements().filter((e) => e.frameId === ${q(chip.id)});
+                const labelled = (type) => els.filter((e) => e.type === type && els.some((t) => t.containerId === e.id)).length;
+                return { boxes: labelled("rectangle"), arrows: labelled("arrow"), overlaps: L.textOverlaps(els) };`
+            );
+            await h.shot(SHOT("G1", "laid-out"));
+            const ok =
+                landed.boxes === WORKER_GRAPH.nodes.length &&
+                landed.arrows === WORKER_GRAPH.edges.length &&
+                landed.overlaps.length === 0;
+            return { ok, detail: q({ chip, landed }) };
         });
 
         return steps;
