@@ -111,6 +111,8 @@ func TestCheckAnswerGraph(t *testing.T) {
 		{"self loop", answerWith(graphWith(`,"edges":[{"from":"a","to":"a"}]`)), "", "joins node \"a\" to itself"},
 		{"node in a missing group", answerWith(`,"graph":{"nodes":[{"id":"a","label":"A","group":"g9"}]}`), "", `group "g9", which is not in groups`},
 		{"group without id", answerWith(graphWith(`,"groups":[{"label":"G"}]`)), "", "group 1 has no id"},
+		{"group without label", answerWith(graphWith(`,"groups":[{"id":"g1"}]`)), "", "has no label"},
+		{"group with a blank label", answerWith(graphWith(`,"groups":[{"id":"g1","label":"  "}]`)), "", "has no label"},
 		{"node label over 12 words", answerWith(`,"graph":{"nodes":[{"id":"a","label":"` + thirteenWords + `"}]}`), "", "13 words"},
 		{"edge label over 12 words", answerWith(graphWith(`,"edges":[{"from":"a","to":"b","label":"` + thirteenWords + `"}]`)), "", "13 words"},
 		{"group label over 12 words", answerWith(graphWith(`,"groups":[{"id":"g","label":"` + thirteenWords + `"}]`)), "", "13 words"},

@@ -269,6 +269,9 @@ func checkGraph(g *graphBody) (map[string]bool, error) {
 		if strings.TrimSpace(grp.Id) == "" {
 			return nil, unusable("graph group %d has no id", i+1)
 		}
+		if strings.TrimSpace(grp.Label) == "" {
+			return nil, unusable("graph group %q has no label", grp.Id)
+		}
 		if err := claim(grp.Id); err != nil {
 			return nil, err
 		}
