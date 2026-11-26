@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentActionEntry, AgentEntry } from "./agentsviewmodel";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import {
     lastCanvasReveal,
     layoutTranscript,
     stepRows,
     stepTitle,
+    subagentStepStatus,
     type LayoutItem,
     type Step,
 } from "./transcriptlayout";
@@ -1018,5 +1020,95 @@ describe("layoutTranscript interruptions", () => {
         ];
         const items = layoutTranscript(entries, { active: false });
         expect(flat(items).filter((i) => i.kind === "interrupted")).toHaveLength(3);
+    });
+});
+
+describe("layoutTranscript running subagents", () => {
+    // an Agent call; acked: its tool_result (a background launch ack) landed
+    const spawn = (id: string, acked = true): AgentActionEntry => ({
+        kind: "action",
+        verb: "Agent",
+        target: `subagent ${id}`,
+        toolUseId: id,
+        ...(acked ? { outcome: "ok" as const } : { pending: true as const }),
+    });
+    const BG = "toolu_bg";
+    const running = new Set([BG]);
+    const statusOf = (items: LayoutItem[], id: string) =>
+        stepsItems(items)
+            .flatMap((s) => s.steps)
+            .find((s) => s.action.toolUseId === id)?.status;
+    const foldedIds = (t: TurnItem) =>
+        stepsItems(t.items).flatMap((s) => s.steps.map((st) => st.action.toolUseId ?? st.index));
+    const turnEntries: AgentEntry[] = [user("go"), read("a.ts"), spawn(BG), read("b.ts"), prose("done")];
+
+    it("holds a background step whose ack landed running while its subagent runs, ok once it does not", () => {
+        const statusWith = (runningSubagents: ReadonlySet<string>) =>
+            statusOf(layoutTranscript(turnEntries, { active: false, runningSubagents }), BG);
+        expect(statusWith(running)).toBe("running");
+        expect(statusWith(new Set())).toBe("ok");
+    });
+
+    it("folds a finished turn without its running subagent step and draws that step right after the fold", () => {
+        const items = layoutTranscript(turnEntries, { active: false, runningSubagents: running });
+        expect(kinds(items)).toEqual(["user", "turn", "steps", "message"]);
+        expect(foldedIds(turns(items)[0])).toEqual([1, 3]);
+        expect((items[2] as Extract<LayoutItem, { kind: "steps" }>).steps.map((s) => s.action.toolUseId)).toEqual([BG]);
+        const settled = layoutTranscript(turnEntries, { active: false, runningSubagents: new Set() });
+        expect(kinds(settled)).toEqual(["user", "turn", "message"]);
+        expect(foldedIds(turns(settled)[0])).toEqual([1, BG, 3]);
+    });
+
+    it("keeps a running subagent step in place in a live turn", () => {
+        const live = turnEntries.slice(0, 4);
+        const items = layoutTranscript(live, { active: true, runningSubagents: running });
+        expect(kinds(drawn(items))).toEqual(["user", "steps"]);
+        expect(stepsItems(items)[0].steps.map((s) => s.action.toolUseId ?? s.index)).toEqual([1, BG, 3]);
+    });
+
+    it("holds an older turn's running subagent step out of its fold with later turns after it", () => {
+        const entries = [...turnEntries, user("next"), read("c.ts"), prose("ok")];
+        const items = layoutTranscript(entries, { active: false, runningSubagents: running });
+        expect(kinds(items)).toEqual(["user", "turn", "steps", "message", "user", "turn", "message"]);
+        expect(statusOf(items, BG)).toBe("running");
+    });
+
+    it("leaves a stretch's thoughts in the fold when its only step is held out", () => {
+        const thought = (text: string): AgentEntry => ({ kind: "thought", text });
+        const entries = [user("go"), thought("spawn one"), spawn(BG), read("b.ts"), prose("x")];
+        const solo = [user("go"), read("a.ts"), prose("then"), thought("hm"), spawn(BG), prose("x")];
+        expect(kinds(layoutTranscript(entries, { active: false, thoughts: true, runningSubagents: running }))).toEqual([
+            "user",
+            "turn",
+            "steps",
+            "message",
+        ]);
+        const items = layoutTranscript(solo, { active: false, thoughts: true, runningSubagents: running });
+        expect(kinds(items)).toEqual(["user", "turn", "steps", "message"]);
+        expect(kinds(turns(items)[0].items)).toEqual(["steps", "message", "thought"]);
+    });
+});
+
+describe("layoutTranscript subagent finishes", () => {
+    it("carries a finish's Agent call id onto its item", () => {
+        const items = layoutTranscript(
+            [{ kind: "notification", summary: 'Agent "x" completed', source: "subagent", toolUseId: "toolu_x" }],
+            { active: false }
+        );
+        expect(items[0]).toMatchObject({ kind: "notification", toolUseId: "toolu_x" });
+    });
+});
+
+describe("subagentStepStatus", () => {
+    const sub = (state: SubagentVM["state"]): SubagentVM => ({ id: "c", type: "Explore", state });
+    it.each([
+        ["running", undefined, "running"],
+        ["running", "working", "running"],
+        ["running", "done", "ok"],
+        ["running", "stopped", "ok"],
+        ["ok", "success", "ok"],
+        ["stopped", "failure", "stopped"],
+    ] as const)("a %s step with a %s subagent draws %s", (status, state, want) => {
+        expect(subagentStepStatus(status, state == null ? undefined : sub(state))).toBe(want);
     });
 });

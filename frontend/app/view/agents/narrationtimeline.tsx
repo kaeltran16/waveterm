@@ -32,8 +32,18 @@ import { placeMarks, type TimelineMark } from "./permissionmodel";
 import { ImageThumbs } from "./imagethumbs";
 import { fmtDuration } from "./runcompletion";
 import { TIMELINE_RENDER_CAP } from "./sessionstranscript";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import { ShellRunRow } from "./shellrunrow";
-import { AddsDels, StepBox, ThoughtText } from "./steprows";
+import {
+    AddsDels,
+    ChevronToggle,
+    OpenSubagentButton,
+    StepBox,
+    SubagentStepsContext,
+    ThoughtText,
+    type SubagentSteps,
+} from "./steprows";
+import { openSubagent } from "./subagentsstore";
 import { TurnChevron } from "./tooldetailbody";
 import type { TranscriptContext } from "./transcriptcontext";
 import { layoutTranscript, type FoldSummary, type LayoutItem, type Step } from "./transcriptlayout";
@@ -317,49 +327,70 @@ function statusWordOf(summary: string, status: string | undefined): string | und
 }
 
 // A finished background task (<task-notification> as its own record): "<label> · summary · status", opening to its
-// full result (which can be large) through MarkdownMessage.
+// full result (which can be large) through MarkdownMessage. onOpen: a subagent's finish, which opens that subagent; its
+// Open sits outside the row's own toggle, before the chevron.
 function TaskNotificationRow({
     summary,
     status,
     result,
     source,
     compact,
+    onOpen,
 }: {
     summary: string;
     status?: string;
     result?: string;
     source: NotificationSource;
     compact: boolean;
+    onOpen?: () => void;
 }) {
     const [open, setOpen] = useState(false);
     const canExpand = !!result;
     const tone = statusTone(status ?? NOTIFICATION_COMPLETED);
     const head = notificationHead(source, summary, "Background task");
     const word = statusWordOf(head.text, status);
+    const gap = compact ? "gap-2" : "gap-2.5";
     return (
         <div data-task-notification data-notification-source={source} className={compact ? "my-3" : "my-5"}>
-            <button
-                type="button"
-                disabled={!canExpand}
-                aria-expanded={canExpand ? open : undefined}
-                onClick={() => setOpen((v) => !v)}
+            <div
                 className={cn(
-                    "flex w-full items-center border border-edge-mid text-left text-ink-mid",
-                    compact ? "gap-2 rounded-[8px] px-2.5 py-[7px] text-[12.5px]" : "gap-2.5 rounded-[10px] px-3.5 py-2.5 text-[13.5px]",
-                    canExpand ? "cursor-pointer hover:border-edge-strong" : "cursor-default"
+                    "flex w-full items-center border border-edge-mid text-ink-mid",
+                    gap,
+                    compact
+                        ? "rounded-[8px] px-2.5 py-[7px] text-[12.5px]"
+                        : "rounded-[10px] px-3.5 py-2.5 text-[13.5px]",
+                    canExpand && "hover:border-edge-strong"
                 )}
             >
-                <head.icon size={14} strokeWidth={2.2} className={cn("shrink-0", tone)} aria-hidden />
-                <span className="shrink-0 text-secondary">{head.label}</span>
-                {head.text ? <span className="min-w-0 truncate">{head.text}</span> : null}
-                <span className="min-w-[6px] flex-1" />
-                {word ? <span className={cn("shrink-0 text-[12px]", tone)}>{word}</span> : null}
-                {canExpand ? (
-                    <span className="flex shrink-0 text-muted">
-                        <TurnChevron open={open} size={13} strokeWidth={2} />
-                    </span>
+                <button
+                    type="button"
+                    disabled={!canExpand}
+                    aria-expanded={canExpand ? open : undefined}
+                    onClick={() => setOpen((v) => !v)}
+                    className={cn(
+                        "flex min-w-0 flex-1 items-center text-left",
+                        gap,
+                        canExpand ? "cursor-pointer" : "cursor-default"
+                    )}
+                >
+                    <head.icon size={14} strokeWidth={2.2} className={cn("shrink-0", tone)} aria-hidden />
+                    <span className="shrink-0 text-secondary">{head.label}</span>
+                    {head.text ? <span className="min-w-0 truncate">{head.text}</span> : null}
+                    <span className="min-w-[6px] flex-1" />
+                    {word ? <span className={cn("shrink-0 text-[12px]", tone)}>{word}</span> : null}
+                    {canExpand && onOpen == null ? (
+                        <span className="flex shrink-0 text-muted">
+                            <TurnChevron open={open} size={13} strokeWidth={2} />
+                        </span>
+                    ) : null}
+                </button>
+                {onOpen != null ? (
+                    <>
+                        <OpenSubagentButton onOpen={onOpen} compact={compact} />
+                        {canExpand ? <ChevronToggle open={open} onToggle={() => setOpen((v) => !v)} /> : null}
+                    </>
                 ) : null}
-            </button>
+            </div>
             <PaneReveal open={open && !!result}>
                 <div className="mt-1.5 rounded-[8px] border border-edge-mid bg-surface-code px-3.5 py-3">
                     <MarkdownMessage text={result ?? ""} className={EVENT_PANEL_TEXT} />
@@ -371,19 +402,21 @@ function TaskNotificationRow({
 
 // A background-task notice (a shell finished, a hook skipped): one muted line, not the notification box. It reads its
 // source's label; else a structured one (with a status) reads "Background task", a free-text one "Notice". It opens to
-// the whole text when the line hides some.
+// the whole text when the line hides some. onOpen: a subagent's finish, as on TaskNotificationRow.
 function NoticeRow({
     summary,
     status,
     result,
     source,
     compact,
+    onOpen,
 }: {
     summary: string;
     status?: string;
     result?: string;
     source: NotificationSource;
     compact: boolean;
+    onOpen?: () => void;
 }) {
     const [open, setOpen] = useState(false);
     const canExpand = summary.includes("\n") || !!result;
@@ -392,41 +425,51 @@ function NoticeRow({
     const word = statusWordOf(head.text, status);
     return (
         <div data-notice data-notification-source={source} className={compact ? "my-2" : "my-3"}>
-            <button
-                type="button"
-                disabled={!canExpand}
-                aria-expanded={canExpand ? open : undefined}
-                onClick={() => setOpen((v) => !v)}
-                className={cn(
-                    "flex w-full min-w-0 items-center gap-2 text-left text-muted",
-                    size,
-                    canExpand ? "cursor-pointer hover:text-ink-mid" : "cursor-default"
-                )}
-            >
-                {/* a notice stays muted while it runs or when it went well; its icon carries a failure or a stop */}
-                <Info
-                    size={13}
-                    strokeWidth={2.2}
+            <div className="flex min-w-0 items-center gap-2">
+                <button
+                    type="button"
+                    disabled={!canExpand}
+                    aria-expanded={canExpand ? open : undefined}
+                    onClick={() => setOpen((v) => !v)}
                     className={cn(
-                        "shrink-0",
-                        status != null &&
-                            status !== NOTIFICATION_COMPLETED &&
-                            status !== NOTIFICATION_RUNNING &&
-                            statusTone(status)
+                        "flex min-w-0 flex-1 items-center gap-2 text-left text-muted",
+                        size,
+                        canExpand ? "cursor-pointer hover:text-ink-mid" : "cursor-default"
                     )}
-                    aria-hidden
-                />
-                <span className="shrink-0 text-ink-mid">{head.label}</span>
-                <span className="min-w-0 truncate">{head.text}</span>
-                {word ? (
-                    <span className={cn("shrink-0", word !== NOTIFICATION_COMPLETED && statusTone(word))}>· {word}</span>
+                >
+                    {/* a notice stays muted while it runs or when it went well; its icon carries a failure or a stop */}
+                    <Info
+                        size={13}
+                        strokeWidth={2.2}
+                        className={cn(
+                            "shrink-0",
+                            status != null &&
+                                status !== NOTIFICATION_COMPLETED &&
+                                status !== NOTIFICATION_RUNNING &&
+                                statusTone(status)
+                        )}
+                        aria-hidden
+                    />
+                    <span className="shrink-0 text-ink-mid">{head.label}</span>
+                    <span className="min-w-0 truncate">{head.text}</span>
+                    {word ? (
+                        <span className={cn("shrink-0", word !== NOTIFICATION_COMPLETED && statusTone(word))}>
+                            · {word}
+                        </span>
+                    ) : null}
+                    {canExpand && onOpen == null ? (
+                        <span className="flex shrink-0">
+                            <TurnChevron open={open} size={12} strokeWidth={2.2} />
+                        </span>
+                    ) : null}
+                </button>
+                {onOpen != null ? (
+                    <>
+                        <OpenSubagentButton onOpen={onOpen} compact={compact} />
+                        {canExpand ? <ChevronToggle open={open} onToggle={() => setOpen((v) => !v)} /> : null}
+                    </>
                 ) : null}
-                {canExpand ? (
-                    <span className="flex shrink-0">
-                        <TurnChevron open={open} size={12} strokeWidth={2.2} />
-                    </span>
-                ) : null}
-            </button>
+            </div>
             <PaneReveal open={open && canExpand}>
                 <div data-notice-body className={cn("mt-1 ml-[21px] text-muted", size)}>
                     <MarkdownMessage text={summary} breaks className="[overflow-wrap:break-word]" />
@@ -664,6 +707,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     compact,
     unfold,
     entryRow,
+    subagents,
 }: {
     entries: AgentEntry[];
     accentLatest?: boolean;
@@ -690,15 +734,37 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     unfold?: boolean;
     // consulted for each user prompt and Arc message: a row returned replaces the one the timeline would draw
     entryRow?: (entry: AgentEntry, index: number) => React.ReactNode | null;
+    // the agent's subagents (ctx.agentId's): each Agent step and finish notice of one draws its progress and Open, and a
+    // running one's step stays out of the fold. Only the Rendered view passes them
+    subagents?: SubagentVM[];
 }) {
     // ctx feeds the layout only through its role (a run brief), so a host's fresh ctx object does not relayout; a host's
-    // fresh marks array relayouts only when a mark moves
+    // fresh marks array relayouts only when a mark moves, and a fresh subagent list only when which ones run changes
     const role = ctx?.role;
     const marksKey = (marks ?? []).map((m) => m.afterEntry).join(",");
+    const runningKey = (subagents ?? [])
+        .filter((s) => s.state === "working" && s.toolUseId)
+        .map((s) => s.toolUseId)
+        .join(",");
     const items = useMemo(
-        () => layoutTranscript(entries, { active: !!active, ctx: { role }, thoughts, marks }),
-        [entries, active, role, thoughts, marksKey]
+        () =>
+            layoutTranscript(entries, {
+                active: !!active,
+                ctx: { role },
+                thoughts,
+                marks,
+                runningSubagents: new Set(runningKey ? runningKey.split(",") : []),
+            }),
+        [entries, active, role, thoughts, marksKey, runningKey]
     );
+    const parentId = ctx?.agentId;
+    const subagentSteps = useMemo((): SubagentSteps | null => {
+        if (parentId == null || subagents == null || subagents.length === 0) {
+            return null;
+        }
+        const byToolUseId = new Map(subagents.filter((s) => s.toolUseId).map((s) => [s.toolUseId!, s]));
+        return { byToolUseId, open: (sub) => openSubagent(parentId, sub) };
+    }, [parentId, subagents]);
     // a turn folding after the first render is one that just finished
     const mounted = useRef(false);
     useEffect(() => {
@@ -853,6 +919,8 @@ export const NarrationTimeline = memo(function NarrationTimeline({
             );
         }
         if (item.kind === "notification") {
+            const finished = item.toolUseId != null ? subagentSteps?.byToolUseId.get(item.toolUseId) : undefined;
+            const onOpen = finished != null ? () => subagentSteps!.open(finished) : undefined;
             return (
                 <motion.div
                     key={item.index}
@@ -867,6 +935,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             result={item.result}
                             source={item.source}
                             compact={isCompact}
+                            onOpen={onOpen}
                         />
                     ) : (
                         <TaskNotificationRow
@@ -875,6 +944,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
                             result={item.result}
                             source={item.source}
                             compact={isCompact}
+                            onOpen={onOpen}
                         />
                     )}
                 </motion.div>
@@ -974,10 +1044,14 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     };
 
     return (
-        <div className={cn("leading-relaxed", className)} onMouseDown={armSelectionCopy}>
-            <AnimatePresence initial={false}>{withMarks(visibleItems.map((item) => renderItem(item)))}</AnimatePresence>
-            {tail}
-        </div>
+        <SubagentStepsContext.Provider value={subagentSteps}>
+            <div className={cn("leading-relaxed", className)} onMouseDown={armSelectionCopy}>
+                <AnimatePresence initial={false}>
+                    {withMarks(visibleItems.map((item) => renderItem(item)))}
+                </AnimatePresence>
+                {tail}
+            </div>
+        </SubagentStepsContext.Provider>
     );
 });
 

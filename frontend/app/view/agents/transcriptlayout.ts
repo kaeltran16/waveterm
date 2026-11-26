@@ -6,13 +6,15 @@
 // own messages become arc items. A thought (a thinking-only message), when the host draws them, sits inside the stretch
 // around it, or alone where no step is beside it; thoughts with nothing between them merge into one. A finished turn's work, everything between its prompt and its final
 // reply, folds into one "Worked for N" turn item; a human-originated row or a turn-boundary event splits it.
-// Consecutive finished edits to one file merge into one step. No React.
+// Consecutive finished edits to one file merge into one step. An Agent step whose subagent still runs stays running
+// whatever its result, and a folded turn keeps it out, right after the fold. No React.
 
 import type { AgentActionEntry, AgentEntry, ToolImage } from "./agentsviewmodel";
 import { arcMessageOf, type ArcMessage } from "./arcmessage";
 import { commandPreview, commandTitle } from "./commandtitle";
 import { classifyKind, splitAttachments } from "./composerattachments";
 import { placeMarks, type TimelineMark } from "./permissionmodel";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import type { TranscriptContext } from "./transcriptcontext";
 import { firstWshCall, isCardKey, parseWshCalls, type WshCall, type WshKey } from "./wshcall";
 
@@ -54,6 +56,8 @@ export type LayoutItem =
           result?: string;
           notice?: true;
           source?: "command" | "monitor" | "subagent";
+          // a subagent finish's Agent call, which links it to that subagent
+          toolUseId?: string;
           index: number;
       }
     | { kind: "interrupted"; index: number }
@@ -122,8 +126,18 @@ function pendingStatus(a: AgentActionEntry, at: StepAt): Step["status"] {
     return at.last && closesSession(a) ? "ok" : "stopped";
 }
 
-function stepStatus(a: AgentActionEntry, at: StepAt): Step["status"] {
+function stepStatus(a: AgentActionEntry, at: StepAt, running?: ReadonlySet<string>): Step["status"] {
+    // a background spawn's result is only its launch ack, so the subagent's own state says whether it runs
+    if (a.toolUseId != null && running?.has(a.toolUseId)) {
+        return "running";
+    }
     return a.pending ? pendingStatus(a, at) : finishedStatus(a);
+}
+
+/** The status an Agent step draws with its subagent's facts: a subagent that finished ends a step still waiting on the
+ *  parent's result, so no spinner outlives it. */
+export function subagentStepStatus(status: Step["status"], sub: SubagentVM | undefined): Step["status"] {
+    return status === "running" && sub != null && sub.state !== "working" ? "ok" : status;
 }
 
 // a finished call's status: "ok" is what lifts a wsh change call out of the fold as its card
@@ -291,6 +305,8 @@ export interface LayoutOpts {
     thoughts?: boolean;
     // the permission marks the host draws: each splits the finished turn it falls in
     marks?: TimelineMark[];
+    // the toolUseIds of the subagents still working: their Agent steps run, and a folded turn keeps them out
+    runningSubagents?: ReadonlySet<string>;
 }
 
 export function layoutTranscript(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
@@ -362,6 +378,7 @@ function foldTurn(
     to: number,
     splitAfter: Set<number>,
     keepOut: AgentActionEntry | null,
+    running: ReadonlySet<string>,
     latest: boolean,
     live: boolean
 ): LayoutItem[] {
@@ -372,11 +389,16 @@ function foldTurn(
     const out: LayoutItem[] = [];
     let part: LayoutItem[] = [];
     const close = () => {
+        // a live turn keeps its steps in place, so none reorders while the parent works
+        const { kept, held } = live || running.size === 0 ? { kept: part, held: [] } : holdRunning(part, running);
         // a part of prose and thoughts only draws as it is
-        if (part.some(isWork)) {
-            out.push(turnItem(entries, part, latest, live));
+        if (kept.some(isWork)) {
+            out.push(turnItem(entries, kept, latest, live));
         } else {
-            out.push(...part);
+            out.push(...kept);
+        }
+        if (held.length > 0) {
+            out.push({ kind: "steps", startIndex: held[0].index, steps: held });
         }
         part = [];
     };
@@ -397,6 +419,29 @@ function foldTurn(
     return out;
 }
 
+const NONE_RUNNING: ReadonlySet<string> = new Set();
+
+// a folded part's items without the Agent steps of its running subagents, and those steps; a stretch left with no step
+// keeps its thoughts as standalone ones
+function holdRunning(part: LayoutItem[], running: ReadonlySet<string>): { kept: LayoutItem[]; held: Step[] } {
+    const isHeld = (step: Step) => step.action.toolUseId != null && running.has(step.action.toolUseId);
+    const held: Step[] = [];
+    const kept = part.flatMap((item): LayoutItem[] => {
+        if (item.kind !== "steps" || !item.steps.some(isHeld)) {
+            return [item];
+        }
+        held.push(...item.steps.filter(isHeld));
+        const steps = item.steps.filter((s) => !isHeld(s));
+        const thoughts = item.thoughts ?? [];
+        if (steps.length === 0) {
+            return thoughts.map((t) => ({ kind: "thought" as const, ...t }));
+        }
+        const startIndex = Math.min(steps[0].index, thoughts[0]?.index ?? Infinity);
+        return [{ kind: "steps", startIndex, steps, ...(thoughts.length > 0 ? { thoughts } : {}) }];
+    });
+    return { kept, held };
+}
+
 // folds every finished turn; while active, the last turn is live: split the same way, its turn items marked live.
 // Not active, the last turn is the latest, and stays live when the transcript ends on its interruption: the work the
 // person just stopped stays in view until their next prompt
@@ -414,7 +459,17 @@ function foldTurns(entries: AgentEntry[], flat: LayoutItem[], opts: LayoutOpts):
             to++;
         }
         out.push(
-            ...foldTurn(entries, flat, from, to, splitAfter, keepOut, !opts.active && to === flat.length, from >= liveFrom)
+            ...foldTurn(
+                entries,
+                flat,
+                from,
+                to,
+                splitAfter,
+                keepOut,
+                opts.runningSubagents ?? NONE_RUNNING,
+                !opts.active && to === flat.length,
+                from >= liveFrom
+            )
         );
         from = to;
     }
@@ -507,7 +562,7 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
         if (e.kind === "action") {
             const wsh = firstWshCall(actionCommand(e));
             const at = { interruptedLater: lastInterrupted > i, last: i === lastAction, active: opts.active };
-            const step: Step = { index: i, action: e, wsh, status: stepStatus(e, at) };
+            const step: Step = { index: i, action: e, wsh, status: stepStatus(e, at, opts.runningSubagents) };
             const prev = run[run.length - 1];
             if (wsh && isCardKey(wsh.key) && step.status === "ok") {
                 flush();
@@ -560,6 +615,7 @@ function layoutItems(entries: AgentEntry[], opts: LayoutOpts): LayoutItem[] {
                     result: e.result,
                     notice: e.notice,
                     source: e.source,
+                    ...(e.toolUseId != null ? { toolUseId: e.toolUseId } : {}),
                     index: i,
                 });
                 return;
