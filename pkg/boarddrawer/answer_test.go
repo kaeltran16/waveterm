@@ -9,13 +9,13 @@ import (
 	"testing"
 )
 
-// checkScene holds two drawings: f1 (box, note, link, wire) and f2 (other), and the loose shape loose.
+// checkScene holds three drawings: f1 (box, note, link, wire), f2 (other) and the empty f3, and the loose shape loose.
 var checkScene = Scene{
 	Types: map[string]string{
 		"box": "rectangle", "note": "text", "link": "arrow", "wire": "line", "f1": "frame",
-		"other": "rectangle", "f2": "frame", "loose": "ellipse",
+		"other": "rectangle", "f2": "frame", "f3": "frame", "loose": "ellipse",
 	},
-	Frames:  map[string]string{"f1": "Cache", "f2": "API"},
+	Frames:  map[string]string{"f1": "Cache", "f2": "API", "f3": "Empty"},
 	FrameOf: map[string]string{"box": "f1", "note": "f1", "link": "f1", "wire": "f1", "other": "f2"},
 	Shapes:  6,
 }
@@ -37,6 +37,116 @@ func manyAdds(n int) string {
 		parts[i] = fmt.Sprintf(`{"type":"text","id":"s%d","x":0,"y":0,"text":"x"}`, i)
 	}
 	return "[" + strings.Join(parts, ",") + "]"
+}
+
+const lifecycleGraph = `{"direction":"LR","nodes":[{"id":"idle","label":"idle"},{"id":"busy","label":"busy","shape":"ellipse","group":"g1","backgroundColor":"#a5d8ff"},{"id":"gate","label":"ok?","shape":"diamond"}],` +
+	`"edges":[{"from":"idle","to":"busy","label":"admit memory","dashed":true},{"from":"busy","to":"idle"},{"from":"busy","to":"idle","label":"crash","strokeColor":"#e03131"}],` +
+	`"groups":[{"id":"g1","label":"pool"}]}`
+
+func manyNodes(n int) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = fmt.Sprintf(`{"id":"n%d","label":"x"}`, i)
+	}
+	return `{"nodes":[` + strings.Join(parts, ",") + `]}`
+}
+
+// graphWith is a graph of two nodes, a and b, with extra object members spliced in
+func graphWith(members string) string {
+	return `,"graph":{"nodes":[{"id":"a","label":"A"},{"id":"b","label":"B"}]` + members + `}`
+}
+
+func TestCheckAnswerGraph(t *testing.T) {
+	// a graph-only answer is a drawing; each node, edge and group counts as one added shape
+	a, err := CheckAnswer(answerWith(`,"add":`+goodAdd+`,"graph":`+lifecycleGraph), checkScene, false, "")
+	if err != nil {
+		t.Fatalf("valid graph refused: %v", err)
+	}
+	if a.Added != 3+3+3+1 || !a.HasDrawing() {
+		t.Errorf("answer: %+v", a)
+	}
+	if a.Graph != lifecycleGraph {
+		t.Errorf("graph must carry as the compact JSON it came in: %q", a.Graph)
+	}
+	spaced, err := CheckAnswer(answerWith(`,"graph": {"nodes": [ {"id": "a", "label": "A b"} ]}`), checkScene, false, "")
+	if err != nil || spaced.Graph != `{"nodes":[{"id":"a","label":"A b"}]}` {
+		t.Errorf("a spaced graph must be compacted: %+v %v", spaced, err)
+	}
+	only, err := CheckAnswer(answerWith(graphWith("")), checkScene, false, "")
+	if err != nil || !only.HasDrawing() || only.Added != 2 || only.Add != "" {
+		t.Errorf("a graph-only answer must draw: %+v %v", only, err)
+	}
+	for _, none := range []string{`,"graph":null`, ``} {
+		if a, err := CheckAnswer(answerWith(none+`,"add":`+goodAdd), checkScene, false, ""); err != nil || a.Graph != "" || a.Added != 3 {
+			t.Errorf("no graph (%q) must check as before: %+v %v", none, a, err)
+		}
+	}
+	// an add arrow may bind a graph node
+	bound := `,"add":[{"type":"text","id":"n","x":0,"y":0,"text":"note"},{"type":"arrow","id":"na","x":0,"y":0,"start":{"id":"n"},"end":{"id":"a"}}]`
+	if _, err := CheckAnswer(answerWith(graphWith("")+bound), checkScene, false, ""); err != nil {
+		t.Errorf("an add arrow binding a graph node must pass: %v", err)
+	}
+	// an edit with a graph redraws the drawing in view, and counts every shape of that drawing as removed
+	redraws := []struct {
+		drawing     string
+		wantRemoved int
+	}{
+		{"f1", 4},
+		{"f3", 0},
+	}
+	for _, r := range redraws {
+		e, err := CheckAnswer(answerWith(`,"edit":true`+graphWith("")), checkScene, false, r.drawing)
+		if err != nil || !e.Edit || e.Graph == "" || e.Added != 2 || e.Removed != r.wantRemoved {
+			t.Errorf("an edit with a graph of %s must pass, removing %d: %+v %v", r.drawing, r.wantRemoved, e, err)
+		}
+	}
+
+	edit := func(fields string) string { return answerWith(`,"edit":true` + fields) }
+	cases := []struct {
+		name, reply string
+		drawing     string
+		wantErr     string
+	}{
+		{"unknown direction", answerWith(`,"graph":{"direction":"UP","nodes":[{"id":"a","label":"A"}]}`), "", `direction "UP"`},
+		{"unknown shape", answerWith(`,"graph":{"nodes":[{"id":"a","label":"A","shape":"star"}]}`), "", `shape "star"`},
+		{"node without id", answerWith(`,"graph":{"nodes":[{"label":"A"}]}`), "", "node 1 has no id"},
+		{"node without label", answerWith(`,"graph":{"nodes":[{"id":"a"}]}`), "", "has no label"},
+		{"node with a blank label", answerWith(`,"graph":{"nodes":[{"id":"a","label":"  "}]}`), "", "has no label"},
+		{"duplicate node id", answerWith(`,"graph":{"nodes":[{"id":"a","label":"A"},{"id":"a","label":"B"}]}`), "", `"a" is used twice`},
+		{"group id as a node id", answerWith(`,"graph":{"nodes":[{"id":"a","label":"A"}],"groups":[{"id":"a","label":"G"}]}`), "", `"a" is used twice`},
+		{"add id as a node id", answerWith(graphWith("") + `,"add":[{"type":"text","id":"b","x":0,"y":0,"text":"t"}]`), "", `"b" is used twice`},
+		{"edge to a missing node", answerWith(graphWith(`,"edges":[{"from":"a","to":"zz"}]`)), "", `"zz", which is not a node`},
+		{"edge from a missing node", answerWith(graphWith(`,"edges":[{"from":"zz","to":"a"}]`)), "", `"zz", which is not a node`},
+		{"self loop", answerWith(graphWith(`,"edges":[{"from":"a","to":"a"}]`)), "", "joins node \"a\" to itself"},
+		{"node in a missing group", answerWith(`,"graph":{"nodes":[{"id":"a","label":"A","group":"g9"}]}`), "", `group "g9", which is not in groups`},
+		{"group without id", answerWith(graphWith(`,"groups":[{"label":"G"}]`)), "", "group 1 has no id"},
+		{"group without label", answerWith(graphWith(`,"groups":[{"id":"g1"}]`)), "", "has no label"},
+		{"group with a blank label", answerWith(graphWith(`,"groups":[{"id":"g1","label":"  "}]`)), "", "has no label"},
+		{"node label over 12 words", answerWith(`,"graph":{"nodes":[{"id":"a","label":"` + thirteenWords + `"}]}`), "", "13 words"},
+		{"edge label over 12 words", answerWith(graphWith(`,"edges":[{"from":"a","to":"b","label":"` + thirteenWords + `"}]`)), "", "13 words"},
+		{"group label over 12 words", answerWith(graphWith(`,"groups":[{"id":"g","label":"` + thirteenWords + `"}]`)), "", "13 words"},
+		{"no nodes", answerWith(`,"graph":{"nodes":[]}`), "", "no nodes"},
+		{"empty graph object", answerWith(`,"graph":{}`), "", "no nodes"},
+		{"graph of the wrong type", answerWith(`,"graph":[]`), "", "wrong types"},
+		{"41 shapes across add and graph", answerWith(`,"add":` + manyAdds(1) + `,"graph":` + manyNodes(MaxDrawingAdds)), "", "adds 41 shapes"},
+		{"edges count toward the cap", answerWith(`,"graph":` + strings.Replace(manyNodes(MaxDrawingAdds), `]}`, `],"edges":[{"from":"n0","to":"n1"}]}`, 1)), "", "adds 41 shapes"},
+		{"edit with graph and update", edit(graphWith("") + `,"update":[{"id":"box","x":1}]`), "f1", "redraws the drawing"},
+		{"edit with graph and remove", edit(graphWith("") + `,"remove":["wire"]`), "f1", "redraws the drawing"},
+		{"edit with graph, no drawing in view", edit(graphWith("")), "", "no drawing is in view"},
+		{"edit with graph, drawing gone", edit(graphWith("")), "gone", "no drawing is in view"},
+		{"new drawing graph with update", answerWith(graphWith("") + `,"update":[{"id":"box","x":1}]`), "f1", "a new drawing only adds"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := CheckAnswer(c.reply, checkScene, false, c.drawing)
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("want error containing %q, got %v", c.wantErr, err)
+			}
+			if !strings.HasPrefix(err.Error(), unusableHead) {
+				t.Errorf("error %q must start %q", err, unusableHead)
+			}
+		})
+	}
 }
 
 func TestCheckAnswer(t *testing.T) {
@@ -136,6 +246,9 @@ func TestCheckAnswer(t *testing.T) {
 
 	if _, err := CheckAnswer(answerWith(`,"add":`+manyAdds(MaxDrawingAdds)), checkScene, false, ""); err != nil {
 		t.Errorf("%d adds must pass: %v", MaxDrawingAdds, err)
+	}
+	if _, err := CheckAnswer(answerWith(`,"graph":`+manyNodes(MaxDrawingAdds)), checkScene, false, ""); err != nil {
+		t.Errorf("%d graph nodes must pass: %v", MaxDrawingAdds, err)
 	}
 	ask, err := CheckAnswer(`{"reply":"This is about the store. New board?","elsewhere":true}`, checkScene, true, "")
 	if err != nil || !ask.Elsewhere || ask.HasDrawing() {

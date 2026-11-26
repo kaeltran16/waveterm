@@ -40,14 +40,22 @@ var updateKeys = map[string]string{
 	"text": "string", "label": "string", "strokeColor": "string", "backgroundColor": "string",
 }
 
+// graphDirections and graphShapes are the vocabulary of a graph; an absent value means the first of each.
+var (
+	graphDirections = map[string]bool{"TB": true, "LR": true, "BT": true, "RL": true}
+	graphShapes     = map[string]bool{"rectangle": true, "ellipse": true, "diamond": true}
+)
+
 // Answer is a checked drawer reply: a drawing, a question flagged for the board's agent, or elsewhere. Add and
-// Update are compact JSON arrays, "" when empty. A drawing is new, or with Edit, a change to the drawing in view.
+// Update are compact JSON arrays, Graph a compact JSON object, "" when empty. A drawing is new, or with Edit, a
+// change to the drawing in view. Added counts add entries plus the graph's nodes, edges and groups; Removed counts
+// remove entries, or for an edit with a graph, every shape of the drawing it redraws.
 type Answer struct {
-	Title, Add, Update      string
-	Remove                  []string
-	Added, Changed, Removed int
-	Elsewhere, Question     bool
-	Edit                    bool
+	Title, Add, Update, Graph string
+	Remove                    []string
+	Added, Changed, Removed   int
+	Elsewhere, Question       bool
+	Edit                      bool
 }
 
 func (a Answer) HasDrawing() bool {
@@ -69,6 +77,17 @@ type bindingId struct {
 	Id *string `json:"id"`
 }
 
+type graphEntry struct {
+	Id, Label, Shape, Group, From, To string
+}
+
+type graphBody struct {
+	Direction string       `json:"direction"`
+	Nodes     []graphEntry `json:"nodes"`
+	Edges     []graphEntry `json:"edges"`
+	Groups    []graphEntry `json:"groups"`
+}
+
 // CheckAnswer checks the drawer's reply against the scene it was shown and drawing, the frame id of the drawing in
 // view (none when it is not a live frame). Code, not the drawer, decides whether an answer is usable: one that would
 // not apply, or reaches outside its drawing, fails the turn with the reason. A reply key, the 11-12 words answer, is
@@ -82,6 +101,7 @@ func CheckAnswer(reply string, scene Scene, allowElsewhere bool, drawing string)
 		Title     string            `json:"title"`
 		Add       []json.RawMessage `json:"add"`
 		Update    []json.RawMessage `json:"update"`
+		Graph     json.RawMessage   `json:"graph"`
 		Remove    []string          `json:"remove"`
 		Elsewhere bool              `json:"elsewhere"`
 		Question  bool              `json:"question"`
@@ -94,10 +114,17 @@ func CheckAnswer(reply string, scene Scene, allowElsewhere bool, drawing string)
 	if err := json.Unmarshal(obj, &raw); err != nil {
 		return Answer{}, unusable("the reply's fields have the wrong types (%v)", err)
 	}
+	graph, err := parseGraph(raw.Graph)
+	if err != nil {
+		return Answer{}, err
+	}
 	a := Answer{
 		Title: strings.TrimSpace(raw.Title), Remove: raw.Remove,
-		Added: len(raw.Add), Changed: len(raw.Update), Removed: len(raw.Remove), Elsewhere: raw.Elsewhere, Question: raw.Question,
+		Added: len(raw.Add) + graph.shapes(), Changed: len(raw.Update), Removed: len(raw.Remove), Elsewhere: raw.Elsewhere, Question: raw.Question,
 		Edit: raw.Edit,
+	}
+	if graph != nil && a.Edit && a.Changed+a.Removed > 0 {
+		return Answer{}, unusable("an edit with a graph redraws the drawing, so it cannot also update or remove shapes")
 	}
 	if n := a.Added + a.Changed + a.Removed; n > MaxShapes {
 		return Answer{}, unusable("it has %d entries across add, update and remove, more than %d", n, MaxShapes)
@@ -117,7 +144,11 @@ func CheckAnswer(reply string, scene Scene, allowElsewhere bool, drawing string)
 	if a.HasDrawing() && a.Title == "" {
 		return Answer{}, unusable("it changes the drawing but has no title")
 	}
-	if err := checkAdd(raw.Add); err != nil {
+	graphIds, err := checkGraph(graph)
+	if err != nil {
+		return Answer{}, err
+	}
+	if err := checkAdd(raw.Add, graphIds); err != nil {
 		return Answer{}, err
 	}
 	updated, err := checkUpdate(raw.Update, scene)
@@ -132,13 +163,20 @@ func CheckAnswer(reply string, scene Scene, allowElsewhere bool, drawing string)
 	if err := checkScope(a, append(updated, raw.Remove...), scene, drawing); err != nil {
 		return Answer{}, err
 	}
+	// set only after the checks, which bound the reply's own counts, not the redraw's
+	if graph != nil && a.Edit {
+		a.Removed = shapesIn(scene, drawing)
+	}
 	if a.Add, err = compactArray(raw.Add); err != nil {
 		return Answer{}, err
 	}
 	if a.Update, err = compactArray(raw.Update); err != nil {
 		return Answer{}, err
 	}
-	return a, nil
+	if graph != nil {
+		a.Graph, err = compactObject(raw.Graph)
+	}
+	return a, err
 }
 
 // routeAnswer settles what a checked answer does to its turn. On your own ask, an answer that draws nothing is a
@@ -183,6 +221,17 @@ func checkScope(a Answer, changed []string, scene Scene, drawing string) error {
 	return nil
 }
 
+// shapesIn is how many shapes the scene puts in the drawing, its frame not counted.
+func shapesIn(scene Scene, drawing string) int {
+	n := 0
+	for id, frame := range scene.FrameOf {
+		if frame == drawing && id != drawing {
+			n++
+		}
+	}
+	return n
+}
+
 // tooWordy is the words a text or label has, when over MaxLabelWords; else 0.
 func tooWordy(s string) int {
 	if n := len(strings.Fields(s)); n > MaxLabelWords {
@@ -191,7 +240,101 @@ func tooWordy(s string) int {
 	return 0
 }
 
-func checkAdd(add []json.RawMessage) error {
+// parseGraph reads the reply's graph key: nil when it is absent or null.
+func parseGraph(raw json.RawMessage) (*graphBody, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+	var g graphBody
+	if err := json.Unmarshal(raw, &g); err != nil {
+		return nil, unusable("the reply's fields have the wrong types (graph: %v)", err)
+	}
+	return &g, nil
+}
+
+// shapes is how many shapes the graph adds: its nodes, edges and groups. A nil graph adds none.
+func (g *graphBody) shapes() int {
+	if g == nil {
+		return 0
+	}
+	return len(g.Nodes) + len(g.Edges) + len(g.Groups)
+}
+
+// checkGraph checks a graph's own rules and returns the ids it claims (nodes and groups), which add may not reuse
+// and add arrows may bind.
+func checkGraph(g *graphBody) (map[string]bool, error) {
+	if g == nil {
+		return nil, nil
+	}
+	if g.Direction != "" && !graphDirections[g.Direction] {
+		return nil, unusable("the graph has direction %q, not one of TB, LR, BT, RL", g.Direction)
+	}
+	if len(g.Nodes) == 0 {
+		return nil, unusable("the graph has no nodes")
+	}
+	ids := map[string]bool{}
+	claim := func(id string) error {
+		if ids[id] {
+			return unusable("the id %q is used twice in the graph", id)
+		}
+		ids[id] = true
+		return nil
+	}
+	groups := map[string]bool{}
+	for i, grp := range g.Groups {
+		if strings.TrimSpace(grp.Id) == "" {
+			return nil, unusable("graph group %d has no id", i+1)
+		}
+		if strings.TrimSpace(grp.Label) == "" {
+			return nil, unusable("graph group %q has no label", grp.Id)
+		}
+		if err := claim(grp.Id); err != nil {
+			return nil, err
+		}
+		groups[grp.Id] = true
+		if n := tooWordy(grp.Label); n > 0 {
+			return nil, unusable("graph group %q's label has %d words, more than %d", grp.Id, n, MaxLabelWords)
+		}
+	}
+	nodes := map[string]bool{}
+	for i, n := range g.Nodes {
+		if strings.TrimSpace(n.Id) == "" {
+			return nil, unusable("graph node %d has no id", i+1)
+		}
+		if strings.TrimSpace(n.Label) == "" {
+			return nil, unusable("graph node %d (%q) has no label", i+1, n.Id)
+		}
+		if err := claim(n.Id); err != nil {
+			return nil, err
+		}
+		nodes[n.Id] = true
+		if n.Shape != "" && !graphShapes[n.Shape] {
+			return nil, unusable("graph node %q has shape %q, not one of rectangle, ellipse, diamond", n.Id, n.Shape)
+		}
+		if n.Group != "" && !groups[n.Group] {
+			return nil, unusable("graph node %q is in group %q, which is not in groups", n.Id, n.Group)
+		}
+		if w := tooWordy(n.Label); w > 0 {
+			return nil, unusable("graph node %q's label has %d words, more than %d", n.Id, w, MaxLabelWords)
+		}
+	}
+	for i, e := range g.Edges {
+		for _, end := range []string{e.From, e.To} {
+			if !nodes[end] {
+				return nil, unusable("graph edge %d names %q, which is not a node", i+1, end)
+			}
+		}
+		if e.From == e.To {
+			return nil, unusable("graph edge %d joins node %q to itself", i+1, e.From)
+		}
+		if n := tooWordy(e.Label); n > 0 {
+			return nil, unusable("graph edge %d's label has %d words, more than %d", i+1, n, MaxLabelWords)
+		}
+	}
+	return ids, nil
+}
+
+func checkAdd(add []json.RawMessage, graphIds map[string]bool) error {
 	entries := make([]skeletonEntry, len(add))
 	ids := make(map[string]bool, len(add))
 	for i, r := range add {
@@ -205,8 +348,8 @@ func checkAdd(add []json.RawMessage) error {
 		if e.Id == nil || strings.TrimSpace(*e.Id) == "" {
 			return unusable("add entry %d has no id", i+1)
 		}
-		if ids[*e.Id] {
-			return unusable("the id %q is used twice in add", *e.Id)
+		if ids[*e.Id] || graphIds[*e.Id] {
+			return unusable("the id %q is used twice in add and graph", *e.Id)
 		}
 		ids[*e.Id] = true
 		text := e.Text
@@ -222,8 +365,8 @@ func checkAdd(add []json.RawMessage) error {
 			continue
 		}
 		for _, end := range []*bindingId{e.Start, e.End} {
-			if end != nil && end.Id != nil && !ids[*end.Id] {
-				return unusable("the arrow %q binds to %q, which is not a shape in add", *e.Id, *end.Id)
+			if end != nil && end.Id != nil && !ids[*end.Id] && !graphIds[*end.Id] {
+				return unusable("the arrow %q binds to %q, which is not a shape in add or a graph node", *e.Id, *end.Id)
 			}
 		}
 	}
@@ -299,6 +442,14 @@ func compactArray(entries []json.RawMessage) (string, error) {
 		return "", unusable("%s", err)
 	}
 	return string(b), nil
+}
+
+func compactObject(obj json.RawMessage) (string, error) {
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, obj); err != nil {
+		return "", unusable("%s", err)
+	}
+	return buf.String(), nil
 }
 
 // unfence strips one ```json (or bare ```) fence around the whole reply; anything else is left for oneObject to refuse.

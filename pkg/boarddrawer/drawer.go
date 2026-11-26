@@ -517,7 +517,7 @@ func (d *Drawer) answer(ctx context.Context, b Board, talk wshrpc.BoardTalk, tur
 	}
 	delivered := wshrpc.BoardAnswer{
 		ID: d.d.NewId(), ChannelId: b.ChannelId, BoardId: b.BoardId, TurnId: turn.ID,
-		Add: answer.Add, Update: answer.Update, Remove: answer.Remove, Title: answer.Title, Ts: d.d.Now(),
+		Add: answer.Add, Update: answer.Update, Graph: answer.Graph, Remove: answer.Remove, Title: answer.Title, Ts: d.d.Now(),
 	}
 	if answer.Edit {
 		delivered.DrawingId = turn.DrawingId

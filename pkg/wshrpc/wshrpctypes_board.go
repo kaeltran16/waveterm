@@ -240,6 +240,7 @@ type BoardAnswer struct {
 	TurnId    string   `json:"turnid"`
 	Add       string   `json:"add,omitempty"`    // JSON array text of Excalidraw element skeletons
 	Update    string   `json:"update,omitempty"` // JSON array text of element patches
+	Graph     string   `json:"graph,omitempty"`  // JSON object text of a graph Arc lays out
 	Remove    []string `json:"remove,omitempty"`
 	Title     string   `json:"title,omitempty"`     // the answer's title, a new drawing's frame name
 	DrawingId string   `json:"drawingid,omitempty"` // the frame an edit changes; empty means a new drawing

@@ -59,9 +59,10 @@ never a denser one.
   `width`, `height` (numbers), `text` (a text element's words), `label` (a container's or an arrow's label, a
   string), `strokeColor`, `backgroundColor`. Arrows bound to a shape you move follow it.
 - `remove`: ids of the drawing in view's shapes to delete.
+- `graph`: boxes and arrows that Arc places for you (see "Graphs" below).
 - `elsewhere`: leave it out, unless a turn tells you when to set it.
-- At most 40 shapes in `add`, and at most 12 words in any text or label: Arc refuses an answer past either. A drawing
-  changes at least one shape.
+- At most 40 shapes in `add` and `graph` together (a graph's nodes, edges and groups each count as one), and at most
+  12 words in any text or label: Arc refuses an answer past either. A drawing changes at least one shape.
 
 The `add` vocabulary:
 
@@ -78,6 +79,25 @@ The `add` vocabulary:
 
 Lay a drawing out left to right or top to bottom, and keep labels short.
 
+### Graphs
+
+For boxes and arrows (a flow, a lifecycle, a call path, an architecture), describe a `graph` instead of placing
+shapes: Arc sizes the boxes to their text, places them and routes the arrows, so no label lands on another. You give
+no `x`, `y`, `width` or `height`.
+
+- `direction`: `TB` (the default), `LR`, `BT` or `RL`.
+- `nodes`: each has a unique `id` and a `label`; optionally `shape` (`rectangle`, the default, `ellipse` or
+  `diamond`), `group` (the id of an entry of `groups`), `strokeColor` and `backgroundColor`.
+- `edges`: each joins two nodes by `from` and `to` (never a node to itself) and may carry a `label`, `dashed`
+  (true) and `strokeColor`. Two edges may join the same pair.
+- `groups`: optional boxes drawn around their member nodes, each with a unique `id` and a `label`.
+- Ids are unique across nodes, groups and `add`. An `add` arrow may bind a node's id, to join a note to the graph.
+
+A graph is an option, not a requirement. Use `add` for whatever a graph does not fit: free sketches, timelines,
+layouts, annotations. Both may appear in one answer: Arc lays the graph out and puts the `add` shapes beside it,
+unmoved relative to each other. With `"edit": true`, a `graph` redraws the whole drawing in view from that graph
+(so send all of it, not only what changes), and then `update` and `remove` are not allowed; `add` is.
+
 Example, for "draw how wavesrv talks to the frontend":
 
 {"title":"wavesrv and the frontend","add":[{"type":"rectangle","id":"a","x":0,"y":0,"width":180,"height":60,"label":{"text":"wavesrv"}},{"type":"rectangle","id":"b","x":280,"y":0,"width":180,"height":60,"label":{"text":"frontend"}},{"type":"arrow","id":"ab","x":180,"y":30,"start":{"id":"a"},"end":{"id":"b"},"label":{"text":"websocket"}}],"update":[],"remove":[]}
@@ -85,6 +105,14 @@ Example, for "draw how wavesrv talks to the frontend":
 A follow-up "drop the label", with that drawing in view (its frame `f1`, its arrow `ab` on the board):
 
 {"title":"wavesrv and the frontend, plainer","edit":true,"update":[{"id":"ab","label":""}]}
+
+The same kind of drawing as a graph, for "draw the lifecycle of a worker":
+
+{"title":"A worker's lifecycle","graph":{"direction":"LR","nodes":[{"id":"idle","label":"idle"},{"id":"busy","label":"running","backgroundColor":"#a5d8ff"},{"id":"done","label":"done","shape":"ellipse"}],"edges":[{"from":"idle","to":"busy","label":"admit"},{"from":"busy","to":"done","label":"submit"},{"from":"busy","to":"idle","label":"crash","dashed":true}]}}
+
+A follow-up "add a retry state", with that drawing in view (its frame `f1`): send the whole graph again, changed:
+
+{"title":"A worker's lifecycle, with retry","edit":true,"graph":{"direction":"LR","nodes":[{"id":"idle","label":"idle"},{"id":"busy","label":"running"},{"id":"retry","label":"retry"},{"id":"done","label":"done","shape":"ellipse"}],"edges":[{"from":"idle","to":"busy","label":"admit"},{"from":"busy","to":"done","label":"submit"},{"from":"busy","to":"retry","label":"crash"},{"from":"retry","to":"busy","label":"again"}]}}
 
 And for "why one websocket and not two?": {"question":true}
 

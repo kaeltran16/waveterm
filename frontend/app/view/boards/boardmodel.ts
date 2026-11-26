@@ -484,6 +484,28 @@ function landEdit(
     return { elements, drawingId: frameId };
 }
 
+// spec D8: an edit with a graph replaces the drawing, so its children go and the new layout takes their top-left
+// (an emptied frame's inner top-left). els is the caller's working copy.
+function clearDrawing(els: ExcalidrawElement[], frameId: string, now: number): Point {
+    const frame = els.find((el) => el.id === frameId);
+    const old = unionBounds(els.filter((el) => el.frameId === frameId && !el.isDeleted));
+    els.forEach((el, i) => {
+        if (el.frameId === frameId && !el.isDeleted) {
+            els[i] = bump(el, { isDeleted: true }, now);
+        }
+    });
+    return old == null ? [frame.x + FRAME_PADDING, frame.y + FRAME_PADDING] : [old.minX, old.minY];
+}
+
+function moveAdded(els: readonly ExcalidrawElement[], addedIds: ReadonlySet<string>, to: Point): ExcalidrawElement[] {
+    const drawn = unionBounds(els.filter((el) => addedIds.has(el.id) && !el.isDeleted));
+    if (drawn == null) {
+        return [...els];
+    }
+    const [dx, dy] = [to[0] - drawn.minX, to[1] - drawn.minY];
+    return els.map((el) => (addedIds.has(el.id) ? patch(el, { x: el.x + dx, y: el.y + dy }) : el));
+}
+
 // re-wraps and re-measures the named text; landAnswer hands in Excalidraw's, so this module never loads it
 export type MeasureText = (elements: readonly ExcalidrawElement[], textIds: readonly string[]) => ExcalidrawElement[];
 
@@ -491,7 +513,8 @@ const unmeasured: MeasureText = (elements) => [...elements];
 
 // added (already converted) goes on top; update and remove skip ids the board no longer has, since you may have
 // deleted them while the drawer answered. An answer edits the drawing it names while that frame is still on the
-// board, and otherwise lands as a new drawing. Text is measured before the drawing lands, so its frame fits it.
+// board, and otherwise lands as a new drawing; an edit with a graph redraws it. Text is measured before the
+// drawing lands, so its frame fits it.
 export function applyAnswer(
     scene: BoardScene,
     answer: BoardAnswer,
@@ -503,6 +526,7 @@ export function applyAnswer(
     const editing = liveFrameId(board.elements, answer.drawingid);
     const addedIds = new Set(added.map((el) => el.id));
     const els = [...board.elements, ...added];
+    const redrawAt = editing != null && answer.graph ? clearDrawing(els, editing, now) : null;
     const liveAt = (id: string): number => els.findIndex((el) => el.id === id && !el.isDeleted);
     const shapeIds = added.filter((el) => !isBoundText(el)).map((el) => el.id);
     const textIds: string[] = [];
@@ -533,7 +557,7 @@ export function applyAnswer(
     const measured = measureText(els, changedText);
     const landed =
         editing != null
-            ? landEdit(measured, editing, addedIds, now)
+            ? landEdit(redrawAt ? moveAdded(measured, addedIds, redrawAt) : measured, editing, addedIds, now)
             : landNew(measured, board.elements, addedIds, answer.title, now);
     return {
         scene: { ...board, elements: landed.elements },

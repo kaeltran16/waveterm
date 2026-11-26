@@ -458,6 +458,54 @@ describe("applyAnswer drawings", () => {
         expect(byId(next, "n").frameId).toBe(drawingId);
     });
 
+    it("redraws the drawing in view on an edit with a graph, at the old content's top-left", () => {
+        const scene = emptyScene([
+            ...labelled("old", 100, 50, "idle").map((el) => ({ ...el, frameId: "d1" }) as ExcalidrawElement),
+            rect("old2", 100, 300, 100, 40, { frameId: "d1" }),
+            frameEl("d1", 60, 10, 280, 370, 1, "First"),
+            rect("other", 600, 0, 100, 40, { frameId: "d2" }),
+            frameEl("d2", 580, -20, 140, 80, 2, "Second"),
+        ]);
+        // the laid-out graph, as converted: near the drawer's origin
+        const added = [...labelled("n1", 10, 20, "idle"), rect("n2", 10, 220, 100, 40)];
+        const { scene: next, drawingId } = applyAnswer(
+            scene,
+            edit({ graph: '{"nodes":[]}', add: "[]", title: "Ignored" }),
+            added,
+            NOW
+        );
+        expect(drawingId).toBe("d1");
+        for (const id of ["old", "old-label", "old2"]) {
+            expect(byId(next, id)).toMatchObject({ isDeleted: true, version: 2 });
+        }
+        expect(byId(next, "other")).toBe(scene.elements[4]);
+        expect(byId(next, "d2")).toBe(scene.elements[5]);
+        expect(byId(next, "n1")).toMatchObject({ x: 100, y: 50, frameId: "d1", isDeleted: false });
+        expect(byId(next, "n1-label")).toMatchObject({ x: 160, y: 80, frameId: "d1" });
+        expect(byId(next, "n2")).toMatchObject({ x: 100, y: 250, frameId: "d1" });
+        // the frame keeps its id, title and number and fits the new shapes alone
+        expect(framesOf(next).map((f) => f.id)).toEqual(["d1", "d2"]);
+        expect(byId(next, "d1")).toMatchObject({
+            name: "First",
+            customData: { arcDrawing: 1 },
+            x: 60,
+            y: 10,
+            width: 280,
+            height: 320,
+        });
+        const ids = next.elements.map((el) => el.id);
+        expect(ids.indexOf("n2")).toBeLessThan(ids.indexOf("d1"));
+    });
+
+    it("redraws an emptied drawing inside its frame's padding", () => {
+        const scene = emptyScene([
+            rect("gone", 0, 0, 100, 40, { frameId: "d1", isDeleted: true }),
+            frameEl("d1", 200, 100, 300, 300, 1, "First"),
+        ]);
+        const { scene: next } = applyAnswer(scene, edit({ graph: '{"nodes":[]}' }), [rect("n", 7, 9, 100, 40)], NOW);
+        expect(byId(next, "n")).toMatchObject({ x: 240, y: 140, frameId: "d1" });
+    });
+
     it("wraps a frameless board's shapes before landing a new drawing", () => {
         const { scene: next, drawingId } = applyAnswer(
             drawnOnce(),
