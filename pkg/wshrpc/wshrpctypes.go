@@ -209,11 +209,25 @@ type WaveInfoData struct {
 }
 
 type SubagentFileInfo struct {
-	AgentId        string `json:"agentid"`
-	TranscriptPath string `json:"transcriptpath"`
-	FirstPrompt    string `json:"firstprompt"`
-	StartedAtMs    int64  `json:"startedatms"`
-	Done           bool   `json:"done"` // last record is a terminal assistant turn (finished; outcome unknown)
+	AgentId        string        `json:"agentid"`
+	TranscriptPath string        `json:"transcriptpath"`
+	FirstPrompt    string        `json:"firstprompt"`
+	StartedAtMs    int64         `json:"startedatms"`           // first record's timestamp; the file's mtime without one
+	Done           bool          `json:"done"`                  // ends on a terminal assistant turn, or meta finished (outcome unknown)
+	Stopped        bool          `json:"stopped,omitempty"`     // meta stoppedByUser, or ends on the user's interrupt marker
+	EndedAtMs      int64         `json:"endedatms,omitempty"`   // last record's timestamp, once Done or Stopped
+	ToolUseId      string        `json:"tooluseid,omitempty"`   // meta: the Agent call that spawned it
+	AgentType      string        `json:"agenttype,omitempty"`   // meta agentType
+	Description    string        `json:"description,omitempty"` // meta description
+	Background     bool          `json:"background,omitempty"`  // meta requestShape "background"
+	ToolCount      int           `json:"toolcount"`
+	CurrentCall    *SubagentCall `json:"currentcall,omitempty"` // its running call, only while neither Done nor Stopped
+}
+
+type SubagentCall struct {
+	Name        string         `json:"name"`
+	Input       map[string]any `json:"input,omitempty"`
+	StartedAtMs int64          `json:"startedatms,omitempty"`
 }
 
 type UsageBucket struct {

@@ -3952,6 +3952,13 @@ declare global {
         writerrouteid: string;
     };
 
+    // wshrpc.SubagentCall
+    type SubagentCall = {
+        name: string;
+        input?: {[key: string]: any};
+        startedatms?: number;
+    };
+
     // wshrpc.SubagentFileInfo
     type SubagentFileInfo = {
         agentid: string;
@@ -3959,6 +3966,14 @@ declare global {
         firstprompt: string;
         startedatms: number;
         done: boolean;
+        stopped?: boolean;
+        endedatms?: number;
+        tooluseid?: string;
+        agenttype?: string;
+        description?: string;
+        background?: boolean;
+        toolcount: number;
+        currentcall?: SubagentCall;
     };
 
     // wps.SubscriptionRequest

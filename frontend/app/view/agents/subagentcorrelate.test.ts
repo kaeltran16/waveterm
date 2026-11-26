@@ -17,6 +17,7 @@ const file = (over: Partial<SubagentFileInfo>): SubagentFileInfo => ({
     firstprompt: "look at X",
     startedatms: 1,
     done: false,
+    toolcount: 0,
     ...over,
 });
 
