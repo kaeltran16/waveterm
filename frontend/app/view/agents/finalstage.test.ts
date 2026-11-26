@@ -3,16 +3,21 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    finalDetailAbove,
     finalFailedNote,
     finalRowFocusId,
     finalStageActivity,
     finalStageId,
     finalStageRunId,
     finalStageView,
+    finalStepBody,
+    finalStepExit,
+    finalStepOpens,
+    finalStepOpensByDefault,
     isFinalStageId,
+    KEPT_NOTE,
     outputTail,
-    shownStep,
-    stepHasOutput,
+    type FinalKept,
     type FinalStageView,
 } from "./finalstage";
 
@@ -395,10 +400,18 @@ describe("finalStageView, the steps", () => {
                 round: 1,
                 tone: "fail",
                 text: "round 1 · failed at Final",
+                outcome: "failed at Final",
                 detail: "Final `x` failed (exit 1):\nnope",
                 hasShots: false,
             },
-            { round: 2, tone: "warn", text: "round 2 · unverified", detail: "", hasShots: false },
+            {
+                round: 2,
+                tone: "warn",
+                text: "round 2 · unverified",
+                outcome: "unverified",
+                detail: "",
+                hasShots: false,
+            },
         ]);
     });
 
@@ -431,7 +444,7 @@ describe("finalStageView, the steps", () => {
             verifier: undefined,
         });
         // the running Final opens its live tail; Tree and the Verifier have no output of their own
-        expect(v.steps.filter(stepHasOutput).map((s) => s.key)).toEqual(["check", "verify", "final"]);
+        expect(v.steps.filter((s) => finalStepOpens(v, s)).map((s) => s.key)).toEqual(["check", "verify", "final"]);
     });
 
     it("keeps no output for a step with no event, or a stage with no out dir", () => {
@@ -441,19 +454,16 @@ describe("finalStageView, the steps", () => {
         expect(finalStageView(dag(withDir), [], NOW).steps.some((s) => s.kept)).toBe(false);
     });
 
-    it("shows the picked step while it has output, else the running command once it printed", () => {
+    it("opens a running command only once it printed, and an ended one only when it kept output", () => {
         const final = { state: "checking", round: 1, step: "verify", stepts: NOW, outdir: "/d/1", output: "" };
         const events = [ev("tree", S), ev("check", S)];
         const quiet = finalStageView(dag(final), events, NOW);
-        expect(shownStep(quiet, null)).toBeUndefined();
-        expect(shownStep(quiet, "check")?.key).toBe("check");
-        // Tree keeps nothing and the Final has not run: a pick of either falls back
-        expect(shownStep(quiet, "tree")).toBeUndefined();
-        expect(shownStep(quiet, "final")).toBeUndefined();
+        expect(quiet.steps.filter((s) => finalStepOpens(quiet, s)).map((s) => s.key)).toEqual(["check"]);
         const printing = finalStageView(dag({ ...final, output: "ok pkg/x" }), events, NOW);
-        expect(shownStep(printing, null)?.key).toBe("verify");
-        expect(shownStep(printing, "tree")?.key).toBe("verify");
-        expect(shownStep(printing, "check")?.key).toBe("check");
+        expect(printing.steps.filter((s) => finalStepOpens(printing, s)).map((s) => s.key)).toEqual([
+            "check",
+            "verify",
+        ]);
     });
 
     it("is invisible with nothing running for no dag and for a dag with no tasks", () => {
@@ -833,5 +843,124 @@ describe("finalFailedNote", () => {
 
     it("hands the failure to the human when there is no lead", () => {
         expect(finalFailedNote(undefined)).toBe("This failure is yours. Rerun it if the failure was outside the code.");
+    });
+});
+
+describe("the pane's step decisions", () => {
+    const GO_FAIL = "--- FAIL: TestPlan (0.00s)\n    plan_test.go:88: want 3 tasks, got 1\nFAIL\nFAIL\tpkg/x\t0.1s\n";
+    const OUTDIR = "/d/1";
+    const kept = (status: FinalKept["status"], text = ""): FinalKept => ({ status, text });
+    const step = (v: FinalStageView, key: string) => v.steps.find((s) => s.key === key);
+    const verifyCmd = { verify: "go test ./..." };
+
+    const failedAt = (name: string, over: Partial<TaskGroup> = {}) => {
+        const detail = `${name} \`x\` failed (exit 1):\nboom`;
+        const events = [ev("tree", S), ev("check", S, name !== "Check"), ev("verify", S, name !== "Verify")];
+        const final = { state: "failed", round: 1, detail, outdir: OUTDIR };
+        return finalStageView(dag(final, over), events, NOW);
+    };
+
+    it("a running command's body is its tail, even when the output parses as tests", () => {
+        const final = { state: "checking", round: 1, step: "verify", stepts: NOW, output: GO_FAIL, outdir: OUTDIR };
+        const v = finalStageView(dag(final, verifyCmd), [ev("tree", S), ev("check", S)], NOW);
+        expect(finalStepBody(v, step(v, "verify"), kept("loading"))).toEqual({
+            kind: "tail",
+            command: "go test ./...",
+            output: GO_FAIL,
+        });
+    });
+
+    it("a failed Verify whose kept go output parses is a card with no error", () => {
+        const v = failedAt("Verify", verifyCmd);
+        const body = finalStepBody(v, step(v, "verify"), kept("ok", GO_FAIL));
+        expect(body).toMatchObject({ kind: "card", output: GO_FAIL, summary: { runner: "go", fail: 1 } });
+        expect(body).not.toHaveProperty("error");
+    });
+
+    it("a failed Check that is no test run is a panel carrying the stage's detail as its error", () => {
+        const v = failedAt("Check", { check: "tsc --noEmit" });
+        expect(finalStepBody(v, step(v, "check"), kept("ok", "src/a.ts(1,1): error TS2322"))).toEqual({
+            kind: "panel",
+            command: "tsc --noEmit",
+            output: "src/a.ts(1,1): error TS2322",
+            error: v.detail,
+        });
+    });
+
+    it("an empty kept output is a panel noting it, and a loading one its loading line with no error", () => {
+        const v = failedAt("Check", { check: "tsc --noEmit" });
+        const check = step(v, "check");
+        expect(finalStepBody(v, check, kept("ok"))).toMatchObject({ kind: "panel", note: KEPT_NOTE.ok });
+        expect(KEPT_NOTE.ok).toBe("the step printed nothing");
+        const loading = finalStepBody(v, check, kept("loading"));
+        expect(loading).toMatchObject({ kind: "panel", note: KEPT_NOTE.loading });
+        expect(loading).not.toHaveProperty("error");
+        expect(finalStepBody(v, check, kept("missing"))).toMatchObject({ note: KEPT_NOTE.missing, error: v.detail });
+    });
+
+    it("a passed step's unparsed kept output is a plain panel", () => {
+        const v = finalStageView(dag({ state: "passed", round: 1, outdir: OUTDIR }), [ev("check", S)], NOW);
+        expect(finalStepBody(v, step(v, "check"), kept("ok", "built"))).toEqual({
+            kind: "panel",
+            command: "go build ./cmd/wsh/...",
+            output: "built",
+        });
+    });
+
+    const FINDINGS = "[End review] t-2's test asserts nothing";
+    const FINAL_FAILED = "Final `x` failed (exit 1):\nboom";
+    const endReviewFailed = { state: "failed", text: "t-2's test asserts nothing" };
+
+    it.each([
+        ["Verifier", { state: "failed", round: 1, detail: "defects", verifierrunid: "v-run" }, "", "defects"],
+        ["a human ended the stage", { state: "failed", round: 1, detail: HUMAN }, "", HUMAN],
+        ["a command that kept output", { state: "failed", round: 1, detail: FINAL_FAILED }, "final", ""],
+        [
+            "a command that kept output and a failed end review",
+            { state: "failed", round: 1, detail: `${FINAL_FAILED}\n\n${FINDINGS}`, endreview: endReviewFailed },
+            "final",
+            FINDINGS,
+        ],
+    ])("draws above the box for %s", (_name, final, failedStep, above) => {
+        const events = ["tree", "check", "verify", "final"].map((s) => ev(s, S, s !== failedStep));
+        const v = finalStageView(dag({ ...final, outdir: OUTDIR }), events, NOW);
+        expect(finalDetailAbove(v)).toBe(above);
+    });
+
+    it("a failed Check's panel error is the command's part alone when the end review also failed", () => {
+        const command = "Check `x` failed (exit 1):\nboom";
+        const final = {
+            state: "failed",
+            round: 1,
+            detail: `${command}\n\n${FINDINGS}`,
+            endreview: endReviewFailed,
+            outdir: OUTDIR,
+        };
+        const v = finalStageView(dag(final, { check: "tsc --noEmit" }), [ev("tree", S), ev("check", S, false)], NOW);
+        expect(finalStepBody(v, step(v, "check"), kept("ok", "src/a.ts(1,1): error TS2322"))).toMatchObject({
+            kind: "panel",
+            error: command,
+        });
+    });
+
+    it("opens the running command with output and the failed step with kept output, no other", () => {
+        const final = { state: "checking", round: 1, step: "verify", stepts: NOW, output: "ok", outdir: OUTDIR };
+        const running = finalStageView(dag(final), [ev("tree", S), ev("check", S)], NOW);
+        const opens = running.steps.filter((s) => finalStepOpensByDefault(running, s)).map((s) => s.key);
+        expect(opens).toEqual(["verify"]);
+        const quiet = finalStageView(dag({ ...final, output: "" }), [ev("tree", S), ev("check", S)], NOW);
+        expect(quiet.steps.some((s) => finalStepOpensByDefault(quiet, s))).toBe(false);
+
+        const failed = failedAt("Verify");
+        expect(failed.steps.filter((s) => finalStepOpensByDefault(failed, s)).map((s) => s.key)).toEqual(["verify"]);
+    });
+
+    it("reads a failed step's exit code from the detail's first line, else says failed", () => {
+        const v = failedAt("Verify");
+        expect(finalStepExit(v, step(v, "verify"))).toBe("exit 1");
+        const final = { state: "failed", round: 1, detail: "Final `x` failed (timed out after 10m):\nlate" };
+        const events = [ev("tree", S), ev("check", S), ev("verify", S), ev("final", S, false)];
+        const timedOut = finalStageView(dag(final), events, NOW);
+        expect(finalStepExit(timedOut, step(timedOut, "final"))).toBe("failed");
     });
 });

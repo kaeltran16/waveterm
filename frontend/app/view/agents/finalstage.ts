@@ -6,9 +6,11 @@
 // keep a finished step's duration and result. No React, no store.
 
 import { stageHasShots } from "@/app/view/jarvis/finalshotsmodel";
+import type { LocalImageStatus } from "@/app/view/jarvis/localimage";
 import type { AgentVM } from "./agentsviewmodel";
 import { fmtDuration, memoryFigures } from "./runcompletion";
 import { detailOf } from "./runtimeline";
+import { isTestCommand, parseTestOutput, type TestSummary } from "./testoutput";
 
 // review: a fast-track stage's end review, beside the commands
 export type FinalStepKey = "tree" | "check" | "verify" | "final" | "review" | "verifier";
@@ -36,6 +38,8 @@ export interface FinalRoundLine {
     round: number;
     tone: FinalTone;
     text: string;
+    // the round's outcome alone: "failed at Final"
+    outcome: string;
     // the round's failure detail, "" when none
     detail: string;
     hasShots: boolean;
@@ -122,7 +126,7 @@ const STEP_TONES: Record<FinalStepState, FinalTone> = {
     unverified: "warn",
     stopped: "warn",
 };
-const STEP_WORDS: Record<FinalStepState, string> = {
+export const STEP_WORDS: Record<FinalStepState, string> = {
     waiting: "waiting",
     notrun: "not run",
     running: "running",
@@ -282,14 +286,22 @@ function stepStates(
     return keys.map((k, i) => (i < at ? settled(k) : i === at ? ending : "notrun"));
 }
 
+// a stage Detail cut where the engine's applyEndReview appended a failed end review's block (alone, or after the
+// commands' and verifier's detail and a blank line): what came before it, and the block itself
+function splitEndReview(detail: string): { before: string; review: string } {
+    const at = detail.startsWith(END_REVIEW_DETAIL) ? 0 : detail.indexOf(`\n\n${END_REVIEW_DETAIL}`);
+    if (at < 0) {
+        return { before: detail, review: "" };
+    }
+    return { before: detail.slice(0, at), review: detail.slice(at).replace(/^\n\n/, "") };
+}
+
 // the stage as its commands and verifier left it: the end review's Detail block and reasons taken out, and a stage
 // that ended, or waits only on the end review, read by what is left
 function withoutEndReview(stage: FinalStage): FinalStage {
-    const detail = stage.detail ?? "";
-    const at = detail.startsWith(END_REVIEW_DETAIL) ? 0 : detail.indexOf(`\n\n${END_REVIEW_DETAIL}`);
     const rest: FinalStage = {
         ...stage,
-        detail: at < 0 ? detail : detail.slice(0, at),
+        detail: splitEndReview(stage.detail ?? "").before,
         unverified: (stage.unverified ?? []).filter((r) => !END_REVIEW_REASONS.some((p) => r.startsWith(p))),
     };
     const settled = !RUNNING_STATES.has(stage.state) || stage.endreview?.waiting === true;
@@ -528,10 +540,12 @@ export function finalStageView(
         .sort((a, b) => a.round - b.round)
         .map((p): FinalRoundLine => {
             const pastSteps = buildSteps(p, group, roundEvents(events, p.round), now, undefined);
+            const pastOutcome = outcomeText(p, pastSteps);
             return {
                 round: p.round,
                 tone: STAGE_TONES[p.state] ?? "wait",
-                text: joinDot([`round ${p.round}`, outcomeText(p, pastSteps)]),
+                text: joinDot([`round ${p.round}`, pastOutcome]),
+                outcome: pastOutcome,
                 detail: p.detail ?? "",
                 hasShots: stageHasShots(p),
             };
@@ -626,9 +640,10 @@ export function finalRowFocusId(
     return agent?.id ?? finalStageId(run.runId);
 }
 
-/** Pure: whether a step's output can be opened: a command running, or one that ended and kept its output. */
-export function stepHasOutput(step: FinalStep): boolean {
-    return step.kept != null || (step.state === "running" && KEPT_STEPS.has(step.key));
+/** Pure: whether a step's row opens to a body: a command running once it printed, or one that ended and kept its
+ *  output. */
+export function finalStepOpens(view: FinalStageView, step: FinalStep): boolean {
+    return step.kept != null || (step.state === "running" && step.key === view.running && view.output !== "");
 }
 
 const RERUN_HINT = "Rerun it if the failure was outside the code.";
@@ -640,11 +655,74 @@ export function finalFailedNote(lead: { asking: boolean } | undefined): string {
     return "The lead has this failure and decides what happens next.";
 }
 
-/** Pure: the step whose output a site shows: the one picked while it has output to open, else the running command
- *  once it has printed. */
-export function shownStep(view: FinalStageView, picked: FinalStepKey | null): FinalStep | undefined {
-    const pick = view.steps.find((s) => s.key === picked && stepHasOutput(s));
-    return pick ?? (view.output !== "" ? view.steps.find((s) => s.key === view.running) : undefined);
+export type FinalKept = { status: LocalImageStatus; text: string };
+
+// what a step's body says when its kept output gives it nothing to show
+export const KEPT_NOTE: Record<LocalImageStatus, string> = {
+    loading: "loading the output...",
+    ok: "the step printed nothing",
+    missing: "no output kept: the step ran before Arc kept it, or it was swept",
+    error: "could not read the step's output",
+};
+
+export type FinalStepBody =
+    | { kind: "tail"; command: string; output: string }
+    | { kind: "card"; summary: TestSummary; output: string }
+    | { kind: "panel"; command: string; output: string; error?: string; note?: string };
+
+const COMMAND_KEYS = new Set<FinalStepKey>(["check", "verify", "final"]);
+const EXIT_CODE = /\(exit (\d+)\):\s*$/;
+
+function failedCommand(step: FinalStep): boolean {
+    return step.state === "failed" && COMMAND_KEYS.has(step.key);
+}
+
+/** Pure: what an open step's body draws. A running command is its live tail; an ended one is a Tests card when
+ *  its kept output parses as a run of its test command, else a panel of the output. The stage's failure detail,
+ *  less the end review's findings, rides in the failed command's panel as its error, except while the output
+ *  loads or when a card carries it. */
+export function finalStepBody(view: FinalStageView, step: FinalStep, kept: FinalKept): FinalStepBody {
+    if (step.state === "running" && step.key === view.running) {
+        return { kind: "tail", command: step.command, output: view.output };
+    }
+    const output = kept.status === "ok" ? kept.text : "";
+    const summary = isTestCommand(step.command) ? parseTestOutput(output) : null;
+    if (summary != null) {
+        return { kind: "card", summary, output };
+    }
+    const body: FinalStepBody = { kind: "panel", command: step.command, output };
+    if (output.trim() === "") {
+        body.note = KEPT_NOTE[kept.status];
+    }
+    if (failedCommand(step) && kept.status !== "loading") {
+        body.error = splitEndReview(view.detail).before;
+    }
+    return body;
+}
+
+/** Pure: whether a step's row starts open: the running command once it prints, or the failed step that kept
+ *  output. A click records the human's choice over this in the pane. */
+export function finalStepOpensByDefault(view: FinalStageView, step: FinalStep): boolean {
+    if (step.state === "running") {
+        return step.key === view.running && view.output !== "";
+    }
+    return failedCommand(step) && step.kept != null;
+}
+
+/** Pure: the exit chip of a failed step, `exit N` from the first line of the stage's detail when that line names
+ *  the step's command, else `failed`. */
+export function finalStepExit(view: FinalStageView, step: FinalStep): string {
+    const first = view.detail.split("\n", 1)[0];
+    const code = first.startsWith(`${step.label} \``) ? EXIT_CODE.exec(first)?.[1] : undefined;
+    return code == null ? "failed" : `exit ${code}`;
+}
+
+/** Pure: the failure detail drawn above the steps' box, "" for none: the whole detail when no failed command step
+ *  kept output to hold it (the verifier or end review failed, a human ended the stage), else the end review's
+ *  findings alone, which belong to no command. */
+export function finalDetailAbove(view: FinalStageView): string {
+    const held = view.steps.some((s) => failedCommand(s) && s.kept != null);
+    return held ? splitEndReview(view.detail).review : view.detail;
 }
 
 /** Pure: the last `lines` lines of a command's output. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { failureLabel, parseTestOutput } from "./testoutput";
+import { formatResults } from "../../../../scripts/cdp/report.mjs";
+import { failureLabel, isTestCommand, parseTestOutput } from "./testoutput";
 
 const J = (o: Record<string, unknown>) => JSON.stringify(o);
 
@@ -258,6 +259,76 @@ describe("parseTestOutput vitest", () => {
     });
 });
 
+describe("parseTestOutput final-verify", () => {
+    const detail = '{"stage":"final","reason":"no board"}';
+    const out = [
+        "",
+        "# final-stage",
+        "  PASS  1. the pane opens",
+        "        it drew 3 rows",
+        "  FAIL  2. the Final row is a Tests card",
+        `        ${detail}`,
+        "  SKIP  3. no scan report to cite",
+        "",
+        "# agent-tree-rail",
+        "  PASS  L1. the rail draws",
+        "",
+        "2/3 steps passed, 1 skipped",
+        "final-verify timing: slot wait 0s, prep 41s, app 33s, verify 22s",
+    ].join("\n");
+
+    it("counts the step lines and names a failure by its scenario, step and detail", () => {
+        expect(parseTestOutput(out)).toEqual({
+            runner: "final-verify",
+            unit: "test",
+            pass: 2,
+            fail: 1,
+            skip: 1,
+            failures: [{ pkg: "final-stage", test: "2. the Final row is a Tests card", message: detail }],
+        });
+    });
+
+    it("keeps a failure with no detail and ends a detail at the next unindented line", () => {
+        const s = parseTestOutput("# a\n  FAIL  x\n\n# b\n  FAIL  y\n        why\n1/3 steps passed");
+        expect(s?.failures).toEqual([
+            { pkg: "a", test: "x", message: "failed" },
+            { pkg: "b", test: "y", message: "why" },
+        ]);
+    });
+
+    it("keeps every line of a multi-line step detail that formatResults prints", () => {
+        const printed = formatResults([
+            {
+                name: "final-stage",
+                steps: [
+                    { step: "1. the pane opens", ok: true },
+                    { step: "2. the row", ok: false, detail: "expected a card\nfound a plain block" },
+                ],
+            },
+        ]);
+        expect(parseTestOutput(printed)).toEqual({
+            runner: "final-verify",
+            unit: "test",
+            pass: 1,
+            fail: 1,
+            skip: 0,
+            failures: [{ pkg: "final-stage", test: "2. the row", message: "expected a card\nfound a plain block" }],
+        });
+    });
+
+    it("reads a scenario that threw as a failure named the scenario threw", () => {
+        const s = parseTestOutput("\n# final-stage\n  ERROR: net::ERR_CONNECTION_REFUSED\n\n0/0 steps passed");
+        expect(s).toMatchObject({ runner: "final-verify", fail: 1, pass: 0 });
+        expect(s?.failures).toEqual([
+            { pkg: "final-stage", test: "the scenario threw", message: "net::ERR_CONNECTION_REFUSED" },
+        ]);
+    });
+
+    it("still reads a go build error that starts with a # line as go", () => {
+        expect(parseTestOutput("# pkg/x\nx.go:3:2: undefined: y\nFAIL\tpkg/x [build failed]")?.runner).toBe("go");
+    });
+});
+
 describe("parseTestOutput unrecognized", () => {
     it("returns null for unrelated text", () => {
         expect(parseTestOutput("hello\nworld\nok then")).toBeNull();
@@ -304,11 +375,40 @@ describe("failureLabel", () => {
             whereFull: "example.com/m/stats",
         });
     });
+    it("names a final-verify failure by its step, with its scenario beside it", () => {
+        expect(failureLabel("final-verify", { pkg: "final-stage", test: "2. the row", message: "m" })).toEqual({
+            name: "2. the row",
+            where: "final-stage",
+            whereFull: "final-stage",
+        });
+    });
     it("keeps a go failure with no package", () => {
         expect(failureLabel("go", { test: "TestX", message: "m", loc: "x_test.go:9" })).toEqual({
             name: "TestX",
             where: "x_test.go:9",
             whereFull: "x_test.go:9",
         });
+    });
+});
+
+describe("isTestCommand", () => {
+    it("matches go test and vitest", () => {
+        expect(isTestCommand("go test -json ./...")).toBe(true);
+        expect(isTestCommand("npx vitest run x")).toBe(true);
+        expect(isTestCommand("go build ./...")).toBe(false);
+        expect(isTestCommand("npm run lint")).toBe(false);
+    });
+    it.each([
+        "node scripts/verify.mjs ./pkg/x",
+        "node scripts\\cdp\\final-verify.mjs final-stage",
+        "ARC_FINAL_OUT=/tmp/o node scripts/cdp/final-verify.mjs final-stage",
+        "node scripts/cdp/verify.mjs motion-final",
+        "task verify:ui -- final-stage",
+    ])("matches Arc's own runner: %s", (cmd) => {
+        expect(isTestCommand(cmd)).toBe(true);
+    });
+    it("does not match other scripts or tasks", () => {
+        expect(isTestCommand("node scripts/cdp-shot.mjs")).toBe(false);
+        expect(isTestCommand("task check:ts")).toBe(false);
     });
 });

@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pure test-output parser for the rendered view's test card: go test (-json, -v, plain) and vitest.
+// Pure test-output parser for the rendered view's test card: go test (-json, -v, plain), vitest and Arc's CDP runners.
 // Deterministic, linear in the output, never throws on odd input; null when nothing is recognized.
 
 export interface TestFailure {
@@ -12,7 +12,7 @@ export interface TestFailure {
 }
 
 export interface TestSummary {
-    runner: "go" | "vitest";
+    runner: "go" | "vitest" | "final-verify";
     unit: "test" | "package";
     pass: number;
     fail: number;
@@ -26,6 +26,14 @@ const CSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]/g;
 
 export function stripAnsi(s: string): string {
     return s.replace(CSI_RE, "");
+}
+
+// Arc's own runners: verify.mjs (go packages), the CDP runners and the task that wraps one; either path separator
+const TEST_CMD =
+    /(?:^|[\s;&|(])(?:go\s+test|vitest|task\s+verify:ui)\b|(?:^|[\s;&|(/\\])scripts[\\/](?:cdp[\\/](?:final-)?)?verify\.mjs\b/;
+
+export function isTestCommand(cmd: string): boolean {
+    return TEST_CMD.test(cmd);
 }
 
 // a t.Errorf line: "    plan_test.go:88: want 3 tasks, got 1"
@@ -304,9 +312,72 @@ function parseVitest(lines: string[]): TestSummary | null {
     return { runner: "vitest", unit: "test", ...counts, failures };
 }
 
+// scripts/cdp/report.mjs formatResults: "# scenario", "  PASS|FAIL|SKIP  step", its detail indented eight spaces
+// beneath, "  ERROR: msg" under a header when the scenario threw
+const CDP_HEADER = /^# (.+?)\s*$/;
+const CDP_STEP = /^ {2}(PASS|FAIL|SKIP) {2}(.*?)\s*$/;
+const CDP_ERROR = /^ {2}ERROR: (.*?)\s*$/;
+const CDP_DETAIL = /^ {3,}\S/;
+// shotsManifest's name for the same failure
+const CDP_THREW = "the scenario threw";
+
+function parseFinalVerify(lines: string[]): TestSummary | null {
+    const counts = { pass: 0, fail: 0, skip: 0 };
+    const failures: TestFailure[] = [];
+    let scenario: string | undefined;
+    // the last FAIL, still collecting its detail lines; a PASS or SKIP detail is not kept
+    let open: { failure: TestFailure; lines: string[] } | null = null;
+    const close = () => {
+        if (open != null) {
+            open.failure.message = open.lines.join("\n") || "failed";
+            open = null;
+        }
+    };
+    for (const line of lines) {
+        const header = CDP_HEADER.exec(line);
+        if (header) {
+            close();
+            scenario = header[1];
+            continue;
+        }
+        if (scenario == null) {
+            continue;
+        }
+        const err = CDP_ERROR.exec(line);
+        if (err) {
+            close();
+            counts.fail++;
+            failures.push({ pkg: scenario, test: CDP_THREW, message: err[1] || "failed" });
+            continue;
+        }
+        const step = CDP_STEP.exec(line);
+        if (step) {
+            close();
+            const verdict = step[1].toLowerCase() as "pass" | "fail" | "skip";
+            counts[verdict]++;
+            if (verdict === "fail") {
+                const failure = { pkg: scenario, test: step[2], message: "" };
+                failures.push(failure);
+                open = { failure, lines: [] };
+            }
+            continue;
+        }
+        if (open != null && CDP_DETAIL.test(line)) {
+            open.lines.push(line.trim());
+        } else {
+            close();
+        }
+    }
+    close();
+    if (counts.pass + counts.fail + counts.skip === 0) {
+        return null;
+    }
+    return { runner: "final-verify", unit: "test", ...counts, failures };
+}
+
 export function parseTestOutput(output: string): TestSummary | null {
     const lines = stripAnsi(output).split(/\r?\n/);
-    return parseGoJson(lines) ?? parseVitest(lines) ?? parseGoText(lines);
+    return parseGoJson(lines) ?? parseVitest(lines) ?? parseFinalVerify(lines) ?? parseGoText(lines);
 }
 
 function lastSegment(path: string): string {
@@ -323,6 +394,9 @@ export interface FailureLabel {
 // How a failure row names its test and place. vitest's pkg and loc name the same file, so only loc's file:line
 // shows; a go package path shares its module prefix on every row, so only its last element prefixes the location.
 export function failureLabel(runner: TestSummary["runner"], f: TestFailure): FailureLabel {
+    if (runner === "final-verify") {
+        return { name: f.test, where: f.pkg, whereFull: f.pkg };
+    }
     if (runner === "vitest") {
         const full = f.loc ?? f.pkg;
         return { name: f.test || (f.pkg ?? ""), ...(full ? { where: lastSegment(full), whereFull: full } : {}) };
