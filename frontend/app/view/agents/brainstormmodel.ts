@@ -312,6 +312,28 @@ function parseCheck(raw: unknown): BuilderCheck | null {
     };
 }
 
+// once an answer picks one option, the mockups only the others showed are out of the design: the agent keeps them on
+// the part (its boards stay the full set), so they are dropped here. An answer in the user's own words drops nothing
+function withoutPassedOver(parts: BrainstormPart[], history: HistoryEntry[]): BrainstormPart[] {
+    const answered = history.filter((h) => h.picked != null && h.options != null && !h.superseded);
+    const mockups = (o: AnswerOption) => [...(o.boards ?? []), ...(o.spikes ?? [])];
+    const keep = new Set(answered.flatMap((h) => mockups(h.options[h.picked])));
+    const drop = new Set(
+        answered
+            .flatMap((h) => h.options.filter((_, i) => i !== h.picked))
+            .flatMap(mockups)
+            .filter((m) => !keep.has(m))
+    );
+    if (drop.size === 0) {
+        return parts;
+    }
+    return parts.map(({ boards = [], spikes = [], ...rest }) => {
+        const b = boards.filter((x) => !drop.has(x));
+        const s = spikes.filter((x) => !drop.has(x));
+        return { ...rest, ...(b.length > 0 ? { boards: b } : {}), ...(s.length > 0 ? { spikes: s } : {}) };
+    });
+}
+
 function buildFile(j: Rec): BrainstormFile {
     if (j.v !== FILE_VERSION) {
         throw new FieldError(
@@ -332,6 +354,7 @@ function buildFile(j: Rec): BrainstormFile {
         }
         seen.add(p.id);
     }
+    const history = parseHistory(j.history);
     return {
         v: FILE_VERSION,
         title: j.title,
@@ -339,8 +362,8 @@ function buildFile(j: Rec): BrainstormFile {
         ...(str(j.canvas) ? { canvas: str(j.canvas) } : {}),
         question: parseQuestion(j.question),
         working: filled(j.working) ?? null,
-        parts,
-        history: parseHistory(j.history),
+        parts: withoutPassedOver(parts, history),
+        history,
         done: j.done === true,
         check: parseCheck(j.check),
         run: filled(j.run) ?? null,

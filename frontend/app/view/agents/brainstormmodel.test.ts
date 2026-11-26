@@ -1110,6 +1110,35 @@ describe("question options", () => {
         expect(r.ok && r.file.history[0].options).toEqual(opts);
     });
 
+    it("drop from the parts the mockups only a passed-over option showed, once an answer picks", () => {
+        const directions = [
+            { label: "Cards", detail: "", boards: ["Cards.dc.html", "Shared.dc.html"], spikes: ["spike/cards.html"] },
+            { label: "List", detail: "", boards: ["List.dc.html", "Shared.dc.html"], spikes: ["spike/list.html"] },
+        ];
+        const part = {
+            id: "a",
+            title: "A",
+            state: "yours",
+            body: "x",
+            boards: ["Cards.dc.html", "List.dc.html", "Shared.dc.html", "Every.dc.html"],
+            spikes: ["spike/cards.html", "spike/list.html"],
+        };
+        const parsed = (h: Record<string, unknown>) => {
+            const r = parseBrainstorm(
+                raw({
+                    parts: [part],
+                    history: [{ kind: "question", n: 1, q: "q", a: "a", into: [], options: directions, ...h }],
+                })
+            );
+            return r.ok ? r.file.parts[0] : null;
+        };
+        expect(parsed({ picked: 0 })).toMatchObject({
+            boards: ["Cards.dc.html", "Shared.dc.html", "Every.dc.html"],
+            spikes: ["spike/cards.html"],
+        });
+        expect(parsed({})).toMatchObject({ boards: part.boards, spikes: part.spikes });
+    });
+
     it("number the options from 1", () => {
         expect([0, 1, 2, 3].map(optionNumber)).toEqual(["1", "2", "3", "4"]);
     });

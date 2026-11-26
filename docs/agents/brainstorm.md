@@ -138,6 +138,11 @@ window scoped to the part (its boards as tabs, a band with its title and gist), 
 motion a board cannot show) a link that opens it in the browser from the same served folder.
 `PartMockups` in `brainstormui.tsx` draws both, from `partBoards` and `partSpikes`.
 
+Once an answer picks one option, the boards and spikes only the other options named leave the design: the
+agent keeps a part's `boards` as the full set, so Arc drops them as it reads the file (`withoutPassedOver`), and
+they no longer show on the part, in its canvas window, behind a later question's link or as the run's prototype.
+An answer in the user's own words drops nothing.
+
 An open question draws its own mockups: each option's `boards` and `spikes` (each approach's, while
 the judge weighs) beside that answer's row, and the asked part's that no answer names over the rows
 as "For every answer" (`questionBoardLayout` and `questionSpikes`, drawn by `questionBoards`). A board
