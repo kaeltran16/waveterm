@@ -281,12 +281,9 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
         setOpenBoard(channelId, info.id);
     };
 
-    // a tied board opens where its agent is (the router decides); any other stays on this surface
+    // a pick here stays here, tied or not; the palette and the agent's own opens go through the router
     const pickBoard = (ch: string, id: string) => {
-        const picked = switcherLists.find((l) => l.channelId === ch)?.boards.find((b) => b.id === id);
-        if (picked?.agenttabid) {
-            openBoardTarget(model, ch, id);
-        } else if (ch === channelId) {
+        if (ch === channelId) {
             setOpenBoard(ch, id);
         } else {
             selectBoard(ch, id);

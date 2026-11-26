@@ -79,7 +79,8 @@ get drawn.
 - When the agent runs `wsh board draw`, the board joins its workspace at once (mid-turn included, without waiting for
   the turn end) as a tab behind the active one, marked unseen. Closing a board tab never stops later boards from
   arriving. The drawer's toast shows whenever you are not looking at that agent's workspace.
-- Opening a board that has an agent, from the Boards surface or the palette, opens it in that agent's workspace.
+- Opening a board that has an agent from the palette opens it in that agent's workspace. Picking one in the Boards
+  surface's switcher keeps it on the Boards surface.
 - When the tied agent shows no workspace (terminal view, ended, or a runtime other than claude or pi), the board opens
   on the Boards surface instead. Arc never switches the agent's view.
 

@@ -779,7 +779,7 @@ export const boardsWorkspace = {
             return { ok, detail: q({ closed, joined, s }) };
         });
 
-        await run("open from Boards: picking the tied board in the Boards switcher lands on the Agent surface with the board tab active", async () => {
+        await run("open from Boards: picking the tied board in the Boards switcher opens it on the Boards surface, its agent rendering, the agent's tabs untouched", async () => {
             const scratch = await page(
                 h,
                 `const info = await RpcApi.BoardStartCommand(TabRpcClient, {
@@ -795,20 +795,19 @@ export const boardsWorkspace = {
             const onBoards = await polishWaitFor(h, `${text(SWITCHER)} === ${q(SCRATCH)}`, WAIT_MS);
             await h.ev(`${SWITCHER}?.click()`);
             await polishWaitFor(h, `!!${switcherRow(ctx.boardId)}`, WAIT_MS);
+            const before = (await readPane(h)).active;
             await h.ev(`${switcherRow(ctx.boardId)}?.click()`);
-            const landed = await polishWaitFor(h, `!!${TAB}?.querySelector(".excalidraw")`, WAIT_MS);
+            const landed = await polishWaitFor(
+                h,
+                `${text(SWITCHER)} === ${q(BOARD)} && !!${BOARDS_SURFACE}?.querySelector(".excalidraw")`,
+                WAIT_MS
+            );
             await polishNap(SETTLE_MS);
             const s = await readPane(h);
             const surface = await h.activeSurfaceLabel();
             await h.shot(SHOT("open", "from-boards"));
-            const ok =
-                onBoards &&
-                landed &&
-                surface === "Agent" &&
-                s.focusId === ctx.agentId &&
-                s.active === `Board · ${BOARD}` &&
-                !s.boardUnseen;
-            return { ok, detail: q({ onBoards, landed, surface, s }) };
+            const ok = onBoards && landed && surface === "Boards" && s.active === before;
+            return { ok, detail: q({ onBoards, landed, surface, before, s }) };
         });
 
         await run("toast off-screen: with the Boards surface shown, the tied agent's request answering raises the drawer's toast, and its Open lands on the Agent surface with that agent and the board tab active", async () => {
