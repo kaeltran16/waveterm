@@ -5,11 +5,13 @@ package jarvis
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
 	"github.com/wavetermdev/waveterm/pkg/agentask"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
@@ -160,8 +162,11 @@ func TestEngineLaunchPromptPlansCarryDecisionsNotCode(t *testing.T) {
 	}
 }
 
-// every path that writes a plan carries the caller grep
+// every path that writes a plan carries the caller grep and the fast track's short plan
 func TestEveryPlanningPromptListsCallersOfChangedSignatures(t *testing.T) {
+	if !strings.Contains(planShortStep, strconv.Itoa(FastTrackMaxTasks)) {
+		t.Fatalf("the short-plan step must name the fast track's limit:\n%s", planShortStep)
+	}
 	for _, runtime := range []string{"claude", "pi"} {
 		for _, autonomous := range []bool{false, true} {
 			runs := map[string]waveobj.Run{
@@ -169,8 +174,11 @@ func TestEveryPlanningPromptListsCallersOfChangedSignatures(t *testing.T) {
 				"from the design": {Goal: "ship auth", Runtime: runtime, Autonomous: autonomous, Spec: "C:/p/docs/spec.md"},
 			}
 			for name, run := range runs {
-				if p := BuildOrchestratePrompt(&run); !strings.Contains(p, planCallersStep) {
-					t.Errorf("%s %s autonomous=%v: plan step missing the caller grep:\n%s", runtime, name, autonomous, p)
+				p := BuildOrchestratePrompt(&run)
+				for step, text := range map[string]string{"the caller grep": planCallersStep, "the short plan": planShortStep} {
+					if !strings.Contains(p, text) {
+						t.Errorf("%s %s autonomous=%v: plan step missing %s:\n%s", runtime, name, autonomous, step, p)
+					}
 				}
 			}
 		}
@@ -247,6 +255,24 @@ func TestEngineRunPromptsPutTheContractOverPrinciples(t *testing.T) {
 	}
 	if strings.Contains(BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude"}), ContractWinsLine) {
 		t.Fatal("with no principles there is nothing for the contract to win over")
+	}
+}
+
+// the session list drops a run's agents by their prompt when no store it reads holds the run
+func TestLeadPromptsReadAsRunPrompts(t *testing.T) {
+	ps := waveobj.PrincipleList{{ID: "wt", Text: "Use worktree"}}
+	for name, p := range map[string]string{
+		"plan lead":       PlanLeadPrompt(ps, "r1", "", "/repo/plan.md", "", false, "wake"),
+		"asking lead":     BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth\nwith tests", Principles: ps, Runtime: "claude"}),
+		"autonomous lead": BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude", Autonomous: true}),
+		"design lead":     BuildOrchestratePrompt(&waveobj.Run{Goal: "ship auth", Runtime: "claude", Spec: "/repo/spec.md"}),
+	} {
+		if !agentsessions.IsRunPrompt(p) {
+			t.Errorf("%s prompt does not read as a run's:\n%s", name, p)
+		}
+	}
+	if agentsessions.IsRunPrompt(BuildQuickPrompt("ship auth", ps, "claude")) {
+		t.Error("a quick run's prompt is the user's own work, not a run agent's")
 	}
 }
 

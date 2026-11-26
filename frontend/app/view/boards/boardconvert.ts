@@ -7,15 +7,48 @@
 import { convertToExcalidrawElements, restoreElements } from "@excalidraw/excalidraw";
 import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/transform";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import { layoutAnswer, type BoardGraph, type MeasureLabel } from "./boardlayout";
 import { applyAnswer, type AnswerResult, type BoardScene } from "./boardmodel";
 
-// new ids on every conversion, so a redraw never collides with the group it replaces (decision 11)
-export function convertSkeleton(skeleton: string): ExcalidrawElement[] {
+function parseSkeleton(skeleton: string): ExcalidrawElementSkeleton[] {
     const parsed: unknown = JSON.parse(skeleton);
     if (!Array.isArray(parsed)) {
         throw new Error("the skeleton is not a list of elements");
     }
-    return convertToExcalidrawElements(parsed as ExcalidrawElementSkeleton[], { regenerateIds: true });
+    return parsed as ExcalidrawElementSkeleton[];
+}
+
+// new ids on every conversion, so a redraw never collides with the group it replaces (decision 11)
+function convert(skeletons: ExcalidrawElementSkeleton[]): ExcalidrawElement[] {
+    return convertToExcalidrawElements(skeletons, { regenerateIds: true });
+}
+
+export function convertSkeleton(skeleton: string): ExcalidrawElement[] {
+    return convert(parseSkeleton(skeleton));
+}
+
+// a label as Excalidraw lays out a new text: its default font and size, newlines kept
+const measureLabel: MeasureLabel = (text) => {
+    const [el] = convertToExcalidrawElements([{ type: "text", text, x: 0, y: 0 }]);
+    return { width: el.width, height: el.height };
+};
+
+// Go checks the graph's shape but not its style keys, so a style that is not a string is dropped
+function parseGraph(graph: string | undefined): BoardGraph | null {
+    if (!graph) {
+        return null;
+    }
+    const parsed = JSON.parse(graph) as BoardGraph;
+    const color = (v: unknown) => (typeof v === "string" ? v : undefined);
+    return {
+        ...parsed,
+        nodes: parsed.nodes.map((n) => ({
+            ...n,
+            strokeColor: color(n.strokeColor),
+            backgroundColor: color(n.backgroundColor),
+        })),
+        edges: parsed.edges?.map((e) => ({ ...e, strokeColor: color(e.strokeColor), dashed: e.dashed === true })),
+    };
 }
 
 // a box's label sits in its middle, as Excalidraw lays it out; an arrow's stays where it was measured
@@ -51,7 +84,8 @@ function measure(elements: readonly ExcalidrawElement[], textIds: readonly strin
 }
 
 export function landAnswer(scene: BoardScene, answer: BoardAnswer, now: number): AnswerResult {
-    const added = answer.add ? convertSkeleton(answer.add) : [];
-    const result = applyAnswer(scene, answer, added, now);
-    return { ...result, scene: { ...result.scene, elements: measure(result.scene.elements, result.textIds) } };
+    const add = answer.add ? parseSkeleton(answer.add) : [];
+    const skeletons = layoutAnswer(parseGraph(answer.graph), add, measureLabel);
+    const added = skeletons.length > 0 ? convert(skeletons) : [];
+    return applyAnswer(scene, answer, added, now, measure);
 }

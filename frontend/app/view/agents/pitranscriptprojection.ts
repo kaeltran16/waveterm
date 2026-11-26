@@ -28,6 +28,7 @@ const READ_MODAL_MAX_LINES = 400; // bound stored Read body (modal view); inline
 interface PiBlock {
     type?: string;
     text?: string;
+    thinking?: string;
     id?: string;
     toolCallId?: string;
     name?: string;
@@ -168,6 +169,18 @@ function editDetailFor(name: string, args: unknown): ActionEntry["detail"] {
     return undefined;
 }
 
+// the reasoning of a message with no reply text, its thinking blocks joined; a message that replies keeps it hidden,
+// as the Claude projector does
+function thoughtOf(content: unknown[]): string {
+    if (textBlocks(content).length > 0) {
+        return "";
+    }
+    return (content as PiBlock[])
+        .filter((b) => b?.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim() !== "")
+        .map((b) => b.thinking.trim())
+        .join("\n\n");
+}
+
 function mapAssistantContent(rec: PiRecord, entries: AgentEntry[], actionById: Map<string, ActionEntry>): void {
     const content = rec.message?.content;
     for (const text of textBlocks(content)) {
@@ -175,6 +188,10 @@ function mapAssistantContent(rec: PiRecord, entries: AgentEntry[], actionById: M
     }
     if (!Array.isArray(content)) {
         return;
+    }
+    const thought = thoughtOf(content);
+    if (thought !== "") {
+        entries.push({ kind: "thought", text: thought, ...recTs(rec) });
     }
     for (const b of content as PiBlock[]) {
         // Pi records tool calls as {type:"toolCall", id, name, arguments}; tolerate the older
@@ -434,6 +451,7 @@ function activeBranch(records: PiRecord[]): number[] {
 
 /** Pure: project Pi v3 JSONL lines into ordered entries, following only the active parent branch.
  *  user -> asked (skill blocks become a skill chip + the trailing text), assistant text -> message,
+ *  thinking of a message with no text -> thought,
  *  toolCall -> action (joined to its toolResult by toolCallId; read/grep/bash enrich with detail,
  *  edit/write carry inline diffs), bashExecution (a `!`/`!!` command) -> shell, compaction -> compaction.
  *  branch_summary / model_change /

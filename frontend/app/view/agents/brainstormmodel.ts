@@ -6,7 +6,7 @@
 
 import type { NewRunPrefill } from "@/app/view/jarvis/newrun";
 import type { AgentVM } from "./agentsviewmodel";
-import { boardLabel, canvasDir, canvasProjectDir, join } from "./canvasmodel";
+import { canvasDir, canvasProjectDir, join } from "./canvasmodel";
 
 export const BRAINSTORM_POLL_MS = 3000;
 export const BUILDER_PART = "builder";
@@ -312,6 +312,28 @@ function parseCheck(raw: unknown): BuilderCheck | null {
     };
 }
 
+// once an answer picks one option, the mockups only the others showed are out of the design: the agent keeps them on
+// the part (its boards stay the full set), so they are dropped here. An answer in the user's own words drops nothing
+function withoutPassedOver(parts: BrainstormPart[], history: HistoryEntry[]): BrainstormPart[] {
+    const answered = history.filter((h) => h.picked != null && h.options != null && !h.superseded);
+    const mockups = (o: AnswerOption) => [...(o.boards ?? []), ...(o.spikes ?? [])];
+    const keep = new Set(answered.flatMap((h) => mockups(h.options[h.picked])));
+    const drop = new Set(
+        answered
+            .flatMap((h) => h.options.filter((_, i) => i !== h.picked))
+            .flatMap(mockups)
+            .filter((m) => !keep.has(m))
+    );
+    if (drop.size === 0) {
+        return parts;
+    }
+    return parts.map(({ boards = [], spikes = [], ...rest }) => {
+        const b = boards.filter((x) => !drop.has(x));
+        const s = spikes.filter((x) => !drop.has(x));
+        return { ...rest, ...(b.length > 0 ? { boards: b } : {}), ...(s.length > 0 ? { spikes: s } : {}) };
+    });
+}
+
 function buildFile(j: Rec): BrainstormFile {
     if (j.v !== FILE_VERSION) {
         throw new FieldError(
@@ -332,6 +354,7 @@ function buildFile(j: Rec): BrainstormFile {
         }
         seen.add(p.id);
     }
+    const history = parseHistory(j.history);
     return {
         v: FILE_VERSION,
         title: j.title,
@@ -339,8 +362,8 @@ function buildFile(j: Rec): BrainstormFile {
         ...(str(j.canvas) ? { canvas: str(j.canvas) } : {}),
         question: parseQuestion(j.question),
         working: filled(j.working) ?? null,
-        parts,
-        history: parseHistory(j.history),
+        parts: withoutPassedOver(parts, history),
+        history,
         done: j.done === true,
         check: parseCheck(j.check),
         run: filled(j.run) ?? null,
@@ -846,8 +869,6 @@ export type QuestionBoardLayout = {
     shared: string[];
 };
 
-const SHARED_TAB = "Every answer";
-
 function askedPartBoards(f: BrainstormFile): string[] {
     const id = f.question?.part;
     return [...new Set((id ? f.parts.find((x) => x.id === id)?.boards : undefined) ?? [])];
@@ -924,42 +945,6 @@ export function hiddenMockups(f: BrainstormFile, base: string | null, judging = 
     const what =
         spikes.size === 0 ? capitalize(boardWord) : boards.size === 0 ? spikeWord : `${spikeWord} and ${boardWord}`;
     return { parts: parts.map((p) => p.id), label: `${what} in ${plural(parts.length, "part", "parts")}` };
-}
-
-// the canvas tab of each board an answer names or the asked part shares; a board not in the map keeps its plain name
-export function boardTabLabels(f: BrainstormFile, judging = false): Record<string, string> | null {
-    const options = f.question != null ? answerRows(f.question, judging) : [];
-    if (options.length === 0) {
-        return null;
-    }
-    const numbers: Record<string, string[]> = {};
-    options.forEach((o, i) => {
-        for (const b of o.boards ?? []) {
-            (numbers[b] ??= []).push(optionNumber(i));
-        }
-    });
-    const labels: Record<string, string> = {};
-    for (const [b, ns] of Object.entries(numbers)) {
-        labels[b] = `${[...new Set(ns)].join(", ")} · ${boardLabel(b)}`;
-    }
-    for (const b of askedPartBoards(f)) {
-        labels[b] ??= `${SHARED_TAB} · ${boardLabel(b)}`;
-    }
-    return labels;
-}
-
-export type BoardPick = { index: number; label: string };
-
-// the answers a board opened full size can be picked as: each row of the open question that names it. Only while the
-// user can answer: a question the agent is not writing over, or the judge's wait (judging), where the rows are the
-// approaches
-export function boardPicks(f: BrainstormFile, board: string, judging: boolean): BoardPick[] {
-    const q = f.question;
-    if (q == null || (f.working != null && !judging)) {
-        return [];
-    }
-    const rows = judging ? (q.approaches ?? []).map((a) => ({ label: a.name, boards: a.boards })) : (q.options ?? []);
-    return rows.flatMap((r, index) => ((r.boards ?? []).includes(board) ? [{ index, label: r.label }] : []));
 }
 
 export type HistoryRow = {
@@ -1605,9 +1590,30 @@ export function plural(n: number, one: string, many: string): string {
     return `${n} ${n === 1 ? one : many}`;
 }
 
+// what the builder check is, which the ask rail's line and the narrow summary's panel open with
+export const CHECK_INTRO = "A fresh agent checked whether it could plan from this without coming back to you.";
+
 // the ask rail's intro to what the builder asked
 export function checkRailLine(questions: number): string {
-    return `A fresh agent checked whether it could plan from this without coming back to you. It had ${plural(questions, "question", "questions")}.`;
+    return `${CHECK_INTRO} It had ${plural(questions, "question", "questions")}.`;
+}
+
+// the narrow check's one-line summary, read as lead + yours + rest, yours drawn bold. A count of zero leaves its
+// clause out, except yours, which the line always says
+export function checkSummaryLine(f: BrainstormFile): { lead: string; yours: string; rest: string } {
+    const check = f.check ?? { yours: [], calls: [], answered: [] };
+    const questions = check.yours.length + check.calls.length + check.answered.length;
+    const forYou = check.yours.length;
+    const allAnswered = forYou > 0 && check.yours.every((y) => y.a != null);
+    const yours = forYou === 0 ? "none for you" : `${forYou} for you${allAnswered ? ", all answered" : ""}`;
+    const rest = [
+        check.calls.length > 0 ? `${check.calls.length} the agent decided` : null,
+        check.answered.length > 0 ? `${check.answered.length} already in the design` : null,
+    ]
+        .filter((s) => s != null)
+        .map((s) => `, ${s}`)
+        .join("");
+    return { lead: `A builder read the design: ${plural(questions, "question", "questions")}, `, yours, rest };
 }
 
 // the review rail's line, read as lead + answered + rest. answered is the count drawn between them, which only the

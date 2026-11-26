@@ -36,10 +36,13 @@ describe("sheetFace", () => {
         });
     });
 
-    it("waits, rather than drawing the launcher, while the active channel has not caught up to the subject", () => {
-        // stepping from a run in one channel to a run in another moves the active channel first: the launcher
-        // drawn in that window would mount with the wrong channel and reset its run configuration
-        expect(sheetFace(subject("channel", "ch1"), null, "ch2")).toEqual({
+    // the run list arrives after the subject moves: the launcher drawn in that window would mount with the wrong
+    // channel and reset its run configuration, and a run would come out of another channel's list
+    it.each([
+        ["another channel's", "ch2"],
+        ["no", null],
+    ])("waits, rather than drawing the launcher, while %s run list is loaded", (_, runsChannelId) => {
+        expect(sheetFace(subject("channel", "ch1"), null, runsChannelId)).toEqual({
             kind: "channel",
             channelId: "ch1",
             body: "pending",

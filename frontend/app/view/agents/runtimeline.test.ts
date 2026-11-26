@@ -75,6 +75,7 @@ describe("eventTitle", () => {
     it("says only the role when the detail names no lens", () => {
         expect(eventTitle(started({ role: "plan-reviewer" }))).toBe("Plan reviewer started");
         expect(eventTitle(started({ role: "verifier" }))).toBe("Final verifier started");
+        expect(eventTitle(started({ role: "end-reviewer" }))).toBe("End reviewer started");
     });
 });
 
@@ -98,7 +99,9 @@ describe("final-ended", () => {
 
 describe("planReviewLensTitle", () => {
     it("titles every lens, and falls back to the key for one it does not know", () => {
-        expect(["full", "second", "spec", "order", "tests", "final", "followup"].map(planReviewLensTitle)).toEqual([
+        expect(
+            ["full", "second", "spec", "order", "tests", "final", "followup", "light"].map(planReviewLensTitle)
+        ).toEqual([
             "Full review",
             "Second pass",
             "Spec coverage",
@@ -106,6 +109,7 @@ describe("planReviewLensTitle", () => {
             "Tests and commands",
             "Final coverage",
             "Round-2 follow-up",
+            "Light review",
         ]);
         expect(planReviewLensTitle("style")).toBe("style");
     });
@@ -124,6 +128,9 @@ describe("eventText", () => {
         );
         expect(eventText(eventWith("3", 1, "child-ask", { taskid: "t-4", question: "hide it?" }))).toBe(
             "t-4 asked · hide it?"
+        );
+        expect(eventText(eventWith("3a", 1, "child-answered", { taskid: "t-4", answer: "yes" }))).toBe(
+            "t-4 answered · yes"
         );
         expect(eventText(eventWith("4", 1, "task-merged", { taskid: "t-1" }))).toBe("Task merged · t-1");
         expect(eventText(eventWith("5", 1, "dag-done"))).toBe("DAG complete");
@@ -148,6 +155,17 @@ describe("eventText: the human's and the lead's task actions", () => {
         expect(eventText(ev("task-escalated", { taskid: "t-3", model: "claude-opus-5-5", by: "lead" }))).toBe(
             "lead escalated t-3 to opus-5-5"
         );
+    });
+
+    it("says an approve over a failed review in the human's name, and the lead's or an older row's as the lead's", () => {
+        expect(eventText(ev("review-overruled", { taskid: "t-4", by: "human" }))).toBe(
+            "you approved t-4 over its review"
+        );
+        expect(eventTitle(ev("review-overruled", { taskid: "t-4", by: "human" }))).toBe("You overruled the review");
+        expect(eventText(ev("review-overruled", { taskid: "t-4", by: "lead" }))).toBe(
+            "Lead overruled the review · t-4"
+        );
+        expect(eventText(ev("review-overruled", { taskid: "t-4" }))).toBe("Lead overruled the review · t-4");
     });
 
     it("keeps an engine retry's text, which names no actor", () => {

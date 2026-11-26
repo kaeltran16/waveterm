@@ -7,13 +7,16 @@
 package canvasserve
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -104,6 +107,59 @@ func Handler() http.Handler {
 		}
 		// a board is edited between loads, so every load revalidates against the file's Last-Modified
 		w.Header().Set("Cache-Control", "no-cache")
+		rel := strings.TrimPrefix(r.URL.Path, PathPrefix+token)
+		if strings.EqualFold(path.Ext(rel), htmlExt) {
+			serveBoard(w, r, http.Dir(dir), rel)
+			return
+		}
 		http.StripPrefix(PathPrefix+token, http.FileServer(http.Dir(dir))).ServeHTTP(w, r)
 	})
+}
+
+const htmlExt = ".html"
+
+// keyRelay hands the host the keys a board leaves alone. The board loads cross-origin to the app, so once a click
+// focuses it the app's window sees no keydown, and Esc stops closing the canvas window. It posts after the board's
+// own listeners ran (setTimeout), skips a key the board took (defaultPrevented), relays nothing when the board is
+// the top window (Open in browser), and from a field only Escape, the one key the app takes from a field. The
+// message shape is frontend/app/view/agents/boardkeys.ts's BoardKeyMessage, which re-checks every rule.
+const keyRelay = `<script>(function(){if(window.parent===window)return;addEventListener("keydown",function(e){` +
+	`setTimeout(function(){if(e.defaultPrevented)return;var t=e.target,` +
+	`ed=!!t&&(!!t.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName||""));` +
+	`if(ed&&e.key!=="Escape")return;parent.postMessage({type:"arc:board-key",key:e.key,code:e.code,` +
+	`ctrlKey:e.ctrlKey,shiftKey:e.shiftKey,altKey:e.altKey,metaKey:e.metaKey,editable:ed},"*")},0)})})()</script>`
+
+var bodyClose = []byte("</body>")
+
+// before the last </body>, else at the end
+func withKeyRelay(page []byte) []byte {
+	at := bytes.LastIndex(bytes.ToLower(page), bodyClose)
+	if at < 0 {
+		at = len(page)
+	}
+	out := make([]byte, 0, len(page)+len(keyRelay))
+	out = append(out, page[:at]...)
+	out = append(out, keyRelay...)
+	return append(out, page[at:]...)
+}
+
+// a board page with the relay in it, still dated by the file, since the poller's HEAD reloads a board by Last-Modified
+func serveBoard(w http.ResponseWriter, r *http.Request, root http.FileSystem, rel string) {
+	f, err := root.Open(path.Clean("/" + rel))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	page, err := io.ReadAll(f)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("reading %s: %v", rel, err), http.StatusInternalServerError)
+		return
+	}
+	http.ServeContent(w, r, info.Name(), info.ModTime(), bytes.NewReader(withKeyRelay(page)))
 }

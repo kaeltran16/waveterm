@@ -9,8 +9,10 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/consult"
 	"github.com/wavetermdev/waveterm/pkg/gitinfo"
@@ -26,6 +28,9 @@ import (
 )
 
 const metaTabProject = "session:project"
+
+// workerNameMax caps a worker's name in runes, so it fits a tab and a tree row.
+const workerNameMax = 48
 
 // parentTab is what a worker takes from the agent that starts it.
 type parentTab struct {
@@ -68,13 +73,17 @@ func Start(ctx context.Context, data wshrpc.CommandAgentsStartData) (*wshrpc.Com
 
 	ctx = waveobj.ContextWithUpdates(ctx)
 	defer func() { wps.Broker.SendUpdateEvents(waveobj.ContextGetUpdatesRtn(ctx)) }()
+	// the tab's name is the one its notices and wsh agents list show; session:label is the tree's and the cockpit's,
+	// which outlives a reload as the agent's own title does not
+	name := workerName(data.Prompt)
 	tabId, blockId, err := jarvis.OpenAgentTab(ctx, jarvis.AgentTabSpec{
 		WorkspaceId: parent.workspaceId,
-		TabName:     parent.tab.Meta.GetString(metaTabProject, parent.tab.Name),
+		TabName:     name,
 		TabMeta: waveobj.MetaMapType{
-			metaTabHarness: launch.Harness,
-			metaTabProject: parent.tab.Meta.GetString(metaTabProject, ""),
-			MetaParentTab:  parent.tab.OID,
+			metaTabHarness:               launch.Harness,
+			metaTabProject:               parent.tab.Meta.GetString(metaTabProject, ""),
+			waveobj.MetaKey_SessionLabel: name,
+			MetaParentTab:                parent.tab.OID,
 		},
 		BlockMeta: workerBlockMeta(launch, cwd, sessionId, prompt),
 	})
@@ -96,10 +105,26 @@ func Start(ctx context.Context, data wshrpc.CommandAgentsStartData) (*wshrpc.Com
 	}
 	Bind(claim, blockId)
 	// the worker runs either way; the roster lists it once its own hooks report
-	if err := PublishStatus(ctx, blockId, baseds.AgentState_Working); err != nil {
+	if err := PublishStatus(ctx, blockId, baseds.AgentState_Working, time.Now()); err != nil {
 		log.Printf("agentworker: publishing the first status of worker %s: %v", tabId, err)
 	}
 	return &wshrpc.CommandAgentsStartRtnData{TabId: tabId, Harness: launch.Harness, Cwd: cwd}, nil
+}
+
+// workerName names a worker by its task: the task's first line, cut to workerNameMax. A double quote becomes a single
+// one, since a notice quotes the name.
+func workerName(task string) string {
+	line := ""
+	for _, l := range strings.Split(task, "\n") {
+		if line = strings.Join(strings.Fields(l), " "); line != "" {
+			break
+		}
+	}
+	line = strings.ReplaceAll(line, `"`, "'")
+	if r := []rune(line); len(r) > workerNameMax {
+		return strings.TrimSpace(string(r[:workerNameMax-1])) + "…"
+	}
+	return line
 }
 
 // loadParentTab reads the calling agent's tab, workspace, directory and latest status. Its directory is the one it
@@ -132,12 +157,13 @@ func loadParentTab(ctx context.Context, fromORef string) (*parentTab, error) {
 		return nil, fmt.Errorf("the parent's tab %s is in no workspace", tabId)
 	}
 	status := orchestrate.LatestAgentStatus(block.OID, tabId)
-	p := &parentTab{tab: tab, workspaceId: workspaceId, cwd: status.Cwd, facts: Parent{
-		Harness: status.Agent, Model: status.Model, PermissionMode: status.PermissionMode,
-	}}
-	if p.facts.Harness == "" {
-		p.facts.Harness = tab.Meta.GetString(metaTabHarness, "")
+	harness := status.Agent
+	if harness == "" {
+		harness = tab.Meta.GetString(metaTabHarness, "")
 	}
+	p := &parentTab{tab: tab, workspaceId: workspaceId, cwd: status.Cwd, facts: Parent{
+		Harness: harness, Model: parentModel(harness, status), PermissionMode: status.PermissionMode,
+	}}
 	if p.cwd == "" {
 		p.cwd = block.Meta.GetString(waveobj.MetaKey_CmdCwd, "")
 	}
@@ -145,6 +171,18 @@ func loadParentTab(ctx context.Context, fromORef string) (*parentTab, error) {
 		return nil, fmt.Errorf("the parent reports no directory to start the worker in")
 	}
 	return p, nil
+}
+
+// parentModel is the model the parent runs, as a route names it. pi reports its provider apart from the model id. A
+// claude status may carry no model (a Notification, the mod's own idle), and then the transcript says it.
+func parentModel(harness string, status baseds.AgentStatusData) string {
+	switch {
+	case harness == "pi" && status.Provider != "" && status.Model != "":
+		return status.Provider + "/" + status.Model
+	case harness == "claude" && status.Model == "" && status.TranscriptPath != "":
+		return agentsessions.LastClaudeModel(status.TranscriptPath)
+	}
+	return status.Model
 }
 
 // workDir is where the worker works: the parent's directory, or with a branch the worktree that branch will get.

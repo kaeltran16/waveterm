@@ -223,6 +223,9 @@ function agentAskTab(a: AttentionItem, channelId: string): string | null {
     return a.kind === ASK_KIND && channelId === "" && a.oref?.startsWith(TAB_OREF_PREFIX) ? a.oref : null;
 }
 
+// a worker whose parent's tab is gone: its answer waits on its own tab (pkg/jarvis/attention.go)
+const WORKER_ORPHAN_KIND = "worker-orphan";
+
 // a scan's run is its agent's, so the run body has nothing to decide: the picks wait in Usage › Workflow
 function queueNav(a: AttentionItem, channelId: string): QueueNav | null {
     if (a.kind === WORKFLOW_SCAN_KIND && a.oref) {
@@ -231,6 +234,9 @@ function queueNav(a: AttentionItem, channelId: string): QueueNav | null {
     const tab = agentAskTab(a, channelId);
     if (tab != null) {
         return { kind: "oref", oref: tab };
+    }
+    if (a.kind === WORKER_ORPHAN_KIND && a.oref?.startsWith(TAB_OREF_PREFIX)) {
+        return { kind: "oref", oref: a.oref };
     }
     return channelId !== ""
         ? { kind: "channel", channelId, runId: a.runid != null && a.runid !== "" ? a.runid : null }
@@ -346,11 +352,11 @@ export interface QueueSummary {
 const RUN_UNVERIFIED_KIND = "run-unverified";
 const RUN_LAND_HELD_KIND = "run-land-held";
 
-// The one source of a row's kind word: the design's four (design L1010-1013), plus the two run states that
-// name what is waiting better than "blocked" does. Every wire kind reads as one of them.
+// The one source of a row's kind word: the design's four (design L1010-1013), plus the two run states and the
+// orphaned worker, which name what is waiting better than "blocked" does. Every wire kind reads as one of them.
 export function queueKindLabel(
     row: QueueRow
-): "ask" | "failed" | "blocked" | "workflow scan" | "unverified" | "land held" {
+): "ask" | "failed" | "blocked" | "workflow scan" | "unverified" | "land held" | "orphaned" {
     switch (row.wireKind) {
         case WORKFLOW_SCAN_KIND:
             return "workflow scan";
@@ -363,6 +369,8 @@ export function queueKindLabel(
             return "unverified";
         case RUN_LAND_HELD_KIND:
             return "land held";
+        case WORKER_ORPHAN_KIND:
+            return "orphaned";
         default:
             return "blocked";
     }
@@ -370,7 +378,15 @@ export function queueKindLabel(
 
 export type QueueAct = {
     label: "Retry" | "Acknowledge" | "Open" | "Answer" | "Unblock" | "Done" | "Retry land" | "Dismiss";
-    kind: "retry-dag" | "ack-run" | "open" | "unblock-chunk" | "done-chunk" | "land-run" | "dismiss-land";
+    kind:
+        | "retry-dag"
+        | "ack-run"
+        | "ack-orphan"
+        | "open"
+        | "unblock-chunk"
+        | "done-chunk"
+        | "land-run"
+        | "dismiss-land";
 };
 
 // What the row's button does in place (design L1598-1609). Retry needs the exact task the server named;
@@ -385,6 +401,9 @@ export function queueAction(row: QueueRow): QueueAct {
     }
     if (row.wireKind === RUN_UNVERIFIED_KIND && row.channelId !== "" && row.runId != null) {
         return { label: "Acknowledge", kind: "ack-run" };
+    }
+    if (row.wireKind === WORKER_ORPHAN_KIND && row.nav?.kind === "oref") {
+        return { label: "Acknowledge", kind: "ack-orphan" };
     }
     return { label: "Open", kind: "open" };
 }
@@ -457,6 +476,7 @@ const KIND_PLURAL: Record<ReturnType<typeof queueKindLabel>, string> = {
     "workflow scan": "workflow scans",
     unverified: "unverified",
     "land held": "held lands",
+    orphaned: "orphaned",
 };
 
 // one count per kind word in queue order (design L1010-1013), then how many initiatives the blocked chunks span: ten blockers

@@ -61,6 +61,7 @@ func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.Comma
 	if err != nil {
 		return nil, fmt.Errorf("scanning usage: %w", err)
 	}
+	buckets, metas = withKeptUsage(ctx, data.WindowDays, buckets, metas)
 	out := make([]wshrpc.UsageBucket, len(buckets))
 	for i, b := range buckets {
 		out[i] = usageBucketToWire(b)
@@ -70,6 +71,22 @@ func (ws *WshServer) GetUsageStatsCommand(ctx context.Context, data wshrpc.Comma
 		return nil, fmt.Errorf("linking usage sessions to runs: %w", err)
 	}
 	return &wshrpc.CommandGetUsageStatsRtnData{Buckets: out, Sessions: sessions, Efforts: usageEfforts(ctx, sessions)}, nil
+}
+
+// withKeptUsage keeps what a scan of the last windowDays read and answers with the kept record of that window, so a
+// session whose transcript is gone still counts and keeps its title. A failed keep or read is logged and the scan
+// alone answers.
+func withKeptUsage(ctx context.Context, windowDays int, buckets []usagestats.Bucket, metas []usagestats.SessionMeta) ([]usagestats.Bucket, []usagestats.SessionMeta) {
+	if err := usagestats.Keep(ctx, buckets, metas); err != nil {
+		log.Printf("usage: answering from the scan alone: %v", err)
+		return buckets, metas
+	}
+	kept, keptMetas, err := usagestats.Kept(ctx, usagestats.WindowStartDay(windowDays))
+	if err != nil {
+		log.Printf("usage: answering from the scan alone: %v", err)
+		return buckets, metas
+	}
+	return kept, keptMetas
 }
 
 func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.CommandGetRecentSessionsData) (*wshrpc.CommandGetRecentSessionsRtnData, error) {
@@ -88,8 +105,8 @@ func (ws *WshServer) GetRecentSessionsCommand(ctx context.Context, data wshrpc.C
 }
 
 // recentSessions keeps the newest limit sessions (all when limit <= 0) the user can resume: not a run's
-// agent, and not one whose working directory is gone, as a landed run's cleaned-up tree is. A link error is
-// logged and the sessions are kept unlinked.
+// agent (its lead included, and one whose run no store here holds), and not one whose working directory is gone,
+// as a landed run's cleaned-up tree is. A link error is logged and the sessions are kept unlinked.
 func recentSessions(sessions []agentsessions.SessionInfo, limit int, check *agentsessions.DirCheck, link func([]wshrpc.SessionActivity) error) []wshrpc.SessionInfo {
 	var resumable []wshrpc.SessionActivity
 	for _, s := range sessions {
@@ -102,7 +119,7 @@ func recentSessions(sessions []agentsessions.SessionInfo, limit int, check *agen
 	}
 	out := []wshrpc.SessionInfo{}
 	for _, a := range resumable {
-		if isRunAgent(a.Role) {
+		if a.Role != "" || a.RunAgent {
 			continue
 		}
 		out = append(out, wshrpc.SessionInfo{
@@ -135,6 +152,7 @@ func sessionActivityOf(s agentsessions.SessionInfo, check *agentsessions.DirChec
 		TranscriptPath: s.TranscriptPath,
 		Status:         s.Status, StartedTs: s.StartedTs, DurationMs: s.DurationMs, Events: evs,
 		ResumeBlocker: check.Blocker(s.ProjectPath),
+		RunAgent:      s.RunAgent,
 	}
 }
 
@@ -176,7 +194,18 @@ func (ws *WshServer) GetSessionsActivityCommand(ctx context.Context, data wshrpc
 	if err := linkSessionsToRuns(ctx, out); err != nil {
 		log.Printf("sessions activity: %v", err)
 	}
-	return &wshrpc.CommandGetSessionsActivityRtnData{Sessions: out, Incomplete: !complete}, nil
+	return &wshrpc.CommandGetSessionsActivityRtnData{Sessions: withoutStrayRunAgents(out), Incomplete: !complete}, nil
+}
+
+// withoutStrayRunAgents drops the run agents no run here holds, so none lists as the user's own session.
+func withoutStrayRunAgents(sessions []wshrpc.SessionActivity) []wshrpc.SessionActivity {
+	out := sessions[:0]
+	for _, s := range sessions {
+		if !isStrayRunAgent(s) {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func (ws *WshServer) SearchSessionsCommand(ctx context.Context, data wshrpc.CommandSearchSessionsData) (*wshrpc.CommandSearchSessionsRtnData, error) {

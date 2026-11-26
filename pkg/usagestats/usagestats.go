@@ -437,9 +437,15 @@ func SessionIdOf(harness, path string) string {
 // included), pruning by modtime against cutoff and skipping the backend's own headless passes —
 // those tokens are real, but they are Wave's maintenance work rather than the user's agent activity.
 func walkClaudeFiles(root string, cutoff time.Time) []scanFile {
+	return walkClaudeDir(root, root, cutoff)
+}
+
+// walkClaudeDir is walkClaudeFiles over dir alone, a folder under root, its sessions named as a walk of root
+// names them.
+func walkClaudeDir(root, dir string, cutoff time.Time) []scanFile {
 	var files []scanFile
 	headlessSlug := agentobserve.HeadlessAgentSlug()
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -788,6 +794,15 @@ func scanRoots(claudeRoot, codexRoot, opencodeRoot, piRoot string, windowDays in
 func windowStart(now time.Time, windowDays int) time.Time {
 	y, m, d := now.AddDate(0, 0, -(windowDays - 1)).Date()
 	return time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+}
+
+// WindowStartDay is the first local day ("YYYY-MM-DD") of the last windowDays, the Kept argument for that window;
+// "" for all-time (0).
+func WindowStartDay(windowDays int) string {
+	if windowDays <= 0 {
+		return ""
+	}
+	return windowStart(time.Now(), windowDays).Format("2006-01-02")
 }
 
 // ScanUsage aggregates usage from the user's Claude, Codex, OpenCode, and Pi transcripts within

@@ -4,7 +4,18 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasBoard } from "./canvasmodel";
 import type { CanvasState } from "./canvasstore";
-import { canvasEscape, windowGridLayout } from "./canvaswindowmodel";
+import {
+    canvasEscape,
+    digitTab,
+    OTHER_TAB,
+    otherBoards,
+    windowGridLayout,
+    windowTab,
+    windowTabs,
+    type BandAnswer,
+    type ScopeBand,
+    type WindowScope,
+} from "./canvaswindowmodel";
 
 function state(over: Partial<CanvasState>): CanvasState {
     return {
@@ -73,5 +84,75 @@ describe("windowGridLayout", () => {
 
     it("never grows the boards past their size", () => {
         expect(windowGridLayout(boards(1), 5000).scale).toBe(1);
+    });
+});
+
+const answer = (index: number): BandAnswer => ({
+    index,
+    label: `A${index}`,
+    detail: "",
+    pick: false,
+    pros: [],
+    cons: [],
+});
+const answersBand = (...idx: number[]): ScopeBand => ({ kind: "answers", answers: idx.map(answer) });
+const questionScope = (tabs: [string, ScopeBand][]): WindowScope => ({
+    source: { kind: "question", n: 1, text: "q", judging: false, judged: false },
+    tabs: tabs.map(([board, band]) => ({ board, label: board, band })),
+});
+const named = (...names: string[]): CanvasBoard[] => names.map((name) => ({ name, x: 0, y: 0, w: 1440, h: 900 }));
+
+describe("window tabs", () => {
+    const scope = questionScope([
+        ["A.dc.html", answersBand(0)],
+        ["B.dc.html", answersBand(1, 2)],
+        ["C.dc.html", answersBand(2)],
+    ]);
+
+    it("lists the scope's boards in scope order, without Other boards when every board is a tab", () => {
+        expect(windowTabs(scope, named("C.dc.html", "A.dc.html", "B.dc.html"))).toEqual([
+            "A.dc.html",
+            "B.dc.html",
+            "C.dc.html",
+        ]);
+    });
+
+    it("drops a tab whose board left the canvas and adds Other boards for a board outside the tabs", () => {
+        const boards = named("A.dc.html", "C.dc.html", "Extra.dc.html");
+        expect(windowTabs(scope, boards)).toEqual(["A.dc.html", "C.dc.html", OTHER_TAB]);
+        expect(otherBoards(scope, boards).map((b) => b.name)).toEqual(["Extra.dc.html"]);
+    });
+
+    it("shows the shown board's key, and Other boards for the grid or a board outside the tabs", () => {
+        const boards = named("A.dc.html", "B.dc.html", "Extra.dc.html");
+        expect(windowTab(scope, state({ boards, board: "B.dc.html" }))).toBe("B.dc.html");
+        expect(windowTab(scope, state({ boards, board: "B.dc.html", all: true }))).toBe(OTHER_TAB);
+        expect(windowTab(scope, state({ boards, board: "Extra.dc.html" }))).toBe(OTHER_TAB);
+    });
+});
+
+describe("digitTab", () => {
+    it("returns an answer's first tab on a question scope, and null past the answers", () => {
+        const scope = questionScope([
+            ["A.dc.html", answersBand(0)],
+            ["B.dc.html", answersBand(1, 2)],
+            ["C.dc.html", answersBand(2)],
+        ]);
+        expect(digitTab(scope, 2)).toBe("B.dc.html");
+        expect(digitTab(scope, 0)).toBe("A.dc.html");
+        expect(digitTab(scope, 3)).toBeNull();
+    });
+
+    it("returns the Nth tab on a part scope", () => {
+        const scope: WindowScope = {
+            source: { kind: "part", id: "p", title: "P" },
+            tabs: ["A.dc.html", "B.dc.html"].map((board) => ({
+                board,
+                label: board,
+                band: { kind: "part", title: "P", gist: "" },
+            })),
+        };
+        expect(digitTab(scope, 1)).toBe("B.dc.html");
+        expect(digitTab(scope, 2)).toBeNull();
     });
 });

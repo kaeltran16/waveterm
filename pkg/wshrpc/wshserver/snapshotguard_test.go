@@ -250,6 +250,21 @@ func TestSnapshotRefusesMemoryApplyUndo(t *testing.T) {
 	}
 }
 
+func TestSnapshotRefusesMemoryRowApplyAndBatchUndo(t *testing.T) {
+	useSnapshotBase(t, true)
+	ws := &WshServer{}
+	_, rowErr := ws.ApplyMemoryRowCommand(context.Background(), wshrpc.CommandApplyMemoryRowData{Project: "snapmem", Row: wshrpc.MemRow_Split})
+	_, undoErr := ws.UndoMemoryBatchCommand(context.Background(), wshrpc.CommandUndoMemoryBatchData{Project: "snapmem", BatchId: "b1"})
+	for what, err := range map[string]error{"row apply": rowErr, "batch undo": undoErr} {
+		if err == nil || !strings.HasPrefix(err.Error(), snapshotRefusal) {
+			t.Errorf("memory %s: err = %v, want a %q refusal", what, err, snapshotRefusal)
+		}
+	}
+	if _, statErr := os.Stat(memhygiene.StateDir()); !os.IsNotExist(statErr) {
+		t.Errorf("a refused row apply or batch undo touched the state dir (stat: %v)", statErr)
+	}
+}
+
 func TestSnapshotAllowsMemoryKeepReopen(t *testing.T) {
 	useSnapshotBase(t, true)
 	if _, err := memhygiene.Update("snapmem", func(st *memhygiene.State) error {

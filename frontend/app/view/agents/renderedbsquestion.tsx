@@ -2,21 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // The Rendered transcript's question card: the talk question with its why, its numbered rows (the approaches while the
-// judge weighs, else the options with the pick's badge, the judge's ranking and its dropped approaches), Guess for me,
-// Skip and the picks hint. A pick sends what the pane sends, recorded as picked here. OptionRows also draws the
-// builder's question (renderedbscheck.tsx).
+// judge weighs, else the read, the options with the pick's badge, the judge's ranking and pros and cons, and the
+// judge's work with its dropped approaches, drawn as the pane draws them), Guess for me, Skip and the picks hint. A
+// pick sends what the pane sends, recorded as picked here. OptionRows also draws the builder's question
+// (renderedbscheck.tsx).
 
+import { PaneReveal } from "@/app/element/panereveal";
 import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { Lightbulb, LoaderCircle, Scale } from "lucide-react";
-import type { JSX, ReactNode } from "react";
+import { useState, type JSX, type ReactNode } from "react";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
-import { OPTION_KEYS, partTitle, type AnswerOption, type BrainstormAction, type JudgeWork } from "./brainstormmodel";
+import { hasProsCons, OPTION_KEYS, partTitle, type AnswerOption, type BrainstormAction } from "./brainstormmodel";
 import { sendBrainstorm } from "./brainstormsend";
 import { openBrainstormAt, type BrainstormState } from "./brainstormstore";
-import { CHIP, ErrorLine, SMALL_DOT, useAction } from "./brainstormui";
+import { CHIP, ErrorLine, JudgeWorkLine, ProsConsToggle, ReasonList, useAction } from "./brainstormui";
 import { CardFrame, useCardRow } from "./renderedbrainstorm";
 import type { CardProps } from "./renderedbrainstormmodel";
 import { useQuestionBoards } from "./renderedbsboards";
@@ -32,7 +34,10 @@ import {
 import { fmtDuration } from "./runcompletion";
 
 const SPIN = "flex-none animate-spin motion-reduce:animate-none";
-const KEY_SIZE = "h-[22px] w-[22px]";
+const KEY_SIZE = "h-[24px] w-[24px]";
+const LINE_READ = "text-[14px] leading-[1.55]";
+const LINE_WORK = "text-[13.5px] leading-[1.5]";
+const LINE_COMPACT = "text-[12.5px] leading-[1.5]";
 
 // the judge's time so far, on the 1s clock; only this re-renders each tick
 function JudgeClock({ model, agent, s }: { model: AgentsViewModel; agent: AgentVM; s: BrainstormState }) {
@@ -121,44 +126,6 @@ function JudgeStatus({ text, clock, compact }: { text: string; clock: ReactNode;
     );
 }
 
-// how the judge got to its options and what it dropped, struck with why; or why the read and pick are the agent's
-function JudgeWorkLines({ work, compact }: { work: JudgeWork; compact: boolean }) {
-    const lead = <span className="text-secondary">Judge’s work:</span>;
-    const size = compact ? "text-[12px]" : "text-[12.5px]";
-    if (!work.judged) {
-        return (
-            <div data-rendered-bs-judge-work className={cn("flex items-baseline gap-2 leading-[1.5] text-muted", size)}>
-                <span className={cn(SMALL_DOT, "bg-error")} />
-                <span>
-                    {lead} {work.line}
-                </span>
-            </div>
-        );
-    }
-    return (
-        <div data-rendered-bs-judge-work className={cn("flex flex-col", compact ? "gap-1.5" : "gap-1")}>
-            <span className={cn("leading-[1.5] text-muted", size)}>
-                {lead} {work.line}
-            </span>
-            {work.dropped.map((d, i) => (
-                <div
-                    key={i}
-                    data-rendered-bs-dropped
-                    className={cn(
-                        "flex gap-x-[10px] text-muted",
-                        compact ? "flex-col text-[12px]" : "items-baseline text-[12.5px]"
-                    )}
-                >
-                    <span data-rendered-bs-dropped-name className="whitespace-nowrap line-through">
-                        {d.name}
-                    </span>
-                    <span>{d.reason}</span>
-                </div>
-            ))}
-        </div>
-    );
-}
-
 function PickBadge({ label }: { label: string }) {
     const judge = label === JUDGE_PICK;
     return (
@@ -175,9 +142,28 @@ function PickBadge({ label }: { label: string }) {
     );
 }
 
-// numbered rows, each one answer sent by its label. locked is why the rows are disabled ("" for no reason shown), null
-// while they answer; badge marks the pick, note stands in for a row's detail (the judge's ranking), chip draws beside
-// the row (under its label when compact), outside its button so it never sends the answer
+// a row's pros and cons, indented to its label: two columns, one when compact
+function ProsCons({ o, compact }: { o: AnswerOption; compact: boolean }) {
+    return (
+        <div
+            data-rendered-bs-proscons
+            className={cn(
+                "grid",
+                compact
+                    ? "grid-cols-1 gap-1.5 pb-[9px] pl-[48px] pr-3"
+                    : "grid-cols-2 gap-5 pb-[14px] pl-[50px] pr-[14px]"
+            )}
+        >
+            <ReasonList label={`${o.label}: for`} mark="+" tone="text-success" items={o.pros} compact={compact} />
+            <ReasonList label={`${o.label}: against`} mark="−" tone="text-error" items={o.cons} compact={compact} />
+        </div>
+    );
+}
+
+// numbered rows, each one answer sent by its label, with its detail full width under the label. locked is why the rows
+// are disabled ("" for no reason shown), null while they answer; badge marks the pick and note tags a row (the judge's
+// ranking), both beside the label; reasons shows each row's pros and cons under it; chip draws beside the row (under
+// it when compact), outside its button so it never sends the answer
 export function OptionRows({
     options,
     onPick,
@@ -185,6 +171,7 @@ export function OptionRows({
     badge,
     chip,
     note,
+    reasons = false,
     compact,
 }: {
     options: AnswerOption[];
@@ -193,6 +180,7 @@ export function OptionRows({
     badge?: (i: number) => string | null;
     chip?: (i: number) => ReactNode | null;
     note?: (i: number) => string | null;
+    reasons?: boolean;
     compact: boolean;
 }): JSX.Element | null {
     if (options.length === 0) {
@@ -204,14 +192,14 @@ export function OptionRows({
                 const b = badge?.(i) ?? null;
                 const c = chip?.(i) ?? null;
                 const n = note?.(i) ?? null;
-                const detail = n ?? o.detail;
+                const beside = c != null && !compact;
                 return (
                     <div
                         key={i}
                         data-rendered-bs-option-row={i}
                         className={cn(
-                            "flex rounded-[8px] border has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-accent",
-                            compact ? "flex-col" : "items-center",
+                            "rounded-[8px] border has-[>button:focus-visible]:ring-2 has-[>button:focus-visible]:ring-accent",
+                            beside ? "grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_1fr]" : "flex flex-col",
                             b === JUDGE_PICK ? "border-accent/50 bg-accent/7" : "border-edge-mid bg-background",
                             locked == null && "has-[>button:hover]:border-edge-strong"
                         )}
@@ -223,8 +211,8 @@ export function OptionRows({
                             title={locked || undefined}
                             onClick={() => onPick(o.label)}
                             className={cn(
-                                "flex min-w-0 flex-1 cursor-pointer gap-3 border-0 bg-transparent text-left outline-none disabled:cursor-default disabled:opacity-50",
-                                compact ? "items-start px-3 py-[9px]" : "items-center px-[14px] py-2.5"
+                                "flex min-w-0 cursor-pointer items-start gap-3 border-0 bg-transparent text-left outline-none disabled:cursor-default disabled:opacity-50",
+                                compact ? "px-3 py-[9px]" : "px-[14px] py-3"
                             )}
                         >
                             {i < OPTION_KEYS.length ? (
@@ -241,44 +229,56 @@ export function OptionRows({
                                 // no key reaches this row: a blank keeps its label in line with the others
                                 <span data-rendered-bs-no-key className={cn("flex-none", KEY_SIZE)} />
                             )}
-                            <span
-                                className={cn(
-                                    "flex min-w-0 flex-1",
-                                    compact ? "flex-col gap-0.5" : "items-baseline gap-3"
-                                )}
-                            >
-                                <span
-                                    data-rendered-bs-option-label
-                                    className={cn(
-                                        "font-semibold leading-[1.4] text-primary",
-                                        compact ? "pt-0.5 text-[13px]" : "max-w-[50%] flex-none text-[13.5px]"
-                                    )}
-                                >
-                                    {o.label}
-                                </span>
-                                {detail ? (
+                            <span className={cn("flex min-w-0 flex-1 flex-col", compact ? "gap-0.5" : "gap-1")}>
+                                <span className="flex flex-wrap items-baseline gap-x-[10px] gap-y-0.5">
                                     <span
-                                        data-rendered-bs-option-detail
-                                        title={n != null && o.detail ? o.detail : undefined}
+                                        data-rendered-bs-option-label
                                         className={cn(
-                                            "min-w-0 leading-[1.45]",
-                                            n != null ? "text-muted" : "text-ink-mid",
-                                            compact ? "text-[12.5px]" : "text-[13px]"
+                                            "font-semibold leading-[1.4] text-primary",
+                                            compact ? "pt-0.5 text-[13px]" : "text-[14.5px]"
                                         )}
                                     >
-                                        {detail}
+                                        {o.label}
+                                    </span>
+                                    {b != null ? <PickBadge label={b} /> : null}
+                                    {n != null ? (
+                                        <span
+                                            data-rendered-bs-option-note
+                                            className="whitespace-nowrap text-[12px] text-muted"
+                                        >
+                                            {n}
+                                        </span>
+                                    ) : null}
+                                </span>
+                                {o.detail ? (
+                                    <span
+                                        data-rendered-bs-option-detail
+                                        className={cn(
+                                            "min-w-0 text-ink-mid",
+                                            compact ? "text-[12.5px] leading-[1.45]" : "text-[13.5px] leading-[1.5]"
+                                        )}
+                                    >
+                                        {o.detail}
                                     </span>
                                 ) : null}
                             </span>
-                            {b != null ? <PickBadge label={b} /> : null}
                         </button>
                         {c != null ? (
                             <div
                                 data-rendered-bs-option-chip
-                                className={cn("flex-none", compact ? "pb-[9px] pl-[46px] pr-3" : "pr-[14px]")}
+                                className={
+                                    beside
+                                        ? "col-start-2 row-span-2 row-start-1 py-3 pr-[14px]"
+                                        : "pb-[9px] pl-[48px] pr-3"
+                                }
                             >
                                 {c}
                             </div>
+                        ) : null}
+                        {o.pros != null || o.cons != null ? (
+                            <PaneReveal open={reasons}>
+                                <ProsCons o={o} compact={compact} />
+                            </PaneReveal>
                         ) : null}
                     </div>
                 );
@@ -320,11 +320,16 @@ export function QuestionCard({
     const act = useAction();
     const boards = useQuestionBoards(agent, s, f, judging);
     const row = useCardRow();
+    // hidden until asked for: the card sits in a transcript, where the pane starts them shown
+    const [reasonsShown, setReasonsShown] = useState(false);
     const q = f.question;
     if (q == null) {
         return null;
     }
     const rows = questionRows(q, judging);
+    // the read and the pros and cons are left out while the judge weighs, as the pane does
+    const prosCons = !judging && hasProsCons(q);
+    const readLine = !judging && (!!q.read || prosCons);
     const actions = questionActions(f, judging);
     const started = startedRow(f);
     const send = (a: BrainstormAction) =>
@@ -367,8 +372,31 @@ export function QuestionCard({
                     </span>
                 ) : null}
                 {judging ? <JudgeStatus text={judgeStatus(q)} clock={clock} compact={compact} /> : null}
-                {rows.options.length > 0 || rows.work != null ? (
-                    <ViewSwap swapKey={rows.state} className="flex flex-col gap-[14px]">
+                {rows.options.length > 0 || rows.work != null || readLine ? (
+                    <ViewSwap swapKey={rows.state} className="flex flex-col">
+                        {readLine ? (
+                            <div className={cn("flex items-baseline gap-3", compact ? "mb-2" : "mb-3")}>
+                                <span
+                                    data-rendered-bs-read
+                                    className={cn("min-w-0 flex-1 text-secondary", compact ? LINE_COMPACT : LINE_READ)}
+                                >
+                                    {q.read ? (
+                                        <>
+                                            <span className="font-semibold text-accent-soft">
+                                                {rows.work?.judged ? "Judge’s" : "Agent’s"} read:{" "}
+                                            </span>
+                                            {q.read}
+                                        </>
+                                    ) : null}
+                                </span>
+                                {prosCons ? (
+                                    <ProsConsToggle
+                                        shown={reasonsShown}
+                                        onToggle={() => setReasonsShown(!reasonsShown)}
+                                    />
+                                ) : null}
+                            </div>
+                        ) : null}
                         <OptionRows
                             options={rows.options}
                             onPick={(text) => send({ kind: "answer", text })}
@@ -376,9 +404,16 @@ export function QuestionCard({
                             badge={rows.badge}
                             note={rows.note}
                             chip={boards.chip}
+                            reasons={prosCons && reasonsShown}
                             compact={compact}
                         />
-                        {rows.work != null ? <JudgeWorkLines work={rows.work} compact={compact} /> : null}
+                        {rows.work != null ? (
+                            <JudgeWorkLine
+                                work={rows.work}
+                                compact={compact}
+                                lineText={compact ? LINE_COMPACT : LINE_WORK}
+                            />
+                        ) : null}
                     </ViewSwap>
                 ) : null}
                 <div

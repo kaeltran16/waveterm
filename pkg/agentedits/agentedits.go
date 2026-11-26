@@ -349,6 +349,48 @@ func repoRel(abs, root string) (string, bool) {
 	return abs[len(root)+1:], true
 }
 
+// OtherCheckout is the root of the repository holding most of the files the agent edited, when none of them lie
+// under root: an agent started in one checkout that edits another (a sibling worktree) by absolute path. "" when
+// an edit lies under root or no edited file is in a repository.
+func (l *Log) OtherCheckout(root string) string {
+	counts := map[string]int{}
+	seen := map[string]bool{}
+	for _, c := range l.calls {
+		if _, ok := repoRel(c.path, root); ok {
+			return ""
+		}
+		k := pathKey(c.path)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		if r := repoRootOf(filepath.Dir(filepath.FromSlash(c.path))); r != "" {
+			counts[r]++
+		}
+	}
+	best := ""
+	for r, n := range counts {
+		if n > counts[best] || (n == counts[best] && r < best) {
+			best = r
+		}
+	}
+	return best
+}
+
+// repoRootOf walks up from dir to the nearest folder with a .git entry: a directory, or a linked worktree's file.
+func repoRootOf(dir string) string {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir || !filepath.IsAbs(parent) {
+			return ""
+		}
+		dir = parent
+	}
+}
+
 // Replay rebuilds each file the agent changed inside repoRoot. spell maps a repo-relative path onto the
 // spelling every read and the result use (nil keeps it as recorded); base reads the file at the session start
 // (for paths with no file-history record), worktree reads it now (for files changed outside the agent).

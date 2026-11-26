@@ -5,14 +5,12 @@ import * as monaco from "monaco-editor";
 import "monaco-editor/esm/vs/language/css/monaco.contribution";
 import "monaco-editor/esm/vs/language/html/monaco.contribution";
 import "monaco-editor/esm/vs/language/json/monaco.contribution";
-import "monaco-editor/esm/vs/language/typescript/monaco.contribution";
 
 import { MonacoSchemas } from "@/app/monaco/schemaendpoints";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker";
 import htmlWorker from "monaco-editor/esm/vs/language/html/html.worker?worker";
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker";
-import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 import { monacoThemeFromTokens, readChromeRoles, readSyntaxTokens } from "./monacotheme";
 
 let monacoConfigured = false;
@@ -27,9 +25,6 @@ window.MonacoEnvironment = {
         }
         if (label === "html" || label === "handlebars" || label === "razor") {
             return new htmlWorker();
-        }
-        if (label === "typescript" || label === "javascript") {
-            return new tsWorker();
         }
         return new editorWorker();
     },
@@ -53,10 +48,10 @@ export function loadMonaco() {
     // see docs/open-issues.md issue 7 before re-adding it.
 
     monaco.editor.setTheme("wave-theme-dark");
-    // Disable default validation errors for typescript and javascript
-    monaco.typescript.typescriptDefaults.setDiagnosticsOptions({
-        noSemanticValidation: true,
-    });
+    // the ts language service worker is not bundled (7 MB for in-file intellisense only); with every
+    // feature off, the ts/js modes never start it. highlighting is the separate monarch grammar
+    monaco.typescript.typescriptDefaults.setModeConfiguration({});
+    monaco.typescript.javascriptDefaults.setModeConfiguration({});
     monaco.json.jsonDefaults.setDiagnosticsOptions({
         validate: true,
         allowComments: false,

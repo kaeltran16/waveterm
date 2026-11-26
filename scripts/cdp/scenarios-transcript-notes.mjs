@@ -2,6 +2,7 @@
 // note with its bullets from the note's record and from argv, a note that did not load, jira show opened as a ticket
 // card (and one that did not load), the judge weighing and done, and the note as a row at 380 px.
 
+import { restoreRoster, setRoster } from "./agent-page-fixtures.mjs";
 import { APP_MOD } from "./scenarios-shared.mjs";
 import { bash, clearTranscript, openFolds, prose, ROOT, showTranscript, user, waitSeam } from "./transcript-fixture.mjs";
 
@@ -13,6 +14,8 @@ const NARROW = 380;
 // a step's body opens with the composer's reveal
 const MOTION_MS = 700;
 const JUDGE_AGENT = "agent-judge-fixture";
+// the brainstorm poller detaches an attached agent missing from a non-empty roster, so the judge agent joins it
+const JUDGE_ROSTER = [{ id: JUDGE_AGENT, name: "judge fixture", task: "judge fixture", state: "idle", agent: "claude", project: "judge-fixture" }];
 // brainstormExpr attaches the agent's brainstorm from this cwd and topic, so the store's path is under it
 const JUDGE_CWD = "C:/judge-fixture";
 const JUDGE_TOPIC = "judge-fixture";
@@ -178,6 +181,7 @@ export async function showFixture(h, nameOrFixture, width = WIDE) {
     const source = typeof nameOrFixture === "string" ? fixtures[nameOrFixture] : nameOrFixture;
     const { width: own, brainstorm, rpcFails, entries, ...fixture } = source;
     await h.ev(rpcFailsExpr(rpcFails ?? []));
+    if (brainstorm) await setRoster(h, JUDGE_ROSTER);
     await h.ev(brainstormExpr(brainstorm ?? null));
     const at = Date.now() - JUDGE_AGE_MS;
     const stamped = entries.map((e) => (e.ts === JUDGE_TS ? { ...e, ts: at } : e));
@@ -328,7 +332,7 @@ export const transcriptNotes = {
                 opened.tiles[0].includes("image-20261109-030246.png") &&
                 hasAll(opened.comment, ["Khang Tran", "11-09", "can you give me an example"]) &&
                 hasAll(opened.project, ["Arc project", "cyber_assistant"]) &&
-                opened.view.includes("Open full view") &&
+                !opened.view.includes("Open full view") &&
                 opened.overflows === false,
             detail: JSON.stringify({ closed: closed?.card, opened }),
         });
@@ -349,7 +353,8 @@ export const transcriptNotes = {
             step: "a ticket that did not load: the opened step says so inline and the raw output stays one click away",
             ok:
                 lostTicket?.card == null &&
-                hasAll(lostTicket?.view, ["SIEM-9999 did not load", "refused on the page", "Open full view"]),
+                hasAll(lostTicket?.view, ["SIEM-9999 did not load", "refused on the page", "Raw output"]) &&
+                !lostTicket.view.includes("Open full view"),
             detail: JSON.stringify(lostTicket),
         });
 
@@ -418,6 +423,7 @@ export const transcriptNotes = {
     async teardown(h) {
         await h.ev(rpcFailsExpr([]));
         await h.ev(brainstormExpr(null));
+        await restoreRoster(h);
         await clearTranscript(h);
     },
 };

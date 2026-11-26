@@ -185,6 +185,7 @@ export default function (kit) {
         bsClick,
         bsFill,
         bsKey,
+        bsKeysArrive,
         bsMark,
         bsTyped,
         bsNothingTyped,
@@ -199,12 +200,28 @@ export default function (kit) {
         waveService,
         fstWriteRun,
         BS_PANE,
+        BS_WIN,
+        bsCloseWindow,
         BS_ANSWER,
         BS_APPROVE_BAR,
         NEW_RUN,
         PEEKS_ESC,
         flatText,
     } = kit;
+
+    // o as the user presses it; a keydown on the document when CDP keys do not reach the page
+    const pressO = async (h) => {
+        const key = { key: "o", code: "KeyO", windowsVirtualKeyCode: 79 };
+        if (await bsKeysArrive(h)) {
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyDown", text: "o", ...key });
+            await h.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+            await polishNap(300);
+            return "keys";
+        }
+        await h.ev(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "o", code: "KeyO", bubbles: true, cancelable: true }))`);
+        await polishNap(300);
+        return "event";
+    };
 
     const parts = (states, extra = []) => [
         ...Object.entries(states).map(([id, state]) => ({ id, state, ...PART[id] })),
@@ -611,42 +628,67 @@ export default function (kit) {
                     opened && s3.ok && s3.back === "Back to the question",
                     { opened, ...bsBrief(s3), back: s3.back, builder: s3.builder.slice(0, 80) }
                 );
-                // 3a. the check's review keeps a part's mockups: the guess row opens to its board and spike
+                // 3a. the check's review keeps a part's mockups: the guess row opens to its board chip and spike; the chip,
+                // and o with the cursor on the row, open the window scoped to the part
                 const ROLE_ROW = `${BS_PANE}?.querySelector('[data-brainstorm-review-row="role"]')`;
+                const ROLE_CHIP = `${ROLE_ROW}?.querySelector('[data-brainstorm-board-chip="${BOARD}"]')`;
+                // the scoped window as drawn: where it came from, its tabs, the board shown and its served src
+                const roleWin = `(() => {
+                    const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
+                    const w = ${BS_WIN};
+                    if (!w) return null;
+                    return {
+                        source: [...(w.querySelector("[data-canvas-scope-source]")?.children ?? [])].map(flat),
+                        tabs: [...w.querySelectorAll('[role="tab"]')].map(flat),
+                        band: w.querySelector("[data-brainstorm-band]")?.getAttribute("data-brainstorm-band") ?? null,
+                        src: w.querySelector('[data-canvas-frame="${BOARD}"] iframe')?.getAttribute("src") ?? "",
+                    };
+                })()`;
+                const roleScoped = (w) =>
+                    w != null &&
+                    JSON.stringify(w.source) === JSON.stringify(["Part", PART.role.title]) &&
+                    JSON.stringify(w.tabs) === JSON.stringify([BOARD.replace(/\.dc\.html$/, "")]) &&
+                    w.band === "part";
                 const toggled = await h.ev(`(() => {
                     const t = ${ROLE_ROW}?.querySelector("[data-brainstorm-review-toggle]");
                     if (!t) return "missing";
                     t.click();
                     return "clicked";
                 })()`);
-                const thumbShown = await polishWaitFor(
-                    h,
-                    `!!${ROLE_ROW}?.querySelector('[data-brainstorm-thumb="${BOARD}"] iframe') && !!${ROLE_ROW}?.querySelector("[data-brainstorm-spike]")`,
-                    5000
-                );
-                // the link's title is parked by the tooltip while hovered, and the canvas server sends no CORS headers,
-                // so the spike is fetched from here, from the folder the board is served from
-                const mockups = await h.ev(`(() => {
-                    const row = ${ROLE_ROW};
-                    return {
-                        src: row?.querySelector('[data-brainstorm-thumb="${BOARD}"] iframe')?.getAttribute("src") ?? "",
-                        open: !!row?.querySelector("[data-brainstorm-open-board]"),
-                        spikePath: row?.querySelector("[data-brainstorm-spike]")?.getAttribute("data-brainstorm-spike") ?? "",
-                    };
-                })()`);
-                mockups.served = mockups.src.slice(0, mockups.src.lastIndexOf("/project/")) + `/${SPIKE}`;
-                const spikePage = mockups.src === "" ? "" : await fetch(mockups.served).then((r) => (r.ok ? r.text() : "")).catch(() => "");
-                mockups.spikeServed = spikePage.includes(`<h1>${SPIKE}</h1>`);
+                const chipShown = await polishWaitFor(h, `!!${ROLE_CHIP} && !!${ROLE_ROW}?.querySelector("[data-brainstorm-spike]")`, 5000);
+                const rowFrames = await h.ev(`${ROLE_ROW}?.querySelectorAll("iframe").length ?? -1`);
+                const spikePath = await h.ev(`${ROLE_ROW}?.querySelector("[data-brainstorm-spike]")?.getAttribute("data-brainstorm-spike") ?? ""`);
                 await h.shot("cdp-shots/brainstorm-builder-ask-3a-mockups.png");
+                await h.ev(`${ROLE_CHIP}?.click()`);
+                await polishWaitFor(h, `(${roleWin})?.src !== ""`, 5000);
+                const byChip = await h.ev(roleWin);
+                await h.shot("cdp-shots/brainstorm-builder-ask-3a-part-window.png");
+                const chipClosed = await bsCloseWindow(h);
+                await polishWaitFor(h, `!${BS_WIN}`, 3000);
+                // the board is served from the canvas's project/, a spike from the canvas folder itself; the canvas
+                // server sends no CORS headers, so the spike is fetched from here
+                const boardSrc = (byChip?.src ?? "").split("?")[0];
+                const served = boardSrc.slice(0, boardSrc.lastIndexOf("/project/")) + `/${SPIKE}`;
+                const spikePage = boardSrc === "" ? "" : await fetch(served).then((r) => (r.ok ? r.text() : "")).catch(() => "");
+                // the toggle's click put the review's cursor on the row; o opens the same window from it
+                const oVia = await pressO(h);
+                await polishWaitFor(h, `(${roleWin})?.src !== ""`, 3000);
+                const byKey = await h.ev(roleWin);
+                const keyClosed = await bsCloseWindow(h);
+                await polishWaitFor(h, `!${BS_WIN}`, 3000);
                 rec(
-                    "3a. in the check's review, the row of a part with a board opens to its thumbnail, Open full size, and its spike link under the canvas folder",
+                    `3a. in the check's review, the row of a part with a board opens to its board chip, no iframe, and its spike link under the canvas folder; the chip opens the canvas window scoped to the part, and o with the cursor on the row opens the same window (${oVia === "keys" ? "a real key" : "a keydown on the document: CDP keys did not reach the page"})`,
                     toggled === "clicked" &&
-                        thumbShown &&
-                        mockups.src.endsWith(`/${TOPIC}/project/${BOARD}`) &&
-                        mockups.open &&
-                        mockups.spikePath === SPIKE &&
-                        mockups.spikeServed,
-                    { toggled, thumbShown, ...mockups }
+                        chipShown &&
+                        rowFrames === 0 &&
+                        spikePath === SPIKE &&
+                        spikePage.includes(`<h1>${SPIKE}</h1>`) &&
+                        roleScoped(byChip) &&
+                        boardSrc.endsWith(`/${TOPIC}/project/${BOARD}`) &&
+                        chipClosed === "clicked" &&
+                        roleScoped(byKey) &&
+                        keyClosed === "clicked",
+                    { toggled, chipShown, rowFrames, spikePath, served, byChip, byKey, chipClosed, keyClosed }
                 );
                 await h.ev(`${ROLE_ROW}?.querySelector("[data-brainstorm-review-toggle]")?.click()`);
 
@@ -899,12 +941,19 @@ export default function (kit) {
                 await h.cdp("Emulation.setDeviceMetricsOverride", NARROW);
                 try {
                     await polishNap(400);
+                    // the pane is narrow at this size, so the summary line stands in for the rail; the main column holds Approve
                     const geo = await h.ev(`(() => ({
-                        main: Math.round(${RAIL}?.previousElementSibling?.getBoundingClientRect().width ?? 0),
-                        rail: Math.round(${RAIL}?.getBoundingClientRect().width ?? 0),
+                        main: Math.round(${BS_PANE}?.querySelector("[data-brainstorm-approve-bar]")?.parentElement?.getBoundingClientRect().width ?? 0),
+                        rail: ${RAIL} != null,
+                        summary: ${BS_PANE}?.querySelector("[data-brainstorm-check-summary]") != null,
+                        narrow: ${BS_PANE}?.hasAttribute("data-brainstorm-narrow") ?? null,
                     }))()`);
                     await h.shot("cdp-shots/brainstorm-builder-check-narrow.png");
-                    rec("4c. at 1000x700 the check's main column is wider than 400px", geo.main > MIN_MAIN, geo);
+                    rec(
+                        "4c. at 1000x700 the pane is narrow: the summary line stands in for the rail and the check's main column is wider than 400px",
+                        geo.narrow === true && geo.summary && !geo.rail && geo.main > MIN_MAIN,
+                        geo
+                    );
                 } finally {
                     await h.cdp("Emulation.setDeviceMetricsOverride", VERIFY_WIDE).catch(() => {});
                 }

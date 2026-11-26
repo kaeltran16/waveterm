@@ -154,5 +154,12 @@ func List(registry map[string]string) ([]wshrpc.MemHygieneProject, error) {
 		}
 		out = append(out, p)
 	}
+	for i := range out {
+		for j, b := range out[i].Batches {
+			if b.Kind == wshrpc.MemBatch_Split {
+				out[i].Batches[j].UndoBlock = rowsUndoBlock(out[i].Changes, b, out)
+			}
+		}
+	}
 	return out, nil
 }

@@ -236,6 +236,7 @@ const QUEUE_RPC: QueueActionDeps["rpc"] = {
     dagAction: (data) => RpcApi.DagActionCommand(TabRpcClient, data),
     ackRun: (data) => RpcApi.AckRunCommand(TabRpcClient, data),
     setChunkStatus,
+    setMeta: (data) => RpcApi.SetMetaCommand(TabRpcClient, data),
     landRun: (data) => RpcApi.LandRunCommand(TabRpcClient, data, { timeout: LAND_TIMEOUT_MS }),
 };
 

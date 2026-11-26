@@ -544,6 +544,14 @@ function LoadedConfig({
                 >
                     {approvalsWord(shown.autonomous)}
                 </span>
+                {group?.fasttrack ? (
+                    <span
+                        data-jarvis-brief-sheet-fasttrack
+                        className="rounded-[5px] border border-accent/40 bg-accentbg px-1.5 text-accent-soft"
+                    >
+                        fast track
+                    </span>
+                ) : null}
                 {notSaved ? <span className="text-error">not saved</span> : null}
                 <button
                     type="button"

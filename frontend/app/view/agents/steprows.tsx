@@ -3,41 +3,31 @@
 
 import { CrossFade } from "@/app/element/crossfade";
 import { DrawCheck } from "@/app/element/drawcheck";
-import { MOTION, composerReveal, microFade, turnTransition } from "@/app/element/motiontokens";
+import { MOTION, composerReveal, microFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
+import { TickNumber } from "@/app/element/ticknumber";
 import { atoms } from "@/app/store/global";
 import { cn } from "@/util/util";
-import { ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useAtomValue } from "jotai";
-import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { ImageThumbs, toolZoomImages } from "./imagethumbs";
 import { MarkdownMessage } from "./markdownmessage";
-import { InStepBody, RecordedOutput } from "./recordedoutput";
+import { toolCount } from "./nowline";
+import { RecordedOutput } from "./recordedoutput";
 import { toolRendererKey } from "./renderregistry";
 import { fmtDuration } from "./runcompletion";
-import { BODY_BUTTON, BODY_FOOTER, CODE_TEXT, OpenFullView, PassedOverNote, ToolDetailBody } from "./tooldetailbody";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
+import { subagentElapsedMs, subagentOutcome } from "./subagentmodel";
+import { BODY_BUTTON, CODE_TEXT, PassedOverNote, ToolDetailBody, TurnChevron } from "./tooldetailbody";
 import { formatDuration } from "./tooldetail";
 import { ToolOutputRenderer } from "./toolrenderers";
 import type { TranscriptContext } from "./transcriptcontext";
-import { actionCommand, stepRows, stepTitle, type Step, type Thought } from "./transcriptlayout";
+import { actionCommand, stepRows, stepTitle, subagentStepStatus, type Step, type Thought } from "./transcriptlayout";
 import { isCardKey } from "./wshcall";
 import { WSH_STEP_SUMMARIES, wshRendererFor, type WshRendererProps, type WshStepSummary } from "./wshrenderers";
-
-// a disclosure chevron that turns as its pane opens: right to down, or with `flip` down to up
-export function TurnChevron({ open, size, strokeWidth, flip }: { open: boolean; size: number; strokeWidth: number; flip?: boolean }) {
-    const Icon = flip ? ChevronDown : ChevronRight;
-    return (
-        <Icon
-            size={size}
-            strokeWidth={strokeWidth}
-            aria-hidden
-            style={turnTransition}
-            className={cn("transition-transform motion-reduce:transition-none", open && (flip ? "rotate-180" : "rotate-90"))}
-        />
-    );
-}
 
 function Affordance({ open }: { open: boolean }) {
     return (
@@ -55,6 +45,107 @@ function Elapsed({ since }: { since?: number }) {
         return () => clearInterval(id);
     }, []);
     return since == null ? null : <span data-step-elapsed>{fmtDuration(Math.max(0, now - since))}</span>;
+}
+
+// the host's subagents by the Agent call that spawned each, and how it opens one; only the Rendered view provides it, so
+// every other host keeps plain Agent steps
+export interface SubagentSteps {
+    byToolUseId: ReadonlyMap<string, SubagentVM>;
+    open: (sub: SubagentVM) => void;
+}
+
+export const SubagentStepsContext = createContext<SubagentSteps | null>(null);
+
+// the subagent an Agent call spawned, and opening it
+export function useSubagentOf(toolUseId: string | undefined): { sub: SubagentVM; open: () => void } | null {
+    const steps = useContext(SubagentStepsContext);
+    const sub = toolUseId != null ? steps?.byToolUseId.get(toolUseId) : undefined;
+    return sub == null || steps == null ? null : { sub, open: () => steps.open(sub) };
+}
+
+export function OpenSubagentButton({ onOpen, compact }: { onOpen: () => void; compact: boolean }) {
+    return (
+        <button
+            type="button"
+            data-subagent-open
+            title="Open the subagent's transcript"
+            onClick={onOpen}
+            className={cn(
+                "shrink-0 cursor-pointer rounded-[6px] border border-edge-mid px-[7px] py-px font-mono text-accent-soft hover:border-edge-strong",
+                compact ? "text-[10.5px]" : "text-[11px]"
+            )}
+        >
+            Open
+        </button>
+    );
+}
+
+// a row's chevron as its own toggle, for a row whose Open sits between its facts and the chevron; the head stays the
+// keyboard's way to toggle
+export function ChevronToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+    return (
+        <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden
+            onClick={onToggle}
+            className="flex shrink-0 cursor-pointer text-muted"
+        >
+            <TurnChevron open={open} size={12} strokeWidth={2.2} />
+        </button>
+    );
+}
+
+// an Agent step's second line: what its subagent is on (its running call, named as a step row names it) or how it
+// ended, and its tool count
+function SubagentLine({ sub, compact }: { sub: SubagentVM; compact: boolean }) {
+    const outcome = subagentOutcome(sub);
+    const call = outcome === "running" && sub.currentCall != null ? stepTitle(sub.currentCall) : null;
+    const swapKey = call != null ? `call:${call.title}:${call.mono ?? ""}` : outcome;
+    return (
+        <div
+            data-subagent-line={outcome}
+            className={cn(
+                "flex min-w-0 items-center gap-2 text-muted",
+                compact ? "mt-1 ml-[21px] text-[11.5px]" : "mt-1.5 ml-6 text-[12.5px]"
+            )}
+        >
+            <span className="shrink-0 text-ink-faint" aria-hidden>
+                ↳
+            </span>
+            <CrossFade swapKey={swapKey} className="min-w-0 gap-2 overflow-hidden">
+                {call != null ? (
+                    <>
+                        <span data-subagent-call className="shrink-0 text-ink-mid">
+                            {call.title}
+                        </span>
+                        {call.mono ? (
+                            <span
+                                data-subagent-target
+                                className={cn(
+                                    "min-w-0 truncate font-mono text-ink-mid",
+                                    compact ? "text-[10.5px]" : "text-[11.5px]"
+                                )}
+                            >
+                                {call.mono}
+                            </span>
+                        ) : null}
+                    </>
+                ) : (
+                    // failed in the error tone; stopped reads neutral, like done. Between calls a running one is working
+                    <span data-subagent-outcome className={outcome === "failed" ? "text-error" : "text-ink-mid"}>
+                        {outcome === "running" ? "working" : outcome}
+                    </span>
+                )}
+            </CrossFade>
+            <span className="min-w-[6px] flex-1" />
+            {sub.toolCount != null ? (
+                <span data-subagent-count className="shrink-0">
+                    <TickNumber value={sub.toolCount} format={toolCount} />
+                </span>
+            ) : null}
+        </div>
+    );
 }
 
 function editTotals(action: AgentActionEntry): { adds: number; dels: number } | null {
@@ -93,8 +184,30 @@ function isBareCommand(action: AgentActionEntry): boolean {
 }
 
 // open: an opened bare command shows its whole command, wrapped, since its body leaves it out
-function StepTitle({ step, compact, open, gap }: { step: Step; compact: boolean; open: boolean; gap: string }) {
-    const { title, mono, subject } = stepTitle(step.action);
+// the projection's verb for an Agent or Task call
+const SPAWN_VERB = "spawned";
+
+// background: the step spawned a background subagent, tagged after its description
+// subagentType: the linked subagent's type, which heads a spawn step in place of "Spawned", its description after it
+// drawn mono
+function StepTitle({
+    step,
+    compact,
+    open,
+    gap,
+    background,
+    subagentType,
+}: {
+    step: Step;
+    compact: boolean;
+    open: boolean;
+    gap: string;
+    background?: boolean;
+    subagentType?: string;
+}) {
+    const named = stepTitle(step.action);
+    const { title, mono, subject } =
+        subagentType && step.action.verb === SPAWN_VERB ? { title: subagentType, mono: named.subject } : named;
     const head = subject != null && title.endsWith(subject) ? title.slice(0, title.length - subject.length) : title;
     const answer = askAnswer(step.action);
     const totals = editTotals(step.action);
@@ -121,6 +234,17 @@ function StepTitle({ step, compact, open, gap }: { step: Step; compact: boolean;
                     )}
                 >
                     {whole ? (actionCommand(step.action) ?? mono) : mono}
+                </span>
+            ) : null}
+            {background ? (
+                <span
+                    data-step-background
+                    className={cn(
+                        "shrink-0 rounded-[4px] border border-edge-mid px-[5px] font-mono text-muted",
+                        compact ? "text-[10.5px]" : "text-[11px]"
+                    )}
+                >
+                    background
                 </span>
             ) : null}
             {step.action.summary && (step.action.verb === "grep" || step.action.verb === "glob") ? (
@@ -162,7 +286,7 @@ function StepTitle({ step, compact, open, gap }: { step: Step; compact: boolean;
     );
 }
 
-// a quicker step's time is noise on the row; the full view still shows it
+// a quicker step's time is noise on the row
 const STEP_DURATION_MIN_MS = 1000;
 
 // a call that did not finish, which the row names in one word
@@ -178,8 +302,9 @@ function statusWordTone(status: Step["status"]): string {
 // the row's right side: a failed call's exit chip, then its time (a running one's live elapsed), or the one word for a
 // call that did not finish (stopped, blocked, declined). A running step's elapsed cross-fades to its outcome, so a
 // failure arriving reads as a change rather than a chip popping in
-function StepFacts({ step, compact, gap }: { step: Step; compact: boolean; gap: string }) {
-    const facts = stepFacts(step, compact);
+// sub: an Agent step's subagent, whose own start and end the step's time reads
+function StepFacts({ step, compact, gap, sub }: { step: Step; compact: boolean; gap: string; sub?: SubagentVM }) {
+    const facts = stepFacts(step, compact, sub);
     // a quick step that ends with nothing to show drops its slot, so the row keeps no empty gap
     if (facts == null) {
         return null;
@@ -191,11 +316,13 @@ function StepFacts({ step, compact, gap }: { step: Step; compact: boolean; gap: 
     );
 }
 
-function stepFacts(step: Step, compact: boolean): ReactNode {
+function stepFacts(step: Step, compact: boolean, sub?: SubagentVM): ReactNode {
     const { action, status } = step;
     const chip = compact ? "px-[5px] text-[10.5px]" : "px-1.5 py-px text-[11px]";
     const time = cn("shrink-0 font-mono text-muted", compact ? "text-[10.5px]" : "text-[11px]");
-    const duration = (action.durationMs ?? 0) >= STEP_DURATION_MIN_MS;
+    // a finished subagent's own run, not its spawn's call: a background spawn's call is only its launch ack
+    const subDuration = sub != null && sub.state !== "working" ? subagentElapsedMs(sub, 0) : undefined;
+    const duration = subDuration != null || (action.durationMs ?? 0) >= STEP_DURATION_MIN_MS;
     if (status !== "fail" && status !== "running" && !isUnfinished(status) && !duration) {
         return null;
     }
@@ -209,7 +336,7 @@ function stepFacts(step: Step, compact: boolean): ReactNode {
             ) : null}
             {status === "running" ? (
                 <span className={time}>
-                    <Elapsed since={action.startedTs ?? action.ts} />
+                    <Elapsed since={sub?.startedAtMs ?? action.startedTs ?? action.ts} />
                 </span>
             ) : isUnfinished(status) ? (
                 <span
@@ -220,7 +347,7 @@ function stepFacts(step: Step, compact: boolean): ReactNode {
                 </span>
             ) : duration ? (
                 <span data-step-duration className={time}>
-                    {formatDuration(action.durationMs)}
+                    {subDuration != null ? fmtDuration(subDuration) : formatDuration(action.durationMs)}
                 </span>
             ) : null}
         </>
@@ -260,33 +387,26 @@ function WshViewBody({
     View,
     ctx,
     compact,
-    openFull,
 }: {
     step: Step;
     View: ComponentType<WshRendererProps>;
     ctx: TranscriptContext;
     compact: boolean;
-    openFull: ReactNode;
 }) {
     const [raw, setRaw] = useState(false);
     const { action, wsh } = step;
     const output = action.detail?.kind === "bash" ? action.detail.output : "";
     return (
         <div data-wsh-view={wsh!.key} className="mt-2.5">
-            {/* the footer below holds the view's "Open full view", so a load failure inside it does not add one */}
-            <InStepBody.Provider value={true}>
-                <View call={wsh!.call} wshKey={wsh!.key} action={action} ctx={ctx} compact={compact} />
-            </InStepBody.Provider>
-            <div className="mt-2 flex items-center gap-2">
-                {output.trim() ? (
+            <View call={wsh!.call} wshKey={wsh!.key} action={action} ctx={ctx} compact={compact} />
+            {output.trim() ? (
+                <div className="mt-2 flex items-center">
                     <button type="button" aria-pressed={raw} onClick={() => setRaw((v) => !v)} className={BODY_BUTTON}>
                         <TurnChevron open={raw} size={12} strokeWidth={2.2} />
                         Raw output
                     </button>
-                ) : null}
-                <div className="flex-1" />
-                {openFull}
-            </div>
+                </div>
+            ) : null}
             <PaneReveal open={raw}>
                 <div data-step-raw className="mt-1.5 overflow-hidden rounded-[6px] border border-edge-faint bg-surface">
                     <RecordedOutput output={output} compact={compact} />
@@ -313,22 +433,24 @@ function StepBody({
     cardCollapsed: boolean;
 }) {
     const { action, status } = step;
-    const openFull = <OpenFullView action={action} ctx={ctx} />;
     if (hasBodyCard(action)) {
-        // the card header's own raw toggle offers the output, so the footer, inside the card, holds only the full view
         return (
             <div data-step-card className="mt-2.5">
-                <ToolOutputRenderer action={action} collapsed={cardCollapsed} footer={openFull} />
+                <ToolOutputRenderer action={action} collapsed={cardCollapsed} />
             </div>
         );
     }
     if (View && step.wsh) {
-        return <WshViewBody step={step} View={View} ctx={ctx} compact={compact} openFull={openFull} />;
+        return <WshViewBody step={step} View={View} ctx={ctx} compact={compact} />;
     }
     const { detail, error } = action;
     const bare = isBareCommand(action);
     const passedOver = isPassedOver(status);
     const refused = isRefusedCommand(action);
+    // an opened bare command is whole on its own row, so with no output and no error nothing is left to draw
+    if (!error && bare && detail?.kind === "bash" && !detail.output) {
+        return null;
+    }
     // a refused command's reason sits under its command; with no command drawn, it leads like any other
     const noteUnder = refused && !bare;
     const note = !error ? null : passedOver ? (
@@ -349,8 +471,30 @@ function StepBody({
         </div>
     ) : null;
     return (
-        <div data-tool-panel className="mt-2.5 overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code">
-            {error && note == null ? (
+        <ToolPanel error={note == null ? error : undefined} className="mt-2.5">
+            {noteUnder ? null : note}
+            {detail ? <ToolDetailBody detail={detail} variant="inline" capped hideCommand={bare} /> : null}
+            {noteUnder ? note : null}
+        </ToolPanel>
+    );
+}
+
+// a tool's opened panel: its error, when it has one, as the red block on top of what it drew
+export function ToolPanel({
+    error,
+    className,
+    children,
+}: {
+    error?: string;
+    className?: string;
+    children?: ReactNode;
+}) {
+    return (
+        <div
+            data-tool-panel
+            className={cn("overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code", className)}
+        >
+            {error ? (
                 <div
                     data-tool-error
                     className={cn(
@@ -361,10 +505,7 @@ function StepBody({
                     {error}
                 </div>
             ) : null}
-            {noteUnder ? null : note}
-            {detail ? <ToolDetailBody detail={detail} variant="inline" capped hideCommand={bare} /> : null}
-            {noteUnder ? note : null}
-            <div className={BODY_FOOTER}>{openFull}</div>
+            {children}
         </div>
     );
 }
@@ -372,8 +513,8 @@ function StepBody({
 // a step row's gap-2 / gap-2.5, in px, for the spinner's collapse to take back
 const HEAD_GAP_PX = { compact: 8, full: 10 };
 
-// One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, cut to whole lines
-// ("Open full view" holds the rest in the modal); a step with neither a body nor a wsh view is a plain row.
+// One step: its title, command in mono, exit chip, time and chevron. Opens to its body inline, cut to whole lines that
+// expand in place; a step with neither a body nor a wsh view is a plain row.
 // latest: the step is in the live or latest turn (or outside any fold)
 function StepRow({
     step,
@@ -388,13 +529,16 @@ function StepRow({
     ctx: TranscriptContext;
     compact: boolean;
 }) {
-    const { action, status, wsh } = step;
+    const { action, wsh } = step;
+    const link = useSubagentOf(action.toolUseId);
+    const status = subagentStepStatus(step.status, link?.sub);
+    const shown = status === step.status ? step : { ...step, status };
     const reduceMotion = useAtomValue(atoms.prefersReducedMotionAtom);
     const bodyCard = hasBodyCard(action);
     // the rendered view shows a test or diff card without a click, as it always has
     const [open, setOpen] = useState(!!renderers && bodyCard);
     const View = wsh && !isCardKey(wsh.key) ? wshRendererFor(wsh.key) : undefined;
-    const summary = stepSummary(step);
+    const summary = stepSummary(shown);
     // a failed call with no detail (a Grep, Read or Monitor) still opens, to its error
     const clickable = View != null || action.detail != null || !!action.error;
     const answered = askAnswer(action) != null;
@@ -416,7 +560,14 @@ function StepRow({
     };
     const content = (
         <>
-            <StepTitle step={step} compact={compact} open={open} gap={gap} />
+            <StepTitle
+                step={step}
+                compact={compact}
+                open={open}
+                gap={gap}
+                background={link?.sub.background}
+                subagentType={link?.sub.type}
+            />
             {/* an ask's title column fills the row itself */}
             {isAsk(action) ? null : <span className="min-w-[6px] flex-1" />}
             <AnimatePresence initial={false}>
@@ -437,8 +588,8 @@ function StepRow({
                     </motion.span>
                 ) : null}
             </AnimatePresence>
-            <StepFacts step={step} compact={compact} gap={gap} />
-            {clickable && !compact ? <Affordance open={open} /> : null}
+            <StepFacts step={shown} compact={compact} gap={gap} sub={link?.sub} />
+            {clickable && !compact && link == null ? <Affordance open={open} /> : null}
         </>
     );
     // an image card has no row body to live in, so the rendered view draws it under the row
@@ -447,6 +598,7 @@ function StepRow({
         <div
             data-step
             data-step-status={status}
+            data-subagent={link?.sub.id}
             className={cn("border-t border-edge-faint first:border-t-0", compact ? "px-2.5 py-[7px]" : "px-3.5 py-2.5")}
         >
             {/* the spinner sits outside the head, which turns from div to button when the result lands: inside, the
@@ -480,11 +632,21 @@ function StepRow({
                         {content}
                     </div>
                 )}
+                {/* Open sits outside the head, so the row's own click still expands its body */}
+                {link != null ? (
+                    <>
+                        <OpenSubagentButton onOpen={link.open} compact={compact} />
+                        {clickable && !compact ? (
+                            <ChevronToggle open={open} onToggle={() => setOpen((v) => !v)} />
+                        ) : null}
+                    </>
+                ) : null}
             </div>
+            {link != null ? <SubagentLine sub={link.sub} compact={compact} /> : null}
             <PaneReveal open={open}>
                 {/* a card the rendered view opened on its own, in an older turn, shows its header until clicked; one
                     the reader opened by its row shows whole */}
-                <StepBody step={step} View={View} ctx={ctx} compact={compact} cardCollapsed={!!renderers && !latest} />
+                <StepBody step={shown} View={View} ctx={ctx} compact={compact} cardCollapsed={!!renderers && !latest} />
             </PaneReveal>
             {imageCard ? (
                 <div className="mt-2">

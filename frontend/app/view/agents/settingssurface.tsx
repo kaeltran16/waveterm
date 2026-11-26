@@ -9,7 +9,8 @@
 // There are no Save buttons; a per-row Revert and a per-section Reset replace them.
 
 import { formatBuildTime, versionInfoAtom } from "@/app/cockpit/versioninfo";
-import { MOTION } from "@/app/element/motiontokens";
+import { DrawCheck } from "@/app/element/drawcheck";
+import { errorNudge, MOTION } from "@/app/element/motiontokens";
 import { atoms, getApi, getSettingsKeyAtom } from "@/app/store/global";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
@@ -18,7 +19,7 @@ import { parseJiraError } from "@/app/view/jarvis/jiraticket";
 import { termScrollback } from "@/app/view/term/termutil";
 import { cn, fireAndForget } from "@/util/util";
 import { atom, useAtom, useAtomValue } from "jotai";
-import { Check, Folder, KeyRound, RefreshCw, Search } from "lucide-react";
+import { Check, Folder, KeyRound, RefreshCw, Search, TriangleAlert } from "lucide-react";
 import { motion, MotionConfig, useReducedMotion } from "motion/react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentsViewModel, SurfaceKey } from "./agents";
@@ -73,13 +74,17 @@ import {
     rowKeys,
     settingsSections,
     shownFlagRuntime,
+    VAULT_SYNC_OUTCOME_HOLD_MS,
     vaultStatusLine,
     vaultStatusPollMs,
     vaultSyncButton,
     vaultSyncFailureNote,
+    vaultSyncOutcome,
     visibleRowIds,
     type SettingRowDef,
     type SettingSectionDef,
+    type VaultSyncMode,
+    type VaultSyncOutcome,
 } from "./settingsmodel";
 import {
     pendingSettingsSectionAtom,
@@ -1508,12 +1513,34 @@ function TerminalSection() {
 // a waited sync runs a pull and a push; the 5 s default rpc timeout would give up on it mid-run
 const VAULT_SYNC_TIMEOUT_MS = 120_000;
 
+// the check stays mounted so turning `done` draws it rather than showing it already drawn
+function VaultSyncIcon({ mode, enabled }: { mode: VaultSyncMode; enabled: boolean }) {
+    return (
+        <>
+            {mode === "syncing" ? (
+                <RefreshCw size={12} aria-hidden className="animate-spin motion-reduce:animate-none" />
+            ) : null}
+            {mode === "failed" ? <TriangleAlert size={12} aria-hidden className="text-error" /> : null}
+            {mode === "idle" && enabled ? <RefreshCw size={12} aria-hidden /> : null}
+            <DrawCheck done={mode === "synced"} className="text-success" />
+        </>
+    );
+}
+
 function MemorySection() {
     const stored = (useAtomValue(getSettingsKeyAtom("memory:vaultpath")) as string) ?? "";
     const [error, setError] = useState<string | null>(null);
     const [status, setStatus] = useState<VaultStatusRtnData | null>(null);
     const [remoteError, setRemoteError] = useState<string | null>(null);
     const [clicking, setClicking] = useState(false);
+    const [outcome, setOutcome] = useState<VaultSyncOutcome | null>(null);
+    useEffect(() => {
+        if (outcome == null) {
+            return;
+        }
+        const t = setTimeout(() => setOutcome(null), VAULT_SYNC_OUTCOME_HOLD_MS);
+        return () => clearTimeout(t);
+    }, [outcome]);
     const reloadStatus = async (): Promise<VaultStatusRtnData | null> => {
         try {
             const s = await RpcApi.VaultStatusCommand(TabRpcClient);
@@ -1550,15 +1577,17 @@ function MemorySection() {
     const syncNow = () =>
         fireAndForget(async () => {
             setRemoteError(null);
+            setOutcome(null);
             setClicking(true);
             try {
                 await RpcApi.VaultSyncCommand(TabRpcClient, { wait: true }, { timeout: VAULT_SYNC_TIMEOUT_MS });
-                await reloadStatus();
+                setOutcome(vaultSyncOutcome(await reloadStatus()));
             } catch (e) {
                 const note = vaultSyncFailureNote(String(e), await reloadStatus());
                 if (note != null) {
                     setRemoteError(note);
                 }
+                setOutcome("failed");
             } finally {
                 setClicking(false);
             }
@@ -1566,7 +1595,7 @@ function MemorySection() {
     // a click shows as running before the reloaded status can say so
     const shown = clicking && status != null ? { ...status, running: true } : status;
     const statusLine = vaultStatusLine(shown);
-    const syncButton = vaultSyncButton(status, clicking);
+    const syncButton = vaultSyncButton(status, clicking, outcome);
     // validate before persisting: an empty path clears the override (falls back to the default vault),
     // otherwise the folder must exist and be a directory. reuses FileInfoCommand (bare local path, ~
     // expanded by the backend) instead of a dedicated RPC — mirrors the New Project picker's stat check.
@@ -1620,21 +1649,30 @@ function MemorySection() {
             {error ? <Note tone="error">{error}</Note> : null}
             <SettingRow id="memory.remote">
                 <CommitText value={status?.remoteurl ?? ""} placeholder="git@host:you/vault.git" onCommit={setRemote} />
-                <button
+                {/* a failed click nudges the button it came from (moment 13); a success draws its check (16) */}
+                <motion.button
                     type="button"
                     data-testid="vault-sync-now"
                     disabled={!syncButton.enabled}
                     onClick={syncNow}
+                    variants={errorNudge}
+                    initial={false}
+                    animate={syncButton.mode === "failed" ? "animate" : "initial"}
                     className={cn(
                         "flex w-[96px] flex-none items-center justify-center gap-1.5 rounded border py-[7px] text-[12px] font-semibold transition-colors",
-                        syncButton.enabled
-                            ? "cursor-pointer border-edge-mid text-secondary hover:border-edge-strong hover:text-primary"
-                            : "cursor-not-allowed border-edge-faint text-ink-faint"
+                        syncButton.mode === "syncing"
+                            ? "cursor-default border-edge-mid text-ink-mid"
+                            : syncButton.enabled
+                              ? cn(
+                                    "cursor-pointer border-edge-mid hover:border-edge-strong hover:text-primary",
+                                    syncButton.mode === "synced" ? "text-success-soft" : "text-secondary"
+                                )
+                              : "cursor-not-allowed border-edge-faint text-ink-faint"
                     )}
                 >
-                    {syncButton.enabled ? <RefreshCw size={12} aria-hidden /> : null}
+                    <VaultSyncIcon mode={syncButton.mode} enabled={syncButton.enabled} />
                     {syncButton.label}
-                </button>
+                </motion.button>
             </SettingRow>
             {remoteError ? (
                 <Note tone="error" testId="vault-sync-error">

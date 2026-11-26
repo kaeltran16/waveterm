@@ -11,7 +11,7 @@ import { useAtomValue } from "jotai";
 import { ArrowLeft, ArrowUpRight, ChevronLeft } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { driveAgent, NUDGE_INPUT } from "./agentactions";
-import { agentDiffScope, openDiff } from "./agentdiffnav";
+import { openAgentDiff } from "./agentdiffnav";
 import {
     checkoutFacts,
     contextLevel,
@@ -46,7 +46,7 @@ import {
     useSessionLoaders,
     useSessionView,
 } from "./sessionfacts";
-import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
+import { focusSubagentAtom, openSubagent, subagentsByIdAtom } from "./subagentsstore";
 import { TokenUsageSection } from "./tokenusagesection";
 
 const SUB_COLOR: Record<SubagentState, string> = {
@@ -54,6 +54,7 @@ const SUB_COLOR: Record<SubagentState, string> = {
     success: "var(--color-success)",
     failure: "var(--color-error)",
     done: "var(--color-muted)",
+    stopped: "var(--color-muted)",
 };
 
 const RailFilesCap = 8; // a 296px rail can't show a large worktree; the summary line under it counts them all
@@ -247,7 +248,7 @@ function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: Ag
     // A path is only worth linking when the rail resolved a working directory to resolve it against.
     const openFileDiff = (path?: string) => {
         globalStore.set(model.focusIdAtom, agent.id);
-        openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent), railState?.cwd && path ? path : undefined);
+        openAgentDiff(model, agent, railState?.cwd && path ? path : undefined);
     };
     const drive = (data: string) => driveAgent(agent.blockId, data);
 
@@ -410,17 +411,7 @@ function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: Ag
                                       return (
                                           <div
                                               key={s.id}
-                                              onClick={
-                                                  path
-                                                      ? () =>
-                                                            globalStore.set(focusSubagentAtom, {
-                                                                parentId: agent.id,
-                                                                agentId: s.id,
-                                                                transcriptPath: path,
-                                                                label: s.type || "subagent",
-                                                            })
-                                                      : undefined
-                                              }
+                                              onClick={path ? () => openSubagent(agent.id, s) : undefined}
                                               className={cn(
                                                   "flex items-center gap-[10px] rounded-[10px] border border-border bg-surface px-[11px] py-[9px]",
                                                   path && "cursor-pointer hover:border-edge-strong"

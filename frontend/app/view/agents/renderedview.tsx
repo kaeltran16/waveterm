@@ -7,14 +7,14 @@
 // scrolled out of view, a bar pinned at the top holds it. A file path in a reply opens in a File tab of the workspace
 // pane beside the transcript.
 
-import { cardVariants, composerReveal } from "@/app/element/motiontokens";
+import { composerReveal } from "@/app/element/motiontokens";
 import { PopoverReveal } from "@/app/element/popoverreveal";
 import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { useAtomValue } from "jotai";
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, SquareTerminal } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import type { AgentComposerHandle } from "./agentcomposer";
@@ -27,7 +27,7 @@ import { showEarlierTranscript } from "./livetranscript";
 import { earlierAtomFor, entriesAtomFor, waitingAtomFor } from "./livetranscriptatoms";
 import { FileLinkContext } from "./markdownmessage";
 import { CommandChip, NarrationTimeline, PersonBubble } from "./narrationtimeline";
-import { useWorkingTail } from "./nowlineview";
+import { useTurnLive, useWorkingTail } from "./nowlineview";
 import { PermissionBand } from "./permissionband";
 import { anchorMarks } from "./permissionmodel";
 import { permissionLogAtom } from "./permissionstore";
@@ -37,12 +37,22 @@ import { footList, piFootList, type FootItem } from "./queuedprompts";
 import { NeedsInputPill, RenderedBrainstorm } from "./renderedbrainstorm";
 import { PinnedRow, useEntryRowView, useRenderedEntryRow } from "./renderedbsrows";
 import { RenderedComposer } from "./renderedcomposer";
-import { askDocked, isPickerCommand, pickerFlipAtom, shouldUnflip, shouldUnflipAtBoundary } from "./renderedmode";
+import {
+    askDocked,
+    isPickerCommand,
+    pickerFlipAtom,
+    shouldUnflip,
+    shouldUnflipAtBoundary,
+    toggleViewMode,
+} from "./renderedmode";
 import type { ReplyFileLink } from "./replyfilelinks";
 import { getLastHookAtom, getPromptBoundaryAtom } from "./session-models/agentstatusstore";
+import type { SubagentVM } from "./session-models/sessionviewmodel";
 import { ShowEarlier } from "./showearlier";
 import { JumpToLatestPill, useStickToBottom } from "./sticktobottom";
 import { stopAgent } from "./stopsend";
+import { subagentsByIdAtom } from "./subagentsstore";
+import { BODY_BUTTON } from "./tooldetailbody";
 import { useTranscriptContext, type TranscriptContext } from "./transcriptcontext";
 import { lastCanvasReveal } from "./transcriptlayout";
 import { TranscriptSkeleton } from "./transcriptskeleton";
@@ -211,20 +221,17 @@ function QueuedLine({ count }: { count: number }) {
     );
 }
 
-// The messages waiting on the agent, after the timeline and above the working line. A message enters as an item
-// (moment 1); it has no exit, since the transcript row that shows it read takes its place in the same frame. The
-// Queued line reveals and leaves in place (moment 6).
+// The messages waiting on the agent, after the timeline and above the working line. A message lands at once and has
+// no exit, since the transcript row that shows it read takes its place in the same frame: any fade there blinks the
+// bubble. The Queued line reveals and leaves in place (moment 6).
 function QueuedFoot({ items }: { items: FootItem[] }) {
     const last = items.length - 1;
     return (
         <div data-queued-foot>
             {items.map((item, i) => (
-                <motion.div
+                <div
                     key={item.key}
                     data-queued-item
-                    variants={cardVariants}
-                    initial="initial"
-                    animate="animate"
                     className={item.command != null ? "flex flex-col" : "my-6 flex flex-col items-end"}
                 >
                     {item.command != null ? (
@@ -246,7 +253,7 @@ function QueuedFoot({ items }: { items: FootItem[] }) {
                             </motion.div>
                         ) : null}
                     </AnimatePresence>
-                </motion.div>
+                </div>
             ))}
         </div>
     );
@@ -269,6 +276,14 @@ function useQueuedFoot(agent: AgentVM, entries: AgentEntry[]): FootItem[] {
     );
 }
 
+// the agent's subagents for its timeline. Each listing (every 2s while one works) correlates a fresh list, so it is kept
+// by content: the memoized timeline re-renders only when a subagent's facts change
+function useStableSubagents(agentId: string): SubagentVM[] | undefined {
+    const subs = useAtomValue(subagentsByIdAtom)[agentId];
+    const key = subs == null ? "" : JSON.stringify(subs);
+    return useMemo(() => subs, [key]);
+}
+
 export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     const entries = useAtomValue(entriesAtomFor(agent.id));
     const marks = useAtomValue(permissionLogAtom(agent.id));
@@ -285,6 +300,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
     const canvasReveal = useMemo(() => lastCanvasReveal(entries) ?? undefined, [entries]);
     const timelineCtx = useMemo(() => ({ ...ctx, canvasReveal }), [ctx, canvasReveal]);
     const working = useWorkingTail(model.nowAtom, agent, entries);
+    const turnLive = useTurnLive(agent.blockId, agent.state === "working", entries);
     const foot = useQueuedFoot(agent, entries);
     // one node per change of either, so the memoized timeline does not re-render on every view render; an idle feed
     // gets no foot element, so its list holds only the rows it draws
@@ -299,6 +315,7 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
             </>
         );
     }, [foot, working]);
+    const subagents = useStableSubagents(agent.id);
     const rowOf = useEntryRowView(agent);
     const pin = usePinnedPrompt(scrollRef, entries, ctx, rowOf);
     const composerRef = useRef<AgentComposerHandle>(null);
@@ -345,10 +362,11 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                                             accentLatest
                                             thoughts
                                             renderAll={whole}
-                                            active={agent.state === "working"}
+                                            active={turnLive}
                                             ctx={timelineCtx}
                                             tail={tail}
                                             entryRow={entryRow}
+                                            subagents={subagents}
                                         />
                                     </FileLinkContext.Provider>
                                 </div>
@@ -358,11 +376,23 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                                 <TranscriptSkeleton />
                             </div>
                         ) : (
+                            // claude reports nothing before its folder-trust prompt is answered, so nothing says
+                            // whether the terminal waits on one: the hint names the chance and opens the terminal
                             <div
                                 data-rendered-empty="no-transcript"
-                                className="flex flex-1 items-center justify-center text-[13px] text-muted"
+                                className="flex flex-1 flex-col items-center justify-center gap-1.5 text-[13px] text-muted"
                             >
-                                No transcript for this session yet.
+                                <span>No transcript for this session yet.</span>
+                                <span>Its terminal may be waiting for input.</span>
+                                <button
+                                    type="button"
+                                    data-rendered-show-terminal
+                                    onClick={() => toggleViewMode(agent.id)}
+                                    className={BODY_BUTTON}
+                                >
+                                    <SquareTerminal size={13} aria-hidden />
+                                    Show terminal
+                                </button>
                             </div>
                         )}
                         {/* after the timeline, whose working line hides while the agent asks */}

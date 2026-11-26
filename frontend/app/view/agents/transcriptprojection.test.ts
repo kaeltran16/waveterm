@@ -76,14 +76,27 @@ describe("projectTranscript", () => {
         expect(projectTranscript(["garbage", "{bad"])).toEqual([]);
     });
 
-    it("maps unknown tools to a spaced lowercase verb and the salient input", () => {
+    it.each([
+        [
+            "an unknown tool to a spaced lowercase verb",
+            "WebFetch",
+            { pattern: "abc" },
+            { verb: "web fetch", target: "abc" },
+        ],
+        [
+            "an Agent call to a spawn",
+            "Agent",
+            { subagent_type: "Explore", description: "Find it", prompt: "p" },
+            { verb: "spawned", target: "Find it", toolUseId: "x" },
+        ],
+    ])("maps %s and the salient input", (_case, name, input, want) => {
         const out = projectTranscript([
             JSON.stringify({
                 type: "assistant",
-                message: { content: [{ type: "tool_use", id: "x", name: "WebFetch", input: { pattern: "abc" } }] },
+                message: { content: [{ type: "tool_use", id: "x", name, input }] },
             }),
         ]);
-        expect(out).toEqual([{ kind: "action", verb: "web fetch", target: "abc", pending: true }]);
+        expect(out).toEqual([{ kind: "action", pending: true, ...want }]);
     });
 
     it("emits an action with no outcome when tool_use has no id (result can't be matched)", () => {
@@ -349,6 +362,7 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
                 status: "completed",
                 result: "Here is the report.",
                 source: "subagent",
+                toolUseId: "toolu_1",
             },
         ]);
     });
@@ -383,8 +397,21 @@ describe("projectTranscript task-notification, stdout, and interrupts", () => {
 
         it("keeps a killed subagent, which carries no result, a subagent finish", () => {
             expect(notes([call("toolu_a", "Agent"), finish("toolu_a", "killed", 'Agent "x" was stopped')])).toEqual([
-                { kind: "notification", summary: 'Agent "x" was stopped', status: "killed", source: "subagent" },
+                {
+                    kind: "notification",
+                    summary: 'Agent "x" was stopped',
+                    status: "killed",
+                    source: "subagent",
+                    toolUseId: "toolu_a",
+                },
             ]);
+        });
+
+        it("tags an Agent or Task call with its tool-use id, and leaves other calls untagged", () => {
+            const ids = projectTranscript([call("toolu_a", "Agent"), call("toolu_t", "Task"), call("toolu_b", "Bash")])
+                .filter((e) => e.kind === "action")
+                .map((e) => (e.kind === "action" ? e.toolUseId : null));
+            expect(ids).toEqual(["toolu_a", "toolu_t", undefined]);
         });
     });
 
@@ -1034,6 +1061,20 @@ describe("extractSubagentSpawns", () => {
         expect(byFlag[0]).toMatchObject({ done: false, failed: false, background: true });
     });
 
+    it("ignores api-request-blob copies of a background spawn and its launch ack", () => {
+        const blob = (role: string, blocks: any[]) =>
+            JSON.stringify({ type: "api-request-blob", hash: "h", message: { role, content: blocks } });
+        const lines = [
+            spawnAgent("b1"),
+            launchAck("b1", { isAsync: true }),
+            blob("assistant", [{ type: "tool_use", id: "b1", name: "Agent", input: { prompt: "dig" } }]),
+            blob("user", [{ type: "tool_result", tool_use_id: "b1", content: "Async agent launched successfully" }]),
+        ];
+        expect(extractSubagentSpawns(lines)).toStrictEqual([
+            { toolUseId: "b1", subagentType: "Explore", prompt: "dig", done: false, failed: false, background: true },
+        ]);
+    });
+
     it("task notification ends a background spawn", () => {
         const lines = [spawnAgent("b1"), launchAck("b1", { isAsync: true }), notification("b1", "completed")];
         expect(extractSubagentSpawns(lines)[0]).toMatchObject({ done: true, failed: false, background: true });
@@ -1377,20 +1418,22 @@ describe("projectTranscript malformed and mistyped records", () => {
                 kind: "action",
                 verb: "glob",
                 target: "*.ts",
-                summary: "2 lines",
+                summary: "2 files",
                 detail: { kind: "read", snippet: "a.ts\nb.ts", truncated: false },
             },
         ]);
     });
 
-    it("summarizes a one-line Glob result as 1 line", () => {
+    it("summarizes a Glob result by its files, not its lines", () => {
         const out = projectTranscript([
             asst([{ type: "tool_use", id: "gl", name: "Glob", input: { pattern: "*.ts" } }]),
             result("gl", "a.ts"),
             asst([{ type: "tool_use", id: "gl2", name: "Glob", input: { pattern: "*.zz" } }]),
             result("gl2", "No files found"),
+            asst([{ type: "tool_use", id: "gl3", name: "Glob", input: { pattern: "**/*" } }]),
+            result("gl3", "a.ts\nb.ts\n(Results are truncated. Consider using a more specific path or pattern.)"),
         ]);
-        expect(out.map((e: any) => e.summary)).toEqual(["1 line", "1 line"]);
+        expect(out.map((e: any) => e.summary)).toEqual(["1 file", "no files", "2 files"]);
     });
 
     it("records exit 1 on a failed Bash result that has output", () => {
@@ -1408,6 +1451,14 @@ describe("projectTranscript malformed and mistyped records", () => {
                 detail: { kind: "bash", command: "false", output: "Exit code 1\nboom", exit: 1 },
             },
         ]);
+    });
+
+    it("records a failed Bash result's own exit code", () => {
+        const out = projectTranscript([
+            asst([{ type: "tool_use", id: "b", name: "Bash", input: { command: "git push" } }]),
+            result("b", "Exit code 128\nfatal: no remote", true),
+        ]);
+        expect(out[0]).toMatchObject({ outcome: "fail", detail: { kind: "bash", exit: 128 } });
     });
 
     it("drops a Bash command that is not a string from the bash detail", () => {
@@ -1665,6 +1716,33 @@ describe("projectTranscript queued attachments", () => {
         expect(out[0]).toMatchObject({ kind: "user", ts: Date.parse(recordTs) });
     });
 
+    it("projects a subagent's hand-back as its notice with the report dedented, queued or idle", () => {
+        const frame =
+            '<agent-message from="a6de436f3d960b3e4">\n[Subagent hand-back] The text below is the final report. The report follows:\n  ## Found\n    nested\n  done\n</agent-message>';
+        const out = projectTranscript([
+            queued({ commandMode: "prompt", prompt: frame, origin: { kind: "peer", name: "general-purpose" }, isMeta: true }),
+            L({ type: "user", timestamp: "2026-05-01T10:05:00.000Z", message: { role: "user", content: frame } }),
+        ]);
+        expect(out).toStrictEqual([
+            {
+                kind: "notification",
+                summary: 'Agent "general-purpose" reported',
+                result: "## Found\n  nested\ndone",
+                notice: true,
+                source: "subagent",
+                ts: Date.parse("2026-05-01T10:00:00.000Z"),
+            },
+            {
+                kind: "notification",
+                summary: "Agent reported",
+                result: "## Found\n  nested\ndone",
+                notice: true,
+                source: "subagent",
+                ts: Date.parse("2026-05-01T10:05:00.000Z"),
+            },
+        ]);
+    });
+
     it("unwraps pasted content in a queued prompt", () => {
         const wrapped = '<pasted_content id="p1">\nfix it\n</pasted_content id="p1">';
         const out = projectTranscript([queued({ commandMode: "prompt", prompt: wrapped })]);
@@ -1751,6 +1829,17 @@ describe("projectTranscript texts the arc mod joined mid-turn", () => {
             joined([{ type: "text", text: "from another plugin" }], { kind: "plugin", name: "other" }),
         ]);
         expect(out).toEqual([]);
+    });
+
+    it("skips the skill body of a slash command the mod delivered, though it carries the arc origin", () => {
+        const command = L({
+            type: "user",
+            origin: ARC,
+            message: { content: "<command-name>/arc:design</command-name>\n<command-args>show me</command-args>" },
+        });
+        const out = projectTranscript([command, joined([{ type: "text", text: "Base directory for this skill: x" }])]);
+        expect(out).toMatchObject([{ kind: "command", name: "/arc:design", args: "show me" }]);
+        expect(out).toHaveLength(1);
     });
 
     it("draws nothing for the mod's read mid-turn notice", () => {

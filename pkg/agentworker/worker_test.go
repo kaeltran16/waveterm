@@ -124,24 +124,40 @@ func TestBindGivesTheClaimACacheExpiry(t *testing.T) {
 }
 
 func TestPublishStatusReadsHarnessCwdAndTranscriptFromMeta(t *testing.T) {
-	_, blockId := seedWorker(t,
-		waveobj.MetaMapType{"session:agent": "pi"},
-		waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: "/work/proj", waveobj.MetaKey_AgentTranscriptPath: "/t/s.jsonl"})
+	// a working status is a turn starting (start or resume sends its prompt), so it carries the turn-start hook the
+	// working line counts from; boot's idle for a stopped worker starts no turn
+	tests := []struct {
+		state, hook string
+	}{
+		{baseds.AgentState_Idle, ""},
+		{baseds.AgentState_Working, baseds.AgentHook_UserPromptSubmit},
+	}
+	for _, tc := range tests {
+		t.Run(tc.state, func(t *testing.T) {
+			_, blockId := seedWorker(t,
+				waveobj.MetaMapType{"session:agent": "pi"},
+				waveobj.MetaMapType{waveobj.MetaKey_CmdCwd: "/work/proj", waveobj.MetaKey_AgentTranscriptPath: "/t/s.jsonl"})
 
-	if err := PublishStatus(context.Background(), blockId, baseds.AgentState_Idle); err != nil {
-		t.Fatalf("PublishStatus: %v", err)
-	}
-	oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
-	events := wps.Broker.ReadEventHistory(wps.Event_AgentStatus, oref, 1)
-	if len(events) != 1 {
-		t.Fatalf("want one retained agent:status for the block, got %d", len(events))
-	}
-	got, ok := events[0].Data.(baseds.AgentStatusData)
-	if !ok {
-		t.Fatalf("event data is %T, want baseds.AgentStatusData", events[0].Data)
-	}
-	if got.State != baseds.AgentState_Idle || got.Agent != "pi" || got.Cwd != "/work/proj" || got.TranscriptPath != "/t/s.jsonl" || got.ORef != oref || got.Ts == 0 {
-		t.Errorf("published %+v, want idle pi at /work/proj with the transcript and a timestamp", got)
+			at := time.UnixMilli(1_700_000_000_000)
+			if err := PublishStatus(context.Background(), blockId, tc.state, at); err != nil {
+				t.Fatalf("PublishStatus: %v", err)
+			}
+			oref := waveobj.MakeORef(waveobj.OType_Block, blockId).String()
+			events := wps.Broker.ReadEventHistory(wps.Event_AgentStatus, oref, 1)
+			if len(events) != 1 {
+				t.Fatalf("want one retained agent:status for the block, got %d", len(events))
+			}
+			got, ok := events[0].Data.(baseds.AgentStatusData)
+			if !ok {
+				t.Fatalf("event data is %T, want baseds.AgentStatusData", events[0].Data)
+			}
+			if got.State != tc.state || got.Agent != "pi" || got.Cwd != "/work/proj" || got.TranscriptPath != "/t/s.jsonl" || got.ORef != oref || got.Ts != at.UnixMilli() {
+				t.Errorf("published %+v, want %s pi at /work/proj with the transcript, as of %d", got, tc.state, at.UnixMilli())
+			}
+			if got.Hook != tc.hook {
+				t.Errorf("published hook %q, want %q", got.Hook, tc.hook)
+			}
+		})
 	}
 }
 

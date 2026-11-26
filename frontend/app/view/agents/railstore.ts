@@ -12,11 +12,13 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import { readAgentChanges } from "./agentchanges";
+import { readAgentChanges, type AgentChanges } from "./agentchanges";
 import { resolveCwd } from "./agentcwdresolve";
+import { runChangesRange } from "./agentdiffnav";
 import { linkedWorktree } from "./agentrailmodel";
 import { ensureSessionStart } from "./agentsessionstore";
 import { parseGitChanges, type GitChanges } from "./gitstatus";
+import { leadRunAtom } from "./runlineagestore";
 
 export interface RailGitState {
     cwd: string | null;
@@ -31,6 +33,8 @@ export interface RailGitState {
     head?: string;
     // set when the list is the agent's own edits: ref..end, end "" while it has none
     edits?: boolean;
+    // set when the list is a lead's run's changes, which its workers made: ref is the run's base
+    run?: boolean;
     end?: string;
     // why the git read failed; changes is then null and isRepo false
     failure?: string;
@@ -58,18 +62,39 @@ let loadSeq = 0;
 
 const EMPTY: RailGitState = { cwd: null, branch: "", isRepo: false, changes: null };
 
-// silent keeps the shown state until the new read lands, so a reload for the same agent never blanks the list
+// a lead's run's changes: its tree from the run's base, or once landed what the run landed
+async function readRunChanges(run: Run): Promise<{ cwd: string; read: () => Promise<AgentChanges> }> {
+    const { cwd, base, end } = await runChangesRange(run);
+    const read = async () => {
+        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd, ref: base, end: end || undefined });
+        return { ch, edits: false, end, cwd };
+    };
+    return { cwd, read };
+}
+
+async function readOwnChanges(agent: {
+    transcriptPath?: string;
+    blockId?: string;
+    agent?: string;
+}): Promise<{ cwd: string | null; read: () => Promise<AgentChanges> }> {
+    const { transcriptPath, blockId } = agent;
+    const [cwd, startTs] = await Promise.all([resolveCwd(transcriptPath, blockId), ensureSessionStart(transcriptPath)]);
+    return { cwd, read: () => readAgentChanges(cwd, { transcriptPath, runtime: agent.agent }, startTs) };
+}
+
+// silent keeps the shown state until the new read lands, so a reload for the same agent never blanks the list. A
+// lead's list is its run's changes, which its workers made, rather than the lead's own edits.
 export async function loadRailForAgent(
-    agent: { transcriptPath?: string; blockId?: string; agent?: string },
+    agent: { transcriptPath?: string; blockId?: string; agent?: string; runId?: string },
     opts?: { silent?: boolean }
 ): Promise<void> {
-    const { transcriptPath, blockId } = agent;
     const seq = ++loadSeq;
     if (!opts?.silent) {
         globalStore.set(railStateAtom, null);
     }
 
-    const [cwd, startTs] = await Promise.all([resolveCwd(transcriptPath, blockId), ensureSessionStart(transcriptPath)]);
+    const lead = agent.runId ? globalStore.get(leadRunAtom(agent.runId)) : undefined;
+    const { cwd, read } = lead ? await readRunChanges(lead.run) : await readOwnChanges(agent);
     if (seq !== loadSeq) {
         return;
     }
@@ -79,17 +104,18 @@ export async function loadRailForAgent(
     }
     try {
         // the worktree list only names the worktree, so a failure there leaves the line out rather than the rail
-        const [{ ch, edits, end }, wts] = await Promise.all([
-            readAgentChanges(cwd, { transcriptPath, runtime: agent.agent }, startTs),
-            RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd }).catch(() => null),
-        ]);
+        const listWorktrees = (dir: string) =>
+            RpcApi.GitListWorktreesCommand(TabRpcClient, { cwd: dir }).catch(() => null);
+        const [{ ch, edits, end, cwd: at }, cwdWts] = await Promise.all([read(), listWorktrees(cwd)]);
+        // edits in another checkout name that checkout's worktree, so its list is read again there
+        const wts = at === cwd ? cwdWts : await listWorktrees(at);
         if (seq !== loadSeq) {
             return;
         }
         const changes = ch.isrepo ? parseGitChanges(ch.statusz, ch.numstat, ch.numstaterror) : null;
-        const worktree = ch.isrepo ? linkedWorktree(cwd, wts?.worktrees ?? []) : undefined;
+        const worktree = ch.isrepo ? linkedWorktree(at, wts?.worktrees ?? []) : undefined;
         globalStore.set(railStateAtom, {
-            cwd,
+            cwd: at,
             branch: ch.branch,
             isRepo: ch.isrepo,
             changes,
@@ -97,6 +123,7 @@ export async function loadRailForAgent(
             ref: ch.ref ?? "",
             head: ch.head ?? "",
             edits,
+            run: lead != null,
             end,
         });
     } catch (e) {

@@ -16,14 +16,15 @@ export type SheetFace =
     | { kind: "channel"; channelId: string; body: "run" | "launcher" | "pending" }
     | { kind: "effort"; effortId: string };
 
-// `activeChannelId` is the channel whose runs `run` was resolved from. Opening a channel switches it before
-// the subject follows, so a subject on another channel is mid-switch: neither its run nor "no run" is known yet.
-export function sheetFace(subject: ActiveSubject | null, run: Run | null, activeChannelId?: string | null): SheetFace {
+// `runsChannelId` is the channel whose runs `run` was resolved from, null while no list has loaded. The list
+// arrives after the subject switches to its channel, so a subject on any other channel is mid-switch: neither its
+// run nor "no run" is known yet. Undefined leaves the face ungated.
+export function sheetFace(subject: ActiveSubject | null, run: Run | null, runsChannelId?: string | null): SheetFace {
     if (subject == null) {
         return { kind: "none" };
     }
     if (subject.kind === "channel") {
-        if (activeChannelId != null && activeChannelId !== subject.id) {
+        if (runsChannelId !== undefined && runsChannelId !== subject.id) {
             return { kind: "channel", channelId: subject.id, body: "pending" };
         }
         // Composing a new run needs no case of its own: stageRunAtom already resolves NO run while a channel

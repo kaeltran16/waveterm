@@ -3,7 +3,18 @@
 
 import { describe, expect, it } from "vitest";
 import type { DiffLine, EditFile } from "./agentsviewmodel";
-import { BODY_LINES_MAX, capDiffFiles, capGrepGroups, capLines, capText, capWeighted, moreLinesLabel } from "./bodycap";
+import {
+    BODY_LINES_MAX,
+    capDiffFiles,
+    capFailures,
+    capGrepGroups,
+    capLines,
+    capText,
+    capWeighted,
+    moreFailuresLabel,
+    moreLinesLabel,
+} from "./bodycap";
+import type { TestFailure } from "./testoutput";
 import { groupGrepMatches } from "./tooldetailmodel";
 
 const numbered = (n: number, prefix = "line") => Array.from({ length: n }, (_, i) => `${prefix} ${i + 1}`);
@@ -118,5 +129,52 @@ describe("moreLinesLabel", () => {
     it("is singular for one line and plural otherwise", () => {
         expect(moreLinesLabel(1)).toBe("1 more line");
         expect(moreLinesLabel(5)).toBe("5 more lines");
+    });
+});
+
+describe("capFailures", () => {
+    const failure = (messageLines: number): TestFailure => ({
+        test: `T${messageLines}`,
+        message: numbered(messageLines).join("\n"),
+    });
+
+    it.each([
+        // each failure costs its name line and at most FAILURE_MESSAGE_LINES of its message
+        { name: "fits whole", lines: [1, 2], max: 20, kept: 2, more: 0, hidden: 0, label: null },
+        {
+            name: "a clamped message alone counts its cut lines",
+            lines: [7],
+            max: 20,
+            kept: 1,
+            more: 0,
+            hidden: 4,
+            label: "4 more lines",
+        },
+        // 4 + 4 shown of 8 lines each; the third failure's 1 + 1 lines cut too
+        {
+            name: "cut failures and clamps both count",
+            lines: [7, 7, 1],
+            max: 9,
+            kept: 2,
+            more: 1,
+            hidden: 10,
+            label: "1 more failure",
+        },
+        {
+            name: "a failure with no message is one line",
+            lines: [0, 0, 0],
+            max: 2,
+            kept: 2,
+            more: 1,
+            hidden: 1,
+            label: "1 more failure",
+        },
+    ])("$name", ({ lines, max, kept, more, hidden, label }) => {
+        const cut = capFailures(lines.map(failure), max);
+        expect(cut.failures).toHaveLength(kept);
+        expect({ more: cut.more, hidden: cut.hidden }).toEqual({ more, hidden });
+        if (label != null) {
+            expect(moreFailuresLabel(cut)).toBe(label);
+        }
     });
 });

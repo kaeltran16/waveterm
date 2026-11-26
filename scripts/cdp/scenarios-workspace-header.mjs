@@ -2,8 +2,8 @@
 // docs/superpowers/plans/2026-11-17-workspace-pane.md; Main board). A temp git repo holds a linked worktree with two
 // changed files; a real orchestrator run held in planning (no model starts) makes a fixture claude agent working in
 // that worktree its lead, and a second fixture agent works in the repo's clean main checkout. The lead's transcript
-// makes the two edits; a third file someone else wrote stays off its changes row. Both are real tabs with
-// no controller. The lead's user-owned asks are injected into the page's ask map. Teardown closes what the steps
+// makes the two edits, but a lead's changes are its run's: a worker's commit in the run's tree is what its header
+// and changes row read, and the lead's own edits stay off. Both are real tabs with no controller. The lead's user-owned asks are injected into the page's ask map. Teardown closes what the steps
 // opened, cancels the run, deletes its channel and the repo, and puts back the default view.
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -33,8 +33,8 @@ const WAIT_MS = 10_000;
 const SETTLE_MS = 700;
 const BRANCH = "feature-header";
 const WORKTREE = ".worktrees/header";
-// the lead's edits: two lines added to a.txt, one line of b.txt rewritten; not the stray file beside them
-const CHIP_TEXT = "2 files +3 −1";
+// the worker's commit in the run's tree: two lines added to a.txt and a new one-line c.txt; not the lead's own edits
+const CHIP_TEXT = "2 files +3 −0";
 // the records sit a minute after the seed commit, so the session-start anchor is that commit whatever the clocks' rounding
 const AHEAD_MS = 60_000;
 const CHIP_TITLE = "Open the Changes tab";
@@ -74,7 +74,7 @@ const headerFacts = (h) =>
             actions: flat(hd?.querySelector("[data-agent-actions]")),
             link: link ? flat(link) : null,
             asks: asks ? { label: asks.getAttribute("aria-label"), text: flat(asks), dot: asks.querySelector(".bg-warning") != null } : null,
-            chip: chip ? { text: flat(chip.querySelector("[data-composer-changes-summary]")), title: chip.title } : null,
+            chip: chip ? { text: flat(document.querySelector("[data-rendered-composer] [data-composer-changes-summary]")), title: chip.title } : null,
         };`
     );
 
@@ -128,7 +128,15 @@ function makeRepo(ctx) {
     return wt;
 }
 
-// the Edit calls that made the worktree's a.txt and b.txt, so the lead's changes row counts them as its own
+// a task's commit merged into the run's tree, as the engine lands a worker's
+function mergeWorkerCommit(tree) {
+    writeFileSync(join(tree, "a.txt"), "one\ntwo\nthree\n");
+    writeFileSync(join(tree, "c.txt"), "worker\n");
+    git(tree, "add", "a.txt", "c.txt");
+    git(tree, "commit", "-q", "-m", "t-1: worker change");
+}
+
+// the Edit calls that made the worktree's a.txt and b.txt: the lead's own, which its run's changes leave out
 function leadTranscript(ctx, name) {
     const t0 = Date.now() + AHEAD_MS;
     let n = 0;
@@ -195,6 +203,7 @@ export const workspaceHeader = {
             });
             ctx.runId = created.run.id;
             ctx.landPath = created.run.landpath;
+            mergeWorkerCommit(ctx.landPath);
 
             await h.goto("agent");
             await pinDefaultView(h, "rendered");
@@ -257,19 +266,21 @@ export const workspaceHeader = {
         const runTab = `run:${ctx.runId}`;
         await focusRendered(h, ctx.leadId, ctx.leadName);
 
-        await step("the subline shows the branch and the linked worktree, its full path as the title", async () => {
+        await step("a lead's subline shows its run's branch and tree, the tree's full path as the title", async () => {
             await polishWaitFor(h, `${HEADER}?.querySelector("[data-header-worktree]") != null && ${RUN_LINK} != null`, WAIT_MS);
             const f = await headerFacts(h);
-            const wtPath = ctx.wt.replace(/\\/g, "/").toLowerCase();
+            const branch = `wave/${ctx.runId}`;
+            const tree = ctx.landPath.replace(/\\/g, "/").toLowerCase();
+            const shown = f.worktree?.text ?? "";
             const ok =
-                f.subline.includes(BRANCH) &&
+                f.subline.includes(branch) &&
                 f.branchIcon &&
-                f.worktree?.text === WORKTREE &&
-                f.worktree?.title === wtPath &&
+                shown.toLowerCase() === tree &&
+                f.worktree?.title === tree &&
                 f.worktree?.dir === "rtl" &&
-                f.subline.indexOf(BRANCH) < f.subline.indexOf(WORKTREE) &&
-                f.subline.indexOf(WORKTREE) < f.subline.indexOf("orchestrator run");
-            return [ok, { ...f, wtPath }];
+                f.subline.indexOf(branch) < f.subline.indexOf(shown) &&
+                f.subline.indexOf(shown) < f.subline.indexOf("orchestrator run");
+            return [ok, { ...f, tree }];
         });
 
         await step("with no ask waiting on you the run link carries no count", async () => {
@@ -310,7 +321,7 @@ export const workspaceHeader = {
             return [r.spans.includes(2) && r.spans.at(-1) === 1 && r.text === "2", r];
         });
 
-        await step(`the message box's changes row reads the worktree's changes, "${CHIP_TEXT}"`, async () => {
+        await step(`a lead's changes row reads its run's changes, not its own edits, "${CHIP_TEXT}"`, async () => {
             await polishWaitFor(h, `${CHIP} != null`, WAIT_MS);
             const f = await headerFacts(h);
             return [f.chip?.text === CHIP_TEXT && f.chip.title === CHIP_TITLE && !/file/.test(f.actions), { chip: f.chip, actions: f.actions }];
@@ -347,6 +358,13 @@ export const workspaceHeader = {
             return [r.surface === "agent" && r.tab && r.active === runTab && !r.sheet, r];
         });
         await h.shot("cdp-shots/workspace-header-run-tab.png");
+
+        await step("a click on the changes row's file summary brings the Changes tab back, as the pill does", async () => {
+            await h.ev(`document.querySelector("[data-rendered-composer] [data-composer-changes-summary]").click()`);
+            await polishNap(SETTLE_MS);
+            const r = await page(h, `return { active: ws(${L}).active, row: ${CHIP} != null };`);
+            return [r.active === "changes" && r.row, r];
+        });
 
         await step("beside the open pane the subline clips its facts and keeps the run link whole", async () => {
             const r = await page(
@@ -396,13 +414,22 @@ export const workspaceHeader = {
         });
 
         await step("no docs link: an agent that wrote no Markdown has no docs link in its subline", async () => {
-            // the clean agent is focused: give its Docs read time to land, so an empty list is the answer, not a pending read
+            // the clean agent is focused: wait for its Docs read to land, so an empty list is the answer, not a pending
+            // or failed read
+            const C = JSON.stringify(ctx.cleanId);
+            const readOf = () =>
+                page(h, `const S = await mod("app/view/agents/workspacedocsstore.ts"); return globalStore.get(S.agentDocsReadAtom(${C}));`);
+            let read = await readOf();
+            for (let waited = 0; !read?.loaded && waited < WAIT_MS; waited += 250) {
+                await polishNap(250);
+                read = await readOf();
+            }
             await polishNap(SETTLE_MS);
             const r = await page(
                 h,
                 `return { link: ${DOCS_LINK} != null, subline: flat(header()?.querySelector("[data-agent-subline]")) };`
             );
-            return [!r.link && !/\bdocs?\b/.test(r.subline), r];
+            return [read?.loaded && read.failure == null && !r.link && !/\bdocs?\b/.test(r.subline), { read, ...r }];
         });
 
         await step("docs link: an agent that wrote two Markdown files shows 2 docs, and a click opens the Docs tab on the newest", async () => {

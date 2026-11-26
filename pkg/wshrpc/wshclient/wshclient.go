@@ -157,6 +157,12 @@ func AppendDossierDecisionCommand(w *wshutil.WshRpc, data wshrpc.CommandAppendDo
 	return resp, err
 }
 
+// command "applymemoryrow", wshserver.ApplyMemoryRowCommand
+func ApplyMemoryRowCommand(w *wshutil.WshRpc, data wshrpc.CommandApplyMemoryRowData, opts *wshrpc.RpcOpts) (*wshrpc.MemRowResult, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.MemRowResult](w, "applymemoryrow", data, opts)
+	return resp, err
+}
+
 // command "ask", wshserver.AskCommand
 func AskCommand(w *wshutil.WshRpc, data wshrpc.CommandAskData, opts *wshrpc.RpcOpts) (wshrpc.AskRtnData, error) {
 	resp, err := sendRpcRequestCallHelper[wshrpc.AskRtnData](w, "ask", data, opts)
@@ -1399,6 +1405,12 @@ func UiRevealCommand(w *wshutil.WshRpc, data wshrpc.CommandUiRevealData, opts *w
 // command "uistate", wshserver.UiStateCommand
 func UiStateCommand(w *wshutil.WshRpc, opts *wshrpc.RpcOpts) (*wshrpc.UiState, error) {
 	resp, err := sendRpcRequestCallHelper[*wshrpc.UiState](w, "uistate", nil, opts)
+	return resp, err
+}
+
+// command "undomemorybatch", wshserver.UndoMemoryBatchCommand
+func UndoMemoryBatchCommand(w *wshutil.WshRpc, data wshrpc.CommandUndoMemoryBatchData, opts *wshrpc.RpcOpts) (*wshrpc.MemHygieneProject, error) {
+	resp, err := sendRpcRequestCallHelper[*wshrpc.MemHygieneProject](w, "undomemorybatch", data, opts)
 	return resp, err
 }
 

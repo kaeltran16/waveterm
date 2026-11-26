@@ -327,11 +327,18 @@ async function liveRunAgentSteps(h, ctx) {
     await h.cdp("Emulation.setDeviceMetricsOverride", LIVE_NARROW);
     await polishNap(800);
     const pane = await lookEval(h, `
-        const steps = document.querySelector("[data-final-pane] [data-final-step]")?.parentElement;
+        const steps = document.querySelector("[data-final-pane] [data-final-steps]");
         const head = document.querySelector("[data-final-headline]");
+        const box = steps?.getBoundingClientRect();
+        // a row clips when it or its head overflows, or its head's last part (facts, chevron) leaves the box
+        const rows = [...(steps?.querySelectorAll("[data-final-step]") ?? [])].map((r) => {
+            const hd = r.querySelector("[data-final-step-head]");
+            const end = hd?.lastElementChild?.getBoundingClientRect();
+            return Math.max(r.scrollWidth - r.clientWidth, hd ? hd.scrollWidth - hd.clientWidth : 0, end && box ? end.right - box.right : 0);
+        });
         return {
             stepsOverflow: steps ? steps.scrollWidth - steps.clientWidth : null,
-            cells: [...(steps?.children ?? [])].map((c) => c.scrollWidth - c.clientWidth),
+            cells: rows,
             headline: flat(head),
             headClipped: head ? head.scrollWidth > head.clientWidth + 1 : null,
         };`);
@@ -339,7 +346,7 @@ async function liveRunAgentSteps(h, ctx) {
     await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
     rec(
         "L9. at 1000x700 the Final pane's steps fit unclipped and its headline keeps its outcome (F20)",
-        pane.stepsOverflow === 0 && pane.cells.every((d) => d <= 1) && /failed at Final/.test(pane.headline) && pane.headClipped === false,
+        pane.stepsOverflow === 0 && pane.cells.length > 0 && pane.cells.every((d) => d <= 1) && /failed at Final/.test(pane.headline) && pane.headClipped === false,
         pane
     );
     return steps;

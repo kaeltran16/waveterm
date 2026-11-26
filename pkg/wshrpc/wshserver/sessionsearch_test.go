@@ -62,13 +62,16 @@ func TestSearchResultsDropsRunAgentsByDefault(t *testing.T) {
 	for i, id := range []string{"lead", "worker", "review", "builder-check", "brainstorm-judge", "unlinked"} {
 		sessions = append(sessions, indexedSession(id, int64(100-i), "the deploy failed"))
 	}
+	stray := indexedSession("unlinked", 0, "the deploy failed")
+	stray.Info.RunAgent = true // a run's agent whose run is in another app's store
+	sessions = append(sessions, stray)
 	q := agentsessions.ParseQuery("deploy")
 	got := strings.Join(resultIds(searchResults(sessions, q, false, 20, linkByRole)), ",")
 	if got != "lead,unlinked" {
 		t.Fatalf("the default keeps the user's sessions, got %s", got)
 	}
-	if n := len(searchResults(sessions, q, true, 20, linkByRole)); n != 6 {
-		t.Fatalf("runAgents keeps all six, got %d", n)
+	if n := len(searchResults(sessions, q, true, 20, linkByRole)); n != 7 {
+		t.Fatalf("runAgents keeps all seven, got %d", n)
 	}
 }
 

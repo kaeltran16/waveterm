@@ -9,6 +9,8 @@
 import { RBS_KIT } from "./scenarios-rendered-brainstorm.mjs";
 import {
     BS_BOARDS,
+    BS_BUILDER_OPTIONS,
+    BS_CHECK,
     BS_HANDOFF,
     BS_HISTORY,
     BS_Q4,
@@ -22,6 +24,7 @@ import {
 const NAME = "workspace-brainstorm-question";
 const VIEWPORT = { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false };
 const PANE_PX = 600;
+const TAB_MIN_PX = 360;
 const WIDTH_KEY = "agent.workspace.width";
 const { agentPage, polishWaitFor, polishNap, RV, WAIT_MS } = RBS_KIT;
 // longer than a tab's entrance and the pane's reveal
@@ -189,6 +192,8 @@ const LA1 = {
 };
 const WRITING = { ...MAIN, question: null, working: "Writing “When it pages” from your answer." };
 const RUN = { ...BS_HANDOFF, run: "5c1e0d7a-2b4f-4a8e-9c3d-7f6b1e2a9d40" };
+// the builder check with its one open question carrying answers that each weigh a pro and a con
+const BUILDER_ASK = { ...BS_HANDOFF, check: { ...BS_CHECK, yours: [{ ...BS_CHECK.yours[0], options: BS_BUILDER_OPTIONS }] } };
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
 
 // an element (by its expression) has a descendant, or is itself, scrolling sideways
@@ -245,7 +250,7 @@ export const workspaceBrainstormQuestion = wbsScenario(NAME, async (h, ctx, step
                 badges: rows.map((r) => r.querySelector("[data-brainstorm-option] > span")?.textContent.trim() ?? null),
                 tagInLine: !!t && !!l && tm >= l.top && tm <= l.bottom && t.left >= l.right - 1,
                 chips: rows.map((r) => [...r.querySelectorAll("[data-brainstorm-board-chip]")].map((c) => c.getAttribute("data-brainstorm-board-chip"))),
-                thumbs: pane?.querySelectorAll("[data-brainstorm-thumb]").length ?? null,
+                thumbs: pane?.querySelectorAll("[data-brainstorm-question] iframe").length ?? null,
                 sideways: (${SIDEWAYS})(pane),
             };
         })()`);
@@ -258,20 +263,35 @@ export const workspaceBrainstormQuestion = wbsScenario(NAME, async (h, ctx, step
         return [ok, { bar, ...q }];
     });
 
-    await step("Main board: row 1's chip opens its board in the canvas window over the pane, and the question comes back", async () => {
+    await step("Main board: row 1's chip opens the canvas window over the pane, scoped to the question on its board with answer 1's band, and the question comes back", async () => {
         const clicked = await h.ev(`(() => {
             const c = ${BS_IN_TAB}?.querySelector('[data-brainstorm-board-chip="${BS_BOARDS[0]}"]');
             if (!c) return false;
             c.click();
             return true;
         })()`);
-        const opened = await polishWaitFor(h, `${VIEW_IS("design")} && !!document.querySelector("[data-canvas-window] [data-canvas-pane]")`, WAIT_MS);
+        const opened = await polishWaitFor(h, `${VIEW_IS("design")} && !!document.querySelector("[data-canvas-window] [data-brainstorm-band]")`, WAIT_MS);
         const board = await store(h, ctx, `const C = await mod("app/view/agents/canvasstore.ts"); return C.getCanvas(id)?.board ?? null;`);
         await polishNap(SETTLE_MS);
+        const win = await h.ev(`(() => {
+            const w = document.querySelector("[data-canvas-window]");
+            const flat = (el) => (el?.textContent ?? "").replace(/\\s+/g, " ").trim();
+            return {
+                source: flat(w?.querySelector("[data-canvas-scope-source] > span")),
+                tab: flat(w?.querySelector('[role="tab"][aria-selected="true"]')),
+                answers: [...(w?.querySelectorAll("[data-brainstorm-band-answer]") ?? [])].map((a) => a.getAttribute("data-brainstorm-band-answer")),
+                pick: flat(w?.querySelector("[data-brainstorm-band-pick]")),
+            };
+        })()`);
         await h.shot(SHOT(2, "chip-board"));
         await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
         const back = await polishWaitFor(h, `!document.querySelector("[data-canvas-window]") && ${VIEW_IS("design")} && !!${BS_IN_TAB}?.querySelector("[data-brainstorm-question]")`, WAIT_MS);
-        return [clicked && opened && board === BS_BOARDS[0] && back, { clicked, opened, board, back }];
+        const scoped =
+            win.source === String(BS_Q4.n) &&
+            win.tab === `1 · ${BS_Q4_OPTIONS[0].label}` &&
+            JSON.stringify(win.answers) === JSON.stringify(["0"]) &&
+            win.pick === "Pick 1";
+        return [clicked && opened && board === BS_BOARDS[0] && scoped && back, { clicked, opened, board, win, back }];
     });
 
     await step("LA1 board: question 9's long why and five long answers are one scroll that reaches the last answer and the answer box", async () => {
@@ -325,6 +345,65 @@ export const workspaceBrainstormQuestion = wbsScenario(NAME, async (h, ctx, step
         await h.shot(SHOT(6, "run"));
         const row = (b) => b.bar && b.oneRow && b.height < 48 && b.phases && b.count == null && !b.topic;
         return [check && run && row(atCheck) && row(atRun), { check, atCheck, run, atRun }];
+    });
+
+    await step("builder question's answers: pros and cons stack in one column at 600px, and A4's sizes hold at 360px", async () => {
+        const shown = await writeAndWait(h, ctx, BUILDER_ASK, `${BS_IN_TAB}?.querySelector('[data-brainstorm-builder-question] [data-brainstorm-option="2"]') != null`);
+        const wide = await h.ev(`(() => {
+            const pane = ${BS_IN_TAB};
+            const rows = [...(pane?.querySelectorAll('[role="group"][aria-label="Answers"] > div') ?? [])];
+            return {
+                rows: rows.length,
+                stacked: rows.map((r) => {
+                    const [pros, cons] = [...(r.querySelectorAll("[data-brainstorm-proscons] ul") ?? [])].map((u) => u.getBoundingClientRect());
+                    return !!pros && !!cons && Math.abs(pros.left - cons.left) < 1 && cons.top >= pros.bottom - 1;
+                }),
+            };
+        })()`);
+        await store(h, ctx, `globalStore.set(W.workspaceWidthAtom, ${TAB_MIN_PX}); return true;`);
+        const narrowed = await polishWaitFor(h, `Math.round(${ASIDE}?.getBoundingClientRect().width) === ${TAB_MIN_PX}`, WAIT_MS);
+        await polishNap(SETTLE_MS);
+        const tight = await h.ev(`(() => {
+            const pane = ${BS_IN_TAB};
+            const css = (el, p) => (el ? getComputedStyle(el)[p] : null);
+            const first = pane?.querySelector('[data-brainstorm-option="0"]');
+            const label = first?.querySelector("[data-brainstorm-option-label]");
+            const detail = label?.closest("button")?.querySelector("span.text-ink-mid");
+            const hint = [...(pane?.querySelectorAll("[data-brainstorm-builder-question] span") ?? [])].find((s) => s.textContent.trim() === "press Enter");
+            const body = pane?.querySelector("[data-brainstorm-builder-question]")?.lastElementChild;
+            const bar = pane?.querySelector("[data-brainstorm-toolbar]");
+            const ol = bar?.querySelector("[data-brainstorm-phase]");
+            const steps = [...(ol?.querySelectorAll("li:not([aria-hidden])") ?? [])];
+            return {
+                number: first ? { w: css(first.firstElementChild, "width"), fs: css(first.firstElementChild, "fontSize") } : null,
+                label: css(label, "fontSize"),
+                detail: css(detail, "fontSize"),
+                hint: hint ? css(hint, "display") : "missing",
+                bodyLeft: css(body, "paddingLeft"),
+                olFits: !!ol && ol.scrollWidth <= ol.clientWidth && !!bar && bar.scrollWidth <= bar.clientWidth,
+                sideways: (${SIDEWAYS})(pane),
+            };
+        })()`);
+        // the three steps fit one line at 360, so squeeze the stepper to prove it wraps instead of overflowing
+        const wrap = await h.ev(`(() => {
+            const ol = ${BS_IN_TAB}?.querySelector("[data-brainstorm-toolbar] [data-brainstorm-phase]");
+            if (!ol) return null;
+            ol.style.maxWidth = "180px";
+            const rows = new Set([...ol.querySelectorAll("li:not([aria-hidden])")].map((li) => Math.round(li.getBoundingClientRect().top))).size;
+            const fits = ol.scrollWidth <= ol.clientWidth;
+            ol.style.maxWidth = "";
+            return { rows, fits };
+        })()`);
+        await h.ev(`${BS_IN_TAB}?.querySelector('[data-brainstorm-option="0"]')?.scrollIntoView({ block: "start" })`);
+        await polishNap(SETTLE_MS);
+        await h.shot(SHOT(8, "builder-answers-360"));
+        await store(h, ctx, `globalStore.set(W.workspaceWidthAtom, ${PANE_PX}); return true;`);
+        const restored = await polishWaitFor(h, `Math.round(${ASIDE}?.getBoundingClientRect().width) === ${PANE_PX}`, WAIT_MS);
+        const ok =
+            shown && wide.rows === 3 && wide.stacked.every(Boolean) && narrowed &&
+            tight.number?.w === "26px" && tight.number?.fs === "12px" && tight.label === "16px" && tight.detail === "13.5px" &&
+            tight.hint === "none" && tight.bodyLeft === "22px" && tight.olFits && wrap?.rows === 2 && wrap.fits && !tight.sideways && restored;
+        return [ok, { shown, wide, narrowed, tight, wrap, restored }];
     });
 
     await step("the same file in the Terminal center at 1600px still draws the 30px heading, the topic and the segments", async () => {

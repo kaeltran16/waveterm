@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -57,16 +58,8 @@ func viewRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	if err != nil {
 		return fmt.Errorf("getting absolute path: %w", err)
 	}
-	absParent, err := filepath.Abs(filepath.Dir(fileArg))
-	if err != nil {
-		return fmt.Errorf("getting absolute path of parent dir: %w", err)
-	}
-	_, err = os.Stat(absParent)
-	if err == fs.ErrNotExist {
-		return fmt.Errorf("parent directory does not exist: %q", absParent)
-	}
-	if err != nil {
-		return fmt.Errorf("getting file info: %w", err)
+	if err := checkViewPath(absFile, cmdName == "edit"); err != nil {
+		return err
 	}
 	eventData := viewDataFromArgs(absFile, cmdName == "edit", RpcContext.BlockId)
 	err = wshclient.EventPublishCommand(RpcClient, wps.WaveEvent{
@@ -78,6 +71,27 @@ func viewRun(cmd *cobra.Command, args []string) (rtnErr error) {
 	}
 	// the open-file event has no acknowledgement, so this says what was sent, not that it opened
 	fmt.Printf("sent %s to the cockpit\n", absFile)
+	return nil
+}
+
+// checkViewPath refuses a path the cockpit could only open as "No such file": edit may create the file, so only its
+// folder must exist; view shows what is there, so the path itself must. A relative path resolves against the shell's
+// directory, which an agent's earlier cd may have moved.
+func checkViewPath(absFile string, edit bool) error {
+	target := absFile
+	if edit {
+		target = filepath.Dir(absFile)
+	}
+	_, err := os.Stat(target)
+	if errors.Is(err, fs.ErrNotExist) {
+		if edit {
+			return fmt.Errorf("parent directory does not exist: %q", target)
+		}
+		return fmt.Errorf("no such file or directory: %q", target)
+	}
+	if err != nil {
+		return fmt.Errorf("getting file info: %w", err)
+	}
 	return nil
 }
 

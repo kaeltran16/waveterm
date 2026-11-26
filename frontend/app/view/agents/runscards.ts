@@ -87,6 +87,7 @@ const ROLE_STYLE: Record<string, { label: string; fill: string }> = {
     lead: { label: "lead", fill: "bg-success" },
     "plan-reviewer": { label: "plan reviewer", fill: "bg-warning" },
     verifier: { label: "verifier", fill: "bg-graphlane-4" },
+    "end-reviewer": { label: "end reviewer", fill: "bg-graphlane-5" },
     reviewer: { label: "reviewers", fill: "bg-graphlane-6" },
 };
 const OTHER_FILL = "bg-ink-faint";
@@ -192,14 +193,17 @@ function tokenBar(src: RunShowSource): TokenBar | null {
             fill: ROLE_STYLE[role]?.fill ?? OTHER_FILL,
             text: formatTokens(tokens),
         }));
-    return { total: formatTokens(total), meta: runRouteText(src.run), roles };
+    return { total: formatTokens(total), meta: runRouteText(src.run, src.group), roles };
 }
 
-// "claude opus · autonomous"
-function runRouteText(run: Run): string {
+// "claude opus · autonomous · fast track"
+function runRouteText(run: Run, group?: TaskGroup): string {
     const parts = [[run.runtime, run.model ? shortModel(run.model) : ""].filter(Boolean).join(" ")];
     if (run.autonomous) {
         parts.push("autonomous");
+    }
+    if (group?.fasttrack) {
+        parts.push("fast track");
     }
     return parts.filter(Boolean).join(" · ");
 }

@@ -5,8 +5,10 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wavetermdev/waveterm/pkg/agentobserve"
 	"github.com/wavetermdev/waveterm/pkg/baseds"
+	"github.com/wavetermdev/waveterm/pkg/gitinfo"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
@@ -28,6 +31,8 @@ const transcriptTailBytes = 64 * 1024
 
 // a hook has 10s in all; the reveal only attaches, so the cockpit answers at once or not at all
 const canvasRevealTimeoutMs = 2000
+
+const commitBranchTimeout = 2 * time.Second
 
 // a design canvas board: <project>/.superpowers/design/<topic>/project/<Board>.dc.html. Mirrors BOARD_PATH in
 // frontend/app/view/agents/canvasmodel.ts.
@@ -271,6 +276,33 @@ func workStampKey(ev ccHookEvent) string {
 		}
 	}
 	return ""
+}
+
+// workStampMeta is the block meta an event stamps at ts. A commit also stamps its branch when made in a linked
+// worktree, so the cockpit's Done mark does not read as landed, and clears it otherwise; a failed branch read
+// stamps no branch and never fails the hook.
+func workStampMeta(ev ccHookEvent, ts int64, branchOf func(cwd string) (string, error)) waveobj.MetaMapType {
+	meta := waveobj.MetaMapType{}
+	key := workStampKey(ev)
+	if key == "" {
+		return meta
+	}
+	meta[key] = ts
+	if key != waveobj.MetaKey_AgentLastCommitTs {
+		return meta
+	}
+	meta[waveobj.MetaKey_AgentLastCommitBranch] = nil
+	if branch, err := branchOf(ev.Cwd); err == nil && branch != "" {
+		meta[waveobj.MetaKey_AgentLastCommitBranch] = branch
+	}
+	return meta
+}
+
+// linkedWorktreeBranch bounds the hook's one git call: the hook has 10s in all
+func linkedWorktreeBranch(cwd string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), commitBranchTimeout)
+	defer cancel()
+	return gitinfo.LinkedWorktreeBranch(ctx, cwd)
 }
 
 func stringField(raw json.RawMessage, field string) string {
@@ -674,9 +706,7 @@ func agentHookRun(cmd *cobra.Command, args []string) error {
 		meta[waveobj.MetaKey_AgentTranscriptPath] = transcriptPath
 	}
 	// startedTs, not arrival time: the per-tool hooks run in the background and can land out of order
-	if key := workStampKey(ev); key != "" {
-		meta[key] = startedTs
-	}
+	maps.Copy(meta, workStampMeta(ev, startedTs, linkedWorktreeBranch))
 	if len(meta) > 0 {
 		_ = wshclient.SetMetaCommand(RpcClient, wshrpc.CommandSetMetaData{ORef: *oref, Meta: meta}, &wshrpc.RpcOpts{Timeout: 2000})
 	}

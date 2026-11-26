@@ -986,6 +986,35 @@ async function runSheetMemory(h, ctx, rec) {
     );
 }
 
+// A fast-track dag adds a `fast track` chip to the settings line, last before adjust. The flag is a page-only field
+// on the dag: the engine sets it at submit, and the fixture's plan is not one it submitted.
+async function runSheetFastTrack(h, ctx, rec) {
+    await h.cdp("Emulation.setDeviceMetricsOverride", OBS_WIDE);
+    await polishNap(500);
+    const injected = await injectPageDag(h, ctx.runId, { fields: { fasttrack: true } });
+    const read = await lookEval(h, `
+        const cfg = () => document.querySelector('[data-run-sheet] [data-jarvis-brief-sheet-config="editable"]');
+        const chip = () => cfg()?.querySelector('[data-jarvis-brief-sheet-fasttrack]');
+        await until(() => chip() != null, 8000);
+        const kids = [...(cfg()?.children ?? [])];
+        const at = kids.indexOf(chip());
+        return {
+            chip: flat(chip()),
+            beforeAdjust: at >= 0 && at === kids.length - 2 && flat(kids[kids.length - 1]) === "adjust",
+            afterApprovals: at > 0 && kids[at - 1]?.hasAttribute("data-jarvis-brief-sheet-approvals"),
+        };`);
+    await h.shot("cdp-shots/run-sheet-polish-fasttrack.png");
+    await undoPageDag(h, ctx.runId);
+    const gone = await lookEval(h, `
+        await until(() => !document.querySelector('[data-run-sheet] [data-jarvis-brief-sheet-fasttrack]'), 8000);
+        return !document.querySelector('[data-run-sheet] [data-jarvis-brief-sheet-fasttrack]');`);
+    rec(
+        "15. a fast-track dag shows fast track as the last item before adjust on the settings line, after the approvals word, and a full-track dag shows none",
+        injected === "ok" && read.chip === "fast track" && read.beforeAdjust === true && read.afterApprovals === true && gone === true,
+        JSON.stringify({ injected, ...read, gone })
+    );
+}
+
 export const runSheetPolish = {
     name: "run-sheet-polish",
     surface: "jarvis",
@@ -1171,6 +1200,7 @@ export const runSheetPolish = {
         );
         await runSheetPhase3(h, ctx, rec);
         await runSheetMemory(h, ctx, rec);
+        await runSheetFastTrack(h, ctx, rec);
         return steps;
     },
     async teardown(h, ctx) {

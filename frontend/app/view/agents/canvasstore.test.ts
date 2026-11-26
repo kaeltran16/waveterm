@@ -9,6 +9,7 @@ import {
     attachCanvas,
     canvasOwner,
     canvasWindowAtom,
+    canvasWindowScopeAtom,
     closeCanvasWindow,
     detachCanvas,
     focusedCanvas,
@@ -16,12 +17,16 @@ import {
     openCanvasWindow,
     selectCanvasBoard,
     selectCanvasTab,
+    selectCanvasWindowDigit,
+    selectCanvasWindowTab,
     setCanvasMode,
     setMark,
     setMarking,
     stepCanvasBoard,
+    stepCanvasWindow,
     updateCanvas,
 } from "./canvasstore";
+import { OTHER_TAB, windowTab, type WindowScope } from "./canvaswindowmodel";
 import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "./workspacestore";
 
 const IDS = ["a1", "a2"];
@@ -305,6 +310,101 @@ describe("canvas window", () => {
     it("does not open for an agent with no canvas", () => {
         openCanvasWindow("a1", { mark: true });
         expect(open()).toBeNull();
+    });
+});
+
+describe("scoped canvas window", () => {
+    const scopeOf = () => globalStore.get(canvasWindowScopeAtom);
+    const tab = (board: string, ...indexes: number[]): WindowScope["tabs"][number] => ({
+        board,
+        label: board,
+        band: {
+            kind: "answers",
+            answers: indexes.map((index) => ({ index, label: "", detail: "", pick: false, pros: [], cons: [] })),
+        },
+    });
+    const SCOPE: WindowScope = {
+        source: { kind: "question", n: 1, text: "q", judging: false, judged: false },
+        tabs: [tab("Main.dc.html", 0), tab("States.dc.html", 1)],
+    };
+    const WITH_EXTRA = [...BOARDS, { name: "X.dc.html", x: 0, y: 0, w: 1440, h: 900 }];
+    const attach = (boards = BOARDS) => {
+        attachCanvas("a1", A, 0);
+        updateCanvas("a1", (s) => ({ ...s, boards }));
+    };
+
+    afterEach(() => {
+        globalStore.set(canvasWindowAtom, null);
+        globalStore.set(canvasWindowScopeAtom, null);
+    });
+
+    it("opening with a scope sets it and opens on the named board; opening without clears it", () => {
+        attach();
+        openCanvasWindow("a1", { board: "States.dc.html", scope: SCOPE });
+        expect(scopeOf()).toBe(SCOPE);
+        expect(getCanvas("a1")).toMatchObject({ board: "States.dc.html", all: false });
+        openCanvasWindow("a1");
+        expect(scopeOf()).toBeNull();
+    });
+
+    it("closing the window and detaching its canvas clear the scope", () => {
+        attach();
+        openCanvasWindow("a1", { scope: SCOPE });
+        closeCanvasWindow();
+        expect(scopeOf()).toBeNull();
+        openCanvasWindow("a1", { scope: SCOPE });
+        detachCanvas("a1");
+        expect(scopeOf()).toBeNull();
+    });
+
+    it("steps through the scope's tabs both ways, wrapping through Other boards", () => {
+        attach(WITH_EXTRA);
+        openCanvasWindow("a1", { board: "States.dc.html", scope: SCOPE });
+        stepCanvasWindow("a1", 1);
+        expect(getCanvas("a1")).toMatchObject({ all: false, board: "X.dc.html" });
+        stepCanvasWindow("a1", 1);
+        expect(getCanvas("a1")).toMatchObject({ all: false, board: "Main.dc.html" });
+        stepCanvasWindow("a1", -1);
+        expect(getCanvas("a1")).toMatchObject({ all: false, board: "X.dc.html" });
+    });
+
+    it("stepping onto Other boards shows the grid when there are several, and drops the mark", () => {
+        attach([...WITH_EXTRA, { name: "Y.dc.html", x: 0, y: 0, w: 1440, h: 900 }]);
+        openCanvasWindow("a1", { board: "States.dc.html", scope: SCOPE });
+        setMark("a1", MARK);
+        stepCanvasWindow("a1", 1);
+        expect(getCanvas("a1")).toMatchObject({ all: true, mark: null });
+    });
+
+    it("selecting a board from the grid shows it alone, the tab staying Other boards", () => {
+        attach([...WITH_EXTRA, { name: "Y.dc.html", x: 0, y: 0, w: 1440, h: 900 }]);
+        openCanvasWindow("a1", { scope: SCOPE });
+        selectCanvasWindowTab("a1", "other");
+        selectCanvasWindowTab("a1", "Y.dc.html");
+        const s = getCanvas("a1");
+        expect(s).toMatchObject({ all: false, board: "Y.dc.html" });
+        expect(windowTab(SCOPE, s)).toBe(OTHER_TAB);
+    });
+
+    it("a digit shows that answer's tab, and does nothing past the answers or with no scope", () => {
+        attach();
+        openCanvasWindow("a1", { board: "Main.dc.html", scope: SCOPE });
+        selectCanvasWindowDigit("a1", 1);
+        expect(getCanvas("a1").board).toBe("States.dc.html");
+        selectCanvasWindowDigit("a1", 5);
+        expect(getCanvas("a1").board).toBe("States.dc.html");
+        openCanvasWindow("a1", { board: "Main.dc.html" });
+        selectCanvasWindowDigit("a1", 1);
+        expect(getCanvas("a1").board).toBe("Main.dc.html");
+    });
+
+    it("with no scope, stepping and selecting are today's, All included", () => {
+        attach();
+        openCanvasWindow("a1", { board: "States.dc.html" });
+        stepCanvasWindow("a1", 1);
+        expect(getCanvas("a1")).toMatchObject({ all: true });
+        selectCanvasWindowTab("a1", "Main.dc.html");
+        expect(getCanvas("a1")).toMatchObject({ all: false, board: "Main.dc.html" });
     });
 });
 

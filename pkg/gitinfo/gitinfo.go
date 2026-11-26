@@ -435,6 +435,26 @@ func CurrentBranch(ctx context.Context, cwd string) (string, error) {
 	return "", nil
 }
 
+// LinkedWorktreeBranch returns the branch checked out in cwd when cwd is in a linked worktree (its git dir
+// differs from the repository's common git dir), or "" in the main checkout or on a detached HEAD. One git
+// call, since `wsh agent-hook` asks it on every commit. Errors when cwd is not a repo or HEAD is unborn.
+func LinkedWorktreeBranch(ctx context.Context, cwd string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	out, err := run(ctx, cwd, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(out, "\r\n", "\n")), "\n")
+	if len(lines) != 3 {
+		return "", fmt.Errorf("unexpected git rev-parse output %q", out)
+	}
+	if samePath(filepath.FromSlash(lines[0]), filepath.FromSlash(lines[1])) || lines[2] == "HEAD" {
+		return "", nil
+	}
+	return lines[2], nil
+}
+
 // ProjectInCheckout is projectPath's place in the checkout holding dir, which must be a checkout of the same
 // repository: a run started from a linked worktree works there, not in the checkout the project is registered
 // at. A project in a subfolder (a monorepo service) maps to the same subfolder. A dir in the project's own

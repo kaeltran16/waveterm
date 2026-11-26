@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/blockcontroller"
@@ -64,7 +65,7 @@ func ResumeWorker(ctx context.Context, tabId, prompt string) error {
 		return err
 	}
 	Bind(claim, blockId)
-	if err := PublishStatus(ctx, blockId, baseds.AgentState_Working); err != nil {
+	if err := PublishStatus(ctx, blockId, baseds.AgentState_Working, time.Now()); err != nil {
 		// the worker runs, and its own hooks report its status soon after
 		log.Printf("agentworker: publishing worker %s working: %v", tabId, err)
 	}
@@ -97,8 +98,10 @@ func resumeArgs(tab *waveobj.Tab, block *waveobj.Block, prompt string) ([]string
 }
 
 // armAndStart gives the block its controller back with the resume's command line and starts it. A failed start
-// disarms the block again.
+// disarms the block again. Either reaches the frontend at once, so the worker's stopped mark follows it.
 func armAndStart(ctx context.Context, tabId, blockId string, args []string) error {
+	ctx, flush := jarvis.CollectUpdates(ctx)
+	defer flush()
 	oref := waveobj.MakeORef(waveobj.OType_Block, blockId)
 	arm := waveobj.MetaMapType{waveobj.MetaKey_Controller: blockcontroller.BlockController_Cmd, waveobj.MetaKey_CmdArgs: args}
 	if _, err := wstore.UpdateObjectMeta(ctx, oref, arm, false); err != nil {

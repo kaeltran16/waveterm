@@ -588,13 +588,18 @@ func (union *ConnUnion) getRemoteInfoAndShellType(blockMeta waveobj.MetaMapType)
 }
 
 // idleOnExitEvent returns the retained idle status to publish when an agent-session block exits,
-// or nil when the block is not an agent session (no session:agent tab meta). Pure: no I/O.
-func idleOnExitEvent(blockId string, tabMeta waveobj.MetaMapType, ts int64) *wps.WaveEvent {
+// or nil when the block is not an agent session (no session:agent tab meta). It carries the block's transcript path,
+// since a reloaded roster seeds from this last retained event, and a stopped agent with no path shows no transcript.
+// Pure: no I/O.
+func idleOnExitEvent(blockId string, tabMeta, blockMeta waveobj.MetaMapType, ts int64) *wps.WaveEvent {
 	agent := tabMeta.GetString("session:agent", "")
 	if agent == "" {
 		return nil // not an agent session — do not promote a plain terminal to an idle "agent"
 	}
 	ev := AgentStatusEvent(blockId, baseds.AgentState_Idle, agent, ts)
+	data := ev.Data.(baseds.AgentStatusData)
+	data.TranscriptPath = blockMeta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
+	ev.Data = data
 	return &ev
 }
 
@@ -616,7 +621,11 @@ func emitAgentIdleOnExit(blockId string) {
 	if err != nil {
 		return
 	}
-	if ev := idleOnExitEvent(blockId, tab.Meta, time.Now().UnixMilli()); ev != nil {
+	var blockMeta waveobj.MetaMapType
+	if block, err := wstore.DBGet[*waveobj.Block](ctx, blockId); err == nil && block != nil {
+		blockMeta = block.Meta
+	}
+	if ev := idleOnExitEvent(blockId, tab.Meta, blockMeta, time.Now().UnixMilli()); ev != nil {
 		wps.Broker.Publish(*ev)
 	}
 }

@@ -260,6 +260,10 @@ func createTabObj(ctx context.Context, workspaceId string, name string, meta wav
 // run. Injected to keep wcore free of an orchestrate import.
 var WorkerTabCloseHook func(ctx context.Context, tabId string)
 
+// AgentTabCloseHook, when set (by pkg/agentworker at init), hears a tab about to close, so the workers it started
+// settle as orphans. Injected to keep wcore free of an agentworker import.
+var AgentTabCloseHook func(ctx context.Context, tabId string)
+
 // Must delete all blocks individually first.
 // recursive: if true, will recursively close parent window, workspace, if they are empty.
 // Returns new active tab id, error.
@@ -285,6 +289,9 @@ func DeleteTab(ctx context.Context, workspaceId string, tabId string, recursive 
 		}
 		if WorkerTabCloseHook != nil {
 			WorkerTabCloseHook(ctx, tabId)
+		}
+		if AgentTabCloseHook != nil {
+			AgentTabCloseHook(ctx, tabId)
 		}
 		for _, blockId := range tab.BlockIds {
 			err := DeleteBlock(ctx, blockId, false)

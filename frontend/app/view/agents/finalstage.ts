@@ -6,11 +6,14 @@
 // keep a finished step's duration and result. No React, no store.
 
 import { stageHasShots } from "@/app/view/jarvis/finalshotsmodel";
+import type { LocalImageStatus } from "@/app/view/jarvis/localimage";
 import type { AgentVM } from "./agentsviewmodel";
 import { fmtDuration, memoryFigures } from "./runcompletion";
 import { detailOf } from "./runtimeline";
+import { isTestCommand, parseTestOutput, type TestSummary } from "./testoutput";
 
-export type FinalStepKey = "tree" | "check" | "verify" | "final" | "verifier";
+// review: a fast-track stage's end review, beside the commands
+export type FinalStepKey = "tree" | "check" | "verify" | "final" | "review" | "verifier";
 // notrun: the stage ended before it. stopped: a human ended the stage while it ran.
 export type FinalStepState = "waiting" | "running" | "passed" | "failed" | "unverified" | "stopped" | "notrun";
 export type FinalTone = "wait" | "run" | "pass" | "fail" | "warn";
@@ -23,7 +26,7 @@ export interface FinalStep {
     // a finished step's duration, or a running step's elapsed
     ms?: number;
     text: string;
-    // the plan's own command; for tree and verifier, what the step does
+    // the plan's own command; for tree, review and verifier, what the step does
     command: string;
     // where a command step that ended kept its output; ts is its end, so a rerun's output is not read from cache
     kept?: { path: string; ts: number };
@@ -35,6 +38,8 @@ export interface FinalRoundLine {
     round: number;
     tone: FinalTone;
     text: string;
+    // the round's outcome alone: "failed at Final"
+    outcome: string;
     // the round's failure detail, "" when none
     detail: string;
     hasShots: boolean;
@@ -92,12 +97,26 @@ const LABELS: Record<FinalStepKey, string> = {
     check: "Check",
     verify: "Verify",
     final: "Final",
+    review: "End review",
     verifier: "Verifier",
 };
 const WHAT_IT_DOES: Partial<Record<FinalStepKey, string>> = {
     tree: "prepares the tree the stage runs in",
+    review: "reviews the whole run's diff",
     verifier: "judges the merged result",
 };
+// FinalEndReview.state as a step: lost twice reads as failed
+const END_REVIEW_STEP_STATES: Record<string, FinalStepState> = {
+    reviewing: "running",
+    passed: "passed",
+    failed: "failed",
+    lost: "failed",
+    stopped: "stopped",
+};
+// the engine's endReviewDetail, which opens a failed end review's block in the stage's Detail
+const END_REVIEW_DETAIL = "[End review] ";
+// the engine's endReviewUnverified and endReviewDidNotFinish, which open the end review's unverified reasons
+const END_REVIEW_REASONS = ["end review: ", "the end review did not finish: "];
 const STEP_TONES: Record<FinalStepState, FinalTone> = {
     waiting: "wait",
     notrun: "wait",
@@ -107,7 +126,7 @@ const STEP_TONES: Record<FinalStepState, FinalTone> = {
     unverified: "warn",
     stopped: "warn",
 };
-const STEP_WORDS: Record<FinalStepState, string> = {
+export const STEP_WORDS: Record<FinalStepState, string> = {
     waiting: "waiting",
     notrun: "not run",
     running: "running",
@@ -174,9 +193,11 @@ function memoryHolds(events: RunEvent[]): Map<string, string> {
     return holds;
 }
 
-function stepKeys(group: Commands): FinalStepKey[] {
+function stepKeys(group: Commands, stage: FinalStage | undefined): FinalStepKey[] {
     const commands = (["check", "verify", "final"] as const).filter((k) => commandOf(group, k) !== "");
-    return commands.length > 0 ? ["tree", ...commands, "verifier"] : ["verifier"];
+    const tree: FinalStepKey[] = commands.length > 0 ? ["tree", ...commands] : [];
+    const review: FinalStepKey[] = stage?.endreview ? ["review"] : [];
+    return [...tree, ...review, "verifier"];
 }
 
 function commandOf(group: Commands, key: FinalStepKey): string {
@@ -265,6 +286,60 @@ function stepStates(
     return keys.map((k, i) => (i < at ? settled(k) : i === at ? ending : "notrun"));
 }
 
+// a stage Detail cut where the engine's applyEndReview appended a failed end review's block (alone, or after the
+// commands' and verifier's detail and a blank line): what came before it, and the block itself
+function splitEndReview(detail: string): { before: string; review: string } {
+    const at = detail.startsWith(END_REVIEW_DETAIL) ? 0 : detail.indexOf(`\n\n${END_REVIEW_DETAIL}`);
+    if (at < 0) {
+        return { before: detail, review: "" };
+    }
+    return { before: detail.slice(0, at), review: detail.slice(at).replace(/^\n\n/, "") };
+}
+
+// the stage as its commands and verifier left it: the end review's Detail block and reasons taken out, and a stage
+// that ended, or waits only on the end review, read by what is left
+function withoutEndReview(stage: FinalStage): FinalStage {
+    const rest: FinalStage = {
+        ...stage,
+        detail: splitEndReview(stage.detail ?? "").before,
+        unverified: (stage.unverified ?? []).filter((r) => !END_REVIEW_REASONS.some((p) => r.startsWith(p))),
+    };
+    const settled = !RUNNING_STATES.has(stage.state) || stage.endreview?.waiting === true;
+    if (stage.state !== "" && settled) {
+        rest.state = rest.detail !== "" ? "failed" : rest.unverified.length > 0 ? "unverified" : "passed";
+    }
+    return rest;
+}
+
+// every step's state: the end review's from its own record, the others' as the stage reads without it
+function allStepStates(
+    stage: FinalStage | undefined,
+    group: Commands,
+    keys: FinalStepKey[],
+    evs: Map<string, StepEvent>
+): FinalStepState[] {
+    const er = stage?.endreview;
+    if (er == null) {
+        return stepStates(stage, group, keys, evs);
+    }
+    const states = stepStates(
+        withoutEndReview(stage),
+        group,
+        keys.filter((k) => k !== "review"),
+        evs
+    );
+    const review =
+        er.state === "passed" && er.unverified ? "unverified" : (END_REVIEW_STEP_STATES[er.state] ?? "waiting");
+    states.splice(keys.indexOf("review"), 0, review);
+    return states;
+}
+
+// what works beside a running step: "verifier alongside", "verifier and end review alongside"
+function besideText(verifier: boolean, review: boolean): string | undefined {
+    const who = [verifier ? "verifier" : "", review ? "end review" : ""].filter(Boolean);
+    return who.length > 0 ? `${who.join(" and ")} alongside` : undefined;
+}
+
 function withTime(word: string, ms: number | undefined, sep = " "): string {
     return ms == null ? word : `${word}${sep}${fmtDuration(ms)}`;
 }
@@ -281,8 +356,8 @@ function buildSteps(
     verifierRun: Pick<Run, "completedts"> | undefined,
     holds: Map<string, string> = new Map()
 ): FinalStep[] {
-    const keys = stepKeys(group);
-    const states = stepStates(stage, group, keys, evs);
+    const keys = stepKeys(group, stage);
+    const states = allStepStates(stage, group, keys, evs);
     // startedts is the verifier session's start only once there is one
     const verifierStart = stage?.verifierrunid ? stage.startedts : undefined;
     return keys.map((key, i) => {
@@ -295,6 +370,8 @@ function buildSteps(
                     : state !== "waiting" && state !== "notrun"
                       ? span(verifierStart, verifierRun?.completedts)
                       : undefined;
+        } else if (key === "review") {
+            ms = state === "running" ? span(stage.endreview.startedts, now) : evs.get(key)?.ms;
         } else if (state === "running") {
             ms = span(stage.stepts, now);
         } else if (state !== "waiting" && state !== "notrun") {
@@ -392,13 +469,16 @@ export function finalStageView(
     const isRunning = RUNNING_STATES.has(state);
     const ended = state !== "" && !isRunning;
 
-    const command = steps.find((s) => s.state === "running" && s.key !== "verifier");
+    const command = steps.find((s) => s.state === "running" && s.key !== "verifier" && s.key !== "review");
     const verifier = steps[steps.length - 1];
     const verifierRunning = verifier.state === "running";
-    const running = command ?? (verifierRunning ? verifier : undefined);
+    const review = steps.find((s) => s.key === "review" && s.state === "running");
+    const running = command ?? (verifierRunning ? verifier : review);
     const alongside = command != null && verifierRunning;
 
-    const total = steps.every((s) => s.ms != null) ? steps.reduce((sum, s) => sum + s.ms, 0) : undefined;
+    // the end review works beside the other steps, so it adds nothing to the round's time
+    const serial = steps.filter((s) => s.key !== "review");
+    const total = serial.every((s) => s.ms != null) ? serial.reduce((sum, s) => sum + s.ms, 0) : undefined;
     const starts = [...evs.values()].map((e) => e.ts - e.ms);
     // with commands and no event left, startedts may already be the verifier's start, not the round's
     const startedTs = stage?.verifierrunid && steps.length > 1 ? undefined : stage?.startedts;
@@ -415,14 +495,19 @@ export function finalStageView(
     if (command) {
         const time = command.ms == null ? undefined : fmtDuration(command.ms);
         const position = `step ${steps.indexOf(command) + 1} of ${steps.length}`;
-        subline = joinDot([command.label, time, alongside ? "verifier alongside" : position]);
-        nodeMeta = joinDot([roundText, command.label, alongside ? "verifier" : time]);
+        subline = joinDot([command.label, time, besideText(verifierRunning, review != null) ?? position]);
+        nodeMeta = joinDot([roundText, command.label, alongside ? "verifier" : review ? "end review" : time]);
         headline = joinDot([roundText, finalStageActivity(stage), time]);
     } else if (running) {
         const time = running.ms == null ? undefined : fmtDuration(running.ms);
-        subline = joinDot(["verifier reviewing", time]);
-        nodeMeta = joinDot([roundText, "verifier", time]);
-        headline = joinDot([roundText, "verifier reviewing", time]);
+        const who = running === review ? "end review" : "verifier";
+        subline = joinDot([
+            `${who} reviewing`,
+            time,
+            running === review ? undefined : besideText(false, review != null),
+        ]);
+        nodeMeta = joinDot([roundText, who, time]);
+        headline = joinDot([roundText, `${who} reviewing`, time]);
     } else if (isRunning) {
         // between two commands the stage names no step
         subline = "starting";
@@ -455,10 +540,12 @@ export function finalStageView(
         .sort((a, b) => a.round - b.round)
         .map((p): FinalRoundLine => {
             const pastSteps = buildSteps(p, group, roundEvents(events, p.round), now, undefined);
+            const pastOutcome = outcomeText(p, pastSteps);
             return {
                 round: p.round,
                 tone: STAGE_TONES[p.state] ?? "wait",
-                text: joinDot([`round ${p.round}`, outcomeText(p, pastSteps)]),
+                text: joinDot([`round ${p.round}`, pastOutcome]),
+                outcome: pastOutcome,
                 detail: p.detail ?? "",
                 hasShots: stageHasShots(p),
             };
@@ -497,16 +584,19 @@ const FINAL_STEP_LABELS: Record<string, string> = {
 };
 
 /** Pure: what a running final stage is doing, or undefined when it is not running. With no Final command the
- *  verifier works alongside Check and Verify, so both show. */
+ *  verifier works alongside Check and Verify, and a fast-track stage's end review beside every step, so they show. */
 export function finalStageActivity(final: FinalStage | undefined): string | undefined {
+    const reviewing = final?.endreview?.state === "reviewing";
     if (final?.state === "verifying") {
-        return "verifier reviewing";
+        return final.endreview?.waiting
+            ? "end review reviewing"
+            : joinDot(["verifier reviewing", besideText(false, reviewing)]);
     }
     if (final?.state !== "checking" && final?.state !== "final") {
         return undefined;
     }
     const step = FINAL_STEP_LABELS[final.step ?? ""] ?? "starting";
-    return final.state === "checking" && final.verifierrunid ? `${step} · verifier alongside` : step;
+    return joinDot([step, besideText(final.state === "checking" && !!final.verifierrunid, reviewing)]);
 }
 
 /** Pure: the plan's own command behind the final stage's running step, so the label stays generic and the
@@ -550,9 +640,10 @@ export function finalRowFocusId(
     return agent?.id ?? finalStageId(run.runId);
 }
 
-/** Pure: whether a step's output can be opened: a command running, or one that ended and kept its output. */
-export function stepHasOutput(step: FinalStep): boolean {
-    return step.kept != null || (step.state === "running" && KEPT_STEPS.has(step.key));
+/** Pure: whether a step's row opens to a body: a command running once it printed, or one that ended and kept its
+ *  output. */
+export function finalStepOpens(view: FinalStageView, step: FinalStep): boolean {
+    return step.kept != null || (step.state === "running" && step.key === view.running && view.output !== "");
 }
 
 const RERUN_HINT = "Rerun it if the failure was outside the code.";
@@ -564,11 +655,74 @@ export function finalFailedNote(lead: { asking: boolean } | undefined): string {
     return "The lead has this failure and decides what happens next.";
 }
 
-/** Pure: the step whose output a site shows: the one picked while it has output to open, else the running command
- *  once it has printed. */
-export function shownStep(view: FinalStageView, picked: FinalStepKey | null): FinalStep | undefined {
-    const pick = view.steps.find((s) => s.key === picked && stepHasOutput(s));
-    return pick ?? (view.output !== "" ? view.steps.find((s) => s.key === view.running) : undefined);
+export type FinalKept = { status: LocalImageStatus; text: string };
+
+// what a step's body says when its kept output gives it nothing to show
+export const KEPT_NOTE: Record<LocalImageStatus, string> = {
+    loading: "loading the output...",
+    ok: "the step printed nothing",
+    missing: "no output kept: the step ran before Arc kept it, or it was swept",
+    error: "could not read the step's output",
+};
+
+export type FinalStepBody =
+    | { kind: "tail"; command: string; output: string }
+    | { kind: "card"; summary: TestSummary; output: string }
+    | { kind: "panel"; command: string; output: string; error?: string; note?: string };
+
+const COMMAND_KEYS = new Set<FinalStepKey>(["check", "verify", "final"]);
+const EXIT_CODE = /\(exit (\d+)\):\s*$/;
+
+function failedCommand(step: FinalStep): boolean {
+    return step.state === "failed" && COMMAND_KEYS.has(step.key);
+}
+
+/** Pure: what an open step's body draws. A running command is its live tail; an ended one is a Tests card when
+ *  its kept output parses as a run of its test command, else a panel of the output. The stage's failure detail,
+ *  less the end review's findings, rides in the failed command's panel as its error, except while the output
+ *  loads or when a card carries it. */
+export function finalStepBody(view: FinalStageView, step: FinalStep, kept: FinalKept): FinalStepBody {
+    if (step.state === "running" && step.key === view.running) {
+        return { kind: "tail", command: step.command, output: view.output };
+    }
+    const output = kept.status === "ok" ? kept.text : "";
+    const summary = isTestCommand(step.command) ? parseTestOutput(output) : null;
+    if (summary != null) {
+        return { kind: "card", summary, output };
+    }
+    const body: FinalStepBody = { kind: "panel", command: step.command, output };
+    if (output.trim() === "") {
+        body.note = KEPT_NOTE[kept.status];
+    }
+    if (failedCommand(step) && kept.status !== "loading") {
+        body.error = splitEndReview(view.detail).before;
+    }
+    return body;
+}
+
+/** Pure: whether a step's row starts open: the running command once it prints, or the failed step that kept
+ *  output. A click records the human's choice over this in the pane. */
+export function finalStepOpensByDefault(view: FinalStageView, step: FinalStep): boolean {
+    if (step.state === "running") {
+        return step.key === view.running && view.output !== "";
+    }
+    return failedCommand(step) && step.kept != null;
+}
+
+/** Pure: the exit chip of a failed step, `exit N` from the first line of the stage's detail when that line names
+ *  the step's command, else `failed`. */
+export function finalStepExit(view: FinalStageView, step: FinalStep): string {
+    const first = view.detail.split("\n", 1)[0];
+    const code = first.startsWith(`${step.label} \``) ? EXIT_CODE.exec(first)?.[1] : undefined;
+    return code == null ? "failed" : `exit ${code}`;
+}
+
+/** Pure: the failure detail drawn above the steps' box, "" for none: the whole detail when no failed command step
+ *  kept output to hold it (the verifier or end review failed, a human ended the stage), else the end review's
+ *  findings alone, which belong to no command. */
+export function finalDetailAbove(view: FinalStageView): string {
+    const held = view.steps.some((s) => failedCommand(s) && s.kept != null);
+    return held ? splitEndReview(view.detail).review : view.detail;
 }
 
 /** Pure: the last `lines` lines of a command's output. */

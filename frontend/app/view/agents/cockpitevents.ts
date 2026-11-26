@@ -172,6 +172,7 @@ function runRailKind(e: RunEvent): { kind: RailKind; text: string } | undefined 
         case "task-retried":
         case "task-skipped":
         case "task-escalated":
+        case "review-overruled":
             // the lead's own actions and the engine's retries are not the human's
             return d?.by === "human" ? { kind: "acted", text: eventText(e) } : undefined;
         case "final-rerun":

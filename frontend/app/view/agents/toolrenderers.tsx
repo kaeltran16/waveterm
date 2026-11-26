@@ -7,12 +7,12 @@ import { cn } from "@/util/util";
 import { AnimatePresence, motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import type { AgentActionEntry, EditFile, ToolImage } from "./agentsviewmodel";
-import { capWeighted } from "./bodycap";
+import { capFailures, capText, FAILURE_MESSAGE_LINES, moreFailuresLabel } from "./bodycap";
 import { ImageThumbs, toolZoomImages } from "./imagethumbs";
 import { RecordedOutput } from "./recordedoutput";
 import { bashCard, toolRendererKey } from "./renderregistry";
-import { failureLabel, type TestFailure, type TestSummary } from "./testoutput";
-import { BODY_FOOTER, CODE_TEXT, ToolDetailBody } from "./tooldetailbody";
+import { failureLabel, type TestSummary } from "./testoutput";
+import { CODE_TEXT, MoreLines, ToolDetailBody } from "./tooldetailbody";
 
 // Tool output cards: a test or diff card is its step's opened body (StepsOpen.dc.html test card), open from the start in
 // the rendered view; an image card sits under its row there. A collapsed card (one in a finished turn that is not the
@@ -22,12 +22,6 @@ import { BODY_FOOTER, CODE_TEXT, ToolDetailBody } from "./tooldetailbody";
 const CARD = "overflow-hidden rounded-[8px] border border-edge-mid bg-surface-code";
 const CARD_HEADER = "flex items-center gap-2.5 border-b border-edge-faint px-3 py-[7px] text-[12.5px]";
 const MONO_LABEL = "font-mono text-[10.5px]";
-// a failure's message shows at most this many lines (its line-clamp-3), so it costs that much of the body's line cap
-const FAILURE_MESSAGE_LINES = 3;
-
-function failureLines(f: TestFailure): number {
-    return 1 + (f.message ? Math.min(FAILURE_MESSAGE_LINES, f.message.split("\n").length) : 0);
-}
 
 function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
     return (
@@ -49,7 +43,6 @@ function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }) {
 
 // header (label, counts, raw toggle) over a body that swaps to the raw output. A card whose header says it all (a
 // passing run) has no body until raw is on. counts gets whether the body shows, for counts the body otherwise carries.
-// footer (the step's "Open full view") sits inside the card's box, under the body, or under the header while collapsed.
 function BashCardShell({
     kind,
     label,
@@ -57,7 +50,6 @@ function BashCardShell({
     counts,
     output,
     collapsed,
-    footer,
     children,
 }: {
     kind: "test" | "git-diff";
@@ -66,7 +58,6 @@ function BashCardShell({
     counts: (open: boolean) => ReactNode;
     output: string;
     collapsed?: boolean;
-    footer?: ReactNode;
     children?: ReactNode;
 }) {
     const [raw, setRaw] = useState(false);
@@ -121,27 +112,34 @@ function BashCardShell({
                     </motion.div>
                 </AnimatePresence>
             </PaneReveal>
-            {footer ? <div className={BODY_FOOTER}>{footer}</div> : null}
         </div>
     );
 }
+
+const RUNNER_LABEL: Record<TestSummary["runner"], string> = {
+    go: "go test",
+    vitest: "vitest",
+    "final-verify": "final-verify",
+};
 
 function Count({ n, word, tone }: { n: number; word: string; tone: string }) {
     return <span className={n > 0 ? tone : "text-muted"}>{`${n} ${word}`}</span>;
 }
 
-function TestCard({
+// collapsed, each failure's message is clamped to whole lines and the failures cut to the body's cap; expanded, every
+// failure shows with its whole message
+export function TestCard({
     summary,
     output,
     collapsed,
-    footer,
 }: {
     summary: TestSummary;
     output: string;
     collapsed?: boolean;
-    footer?: ReactNode;
 }) {
-    const { items: shown, hidden: more } = capWeighted(summary.failures, failureLines);
+    const [expanded, setExpanded] = useState(false);
+    const cut = capFailures(summary.failures);
+    const shown = expanded ? summary.failures : cut.failures;
     const counts = (
         <span data-test-counts className="flex items-center gap-2">
             {summary.unit === "package" ? <span className="text-muted">packages</span> : null}
@@ -173,8 +171,11 @@ function TestCard({
                 </div>
                 {f.message ? (
                     // hangs under the name: past FAIL's four characters and the gap
-                    <div className="mt-[3px] line-clamp-3 whitespace-pre-wrap break-words pl-[calc(4ch+10px)] text-secondary">
-                        {f.message}
+                    <div
+                        data-test-message
+                        className="mt-[3px] whitespace-pre-wrap break-words pl-[calc(4ch+10px)] text-secondary"
+                    >
+                        {expanded ? f.message : capText(f.message, FAILURE_MESSAGE_LINES).text}
                     </div>
                 ) : null}
             </div>
@@ -184,37 +185,28 @@ function TestCard({
         <BashCardShell
             kind="test"
             label="Tests"
-            runner={summary.runner === "go" ? "go test" : "vitest"}
+            runner={RUNNER_LABEL[summary.runner]}
             counts={() => counts}
             output={output}
             collapsed={collapsed}
-            footer={footer}
         >
             {rows.length > 0 ? (
                 <>
                     {rows}
-                    {more > 0 ? (
-                        <div data-more-lines className="px-3 py-1.5 text-[12px] text-muted">
-                            {`${more} more ${more === 1 ? "failure" : "failures"}`}
-                        </div>
-                    ) : null}
+                    <MoreLines
+                        hidden={cut.hidden}
+                        label={moreFailuresLabel(cut)}
+                        expanded={expanded}
+                        onToggle={() => setExpanded((v) => !v)}
+                        className="px-3 py-1.5"
+                    />
                 </>
             ) : undefined}
         </BashCardShell>
     );
 }
 
-function DiffCard({
-    files,
-    output,
-    collapsed,
-    footer,
-}: {
-    files: EditFile[];
-    output: string;
-    collapsed?: boolean;
-    footer?: ReactNode;
-}) {
+function DiffCard({ files, output, collapsed }: { files: EditFile[]; output: string; collapsed?: boolean }) {
     const adds = files.reduce((n, f) => n + f.adds, 0);
     const dels = files.reduce((n, f) => n + f.dels, 0);
     // an open card's one file row already carries its counts
@@ -236,14 +228,7 @@ function DiffCard({
         </span>
     );
     return (
-        <BashCardShell
-            kind="git-diff"
-            label="git diff"
-            counts={counts}
-            output={output}
-            collapsed={collapsed}
-            footer={footer}
-        >
+        <BashCardShell kind="git-diff" label="git diff" counts={counts} output={output} collapsed={collapsed}>
             <ToolDetailBody detail={{ kind: "edit", files }} variant="inline" capped />
         </BashCardShell>
     );
@@ -259,16 +244,7 @@ function ImageCard({ images }: { images: ToolImage[] }) {
 }
 
 // collapsed: a test or diff card draws its header only until clicked; an image card is already small, so it ignores it.
-// footer: drawn inside a test or diff card's box, under its body
-export function ToolOutputRenderer({
-    action,
-    collapsed,
-    footer,
-}: {
-    action: AgentActionEntry;
-    collapsed?: boolean;
-    footer?: ReactNode;
-}) {
+export function ToolOutputRenderer({ action, collapsed }: { action: AgentActionEntry; collapsed?: boolean }) {
     const key = toolRendererKey(action);
     if (key === "image") {
         return <ImageCard images={action.images} />;
@@ -276,10 +252,10 @@ export function ToolOutputRenderer({
     const card = bashCard(action.detail);
     const output = action.detail?.kind === "bash" ? action.detail.output : "";
     if (card?.key === "test") {
-        return <TestCard summary={card.summary} output={output} collapsed={collapsed} footer={footer} />;
+        return <TestCard summary={card.summary} output={output} collapsed={collapsed} />;
     }
     if (card?.key === "git-diff") {
-        return <DiffCard files={card.files} output={output} collapsed={collapsed} footer={footer} />;
+        return <DiffCard files={card.files} output={output} collapsed={collapsed} />;
     }
     return null;
 }

@@ -282,8 +282,11 @@ describe("checkoutFacts", () => {
         });
     });
 
-    it("reads an agent's own edits as its own, however many agents share the checkout", () => {
-        expect(checkoutFacts({ git: git({ edits: true }), sharedBy: 3 }).chip).toEqual({
+    it.each([
+        ["an agent's own edits", { edits: true }],
+        ["a lead's run's changes", { run: true }],
+    ])("reads %s as its own, however many agents share the checkout", (_, own) => {
+        expect(checkoutFacts({ git: git(own), sharedBy: 3 }).chip).toEqual({
             count: "2 files",
             lines: { adds: 37, dels: 2 },
         });
@@ -303,6 +306,16 @@ describe("checkoutFacts", () => {
         });
         expect(facts.branch).toBe("landed on main · abc1234");
         expect(facts.chip).toBeNull();
+    });
+
+    it("counts what a landed lead's run landed, once the list is read from the landing", () => {
+        const facts = checkoutFacts({
+            git: git({ run: true }),
+            landed: { branch: "landed on main · abc1234" },
+            sharedBy: 1,
+        });
+        expect(facts.branch).toBe("landed on main · abc1234");
+        expect(facts.chip).toEqual({ count: "2 files", lines: { adds: 37, dels: 2 } });
     });
 
     it("reads an ended worker's recorded branch, with no worktree and no chip", () => {

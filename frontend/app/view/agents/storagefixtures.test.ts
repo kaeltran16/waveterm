@@ -15,7 +15,7 @@ describe("storage fixtures", () => {
     it("gives every row a unique id that does not move with the clock", () => {
         const a = storageScenarios(NOW).storage.items.map((it) => it.id);
         const b = storageScenarios(NOW + 86_400_000).storage.items.map((it) => it.id);
-        expect(a).toHaveLength(19);
+        expect(a).toHaveLength(21);
         expect(new Set(a).size).toBe(a.length);
         expect(b).toEqual(a);
     });

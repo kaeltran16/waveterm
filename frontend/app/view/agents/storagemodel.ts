@@ -51,10 +51,18 @@ const SECTIONS: { group: Group; title: string; meta: string }[] = [
     { group: "kept", title: "Kept on purpose", meta: "caches and history Arc reads" },
 ];
 
-// Left over lists run trees, then legacy trees, branches and Final outputs
-const LEFT_RANK: Record<string, number> = { runtree: 0, legacytree: 1, legacygroup: 1, branch: 2, finalout: 3 };
+// Left over lists run trees, then legacy trees, branches, Final outputs and old runs' transcripts
+const LEFT_RANK: Record<string, number> = {
+    runtree: 0,
+    legacytree: 1,
+    legacygroup: 1,
+    branch: 2,
+    finalout: 3,
+    runtranscripts: 4,
+};
 const GROUP_KINDS = new Set(["legacygroup", "finalout", "finalstores"]);
 const TREE_KINDS = new Set(["runtree", "legacytree"]);
+const RUN_TRANSCRIPTS = "runtranscripts";
 
 function plural(n: number, word: string, many = `${word}s`): string {
     return `${n} ${n === 1 ? word : many}`;
@@ -76,6 +84,11 @@ function shortKey(name: string): string {
 
 function shortBranch(branch: string): string {
     return branch.startsWith("wave/") ? `wave/${shortKey(branch.slice("wave/".length))}` : branch;
+}
+
+// a run-transcripts row's id is "runtranscripts:<run id prefix>"
+function runPrefix(it: StorageItem): string {
+    return it.id.slice(RUN_TRANSCRIPTS.length + 1);
 }
 
 function memberCount(it: StorageItem): number {
@@ -119,6 +132,10 @@ function shortPath(it: StorageItem): string {
             return `data\\final-shots (${it.count ?? 0})`;
         case "transcripts":
             return it.harness === "pi" ? ".pi" : ".claude\\projects";
+        case RUN_TRANSCRIPTS: {
+            const root = /\\\.pi(\\|$)/.test(it.path ?? "") ? ".pi" : ".claude\\projects";
+            return `${root}\\*-${runPrefix(it)}* (${memberCount(it)})`;
+        }
     }
     return name;
 }
@@ -167,6 +184,8 @@ function kindLine(it: StorageItem): string {
             return `Final screenshots of ${it.count ?? 0} runs · kept 30 days`;
         case "transcripts":
             return it.harness === "pi" ? "pi sessions and config" : "Claude Code session transcripts";
+        case RUN_TRANSCRIPTS:
+            return "agent transcripts of a finished run";
     }
     return it.kind;
 }
@@ -184,6 +203,8 @@ function owner(it: StorageItem): string {
             return "Final stage";
         case "transcripts":
             return it.harness === "pi" ? "pi" : "Claude Code";
+        case RUN_TRANSCRIPTS:
+            return runPrefix(it);
     }
     return "No run";
 }
@@ -214,6 +235,11 @@ function ownerMeta(it: StorageItem, now: number): string {
             return "swept at 30 days";
         case "transcripts":
             return "read by Usage and Sessions";
+        case RUN_TRANSCRIPTS:
+            if (!it.runid) {
+                return "no stored run · aged by last write";
+            }
+            break;
     }
     const parts = [it.projectname];
     if (it.kind === "legacygroup") {
@@ -239,6 +265,8 @@ function loses(it: StorageItem): string {
             return `The next Final on slot ${it.slot ?? 0} builds the app cold`;
         case "transcripts":
             return "Usage history and Sessions for those sessions";
+        case RUN_TRANSCRIPTS:
+            return "Its agent replay; Usage keeps its tokens";
         case "finalshots":
             return "Those runs’ Final steps stop opening their screenshots";
     }
@@ -277,6 +305,11 @@ function ageLabel(ms: number): string {
 }
 
 function idle(it: StorageItem, now: number): string {
+    if (it.kind === RUN_TRANSCRIPTS) {
+        // how long ago the run finished; an unknown run is aged by its last write
+        const at = it.runts || it.modts;
+        return at ? ageLabel(Math.max(0, now - at)) : NO_VALUE;
+    }
     if (it.kind === "transcripts" || it.kind === "finalshots" || !it.modts) {
         return NO_VALUE;
     }
@@ -383,6 +416,13 @@ function skipReason(it: StorageItem): string {
     return "its run or git state couldn’t be read.";
 }
 
+function transcriptsLine(folders: number, runs: number): string {
+    const what = `${plural(folders, "agent transcript folder")} of ${runs === 1 ? "a finished run" : "finished runs"}`;
+    return runs === 1
+        ? `${what}: that run loses its agent replay but keeps its Usage`
+        : `${what}: those runs lose their agent replay but keep their Usage`;
+}
+
 export function clearPlan(r: StorageReportData): {
     ids: string[];
     size: number;
@@ -399,10 +439,13 @@ export function clearPlan(r: StorageReportData): {
     const folders = count((it) => TREE_KINDS.has(it.kind), false) + count((it) => it.kind === "legacygroup", true);
     const branches = count((it) => it.kind === "branch", false);
     const outputs = count((it) => it.kind === "finalout", true);
+    const transcripts = count((it) => it.kind === RUN_TRANSCRIPTS, true);
+    const transcriptRuns = count((it) => it.kind === RUN_TRANSCRIPTS, false);
     const lines = [
         folders > 0 ? plural(folders, "empty run folder") : "",
         branches > 0 ? `${plural(branches, "wave branch", "wave branches")} whose commits are on other branches` : "",
         outputs > 0 ? `${plural(outputs, "output folder")} of Finals run by hand` : "",
+        transcripts > 0 ? transcriptsLine(transcripts, transcriptRuns) : "",
     ].filter(Boolean);
     const skipped = sorted("left", r.items ?? [])
         .filter((it) => it.skip && it.clearstate !== "cleared")

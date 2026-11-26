@@ -6,16 +6,13 @@
 // design, check and review cards make the same row.
 
 import { RBS_KIT } from "./scenarios-rendered-brainstorm.mjs";
-import { BS_Q4, bsFile, bsParts } from "./scenarios-shared.mjs";
+import { BS_Q4, BS_ROW_MAX_PX, bsFile, bsParts } from "./scenarios-shared.mjs";
 import { WBS_KIT } from "./scenarios-workspace-brainstorm-question.mjs";
 
 const NAME = "workspace-brainstorm-cards";
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
 const { polishWaitFor, polishNap, writeFile, waitCard, HOST, WAIT_MS, BS_POLL_WAIT_MS } = RBS_KIT;
 const { wbsScenario, tabOpens, store, SETTLE_MS } = WBS_KIT;
-// the header row measured 46px on one line and 69px wrapped to two when compact (2026-11-20); the full question card
-// is 369px and up
-const ROW_MAX_PX = 80;
 // under COMPACT_CARD_PX (600), so the card draws compact
 const NARROW_PX = 480;
 
@@ -82,9 +79,9 @@ const waitRow = (h, attr, on) =>
 // the header alone: Brainstorm and the whole topic lead it (compact, Open ends that line and the chip and title wrap
 // under it)
 const isRow = (c, topic, title) =>
-    c.card && c.row && c.height != null && c.height < ROW_MAX_PX && !c.body && c.answers === 0 &&
+    c.card && c.row && c.height != null && c.height < BS_ROW_MAX_PX && !c.body && c.answers === 0 &&
     c.head.startsWith(`Brainstorm ${topic} `) && c.subjectWhole && c.chip === "Needs your input" && c.title === title && c.open;
-const isFull = (c) => c.card && !c.row && c.height >= ROW_MAX_PX && c.answers === BS_Q4.options.length && c.open;
+const isFull = (c) => c.card && !c.row && c.height >= BS_ROW_MAX_PX && c.answers === BS_Q4.options.length && c.open;
 
 const Q = "data-rendered-bs-question";
 

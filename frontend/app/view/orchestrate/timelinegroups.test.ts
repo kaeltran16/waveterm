@@ -155,6 +155,10 @@ describe("snippetOf / eventDetail", () => {
             "commit f00dcafe · Verify left to the final stage"
         );
     });
+    it("says what a child asked and what it was answered", () => {
+        expect(snippetOf(ev(0, "child-ask", "t-1", { question: "which branch?" }))).toBe("which branch?");
+        expect(snippetOf(ev(0, "child-answered", "t-1", { answer: "main" }))).toBe("main");
+    });
     it("says the round of the final stage's end", () => {
         expect(snippetOf(ev(0, "final-ended", undefined, { round: 2, outcome: "passed" }))).toBe("round 2");
     });

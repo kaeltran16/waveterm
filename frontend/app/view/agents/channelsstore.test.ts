@@ -10,6 +10,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
     RpcApi: {
         GetChannelRunChangesCommand: (...a: any[]) => runChanges(...a),
         GetChannelMessagesCommand: (...a: any[]) => channelMessages(...a),
+        SetChannelReadCommand: async () => {},
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
@@ -26,7 +27,9 @@ import {
     activeChannelIdAtom,
     activeChannelMessagesAtom,
     activeChannelRunsAtom,
+    activeChannelRunsForAtom,
     loadActiveChannelStreams,
+    selectChannel,
 } from "./channelsstore";
 
 const run = (id: string, version: number, createdts: number) => ({ id, version, createdts }) as Run;
@@ -111,5 +114,22 @@ describe("loadActiveChannelStreams", () => {
 
         expect(globalStore.get(activeChannelRunsAtom)).toBe(held);
         expect(globalStore.get(activeChannelMessagesAtom)).toBe(heldMessages);
+    });
+});
+
+describe("selectChannel", () => {
+    // a cold load is the channel's whole run history, and opening a DAG waited on it
+    it("returns before the channel's runs arrive, and names the list's channel only once they do", async () => {
+        let arrive: (rtn: unknown) => void = () => {};
+        runChanges.mockReturnValue(new Promise((resolve) => (arrive = resolve)));
+        channelMessages.mockResolvedValue({ messages: [] });
+
+        await selectChannel("c-slow");
+
+        expect(globalStore.get(activeChannelIdAtom)).toBe("c-slow");
+        expect(globalStore.get(activeChannelRunsForAtom)).not.toBe("c-slow");
+        arrive({ runids: ["r1"], runs: [run("r1", 1, 10)] });
+        await vi.waitFor(() => expect(globalStore.get(activeChannelRunsForAtom)).toBe("c-slow"));
+        expect(globalStore.get(activeChannelRunsAtom)).toStrictEqual([run("r1", 1, 10)]);
     });
 });

@@ -675,3 +675,22 @@ func TestSessionTitlePreambleWithoutGoal(t *testing.T) {
 		t.Errorf("Goal: prefix not unwrapped: %q", got)
 	}
 }
+
+func TestIsRunPrompt(t *testing.T) {
+	const preamble = "Work by these principles:\n- Use worktree\nWhere a principle above conflicts with this run's contract below, the contract wins.\n\n"
+	for _, tc := range []struct {
+		name, raw string
+		want      bool
+	}{
+		{"lead after principles", preamble + RunLeadOpening + "r1. Plan: C:/p.md.", true},
+		{"worker with no preamble", RunWorkerOpening + "t-4 of this run's dag.\nThe plan is approved.", true},
+		{"goal lead, goal over two lines", preamble + "Goal: ship auth\nand its tests\n" + RunAskingLeadOpening + " Put every question", true},
+		{"user prompt naming a run", "why did the worker for task t-4 fail?", false},
+		{"user's Goal line", "Goal: ship auth\nWork carefully.", false},
+		{"quick run: its Goal follows other text", preamble + "You are running headless.\nGoal: ship auth\n" + RunAutonomousLeadOpening, false},
+	} {
+		if got := IsRunPrompt(tc.raw); got != tc.want {
+			t.Errorf("%s: IsRunPrompt = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

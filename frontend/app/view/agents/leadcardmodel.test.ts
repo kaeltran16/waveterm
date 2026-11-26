@@ -427,6 +427,12 @@ describe("buildLeadCard plan review row", () => {
         expect(accepted).toMatchObject({ label: "Plan review", tone: "muted", kind: "done", sub: "accepted by you" });
     });
 
+    it("folds an amended review as the lead's amendment, not as yours", () => {
+        const amended = buildLeadCard(input(reviewing({ state: "accepted", amended: true }))).done[0];
+        expect(amended).toMatchObject({ label: "Plan review", tone: "muted", kind: "done" });
+        expect(amended.sub).not.toBe("accepted by you");
+    });
+
     it("opens the round's newest reviewer: live in the roster, else ended", () => {
         const live = { id: "rev-tab", name: "rev", task: "", state: "working", runId: "pr-2" } as AgentVM;
         expect(buildLeadCard(input(reviewing(), [], { roster: [lead, live] })).rows[0].openId).toBe("rev-tab");

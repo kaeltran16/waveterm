@@ -4,11 +4,16 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { formatResults } from "./report.mjs";
 
 // A step this profile cannot run: no record holding a decision, no pi session focused. Neither a pass nor a
 // failure — report.mjs tallies it apart and exitCode ignores it. The detail must name what to seed, so a
 // skip stays a standing invitation to make the step real rather than a permanent shrug.
 export const skipStep = (step, detail) => ({ step, skip: true, detail });
+
+// a declared `flex-end` as getComputedStyle reads it: Chromium 158 (WebView2 158) reports justify-*/align-* `flex-end`
+// as `flow-end`, older builds as itself
+export const isFlexEnd = (v) => v === "flex-end" || v === "flow-end";
 
 // a channel's runs are their own rows: the getchannels reply is channel metadata, with no run list
 export async function channelRuns(h, channelId) {
@@ -455,11 +460,46 @@ export const seedFinalShots = (h, ctx, { final, pastfinals }) =>
 export const FST_CHECK = "node --stack-size=4000 node_modules/typescript/lib/tsc.js --noEmit";
 const FST_VERIFY = "node scripts/verify.mjs ./pkg/waveobj";
 const FST_COMMIT = "c0ffee5a".padEnd(40, "0");
+// round 1's Final failures: the engine's detail names them, and the output the step kept prints them with their details
+export const FST_FINAL_SCENARIO = "jarvis-peek";
+export const FST_FINAL_FAILURES = [
+    {
+        step: "4. the narrow panel stays bounded with a pinned header, no horizontal overflow, and an unclipped harness picker",
+        detail: '{"scrollWidth":468,"clientWidth":440,"pickerClipped":true}',
+    },
+    {
+        step: "5. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
+        detail: '{"expanded":true,"cursor":null,"focused":"BODY"}',
+    },
+];
 export const FST_DETAIL = [
     `Final \`${FINAL_SHOTS_CMD}\` failed (exit 1):`,
-    "FAIL jarvis-peek 4. the narrow panel stays bounded with a pinned header, no horizontal overflow, and an unclipped harness picker",
-    "FAIL jarvis-peek 5. attention expands the card and keyboard navigation moves the cursor then focuses the composer",
+    ...FST_FINAL_FAILURES.map((f) => `FAIL ${FST_FINAL_SCENARIO} ${f.step}`),
     "2 of 43 steps failed across 5 scenarios",
+].join("\n");
+// what round 1's Final and Verify kept (keepFinalStepOutput): the CDP runner's own report, and scripts/verify.mjs
+// naming the go test it runs before go's own lines
+export const FST_FINAL_KEPT = formatResults([
+    {
+        name: "final-shots",
+        steps: [
+            { step: "1. a finished Final keeps its screenshots under the run", ok: true },
+            { step: "2. the viewer opens on the latest round", ok: true, detail: '{"round":1}' },
+        ],
+    },
+    {
+        name: FST_FINAL_SCENARIO,
+        steps: [
+            { step: "1. the peek opens beside the run", ok: true },
+            ...FST_FINAL_FAILURES.map((f) => ({ ...f, ok: false })),
+            { step: "6. no scan report to cite", skip: true, detail: "seed a scan report" },
+        ],
+    },
+]);
+export const FST_VERIFY_KEPT = [
+    "verify: go test ./pkg/waveobj",
+    "ok  \tgithub.com/wavetermdev/waveterm/pkg/waveobj\t0.412s",
+    "",
 ].join("\n");
 export const FST_UNVERIFIED =
     "verifier: the narrow jarvis-peek panel could not be compared with its board, because the board has no artboard at 440px wide";
@@ -931,6 +971,9 @@ export const BS_PART = {
     },
 };
 export const BS_Q1 = { n: 1, text: "What is the moment you found yourself wishing this existed?", part: "intent" };
+// a brainstorm card folded to its one row is under this; the header row alone measured 46px on one line and 69px
+// wrapped to two when compact (2026-11-20), the full question card 369px and up
+export const BS_ROW_MAX_PX = 80;
 // the copy of the asking state is the canvas's (.superpowers/design/brainstorm-question-center): a question with
 // why, lettered answers with the agent's pick, and in the rail every option a past question offered
 export const BS_Q4_OPTIONS = [
@@ -994,6 +1037,28 @@ export const BS_HISTORY_Q4 = [
 ];
 export const BS_BUILDER_Q = "When a lag page fires, should it also hold the enrichment autoscaler at its current size, or only report?";
 export const BS_BUILDER_A = "Only report. Scaling stays a human call.";
+// the builder question's answers: the first is the agent's pick, each weighed with a pro and a con
+export const BS_BUILDER_OPTIONS = [
+    {
+        label: "Only report",
+        detail: "The page says what lagged and leaves the autoscaler alone.",
+        pick: true,
+        pros: ["No new write access to the autoscaler.", "A human decides every scaling change."],
+        cons: ["A stuck partition stays stuck until someone acts."],
+    },
+    {
+        label: "Hold the autoscaler at its current size",
+        detail: "The rule pins the enrichment group while the page is open.",
+        pros: ["Lag cannot trigger a scale-down mid-incident."],
+        cons: ["The rule needs write access to the autoscaler.", "A forgotten hold outlives the incident."],
+    },
+    {
+        label: "Scale up on the page",
+        detail: "The rule adds a replica per stuck partition.",
+        pros: ["Most lag clears without a human."],
+        cons: ["A rebalance storm scales the group for nothing."],
+    },
+];
 
 export const bsParts = (states, over = {}) =>
     Object.entries(states).map(([id, state]) => ({ id, state, ...BS_PART[id], ...(over[id] ?? {}) }));

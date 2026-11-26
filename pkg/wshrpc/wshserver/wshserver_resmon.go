@@ -25,6 +25,7 @@ const (
 	resMonRoleReviewer     = "Reviewer"
 	resMonRolePlanReviewer = "Plan reviewer"
 	resMonRoleVerifier     = "Verifier"
+	resMonRoleEndReviewer  = "End reviewer"
 )
 
 func (ws *WshServer) ResMonSnapshotCommand(ctx context.Context, data wshrpc.CommandResMonSnapshotData) (*wshrpc.ResMonSnapshotData, error) {
@@ -133,6 +134,8 @@ func resMonRole(link sessionRunLink) string {
 		return resMonRolePlanReviewer
 	case jarvis.UsageRole_Verifier:
 		return resMonRoleVerifier
+	case jarvis.UsageRole_EndReviewer:
+		return resMonRoleEndReviewer
 	case sessionRole_Worker:
 		if link.TaskId != "" {
 			return resMonTask(link.TaskId)

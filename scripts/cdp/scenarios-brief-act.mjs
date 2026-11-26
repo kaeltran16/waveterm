@@ -1867,6 +1867,32 @@ export const briefAct = {
         });
         await h.ev(`[...document.querySelectorAll("button")].find((b) => (b.textContent || "").trim() === "Cancel")?.click()`);
         await actFilter(h, "");
+
+        // 48. an orphaned worker's answer waits in the queue: kind word orphaned, its answer, and Acknowledge
+        await actFixture(h, "act");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="false"]')?.click()`);
+        await h.ev("new Promise((r) => setTimeout(r, 500))");
+        const orphan = await h.ev(`(() => {
+            const t = (el) => (el?.innerText || "").replace(/\\s+/g, " ").trim();
+            const row = [...document.querySelectorAll('[data-jarvis-brief-row="queue"]')].find((r) => t(r).includes("Parent ended"));
+            return {
+                summary: t(document.querySelector('[data-jarvis-brief-attention-summary]')?.parentElement),
+                row: t(row),
+                acts: [...(row?.querySelectorAll("[data-jarvis-queue-act]") ?? [])].map((b) => [b.dataset.jarvisQueueAct, t(b)]),
+            };
+        })()`);
+        await h.shot("cdp-shots/brief-act-48-orphan.png");
+        await h.ev(`document.querySelector('[data-jarvis-brief-attention-summary][aria-expanded="true"]')?.click()`);
+        await actFixture(h, null);
+        steps.push({
+            step: "48. an orphaned worker's row reads orphaned with its Parent ended answer and one Acknowledge button",
+            ok:
+                /1 orphaned/.test(orphan.summary) &&
+                /^orphaned /.test(orphan.row) &&
+                orphan.row.includes("Parent ended · Fixed the login redirect") &&
+                JSON.stringify(orphan.acts) === JSON.stringify([["ack-orphan", "Acknowledge"]]),
+            detail: JSON.stringify(orphan),
+        });
         return steps;
     },
     async teardown(h, ctx) {

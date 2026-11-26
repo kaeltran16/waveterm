@@ -30,7 +30,7 @@ export type QuestionRows = {
     state: QuestionRowsState;
     options: AnswerOption[];
     badge: (i: number) => string | null;
-    // the judge's ranking of a kept option, drawn in place of its detail
+    // the judge's ranking of a kept option, drawn beside its label
     note: (i: number) => string | null;
     work: JudgeWork | null;
 };

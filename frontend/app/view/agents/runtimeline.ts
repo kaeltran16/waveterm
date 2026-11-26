@@ -33,7 +33,7 @@ const KIND_TITLE: Record<string, string> = {
     "task-failed": "Task failed",
     "dag-cancelled": "DAG cancelled",
     "child-ask": "Child asked a question",
-    "child-answered": "Child answered",
+    "child-answered": "Question answered",
     "child-ask-cleared": "Question cleared",
     "task-merge-started": "Merge started",
     "task-merge-blocked": "Merge blocked",
@@ -149,6 +149,7 @@ function eventKindTitle(kind: string): string {
 const STAGE_ROLE_TITLE: Record<string, string> = {
     "plan-reviewer": "Plan reviewer started",
     verifier: "Final verifier started",
+    "end-reviewer": "End reviewer started",
 };
 
 // PLAN_REVIEW_LENS_TITLE names each plan reviewer by its lens: the one map the graph, timeline and tree read.
@@ -161,6 +162,7 @@ const PLAN_REVIEW_LENS_TITLE: Record<string, string> = {
     tests: "Tests and commands",
     final: "Final coverage",
     followup: "Round-2 follow-up",
+    light: "Light review",
 };
 
 export function planReviewLensTitle(lens: string): string {
@@ -173,6 +175,7 @@ const FINAL_STEP_TITLE: Record<string, string> = {
     check: "Final Check",
     verify: "Final Verify",
     final: "Final command",
+    review: "End review",
 };
 
 function finalStepOf(event: RunEvent): { step: string; ok: boolean } {
@@ -202,6 +205,9 @@ export function eventTitle(event: RunEvent): string {
         const d = detailOf<{ role?: string; lens?: string }>(event);
         const title = STAGE_ROLE_TITLE[d?.role ?? ""] ?? eventKindTitle(event.kind);
         return d?.lens ? `${title} · ${planReviewLensTitle(d.lens)}` : title;
+    }
+    if (event.kind === "review-overruled" && detailOf<{ by?: string }>(event)?.by === "human") {
+        return "You overruled the review";
     }
     if (event.kind === "final-step") {
         const { step, ok } = finalStepOf(event);
@@ -234,6 +240,7 @@ export function eventText(event: RunEvent): string {
         by?: string;
         note?: string;
         question?: string;
+        answer?: string;
         text?: string;
         held?: number;
         reason?: string;
@@ -249,6 +256,8 @@ export function eventText(event: RunEvent): string {
             return `${actor} skipped ${task}`;
         case "task-escalated":
             return [`${actor} escalated ${task}`, d?.model ? shortModel(d.model) : ""].filter(Boolean).join(" to ");
+        case "review-overruled":
+            return d?.by === "human" ? `you approved ${task} over its review` : defaultText(event, task);
         case "final-rerun":
             return "you reran the final stage";
         case "task-forwarded":
@@ -258,7 +267,7 @@ export function eventText(event: RunEvent): string {
         case "child-ask":
             return [`${task} asked`, d?.question].filter(Boolean).join(" · ");
         case "child-answered":
-            return `${task} answered`;
+            return [`${task} answered`, d?.answer].filter(Boolean).join(" · ");
         case "task-told":
             return [`you told ${task}`, d?.text?.replace(/\s+/g, " ")].filter(Boolean).join(" · ");
         case "task-lead-told":

@@ -103,7 +103,10 @@ const NO_FILES: GitChanges = { files: [], adds: 0, dels: 0 };
 
 // The edits range's anchors. An empty base has nothing to show: the read that follows is the plain one, kept
 // only for the folder's branch and repository facts, and its list is dropped.
-async function resolveEdits(cwd: string, transcriptPath: string): Promise<{ opts: LoadOpts; edits: EditsFacts }> {
+async function resolveEdits(
+    cwd: string,
+    transcriptPath: string
+): Promise<{ opts: LoadOpts; edits: EditsFacts; cwd: string }> {
     const r = await RpcApi.GitAgentEditsCommand(
         TabRpcClient,
         { cwd, transcriptpath: transcriptPath },
@@ -116,7 +119,8 @@ async function resolveEdits(cwd: string, transcriptPath: string): Promise<{ opts
         }
     }
     const edits = { flags, bashcalls: r.bashcalls ?? 0, reason: r.base ? "" : (r.reason ?? "") };
-    return { opts: r.base ? { ref: r.base, end: r.end } : {}, edits };
+    // edits in another checkout are read there: its commits and paths are that checkout's
+    return { opts: r.base ? { ref: r.base, end: r.end } : {}, edits, cwd: r.cwd || cwd };
 }
 
 // Core: fetch branch + changes for a resolved cwd. The caller owns the guard token (set before any
@@ -139,6 +143,7 @@ async function loadChangesForCwd(token: string, cwd: string | null, opts: LoadOp
             }
             opts = resolved.opts;
             edits = resolved.edits;
+            cwd = resolved.cwd;
         }
         const ch = await RpcApi.GitChangesCommand(TabRpcClient, {
             cwd,

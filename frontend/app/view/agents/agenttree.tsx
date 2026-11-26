@@ -55,7 +55,7 @@ import { brainstormAtom, brainstormWaitOf, shownBrainstormFile } from "./brainst
 import { isUnseen } from "./canvasmodel";
 import { canvasStateAtom } from "./canvasstore";
 import { nextSnap, type AgentSnap } from "./cockpitevents";
-import { CommitTick, useCommitDone } from "./committick";
+import { CommitTick, useCommitMark } from "./committick";
 import { loadRecentSessions, recentSessionsAtom } from "./recentsessionsstore";
 import { renamingRowAtom } from "./rowrenameatom";
 import { RuntimeMark } from "./runtimemark";
@@ -120,13 +120,14 @@ import {
     shellTasksByIdAtom,
 } from "./shelltasksstore";
 import { StatusDot } from "./statusdot";
-import { focusSubagentAtom, subagentsByIdAtom } from "./subagentsstore";
+import { focusSubagentAtom, openSubagent, subagentsByIdAtom } from "./subagentsstore";
 
 const SUB_COLOR: Record<SubagentState, string> = {
     working: "var(--color-accent)",
     success: "var(--color-success)",
     failure: "var(--color-error)",
     done: "var(--color-muted)",
+    stopped: "var(--color-muted)",
 };
 
 function startRowRename(tabId: string): void {
@@ -258,7 +259,8 @@ function PaneTag({ model, id }: { model: AgentsViewModel; id: string }) {
     const brainstorm = useAtomValue(brainstormAtom(id));
     const focused = useAtomValue(model.focusIdAtom) === id;
     const shown = usePaneShown(model, id);
-    // an agent with a brainstorm never shows its canvas: the brainstorm pane opens its boards
+    // the brainstorm's chip, in both views: in Terminal an agent with a brainstorm never shows its canvas (the
+    // brainstorm pane opens its boards), and in Rendered its Canvas tab sits beside the Brainstorm tab the chip opens
     if (brainstorm != null) {
         const showing = focused && shown === "brainstorm";
         return (
@@ -625,7 +627,7 @@ function ParentRow({
     const mark = lead != null ? leadMark(lead.run, agent) : null;
     const tasks = useAtomValue(shellTasksByIdAtom)[agent.id] ?? [];
     const standing = isStandingBy(agent.state, tasks, allSubs);
-    const commitDone = useCommitDone(agent.blockId, agent.state === "idle" && !standing);
+    const commit = useCommitMark(agent.blockId, agent.state === "idle" && !standing);
     const runDone = agentRunDone(agent, standing);
     // undefined until the user folds: open while a task runs, as the subagent fold defaults
     const [tasksOverride, setTasksOverride] = useState<boolean>();
@@ -737,8 +739,8 @@ function ParentRow({
                             title={agent.startError}
                             className="h-[7px] w-[7px] shrink-0 rounded-full bg-error"
                         />
-                    ) : runDone || commitDone ? (
-                        <CommitTick runDone={runDone} />
+                    ) : runDone || commit ? (
+                        <CommitTick runDone={runDone} commit={commit} />
                     ) : (
                         <StatusDot
                             state={agent.state}
@@ -828,12 +830,7 @@ function ParentRow({
                                         return;
                                     }
                                     globalStore.set(model.focusIdAtom, agent.id);
-                                    globalStore.set(focusSubagentAtom, {
-                                        parentId: agent.id,
-                                        agentId: s.id,
-                                        transcriptPath: s.transcriptPath,
-                                        label: s.type || "subagent",
-                                    });
+                                    openSubagent(agent.id, s);
                                 }}
                                 className={cn(
                                     "relative flex items-center gap-[9px] rounded-[9px] py-[6px] pr-[11px] hover:bg-surface-hover",
@@ -1083,6 +1080,7 @@ const STAGE_OUTCOME_DOT: Record<Exclude<StageOutcome, "passed">, string> = {
     unverified: "bg-warning",
     failed: "bg-error",
     accepted: "bg-muted",
+    amended: "bg-muted",
 };
 
 // a builder check's or judge's record, drawn as a stage's verdict: an answered one is its session's work done

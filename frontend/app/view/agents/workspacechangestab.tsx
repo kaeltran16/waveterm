@@ -1,7 +1,10 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { autoHeightTransition, MOTION } from "@/app/element/motiontokens";
+import { PaneReveal } from "@/app/element/panereveal";
 import { SkeletonLine } from "@/app/element/skeleton";
+import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { openInCode } from "@/app/view/code/codestore";
 import { cn, fireAndForget } from "@/util/util";
@@ -18,8 +21,9 @@ import {
     Pilcrow,
     RotateCw,
 } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
-import { agentDiffScope, openDiff } from "./agentdiffnav";
+import { motion, type Transition } from "motion/react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { openAgentDiff } from "./agentdiffnav";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { DIFF_NOTES, DiffHunks } from "./diffhunks";
@@ -31,10 +35,11 @@ import { SurfaceEmptyState } from "./surfacescaffold";
 import {
     anyFileOpen,
     changesLine,
-    changesSegments,
+    changesRows,
     changesView,
     hunkWalk,
     type ChangesFile,
+    type ChangesRow,
 } from "./workspacechangesmodel";
 import {
     changesAtAtom,
@@ -53,6 +58,12 @@ import {
 import type { WorkspaceTab } from "./workspacemodel";
 
 const LOADING_ROWS = 3;
+// the space under a list box or a card, before the next one
+const BOX_GAP_PX = 8;
+const SNAP: Transition = { duration: 0 };
+const COLLAPSE_ALL = "Collapse all";
+const EXPAND_ALL = "Expand all";
+const exitTransition: Transition = { duration: MOTION.durExit, ease: MOTION.easeFluid };
 
 // the header's buttons: borderless, one style
 const barBtn =
@@ -217,14 +228,21 @@ export function ChangesTab({
                         className={cn(barBtn, "gap-[5px] px-[7px] text-[11px] font-semibold")}
                     >
                         {anyOpen ? <ChevronsDownUp size={13} aria-hidden /> : <ChevronsUpDown size={13} aria-hidden />}
-                        <span>{anyOpen ? "Collapse all" : "Expand all"}</span>
+                        {/* the other label, stacked unseen as a pseudo element, holds the wider width, so the buttons
+                        beside it stay put as it flips; a pseudo element stays out of the button's text */}
+                        <span
+                            data-sizer={anyOpen ? EXPAND_ALL : COLLAPSE_ALL}
+                            className="grid after:invisible after:col-start-1 after:row-start-1 after:content-[attr(data-sizer)]"
+                        >
+                            <span className="col-start-1 row-start-1">{anyOpen ? COLLAPSE_ALL : EXPAND_ALL}</span>
+                        </span>
                     </button>
                 ) : null}
                 <span className="mx-[6px] h-[16px] w-px flex-none bg-edge-mid" />
                 <button
                     type="button"
                     data-workspace-open-diff
-                    onClick={() => openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent))}
+                    onClick={() => openAgentDiff(model, agent)}
                     className={cn(barBtn, "gap-[3px] px-[6px] text-[11px] font-semibold text-accent-soft")}
                 >
                     Open on Diff
@@ -234,7 +252,8 @@ export function ChangesTab({
             <div
                 ref={scrollRef}
                 data-workspace-changes-scroll
-                className="min-h-0 flex-1 overflow-y-auto bg-surface-code pb-[16px]"
+                // the gutter is kept, so the scrollbar an expand brings does not narrow every row
+                className="min-h-0 flex-1 overflow-y-auto bg-surface-code pb-[16px] [scrollbar-gutter:stable]"
             >
                 {failure != null ? (
                     <div
@@ -287,57 +306,69 @@ export function ChangesTab({
                                     <span className="flex-none text-ink-faint">{g.count}</span>
                                 </button>
                             ) : null}
-                            {changesSegments(g.files, openState).map((seg) =>
-                                seg.kind === "list" ? (
-                                    <div
-                                        key={`list:${seg.files[0].change.path}`}
-                                        data-changes-list
-                                        className="mx-[8px] mb-[8px] overflow-clip rounded-[8px] border border-border bg-surface"
-                                    >
-                                        {seg.files.map((f, i) => (
-                                            <div
-                                                key={f.change.path}
-                                                data-changes-file={f.change.path}
-                                                // a jump lands the row under the 32px folder label that sticks over it
-                                                className={cn(
-                                                    "flex items-center gap-[4px] pr-[6px]",
-                                                    foldered && "scroll-mt-[32px]",
-                                                    i > 0 && "border-t border-edge-faint"
-                                                )}
-                                            >
-                                                {head(f, false)}
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <div
-                                        key={seg.file.change.path}
-                                        data-changes-file={seg.file.change.path}
-                                        data-changes-open
-                                        // clip, not hidden: a hidden overflow would make the card the header's sticky
-                                        // container. A jump lands the card under the 32px folder label that sticks over it.
-                                        className={cn(
-                                            "mx-[8px] mb-[8px] overflow-clip rounded-[8px] border border-border",
-                                            foldered && "scroll-mt-[32px]"
-                                        )}
-                                    >
-                                        <div
-                                            className={cn(
-                                                "sticky z-[2] flex h-[34px] items-center gap-[4px] bg-surface pr-[6px]",
-                                                foldered ? "top-[32px]" : "top-0"
-                                            )}
-                                        >
-                                            {head(seg.file, true)}
-                                        </div>
-                                        <FileBody f={seg.file} foldered={foldered} failed={failure != null} />
-                                    </div>
-                                )
-                            )}
+                            {changesRows(g.files, openState).map((row) => (
+                                <FileRow
+                                    key={row.file.change.path}
+                                    row={row}
+                                    foldered={foldered}
+                                    head={head(row.file, row.open)}
+                                    failed={failure != null}
+                                />
+                            ))}
                         </div>
                     );
                 })}
             </div>
         </div>
+    );
+}
+
+// one file, a row of its run's list box (closed) or a card of its own (open). A run is drawn by its rows' edges, not
+// by a wrapper, so a toggle keeps the row mounted: its body reveals and the gap a card opens grows with it
+function FileRow({
+    row,
+    foldered,
+    head,
+    failed,
+}: {
+    row: ChangesRow;
+    foldered: boolean;
+    head: ReactNode;
+    failed: boolean;
+}) {
+    const reduce = useAtomValue(atoms.prefersReducedMotionAtom);
+    const { file, open, runStart, runEnd } = row;
+    // the gap opens as a card's body arrives and closes as one leaves, each at the body's own timing
+    const gapTransition = reduce ? SNAP : runEnd ? autoHeightTransition : exitTransition;
+    return (
+        <motion.div
+            data-changes-file={file.change.path}
+            data-changes-open={open ? "" : undefined}
+            data-changes-run-start={runStart ? "" : undefined}
+            initial={false}
+            animate={{ marginBottom: runEnd ? BOX_GAP_PX : 0 }}
+            transition={gapTransition}
+            // clip, not hidden: a hidden overflow would make the row the header's sticky container. A jump lands the
+            // row under the 32px folder label that sticks over it.
+            className={cn(
+                "mx-[8px] overflow-clip border-x border-border",
+                runStart ? "rounded-t-[8px] border-t" : "border-t border-t-edge-faint",
+                runEnd && "rounded-b-[8px] border-b",
+                foldered && "scroll-mt-[32px]"
+            )}
+        >
+            <div
+                className={cn(
+                    "sticky z-[2] flex h-[34px] items-center gap-[4px] bg-surface pr-[6px]",
+                    foldered ? "top-[32px]" : "top-0"
+                )}
+            >
+                {head}
+            </div>
+            <PaneReveal open={open}>
+                <FileBody f={file} foldered={foldered} failed={failed} />
+            </PaneReveal>
+        </motion.div>
     );
 }
 

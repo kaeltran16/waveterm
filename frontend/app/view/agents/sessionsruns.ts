@@ -15,7 +15,7 @@ import type { LiveSession } from "./sessionsarchivestore";
 export const LEAD_MEMBER = "lead";
 
 // the sessions that judge the whole dag, in the order they run; each is its own member, keyed by its role
-const STAGE_ROLES = ["plan-reviewer", "verifier"];
+const STAGE_ROLES = ["plan-reviewer", "end-reviewer", "verifier"];
 
 export interface RunSessions {
     runId: string;
@@ -244,18 +244,25 @@ const STAGE_VERDICTS: Record<string, Status> = {
     failed: { key: "failed", text: "failed" },
     // the review failed and the lead went ahead anyway
     accepted: { key: "muted", text: "accepted by you" },
+    // the light review failed and the lead amended the plan
+    amended: { key: "muted", text: "amended by the lead" },
     unverified: { key: "muted", text: "unverified" },
+    // an end review lost twice
+    lost: { key: "failed", text: "failed" },
 };
 
 // stageStatus reads the dag's current round of a stage: the round its newest session judged. A plan reviewer of
-// that round reads its own verdict, since one lens can pass in a round another failed, unless the human accepted
-// the review: that outranks any reviewer's failed verdict.
+// that round reads its own verdict, since one lens can pass in a round another failed, unless the review was
+// accepted: that outranks any reviewer's failed verdict. The end reviewer reads the stage's end review.
 function stageStatus(role: string, session: LiveSession | undefined, dag: TaskGroup | undefined): Status {
     if (session?.live) {
         return { key: "review", text: role === "verifier" ? "verifying" : "reviewing" };
     }
     if (role === "plan-reviewer" && dag?.planreview?.state === "accepted") {
-        return STAGE_VERDICTS.accepted;
+        return dag.planreview.amended ? STAGE_VERDICTS.amended : STAGE_VERDICTS.accepted;
+    }
+    if (role === "end-reviewer") {
+        return STAGE_VERDICTS[dag?.final?.endreview?.state] ?? { key: "done", text: "done" };
     }
     const verdict =
         role === "plan-reviewer" ? planReviewerOf(dag?.planreview, session?.stagerunid)?.verdict : undefined;

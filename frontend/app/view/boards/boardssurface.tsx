@@ -6,8 +6,9 @@
 // project's boards (every project's under "All projects"), and its agent chip picks the board's agent. The open
 // board's state and actions are boardview.tsx's.
 // An ask form (new, about a thing, a handoff, a briefing) takes the talk column's place until it asks. The project
-// is the one a router landing named, else the cockpit's current one; a switcher change made while Boards shows
-// replaces a landing's. What must outlive a surface switch lives in boardstore.ts.
+// is the one a router landing named, else the cockpit's current one, else under "All projects" the one with the latest
+// board; a switcher change made while Boards shows replaces a landing's. What must outlive a surface switch lives in
+// boardstore.ts.
 
 import { palettePickChannel } from "@/app/cockpit/palette-data";
 import { globalStore } from "@/app/store/jotaiStore";
@@ -36,6 +37,7 @@ import {
     setBoardFormEscape,
     setOpenBoard,
 } from "./boardstore";
+import { BoardStrip } from "./boardstrip";
 import { BoardSwitcher } from "./boardswitcher";
 import { BoardTalk } from "./boardtalk";
 import {
@@ -45,6 +47,7 @@ import {
     agentChoices,
     askBox,
     boardFacts,
+    latestBoardChannel,
     switcherGroups,
     talkItems,
     type SwitcherList,
@@ -62,12 +65,56 @@ import {
 
 const PROJECT_ABOUT: BoardSource = { kind: "project", ref: "", title: "" };
 
-// the explicit project a landing named, else the switcher's project, else the active or only one
-function useBoardsChannel(model: AgentsViewModel): Channel | null {
+// "All projects" with no project to follow opens the project whose board was active last, picked once per mount so a
+// board drawn in another project does not pull the view away; undefined while the lists load
+function useLatestBoardChannel(enabled: boolean): Channel | null | undefined {
+    const rows = rowsWithChannel(useAtomValue(projectListAtom));
+    const key = rows.map((r) => r.channel.oid).join(",");
+    const [picked, setPicked] = useState<{ key: string; id: string | null } | null>(null);
+    const pickedId = picked?.key === key ? picked.id : undefined;
+    useEffect(() => {
+        if (!enabled || pickedId !== undefined) {
+            return;
+        }
+        let live = true;
+        const ids = rows.map((r) => r.channel.oid);
+        const unread = ids.filter((id) => globalStore.get(boardListAtom(id)) == null);
+        Promise.allSettled(unread.map((id) => loadBoardList(id))).then((results) => {
+            results.forEach((r, i) => {
+                if (r.status === "rejected") {
+                    console.warn("boards: listing failed", unread[i], r.reason);
+                }
+            });
+            if (live) {
+                const lists = ids.map((id) => ({
+                    channelId: id,
+                    boards: globalStore.get(boardListAtom(id))?.boards ?? [],
+                }));
+                setPicked({ key, id: latestBoardChannel(lists) });
+            }
+        });
+        return () => {
+            live = false;
+        };
+    }, [enabled, pickedId, key]);
+    if (pickedId === undefined) {
+        return undefined;
+    }
+    return rows.find((r) => r.channel.oid === pickedId)?.channel ?? null;
+}
+
+// the explicit project a landing named, else the switcher's project, else the active or only one, else under "All
+// projects" the one with the latest board; undefined while that is being found
+function useBoardsChannel(model: AgentsViewModel): Channel | null | undefined {
     const explicit = useAtomValue(boardsChannelAtom);
     const filter = useAtomValue(model.projectFilterAtom);
     const rows = useAtomValue(projectListAtom);
     const active = useAtomValue(activeChannelAtom);
+    const followed =
+        explicit == null
+            ? (rows.find((r) => r.name === filter)?.channel ?? palettePickChannel(active, rows, null))
+            : null;
+    const latest = useLatestBoardChannel(explicit == null && followed == null && filter === "all");
     // starts at the value Boards arrives with, so only a change made while Boards shows unpins a landing's project;
     // "All projects" names nothing to follow
     const prevFilterRef = useRef(filter);
@@ -81,7 +128,7 @@ function useBoardsChannel(model: AgentsViewModel): Channel | null {
     if (explicit != null) {
         return rows.find((r) => r.channel?.oid === explicit)?.channel ?? ({ oid: explicit, name: "" } as Channel);
     }
-    return rows.find((r) => r.name === filter)?.channel ?? palettePickChannel(active, rows, null);
+    return followed ?? (filter === "all" ? latest : null);
 }
 
 // the switcher's lists: every project's under "All projects", else the open project's alone
@@ -234,12 +281,9 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
         setOpenBoard(channelId, info.id);
     };
 
-    // a tied board opens where its agent is (the router decides); any other stays on this surface
+    // a pick here stays here, tied or not; the palette and the agent's own opens go through the router
     const pickBoard = (ch: string, id: string) => {
-        const picked = switcherLists.find((l) => l.channelId === ch)?.boards.find((b) => b.id === id);
-        if (picked?.agenttabid) {
-            openBoardTarget(model, ch, id);
-        } else if (ch === channelId) {
+        if (ch === channelId) {
             setOpenBoard(ch, id);
         } else {
             selectBoard(ch, id);
@@ -249,7 +293,9 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
     let header: ReactNode = <span className="text-[12px] text-muted">{channelId != null ? project : null}</span>;
     let actions: ReactNode = null;
     let body: ReactNode;
-    if (channelId == null) {
+    if (channel === undefined) {
+        body = null;
+    } else if (channelId == null) {
         body = (
             <SurfaceEmptyState
                 glyph={<Shapes size={28} strokeWidth={1.8} aria-hidden className="mb-[18px] text-ink-faint" />}
@@ -294,7 +340,7 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
                         {loadError ? (
                             "won't open"
                         ) : shapesNow != null ? (
-                            <Facts text={boardFacts(board, shapesNow, now)} />
+                            <Facts text={boardFacts(board, shapesNow, now, view.drawings)} />
                         ) : null}
                     </span>
                     {talk != null ? (
@@ -338,7 +384,7 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
                 <BoardTalk
                     about={aboutTitle(talk.about, project)}
                     items={talkItems(talk, now, "surface")}
-                    ask={askBox(talk, view.selection.label, view.asking, !!loadError)}
+                    ask={askBox(talk, view.selection.label, view.asking, !!loadError, view.editing)}
                     shownTurnId={view.shownTurnId}
                     onAsk={view.onAsk}
                     onShow={view.onShow}
@@ -359,35 +405,38 @@ export function BoardsSurface({ model }: { model: AgentsViewModel }) {
         body = (
             <div className="flex min-h-0 flex-1">
                 {column}
-                <section
-                    aria-label={board != null && showCanvas ? `Board: ${board.name}` : "Board"}
-                    className="relative min-w-0 flex-1 overflow-hidden bg-background"
-                >
-                    {!showCanvas ? (
-                        req != null ? (
-                            <div
-                                data-board-canvas-waiting
-                                className="absolute inset-0 flex items-center justify-center"
-                            >
-                                <span className="text-[13px] text-muted">The drawer draws here once you ask.</span>
-                            </div>
-                        ) : null
-                    ) : loadError ? (
-                        <LoadError board={board} reason={loadError} onRetry={onRetryBoard} />
-                    ) : (
-                        <LazyBoardCanvas
-                            key={`${board.id}:${view.attempt}`}
-                            channelId={channelId}
-                            boardId={board.id}
-                            controlRef={controlRef}
-                            onLoaded={view.onScene}
-                            onScene={view.onScene}
-                            onError={view.onCanvasError}
-                            onSelection={view.onSelection}
-                        />
-                    )}
-                    {showCanvas && !loadError && req == null && shapesNow === 0 ? <EmptyBoard /> : null}
-                </section>
+                <div className="flex min-w-0 flex-1 flex-col">
+                    {showCanvas && !loadError ? <BoardStrip boardId={board.id} onPick={view.onPickDrawing} /> : null}
+                    <section
+                        aria-label={board != null && showCanvas ? `Board: ${board.name}` : "Board"}
+                        className="relative min-h-0 flex-1 overflow-hidden bg-background"
+                    >
+                        {!showCanvas ? (
+                            req != null ? (
+                                <div
+                                    data-board-canvas-waiting
+                                    className="absolute inset-0 flex items-center justify-center"
+                                >
+                                    <span className="text-[13px] text-muted">The drawer draws here once you ask.</span>
+                                </div>
+                            ) : null
+                        ) : loadError ? (
+                            <LoadError board={board} reason={loadError} onRetry={onRetryBoard} />
+                        ) : (
+                            <LazyBoardCanvas
+                                key={`${board.id}:${view.attempt}`}
+                                channelId={channelId}
+                                boardId={board.id}
+                                controlRef={controlRef}
+                                onLoaded={view.onScene}
+                                onScene={view.onScene}
+                                onError={view.onCanvasError}
+                                onSelection={view.onSelection}
+                            />
+                        )}
+                        {showCanvas && !loadError && req == null && shapesNow === 0 ? <EmptyBoard /> : null}
+                    </section>
+                </div>
             </div>
         );
     }
@@ -506,7 +555,7 @@ function EmptyBoard() {
                 <Shapes size={28} strokeWidth={1.8} aria-hidden className="text-ink-faint" />
                 <span className="text-[15px] font-semibold text-secondary">Nothing on this board yet</span>
                 <span className="text-[13px] leading-[1.6] text-muted">
-                    Draw on it with the tools above, or ask the drawer on the left.
+                    Press Edit to draw on it, or ask the drawer on the left.
                 </span>
             </div>
         </div>

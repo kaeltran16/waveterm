@@ -31,7 +31,13 @@ import * as WOS from "@/app/store/wos";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { ambientProviderAtom, ensureAmbient } from "@/app/view/agents/ambientstore";
-import { activeChannelAtom, activeChannelRunsAtom, channelsAtom, runAtom } from "@/app/view/agents/channelsstore";
+import {
+    activeChannelAtom,
+    activeChannelRunsAtom,
+    activeChannelRunsForAtom,
+    channelsAtom,
+    runAtom,
+} from "@/app/view/agents/channelsstore";
 import { harnessPreferenceAtom } from "@/app/view/agents/harnessstore";
 import { channelProjectLabel } from "@/app/view/agents/projectlabel";
 import { projectsAtom } from "@/app/view/agents/projectsstore";
@@ -333,8 +339,8 @@ export function BriefSheet({ model }: { model: AgentsViewModel }) {
 
     // memoized because the latch below has it in a dep array: sheetFace builds a fresh object each call,
     // so an unmemoized face would refire the latch every render and setState its way into a loop
-    const channelId = channel?.oid ?? null;
-    const face = useMemo(() => sheetFace(subject, run, channelId), [subject, run, channelId]);
+    const runsChannelId = useAtomValue(activeChannelRunsForAtom) ?? null;
+    const face = useMemo(() => sheetFace(subject, run, runsChannelId), [subject, run, runsChannelId]);
     const subjectId = subject?.id ?? null;
     const bandOpen = subjectId != null ? (bandsOpen[subjectId] ?? false) : false;
     const tags = run != null ? ambient.tagsFor({ oref: "run:" + run.id }) : [];

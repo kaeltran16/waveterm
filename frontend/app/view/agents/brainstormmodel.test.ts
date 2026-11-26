@@ -11,8 +11,6 @@ import {
     answeredQuestions,
     approveBlocker,
     asksUser,
-    boardPicks,
-    boardTabLabels,
     bodyBeyondGist,
     brainstormAttention,
     brainstormCounts,
@@ -30,6 +28,7 @@ import {
     checkRailLine,
     checkReview,
     checkSpan,
+    checkSummaryLine,
     checkUnder,
     clockText,
     compactedSummary,
@@ -1111,6 +1110,35 @@ describe("question options", () => {
         expect(r.ok && r.file.history[0].options).toEqual(opts);
     });
 
+    it("drop from the parts the mockups only a passed-over option showed, once an answer picks", () => {
+        const directions = [
+            { label: "Cards", detail: "", boards: ["Cards.dc.html", "Shared.dc.html"], spikes: ["spike/cards.html"] },
+            { label: "List", detail: "", boards: ["List.dc.html", "Shared.dc.html"], spikes: ["spike/list.html"] },
+        ];
+        const part = {
+            id: "a",
+            title: "A",
+            state: "yours",
+            body: "x",
+            boards: ["Cards.dc.html", "List.dc.html", "Shared.dc.html", "Every.dc.html"],
+            spikes: ["spike/cards.html", "spike/list.html"],
+        };
+        const parsed = (h: Record<string, unknown>) => {
+            const r = parseBrainstorm(
+                raw({
+                    parts: [part],
+                    history: [{ kind: "question", n: 1, q: "q", a: "a", into: [], options: directions, ...h }],
+                })
+            );
+            return r.ok ? r.file.parts[0] : null;
+        };
+        expect(parsed({ picked: 0 })).toMatchObject({
+            boards: ["Cards.dc.html", "Shared.dc.html", "Every.dc.html"],
+            spikes: ["spike/cards.html"],
+        });
+        expect(parsed({})).toMatchObject({ boards: part.boards, spikes: part.spikes });
+    });
+
     it("number the options from 1", () => {
         expect([0, 1, 2, 3].map(optionNumber)).toEqual(["1", "2", "3", "4"]);
     });
@@ -1953,6 +1981,37 @@ describe("check rail lines", () => {
         );
         expect(decided.answered).toBe(0);
     });
+
+    const qs = (n: number, answered: number) =>
+        Array.from({ length: n }, (_, i) => ({ q: `q${i}`, ...(i < answered ? { a: "x" } : {}) }));
+    const calls = (n: number) => Array.from({ length: n }, (_, i) => ({ text: `c${i}` }));
+    const already = (n: number) => Array.from({ length: n }, (_, i) => `a${i}`);
+    it.each([
+        [1, 0, 0, 3, "A builder read the design: 4 questions, ", "1 for you", ", 3 already in the design"],
+        [
+            3,
+            1,
+            2,
+            3,
+            "A builder read the design: 8 questions, ",
+            "3 for you",
+            ", 2 the agent decided, 3 already in the design",
+        ],
+        [
+            1,
+            1,
+            0,
+            3,
+            "A builder read the design: 4 questions, ",
+            "1 for you, all answered",
+            ", 3 already in the design",
+        ],
+        [0, 0, 2, 0, "A builder read the design: 2 questions, ", "none for you", ", 2 the agent decided"],
+        [1, 0, 0, 0, "A builder read the design: 1 question, ", "1 for you", ""],
+    ])("checkSummaryLine: %i yours (%i answered), %i calls, %i already", (y, a, c, al, lead, yours, rest) => {
+        const f = file({ check: { yours: qs(y, a), calls: calls(c), answered: already(al) } });
+        expect(checkSummaryLine(f)).toEqual({ lead, yours, rest });
+    });
 });
 
 describe("summaries", () => {
@@ -2266,7 +2325,7 @@ describe("partBoards", () => {
     });
 });
 
-describe("questionBoardLayout and boardTabLabels", () => {
+describe("questionBoardLayout", () => {
     const BASE = "http://127.0.0.1:1234";
     const opt = (label: string, boards?: string[]) => ({ label, detail: "", ...(boards ? { boards } : {}) });
     const asked = (options: BrainstormQuestion["options"], partBoards: string[], onCanvas = partBoards, extra = {}) => {
@@ -2276,22 +2335,17 @@ describe("questionBoardLayout and boardTabLabels", () => {
             question: { n: 1, text: "Which layout?", part: "layout", options },
             ...extra,
         });
-        return { f, layout: questionBoardLayout(f, BASE, onCanvas), labels: boardTabLabels(f) };
+        return { f, layout: questionBoardLayout(f, BASE, onCanvas) };
     };
 
     it("one board for three answers, named by none, is shared", () => {
-        const { layout, labels } = asked([opt("A"), opt("B"), opt("C")], ["Page.dc.html"]);
+        const { layout } = asked([opt("A"), opt("B"), opt("C")], ["Page.dc.html"]);
         expect(layout).toEqual({ rows: [[], [], []], shared: ["Page.dc.html"] });
-        expect(labels).toEqual({ "Page.dc.html": "Every answer · Page" });
     });
 
     it("two boards on one answer both draw in its row, in its order", () => {
-        const { layout, labels } = asked(
-            [opt("A", ["Two.dc.html", "One.dc.html"]), opt("B")],
-            ["One.dc.html", "Two.dc.html"]
-        );
+        const { layout } = asked([opt("A", ["Two.dc.html", "One.dc.html"]), opt("B")], ["One.dc.html", "Two.dc.html"]);
         expect(layout).toEqual({ rows: [["Two.dc.html", "One.dc.html"], []], shared: [] });
-        expect(labels).toEqual({ "Two.dc.html": "1 · Two", "One.dc.html": "1 · One" });
     });
 
     it("an answer with no boards has an empty row", () => {
@@ -2309,28 +2363,25 @@ describe("questionBoardLayout and boardTabLabels", () => {
     });
 
     it("an old file with no boards on its options shares every part board", () => {
-        const { layout, labels } = asked([opt("A"), opt("B")], ["One.dc.html", "Two.dc.html"]);
+        const { layout } = asked([opt("A"), opt("B")], ["One.dc.html", "Two.dc.html"]);
         expect(layout).toEqual({ rows: [[], []], shared: ["One.dc.html", "Two.dc.html"] });
-        expect(labels).toEqual({ "One.dc.html": "Every answer · One", "Two.dc.html": "Every answer · Two" });
     });
 
-    it("a board two answers name draws in both rows and its tab lists both numbers", () => {
-        const { layout, labels } = asked(
+    it("a board two answers name draws in both rows", () => {
+        const { layout } = asked(
             [opt("A", ["Left-rail.dc.html"]), opt("B"), opt("C", ["Left-rail.dc.html"])],
             ["Left-rail.dc.html"]
         );
         expect(layout).toEqual({ rows: [["Left-rail.dc.html"], [], ["Left-rail.dc.html"]], shared: [] });
-        expect(labels).toEqual({ "Left-rail.dc.html": "1, 3 · Left-rail" });
     });
 
-    it("a board an answer names that is not on the part draws in its row, labeled, not shared", () => {
-        const { layout, labels } = asked(
+    it("a board an answer names that is not on the part draws in its row, not shared", () => {
+        const { layout } = asked(
             [opt("A", ["Extra.dc.html"]), opt("B")],
             ["Other.dc.html"],
             ["Extra.dc.html", "Other.dc.html"]
         );
         expect(layout).toEqual({ rows: [["Extra.dc.html"], []], shared: ["Other.dc.html"] });
-        expect(labels).toEqual({ "Extra.dc.html": "1 · Extra", "Other.dc.html": "Every answer · Other" });
     });
 
     it("a canvas.json not loaded yet draws no row thumbnail, the shared boards still draw, and nothing throws", () => {
@@ -2343,10 +2394,9 @@ describe("questionBoardLayout and boardTabLabels", () => {
         expect(layout?.rows).toEqual([["One.dc.html"]]);
     });
 
-    it("a question with no options shares the part's boards and has no labels", () => {
-        const { layout, labels } = asked(undefined, ["One.dc.html"]);
+    it("a question with no options shares the part's boards", () => {
+        const { layout } = asked(undefined, ["One.dc.html"]);
         expect(layout).toEqual({ rows: [], shared: ["One.dc.html"] });
-        expect(labels).toBeNull();
     });
 
     it("no layout without a question, a canvas, a served canvas, or anything to draw", () => {
@@ -2357,47 +2407,6 @@ describe("questionBoardLayout and boardTabLabels", () => {
         expect(asked([opt("A")], []).layout).toBeNull();
         expect(asked([opt("A", ["Gone.dc.html"])], [], []).layout).toBeNull();
         expect(asked([opt("A")], ["One.dc.html"]).layout).not.toBeNull();
-    });
-
-    it("no labels without a question", () => {
-        expect(boardTabLabels(file())).toBeNull();
-    });
-
-    describe("boardPicks", () => {
-        const shared = asked(
-            [opt("Rail", ["Left-rail.dc.html"]), opt("Strip"), opt("Both", ["Left-rail.dc.html", "Top.dc.html"])],
-            ["Left-rail.dc.html", "Top.dc.html", "Page.dc.html"]
-        ).f;
-
-        it("offers every answer that names the board, by its row, and none for a shared board", () => {
-            expect(boardPicks(shared, "Left-rail.dc.html", false)).toEqual([
-                { index: 0, label: "Rail" },
-                { index: 2, label: "Both" },
-            ]);
-            expect(boardPicks(shared, "Page.dc.html", false)).toEqual([]);
-        });
-
-        it("offers nothing while the agent writes or with no question", () => {
-            expect(boardPicks({ ...shared, working: "Writing up your answer." }, "Left-rail.dc.html", false)).toEqual(
-                []
-            );
-            expect(boardPicks({ ...shared, question: null }, "Left-rail.dc.html", false)).toEqual([]);
-        });
-
-        it("offers the approaches during the judge's wait, by name", () => {
-            const f = {
-                ...shared,
-                working: "The judge is weighing 2 approaches.",
-                question: {
-                    ...shared.question!,
-                    approaches: [
-                        { name: "Strip", description: "", facts: [] },
-                        { name: "Rail", description: "", facts: [], boards: ["Left-rail.dc.html"] },
-                    ],
-                },
-            };
-            expect(boardPicks(f, "Left-rail.dc.html", true)).toEqual([{ index: 1, label: "Rail" }]);
-        });
     });
 
     describe("while the judge weighs", () => {
@@ -2422,16 +2431,11 @@ describe("questionBoardLayout and boardTabLabels", () => {
                 },
             }).f;
 
-        it("each approach's boards draw in its row and its tab carries its number", () => {
+        it("each approach's boards draw in its row", () => {
             const f = weighing(["Main.dc.html", "Box.dc.html", "Page.dc.html"]);
             expect(questionBoardLayout(f, BASE, ["Main.dc.html", "Box.dc.html", "Page.dc.html"], true)).toEqual({
                 rows: [["Main.dc.html"], [], ["Box.dc.html"]],
                 shared: ["Page.dc.html"],
-            });
-            expect(boardTabLabels(f, true)).toEqual({
-                "Main.dc.html": "1 · Main",
-                "Box.dc.html": "3 · Box",
-                "Page.dc.html": "Every answer · Page",
             });
         });
 

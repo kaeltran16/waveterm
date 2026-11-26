@@ -33,17 +33,20 @@ func TestRecentSessionsKeepsOnlyResumableUserSessions(t *testing.T) {
 		return agentsessions.SessionInfo{ID: id, ProjectPath: dir, ResumeCommand: "claude --resume " + id}
 	}
 	// ids name the run role linkByRole gives them; "unlinked" is the user's own session
+	stray := session("unlinked", "C:/repo")
+	stray.RunAgent = true // a run's agent whose run is in another app's store
 	sessions := []agentsessions.SessionInfo{
 		session("worker", "C:/repo"),
 		session("final-verifier", "C:/repo"),
 		session("unlinked", "C:/gone/ba858902"),
 		session("lead", "C:/repo"),
+		stray,
 		session("unlinked", "C:/repo"),
 		session("unlinked", ""),
 	}
 	check := agentsessions.NewDirCheck(statGone)
 	got := recentIds(recentSessions(sessions, 5, check, linkByRole))
-	if got != "lead,unlinked" {
+	if got != "unlinked" {
 		t.Fatalf("recent keeps the user's sessions that can resume, got %s", got)
 	}
 }
@@ -53,11 +56,11 @@ func TestRecentSessionsFillsTheLimitPastSkippedOnes(t *testing.T) {
 	for range 20 {
 		sessions = append(sessions, agentsessions.SessionInfo{ID: "worker", ProjectPath: "C:/repo"})
 	}
-	for _, id := range []string{"lead", "unlinked", "lead"} {
+	for _, id := range []string{"unlinked", "lead", "unlinked", "unlinked"} {
 		sessions = append(sessions, agentsessions.SessionInfo{ID: id, ProjectPath: "C:/repo"})
 	}
 	check := agentsessions.NewDirCheck(statGone)
-	if got := recentIds(recentSessions(sessions, 2, check, linkByRole)); got != "lead,unlinked" {
+	if got := recentIds(recentSessions(sessions, 2, check, linkByRole)); got != "unlinked,unlinked" {
 		t.Fatalf("recent takes the newest 2 past the run's workers, got %s", got)
 	}
 }

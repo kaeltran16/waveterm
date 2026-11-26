@@ -9,7 +9,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { RpcApi } from "@/app/store/wshclientapi";
 import * as WOS from "@/app/store/wos";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
-import { activeChannelAtom, activeChannelRunsAtom, selectChannel } from "@/app/view/agents/channelsstore";
+import { activeChannelRunsAtom, activeChannelRunsForAtom, selectChannel } from "@/app/view/agents/channelsstore";
 import { resolveActiveRunId, isTerminal } from "@/app/view/agents/runmodel";
 import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
@@ -143,10 +143,9 @@ export const stageRunAtom: Atom<Run | null> = atom((get) => {
     if (subject == null || subject.kind !== "channel") {
         return null;
     }
-    const channel = get(activeChannelAtom);
-    // the runs list belongs to the *active* channel, so a subject that has not caught up to it yet would
-    // otherwise resolve a run out of the previous channel's list
-    if (channel == null || subject.id !== channel.oid) {
+    // the runs list belongs to the channel it was filled for, which trails the active channel while its load is in
+    // flight: resolving before then would pick a run out of the previous channel's list
+    if (get(activeChannelRunsForAtom) !== subject.id) {
         return null;
     }
     // a draft run is not a Run yet (the server requires a goal), so nothing should auto-resolve underneath it

@@ -10,7 +10,7 @@ import {
     anyFileOpen,
     changesGroups,
     changesLine,
-    changesSegments,
+    changesRows,
     changesView,
     hunkWalk,
     isCitedRow,
@@ -69,6 +69,10 @@ describe("the tab's summary line", () => {
 
     it("names the agent's edits when the list is only those", () => {
         expect(changesLine(repo([file("a.ts", 1)], { ref: "B", edits: true })).where).toBe("main, agent's edits");
+    });
+
+    it("names a lead's run when the list is the run's changes", () => {
+        expect(changesLine(repo([file("a.ts", 1)], { ref: "B", run: true })).where).toBe("main, run's changes");
     });
 
     it("leaves out a branch git did not name", () => {
@@ -212,9 +216,16 @@ describe("which files are open", () => {
 describe("a group's list boxes and cards", () => {
     const [root] = changesGroups([change("a.ts"), change("b.ts"), change("c.ts"), change("d.ts")], null, opts);
     const shape = (s: ChangesOpen) =>
-        changesSegments(root.files, s).map((seg) =>
-            seg.kind === "list" ? seg.files.map((f) => f.name) : `card ${seg.file.name}`
-        );
+        changesRows(root.files, s).reduce<(string | string[])[]>((boxes, r) => {
+            if (r.open) {
+                boxes.push(`card ${r.file.name}`);
+            } else if (r.runStart) {
+                boxes.push([r.file.name]);
+            } else {
+                (boxes.at(-1) as string[]).push(r.file.name);
+            }
+            return boxes;
+        }, []);
 
     it("runs every closed file together as one list box", () => {
         expect(shape(NONE_OPEN)).toEqual([["a.ts", "b.ts", "c.ts", "d.ts"]]);

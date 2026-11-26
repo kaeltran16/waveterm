@@ -24,8 +24,8 @@ import { useEffect, useState } from "react";
 import { dockButtonClass, EndFinalForm } from "./endfinalform";
 import {
     finalStageView,
+    KEPT_NOTE,
     outputTail,
-    stepHasOutput,
     type FinalRoundLine,
     type FinalStageView,
     type FinalStep,
@@ -68,8 +68,6 @@ const STATE_INK: Record<FinalTone, string> = {
     fail: "text-error",
     warn: "text-warning",
 };
-// a step cell's narrowest readable width: a narrow pane wraps its steps onto a second row rather than clip them
-const STEP_CELL_MIN_PX = 100;
 const LINK = "cursor-pointer font-mono text-[10.5px] font-semibold text-accent-soft hover:text-accent";
 
 // a passed step's mark is a check, drawn on when the step passes while on screen; the dot of any other tone
@@ -108,7 +106,7 @@ function StepText({ step }: { step: FinalStep }) {
 }
 
 // A running command's hold at the memory gate, shown where the step's command reads otherwise.
-function StepMemory({ memory, className }: { memory: string; className?: string }) {
+export function StepMemory({ memory, className }: { memory: string; className?: string }) {
     return (
         <span
             data-final-step-memory
@@ -156,18 +154,11 @@ export function useKeptOutput(kept: FinalStep["kept"]): KeptOutput {
     return out;
 }
 
-const KEPT_EMPTY: Record<LocalImageStatus, string> = {
-    loading: "loading the output...",
-    ok: "the step printed nothing",
-    missing: "no output kept: the step ran before Arc kept it, or it was swept",
-    error: "could not read the step's output",
-};
-
 // A step's kept output whole, or a line saying why there is none.
 export function FinalKeptOutput({ kept, className }: { kept: FinalStep["kept"]; className?: string }) {
     const out = useKeptOutput(kept);
     if (out.text.trim() === "") {
-        return <span className="font-mono text-[10.5px] text-muted">{KEPT_EMPTY[out.status]}</span>;
+        return <span className="font-mono text-[10.5px] text-muted">{KEPT_NOTE[out.status]}</span>;
     }
     return <FinalOutput output={out.text} className={className} />;
 }
@@ -176,6 +167,8 @@ export function FinalKeptOutput({ kept, className }: { kept: FinalStep["kept"]; 
 // state. A row whose step kept its output opens it beneath.
 export function FinalStepList({ steps, showCommand }: { steps: FinalStep[]; showCommand?: boolean }) {
     const [open, setOpen] = useState<FinalStepKey | null>(null);
+    // the label column fits "Verifier"; "End review" needs a wider one
+    const labelWidth = steps.some((s) => s.key === "review") ? "w-18" : "w-14";
     return (
         <div className="flex flex-col">
             {steps.map((step) => {
@@ -192,7 +185,7 @@ export function FinalStepList({ steps, showCommand }: { steps: FinalStep[]; show
                             className={cn("flex items-center gap-[9px] py-1.5", opens && "cursor-pointer")}
                         >
                             <StepMark tone={step.tone} />
-                            <StepLabel step={step} className={showCommand ? "w-14 flex-none" : undefined} />
+                            <StepLabel step={step} className={showCommand ? cn(labelWidth, "flex-none") : undefined} />
                             {step.memory ? (
                                 <StepMemory memory={step.memory} className="min-w-0 flex-1" />
                             ) : showCommand ? (
@@ -212,80 +205,6 @@ export function FinalStepList({ steps, showCommand }: { steps: FinalStep[]; show
                                 <FinalKeptOutput kept={step.kept} />
                             </div>
                         </PaneReveal>
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-// The pipeline: one bordered cell per step, the shown one accented, else the running one. showCommand adds each
-// step's command. With onPick, a step whose output can be opened is clickable, and so is the Verifier when
-// opensVerifier says its session can be.
-export function FinalStepCells({
-    steps,
-    showCommand,
-    shown,
-    onPick,
-    opensVerifier,
-}: {
-    steps: FinalStep[];
-    showCommand?: boolean;
-    shown?: FinalStepKey;
-    onPick?: (key: FinalStepKey) => void;
-    opensVerifier?: boolean;
-}) {
-    return (
-        <div
-            className="grid gap-2"
-            style={{ gridTemplateColumns: `repeat(auto-fit, minmax(${STEP_CELL_MIN_PX}px, 1fr))` }}
-        >
-            {steps.map((step) => {
-                const hasOutput = onPick != null && stepHasOutput(step);
-                const pickable = hasOutput || (onPick != null && opensVerifier === true && step.key === "verifier");
-                return (
-                    <div
-                        key={step.key}
-                        data-final-step={step.key}
-                        data-final-step-state={step.state}
-                        role={pickable ? "button" : undefined}
-                        aria-pressed={hasOutput ? step.key === shown : undefined}
-                        onClick={pickable ? () => onPick(step.key) : undefined}
-                        className={cn(
-                            "flex min-w-0 flex-col gap-1 rounded-[8px] border px-2.5 py-2",
-                            (shown ? step.key === shown : step.state === "running")
-                                ? "border-accent/50"
-                                : "border-edge-mid",
-                            step.state === "running" && "bg-lane",
-                            pickable && step.key !== shown && "cursor-pointer hover:border-edge-strong"
-                        )}
-                    >
-                        {showCommand ? (
-                            <>
-                                <span className="flex items-center gap-1.5">
-                                    <StepMark tone={step.tone} />
-                                    <StepLabel step={step} />
-                                    <span className="flex-1" />
-                                    <StepText step={step} />
-                                </span>
-                                {step.memory ? (
-                                    <StepMemory memory={step.memory} />
-                                ) : (
-                                    <span title={step.command} className="truncate font-mono text-[10.5px] text-muted">
-                                        {step.command}
-                                    </span>
-                                )}
-                            </>
-                        ) : (
-                            <>
-                                <span className="flex items-center gap-1.5">
-                                    <StepMark tone={step.tone} />
-                                    <StepLabel step={step} />
-                                </span>
-                                <StepText step={step} />
-                                {step.memory ? <StepMemory memory={step.memory} /> : null}
-                            </>
-                        )}
                     </div>
                 );
             })}
@@ -414,21 +333,7 @@ export function FinalOutcome({
                     {view.detail}
                 </div>
             ) : null}
-            {view.unverified.length > 0 ? (
-                <AutoHeight>
-                    <ul className="flex flex-col gap-1">
-                        {view.unverified.map((reason, i) => (
-                            <li
-                                key={i}
-                                className="flex items-baseline gap-[9px] text-[12px] leading-[1.5] text-secondary"
-                            >
-                                <span aria-hidden className="size-[7px] flex-none rounded-full bg-warning" />
-                                <span className="min-w-0 whitespace-pre-wrap break-words">{reason}</span>
-                            </li>
-                        ))}
-                    </ul>
-                </AutoHeight>
-            ) : null}
+            <FinalUnverified reasons={view.unverified} />
             {pastLabel != null && view.past.length > 0 ? (
                 <div className="flex flex-col">
                     <span className="pb-0.5 text-[11px] text-ink-mid">{pastLabel}</span>
@@ -438,6 +343,25 @@ export function FinalOutcome({
                 <FinalPastRounds past={view.past} group={group} />
             )}
         </div>
+    );
+}
+
+// Every unverified reason whole, the list following its height. Draws nothing with none.
+export function FinalUnverified({ reasons, className }: { reasons: string[]; className?: string }) {
+    if (reasons.length === 0) {
+        return null;
+    }
+    return (
+        <AutoHeight className={className}>
+            <ul className="flex flex-col gap-1">
+                {reasons.map((reason, i) => (
+                    <li key={i} className="flex items-baseline gap-[9px] text-[12px] leading-[1.5] text-secondary">
+                        <span aria-hidden className="size-[7px] flex-none rounded-full bg-warning" />
+                        <span className="min-w-0 whitespace-pre-wrap break-words">{reason}</span>
+                    </li>
+                ))}
+            </ul>
+        </AutoHeight>
     );
 }
 

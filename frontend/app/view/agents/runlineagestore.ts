@@ -26,6 +26,7 @@ import {
     isEndedWorkerId,
     lineageOf,
     runInfoOf,
+    runRoleOf,
     type Lineage,
     type RunInfo,
 } from "./runlineage";
@@ -112,6 +113,35 @@ export function runInfoAtom(runId: string): Atom<RunInfoRead> {
             return { run: info, loaded };
         });
         runInfoAtoms.set(runId, a);
+    }
+    return a;
+}
+
+// a lead's changes are its run's, which its workers made; merged counts the tasks merged into the run's tree so far,
+// so a reader knows when the run's changes grew
+export interface LeadRun {
+    run: Run;
+    merged: number;
+}
+
+const leadRunAtoms = new Map<string, Atom<LeadRun | undefined>>();
+
+// leadRunAtom is the run an agent leads, by the agent's runId; undefined when the agent is not its lead, or the run has
+// no base commit yet to read its changes from
+export function leadRunAtom(runId: string): Atom<LeadRun | undefined> {
+    let a = leadRunAtoms.get(runId);
+    if (a == null) {
+        a = atom((get) => {
+            const run = get(WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", runId)));
+            const dag = run?.dagoref
+                ? get(WOS.getWaveObjectAtom<TaskGroup>(WOS.makeORef("dag", run.dagoref)))
+                : undefined;
+            if (!run?.basecommit || runRoleOf(run, dag)?.kind !== "lead") {
+                return undefined;
+            }
+            return { run, merged: (dag?.tasks ?? []).filter((t) => t.merged).length };
+        });
+        leadRunAtoms.set(runId, a);
     }
     return a;
 }

@@ -63,6 +63,9 @@ func Decide(project, changeID, verdict string) (*wshrpc.MemHygieneProject, error
 			if err := entryUndo(st, c, now); err != nil {
 				return err
 			}
+			if err := undoRestoreShared(st); err != nil {
+				return err
+			}
 		case wshrpc.MemVerdict_Keep:
 			// an applied change's files stay applied, so keeping it would misstate what's on disk
 			if !Pending(*c) {
@@ -77,6 +80,7 @@ func Decide(project, changeID, verdict string) (*wshrpc.MemHygieneProject, error
 			c.Status, c.DecidedAt, c.ConflictFile = splitStatusOpen, 0, ""
 			return nil
 		}
+		pruneBatches(st)
 		return checkRemeasure(st)
 	})
 	if err != nil {
@@ -96,6 +100,13 @@ func entryApply(st *State, c *wshrpc.MemChange, now time.Time) error {
 	if c.Kind == splitKindSettings {
 		if n := OpenSharedChanges(st.Changes); n > 0 {
 			return fmt.Errorf("memory hygiene: review the %d changes from the shared memory before switching %s over", n, st.Project)
+		}
+		n, err := rowsNewer(st)
+		if err != nil {
+			return fmt.Errorf("memory hygiene: applying %q in %s: %w", c.Title, st.Project, err)
+		}
+		if n > 0 {
+			return fmt.Errorf("memory hygiene: %d memories were written to the shared memory since the check; check %s again before switching over", n, st.Project)
 		}
 	}
 	applyID, conflict, err := Apply(*c, entryBackupRoot(), now)
@@ -130,6 +141,10 @@ func entryUndo(st *State, c *wshrpc.MemChange, now time.Time) error {
 		return fmt.Errorf("memory hygiene: can't undo %q in %s: %s changed since it was applied", c.Title, st.Project, conflict)
 	}
 	c.Status, c.ApplyId, c.BackupUntil, c.DecidedAt = splitStatusOpen, "", 0, 0
+	if routineKind(c.Kind) {
+		// an open routine change would be re-applied by the next check, undoing this undo
+		c.Status, c.DecidedAt = checkStatusKept, now.UnixMilli()
+	}
 	if c.Kind == splitKindSettings {
 		st.FormerShared, st.SwitchedAt = "", 0
 	}
@@ -170,7 +185,12 @@ func entryRun(project string) {
 	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
 	defer cancel()
 	// runCheck has already recorded and logged a failure
-	_ = runCheck(ctx, project, claudeHomeFn())
+	if runCheck(ctx, project, claudeHomeFn()) != nil {
+		return
+	}
+	if err := autoApply(project); err != nil {
+		log.Printf("memhygiene: applying the routine changes of %s: %v\n", project, err)
+	}
 }
 
 func entryBackupRoot() string {

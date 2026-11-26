@@ -34,8 +34,8 @@ func SetSendInputForTest(fn func(blockId string, data []byte) error) func() {
 // AnswerHook runs after a delivered answer, whichever path delivered it — the cockpit panel, the
 // server-side Gatekeeper actuator, or the dag lead's `wsh jarvis dag answer`. All three claim through
 // DeliverAnswer, so hooking here is what stops them recording the ask lifecycle three different ways
-// (or, for two of them, not at all). Wired once at server startup; nil = no-op.
-var AnswerHook func(oref, askId string)
+// (or, for two of them, not at all). Wired once at server startup; nil = no-op. answer is AnswerText's.
+var AnswerHook func(oref, askId, answer string)
 
 // DeliverAnswer atomically claims the pending ask for oref, then injects its answers into the native
 // picker. It returns delivered=false with ErrNoPendingAsk when no ask is pending (already answered in the
@@ -56,9 +56,34 @@ func DeliverAnswer(oref, askid string, answers []baseds.AgentAnswerItem) (bool, 
 	}
 	delivered, err := injectAnswer(oref, pending, answers)
 	if delivered && AnswerHook != nil {
-		AnswerHook(oref, pending.AskId)
+		AnswerHook(oref, pending.AskId, AnswerText(pending.Questions, answers))
 	}
 	return delivered, err
+}
+
+// AnswerText reads answers as words for a timeline: each answer's text, else the labels it picked, one
+// answer per question joined by "; ". The waiter path never validates, so an index outside its options is skipped.
+func AnswerText(questions []baseds.AgentAskQuestion, answers []baseds.AgentAnswerItem) string {
+	parts := make([]string, 0, len(answers))
+	for i, a := range answers {
+		if a.Text != "" {
+			parts = append(parts, a.Text)
+			continue
+		}
+		if i >= len(questions) {
+			continue
+		}
+		labels := make([]string, 0, len(a.SelectedIndexes))
+		for _, idx := range a.SelectedIndexes {
+			if idx >= 0 && idx < len(questions[i].Options) {
+				labels = append(labels, questions[i].Options[idx].Label)
+			}
+		}
+		if len(labels) > 0 {
+			parts = append(parts, strings.Join(labels, ", "))
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 // injectAnswer delivers a claimed ask's answers, returning whether the agent actually received them.

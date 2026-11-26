@@ -13,6 +13,7 @@ import {
     barLine,
     boardFacts,
     elapsedText,
+    latestBoardChannel,
     SLOW_AFTER_MS,
     switcherGroups,
     switcherRows,
@@ -445,7 +446,7 @@ describe("about", () => {
 describe("askBox", () => {
     const placeholder = "Ask the board";
     it("puts a board that won't open before everything", () => {
-        expect(askBox(null, "wavesrv", true, true)).toEqual({
+        expect(askBox(null, "wavesrv", true, true, true)).toEqual({
             disabled: true,
             hint: "This board won't open, so the drawer can't answer on it",
             placeholder,
@@ -456,40 +457,46 @@ describe("askBox", () => {
 
     it("is disabled while busy, or while the talk has a turn in flight", () => {
         const hint = "You can ask once this answer lands";
-        expect(askBox(null, "wavesrv", true, false)).toEqual({
+        expect(askBox(null, "wavesrv", true, false, true)).toEqual({
             disabled: true,
             hint,
             placeholder,
             stoppable: false,
             selected: null,
         });
-        expect(askBox(talk([turn({ state: "answering" })]), null, false, false).hint).toBe(hint);
-        expect(askBox(talk([turn({ state: "waiting" })]), null, false, false).disabled).toBe(true);
+        expect(askBox(talk([turn({ state: "answering" })]), null, false, false, true).hint).toBe(hint);
+        expect(askBox(talk([turn({ state: "waiting" })]), null, false, false, true).disabled).toBe(true);
     });
 
     it("offers Stop only while a turn is answering", () => {
-        expect(askBox(talk([turn({ state: "answering" })]), null, false, false).stoppable).toBe(true);
-        expect(askBox(talk([turn({ state: "answering" })]), null, true, false).stoppable).toBe(true);
-        expect(askBox(talk([turn({ state: "waiting" })]), null, false, false).stoppable).toBe(false);
-        expect(askBox(talk([turn({ state: "stopped" })]), null, false, false).stoppable).toBe(false);
-        expect(askBox(talk([turn({ state: "answering" })]), null, false, true).stoppable).toBe(false);
+        expect(askBox(talk([turn({ state: "answering" })]), null, false, false, true).stoppable).toBe(true);
+        expect(askBox(talk([turn({ state: "answering" })]), null, true, false, true).stoppable).toBe(true);
+        expect(askBox(talk([turn({ state: "waiting" })]), null, false, false, true).stoppable).toBe(false);
+        expect(askBox(talk([turn({ state: "stopped" })]), null, false, false, true).stoppable).toBe(false);
+        expect(askBox(talk([turn({ state: "answering" })]), null, false, true, true).stoppable).toBe(false);
     });
 
     it("names the selection, or asks for one", () => {
-        expect(askBox(talk([turn({})]), "wavesrv", false, false)).toEqual({
+        expect(askBox(talk([turn({})]), "wavesrv", false, false, true)).toEqual({
             disabled: false,
             hint: "Selected wavesrv",
             placeholder,
             stoppable: false,
             selected: "wavesrv",
         });
-        expect(askBox(null, null, false, false)).toEqual({
+        expect(askBox(null, null, false, false, true)).toEqual({
             disabled: false,
             hint: "Select shapes to ask about them",
             placeholder,
             stoppable: false,
             selected: null,
         });
+    });
+
+    it("points to Edit and ignores the selection in view mode", () => {
+        const viewing = { disabled: false, hint: "Press Edit to ask about shapes", placeholder, stoppable: false };
+        expect(askBox(talk([turn({})]), "wavesrv", false, false, false)).toEqual({ ...viewing, selected: null });
+        expect(askBox(null, null, false, false, false)).toEqual({ ...viewing, selected: null });
     });
 });
 
@@ -510,6 +517,13 @@ describe("boardFacts", () => {
     it("leaves out 'drawn' before the first drawing, for hand-drawn shapes and for questions sent to the agent", () => {
         expect(boardFacts(info({}), 3, NOW)).toBe("0 drawings · 3 shapes");
         expect(boardFacts(info({ questions: 1 }), 0, NOW)).toBe("0 drawings · 0 shapes");
+    });
+
+    it("counts the canvas's drawings once it has loaded, so the facts agree with the drawings row", () => {
+        const listed = info({ questions: 2, drawings: 2, drawnts: at(15, 20) });
+        expect(boardFacts(listed, 5, NOW, 1)).toBe("1 drawing · 5 shapes · drawn 15:20");
+        expect(boardFacts(listed, 5, NOW, null)).toBe("2 drawings · 5 shapes · drawn 15:20");
+        expect(boardFacts(info({}), 0, NOW, 0)).toMatch(/^empty/);
     });
 });
 
@@ -573,6 +587,23 @@ describe("switcherGroups", () => {
 
     it("keeps the open project even with no boards", () => {
         expect(switcherGroups([{ channelId: "cur", project: "cur", boards: [] }], "cur", NOW)).toHaveLength(1);
+    });
+});
+
+describe("latestBoardChannel", () => {
+    it.each<[string, { channelId: string; boards: BoardInfo[] }[], string | null]>([
+        [
+            "the project with the latest board, by activity or creation",
+            [
+                { channelId: "old", boards: [info({ activets: at(10, 0) })] },
+                { channelId: "new", boards: [info({ activets: 0, createdts: at(15, 0) })] },
+                { channelId: "empty", boards: [] },
+            ],
+            "new",
+        ],
+        ["none when no project has a board", [{ channelId: "empty", boards: [] }], null],
+    ])("%s", (_name, lists, want) => {
+        expect(latestBoardChannel(lists)).toBe(want);
     });
 });
 
@@ -679,27 +710,32 @@ describe("askInput", () => {
     it.each<[string, Parameters<typeof askBox>, ReturnType<typeof askInput>]>([
         [
             "in flight, answering",
-            [answering, "wavesrv", false, false],
+            [answering, "wavesrv", false, false, true],
             { placeholder: "You can ask once this answer lands", disabled: true, chip: null, stop: true },
         ],
         [
             "in flight, waiting",
-            [talk([turn({ state: "waiting" })]), null, false, false],
+            [talk([turn({ state: "waiting" })]), null, false, false, true],
             { placeholder: "You can ask once this answer lands", disabled: true, chip: null, stop: false },
         ],
         [
             "idle with a selection",
-            [talk([turn({})]), "wavesrv +1", false, false],
+            [talk([turn({})]), "wavesrv +1", false, false, true],
             { placeholder: "Ask the board", disabled: false, chip: "wavesrv +1", stop: false },
         ],
         [
             "idle with nothing selected",
-            [talk([turn({ state: "failed" })]), null, false, false],
+            [talk([turn({ state: "failed" })]), null, false, false, true],
             { placeholder: "Select shapes to ask about them", disabled: false, chip: null, stop: false },
         ],
         [
+            "in view mode with a selection",
+            [talk([turn({})]), "wavesrv +1", false, false, false],
+            { placeholder: "Press Edit to ask about shapes", disabled: false, chip: null, stop: false },
+        ],
+        [
             "a board that won't open",
-            [answering, "wavesrv", false, true],
+            [answering, "wavesrv", false, true, true],
             {
                 placeholder: "This board won't open, so the drawer can't answer on it",
                 disabled: true,

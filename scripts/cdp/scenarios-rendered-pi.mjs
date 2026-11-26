@@ -30,6 +30,7 @@ const PROBE_SETTLE_MS = 1_000;
 const PROBE_WAIT_MS = 5_000;
 // a status that must not unflip the view is given this long to do it anyway
 const HOLD_MS = 800;
+const FOLD_MOTION_MS = 600;
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
 const iso = (ms) => new Date(ms).toISOString();
 
@@ -50,6 +51,8 @@ const PUBLISHED = [
     { name: "skill:fx-pdf", description: "Read PDFs", source: "skill" },
 ];
 const GROUPS = ["Built-in", "Extensions", "Prompts", "Skills"];
+// the reasoning of a message with no reply text, before its tool call
+const THOUGHT = "The call sites may live outside this package, so list them first.";
 const BASH_CMD = "echo from-pi";
 // a `!` command already in P's transcript, as pi writes one the person ran
 const BANG_CMD = "git status --short";
@@ -202,6 +205,16 @@ export const renderedPi = {
             ctx.probe = join(ctx.dir, "keyprobe.log");
             const pPath = writePiTranscript(ctx.dir, `pi-p-${tag}`, [
                 { role: "user", content: PROMPT, timestamp: Date.now() - 60_000 },
+                {
+                    role: "assistant",
+                    content: [
+                        { type: "thinking", thinking: THOUGHT, thinkingSignature: "fx" },
+                        { type: "toolCall", id: "fx-ls", name: "ls", arguments: { path: "cmd" } },
+                    ],
+                    model: MODEL_ID,
+                    provider: "anthropic",
+                },
+                { role: "toolResult", toolCallId: "fx-ls", toolName: "ls", content: [{ type: "text", text: "main.go" }], isError: false },
                 { role: "assistant", content: [{ type: "text", text: REPLY }], model: MODEL_ID, provider: "anthropic" },
                 {
                     role: "bashExecution",
@@ -284,6 +297,16 @@ export const renderedPi = {
             await agentPage(h, `${RV}?.querySelector("[data-shell-run]")?.scrollIntoView({ block: "center" }); await nap(200); return true;`);
             await h.shot(SHOT(1, "bang-row"));
             return [drawn && row?.exit === `exit ${BANG_EXIT}` && row.out.includes(BANG_OUT), { drawn, row }];
+        });
+
+        await step("rendered-pi: a thinking-only message in P's transcript draws as a thought", async () => {
+            // the thought sits in the turn's fold, above its reply
+            await agentPage(h, `${RV}?.querySelectorAll('[data-fold][aria-expanded="false"]').forEach((b) => b.click()); await nap(${FOLD_MOTION_MS}); return true;`);
+            const thoughtOf = `[...(${RV}?.querySelectorAll("[data-thought]") ?? [])].find((t) => flat(t) === ${JSON.stringify(THOUGHT)})`;
+            const drawn = await wait(`(() => { ${FLAT} return ${thoughtOf} != null; })()`);
+            await agentPage(h, `(() => { ${FLAT} ${thoughtOf}?.scrollIntoView({ block: "center" }); })(); await nap(200); return true;`);
+            await h.shot(SHOT(1, "thought"));
+            return [drawn, { drawn }];
         });
 
         await step("rendered-pi: / lists pi's built-ins with /settings opening in Terminal, then the published commands under Extensions, Prompts and Skills", async () => {

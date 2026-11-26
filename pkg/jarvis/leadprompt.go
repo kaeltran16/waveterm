@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 )
 
@@ -69,6 +70,10 @@ const AutonomousOffWake = "wake: approvals for this run are back to Ask me: from
 // caller or test it breaks was on no task's Files line, so Check failed (runs 9eb0edaa, cad1a593, 5638249e and more).
 const planCallersStep = "Before you submit, for every symbol whose signature, type shape or name a task changes, grep its references across the repo, tests and `scripts/` included, and put each file that must change on that task's Files line. "
 
+// planShortStep asks for the fast track's short plan: workers build only from their task's text, the light review
+// looks for scenario steps in the acceptance, and the end review checks the code against it, so the rest is cost.
+var planShortStep = fmt.Sprintf("A plan of %d tasks or fewer takes the fast track: write it short, inside the same format. Each task keeps its goal, its Files line, its Depends line and its acceptance criteria, scenario steps included, and carries no other prose; the plan keeps its Setup, Verify, Final and Spec lines. On the fast track one light review checks the plan, tasks get no per-task review (a task's lines reach you when it merges), fix-round tasks are not reviewed either, and one end review judges the whole merged diff in the final stage. ", FastTrackMaxTasks)
+
 // planWidthStep and planNoCommitStep close the plan step under either plan skill.
 const (
 	planWidthStep    = "Break it up by what can proceed independently: the engine runs those tasks at the same time, and a plan that is one serial chain gets none of that. "
@@ -88,7 +93,7 @@ func writePlan(planSkill string) string {
 	if EffectivePlanSkill(planSkill) == PlanSkill_Plan {
 		step = writePlanPlan
 	}
-	return step + planWidthStep + planCallersStep + planNoCommitStep
+	return step + planWidthStep + planCallersStep + planShortStep + planNoCommitStep
 }
 
 // writePlanAndSubmit is the plan step and its submit. spec is the `--spec` argument, a placeholder or the run's
@@ -121,7 +126,7 @@ func writeLaunchPrompt(b *strings.Builder, goal, runtime string, autonomous bool
 const spikePath = "- spike: write the answer as your final report with your file-writing tool to a file in the system temp directory, not in the repository, then `wsh jarvis complete --report <that file>`.\n"
 
 func writeAutonomousPaths(b *strings.Builder, planSkill string) {
-	b.WriteString("Work this goal on your own: nobody is at this terminal. Ask no questions and wait for no yes; make each call the human would otherwise make as you would recommend it.\n")
+	b.WriteString(agentsessions.RunAutonomousLeadOpening + "nobody is at this terminal. Ask no questions and wait for no yes; make each call the human would otherwise make as you would recommend it.\n")
 	b.WriteString("Classify the path yourself (spike, bounded or architectural), state it, and proceed.\n")
 	b.WriteString(spikePath)
 	b.WriteString("- bounded: implement it here, get the tests passing, commit, write your final report (what you did, the calls you made and why, and what you could not verify and why) to a temp file the same way, then `wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>`.\n")
@@ -130,7 +135,7 @@ func writeAutonomousPaths(b *strings.Builder, planSkill string) {
 }
 
 func writeAskingPaths(b *strings.Builder, runtime, planSkill string) {
-	fmt.Fprintf(b, "Work this goal; the human is at this terminal. Put every question and every approval through %s, never plain text, which does not reach the cockpit.\n", AskTool(runtime))
+	fmt.Fprintf(b, agentsessions.RunAskingLeadOpening+" Put every question and every approval through %s, never plain text, which does not reach the cockpit.\n", AskTool(runtime))
 	b.WriteString("State the path you take (spike, bounded or architectural) and proceed; ask about the path only when it is genuinely unclear. Any approval of something longer than its question carries the file's absolute path on its first line.\n")
 	b.WriteString(spikePath)
 	b.WriteString("- bounded: after the human's yes, implement it here, get the tests passing, commit, write your final report (what you did, and what you could not verify and why) to a temp file the same way, then `wsh jarvis complete --commit $(git rev-parse HEAD) --report <that file>`.\n")
@@ -143,7 +148,7 @@ func writeAskingPaths(b *strings.Builder, runtime, planSkill string) {
 // is settled, so there is nothing to brainstorm, classify or put up for review; the lead plans from it.
 func writeDesignPrompt(b *strings.Builder, run *waveobj.Run) {
 	fmt.Fprintf(b, "Goal: %s\n", run.Goal)
-	b.WriteString("The design for this goal is approved:")
+	b.WriteString(agentsessions.RunDesignLeadOpening)
 	if run.Spec != "" {
 		fmt.Fprintf(b, " the spec %s", run.Spec)
 	}
@@ -177,7 +182,7 @@ func writeDesignPrompt(b *strings.Builder, run *waveobj.Run) {
 // group, so the rules a compaction brings back follow a mid-run switch.
 func OrchestrationRules(runId, specPath, planPath, effortOID string, autonomous bool) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are the lead for run %s.", runId)
+	b.WriteString(agentsessions.RunLeadOpening + runId + ".")
 	if specPath != "" {
 		fmt.Fprintf(&b, " Spec: %s.", specPath)
 	}

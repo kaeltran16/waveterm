@@ -3,12 +3,12 @@
 
 import { globalStore } from "@/app/store/jotaiStore";
 import { atom } from "jotai";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { attachBrainstorm, detachBrainstorm, getBrainstorm } from "./brainstormstore";
 import { canvasHandoffLine, type Mark } from "./canvasmarks";
-import { sendCanvasMark, type SendIO } from "./canvassend";
+import { sendCanvasMark, tauriSendIO, type SendIO } from "./canvassend";
 import {
     attachCanvas,
     canvasWindowAtom,
@@ -19,6 +19,9 @@ import {
 } from "./canvasstore";
 import { viewModeAtom } from "./renderedmode";
 import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "./workspacestore";
+
+const invokeMock = vi.fn((..._a: any[]): Promise<unknown> => Promise.resolve());
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: any[]) => invokeMock(...a) }));
 
 const AGENT = { id: "a1", name: "Arc", blockId: "blk-1" } as AgentVM;
 // nothing in its roster, so the agent is in the Terminal view, where a mark is sent from the center's canvas
@@ -252,5 +255,19 @@ describe("sendCanvasMark", () => {
         const io = fakeIO();
         await sendCanvasMark(TERMINAL, AGENT, io);
         expect(io.written).toEqual(["C:\\p\\.superpowers\\design\\t\\feedback\\004.png"]);
+    });
+});
+
+describe("tauriSendIO.capture", () => {
+    const PNG_HEAD = [137, 80, 78, 71];
+
+    it.each([
+        ["an ArrayBuffer", new Uint8Array(PNG_HEAD).buffer],
+        // tauri's postMessage fallback, taken for good after one failed ipc fetch, hands raw bytes back as a number array
+        ["a number array", PNG_HEAD],
+    ])("keeps the png's bytes when invoke returns %s", async (_name, raw) => {
+        invokeMock.mockResolvedValueOnce(raw);
+        const png = await tauriSendIO.capture();
+        expect(Array.from(new Uint8Array(await png.arrayBuffer()))).toEqual(PNG_HEAD);
     });
 });

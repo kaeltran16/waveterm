@@ -150,7 +150,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `Enter` | In Rendered, with a question docked and focus outside the composer: send the answer once every question is answered, else move to the next unanswered question |
 | `r` | Review: open the focused agent's Plan review or Plan approval dialog |
 | `p` | Hand the agent to the phone, or take it back |
-| `Esc` | Close an open shell task output peek, or an open subagent (back to the agent's terminal), else back to where you jumped from, else to Cockpit; exits fullscreen first |
+| `Esc` | Close an open shell task output peek, or an open subagent (back to the parent's Rendered view where it was scrolled, or its terminal when the subagent was opened from the Terminal view), else back to where you jumped from, else to Cockpit; exits fullscreen first |
 | `Shift`+`Esc` | Return focus to the nav (from inside the terminal) |
 | `Enter` | With focus inside an open code peek card: open the peeked file in Code, at the clicked line |
 | `Esc` | With focus inside an open code peek card: close it. With focus in the terminal, `Esc` still reaches the agent and leaves the card open |
@@ -158,7 +158,7 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 ### Agent: canvas mode
 
-`c` works when the focused agent has a canvas. In Terminal the canvas takes over the center (canvas mode), and there `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas. In Rendered the canvas is the workspace pane's Canvas tab beside the transcript, every board stacked as a preview: `c` and `Ctrl`+`Shift`+`B` open and close the tab, and while it is the shown tab `[` / `]` move the selection among the boards (no All) and `m` opens the canvas window on the selected board with marking on.
+`c` works when the focused agent has a canvas. In Terminal the canvas takes over the center (canvas mode), and there `[` / `]`, `d`, `f`, `F11` and `Esc` do not do their usual jobs; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the canvas. In Rendered the canvas is the workspace pane's Canvas tab beside the transcript, every board stacked as a preview: `c` and `Ctrl`+`Shift`+`B` (for an agent with no brainstorm) open and close the tab, and while it is the shown tab `[` / `]` move the selection among the boards (no All) and `m` opens the canvas window on the selected board with marking on.
 
 | Keys | Action |
 |---|---|
@@ -168,23 +168,25 @@ A link inside an item view does a full open, even with `Ctrl` held.
 | `m` | Mark part of the board; in mark mode, stop marking |
 | `Enter` / `Esc` | In the note under a drawn box: send the mark to the agent / drop it |
 
-The canvas window opens over the Rendered view on one board, or on every board with All laid out in rows of 3; a brainstorm's "Open full size" and board chips open it too. While it is open the agent and surface keys stand down under it, and these are its keys:
+The canvas window opens over the Rendered view on one board, or on every board with All laid out in rows of 3; a brainstorm's board chips and `o` open it too. While it is open the agent and surface keys stand down under it, and these are its keys:
 
 | Keys | Action |
 |---|---|
-| `[` / `]` | Previous / next board, All included |
+| `[` / `]` | Previous / next board, All included; opened from a brainstorm's answer or part, its tabs with Other boards included |
+| `1`…`9` | Opened from a brainstorm's answer: show that answer's board; from a part: show its Nth board |
 | `m` | Mark part of the board; in mark mode, stop marking |
 | `Esc` | Drop the drawn mark; with none drawn, close the window. In the mark's note, `Esc` drops the mark only |
 
 ### Agent: brainstorm mode
 
-`b` works when the focused agent has a brainstorm; such an agent never shows canvas mode, so `c` does nothing for it. In Rendered the brainstorm is the workspace pane's Brainstorm tab beside the transcript: `b` and `Ctrl`+`Shift`+`B` open and close the tab, the keys below work while it is the shown tab, and the transcript's keys stay. In brainstorm mode (Terminal), `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area, and `↓` / `↑` stand down there (`←` / `→` and `Ctrl`+`Tab` still move between agents).
+`b` works when the focused agent has a brainstorm. In Terminal such an agent never shows canvas mode, so `c` does nothing for it. In Rendered the brainstorm is the workspace pane's Brainstorm tab beside the transcript: `b` and `Ctrl`+`Shift`+`B` open and close the tab, the keys below work while it is the shown tab, and the transcript's keys stay. An agent with a brainstorm and a canvas has both tabs there: `b` and `c` switch between them and close their own tab while it shows, and `Ctrl`+`Shift`+`B` shows the Brainstorm tab from the Canvas tab. In brainstorm mode (Terminal), `d`, `f` and `F11` do not do their usual jobs, and `Esc` steps back inside the brainstorm instead of leaving the surface; the agent keys (`j` / `k`, the arrows, `Ctrl`+`Tab`) still move between agents, since the tree stays beside the brainstorm, except that `j` / `k` move between decisions while the builder check's review fills the main area, and `↓` / `↑` stand down there (`←` / `→` and `Ctrl`+`Tab` still move between agents).
 
 | Keys | Action |
 |---|---|
 | `b` | Show or close the agent's brainstorm (in Rendered, its tab) |
 | `Ctrl`+`Shift`+`B` | The same switch, and it also works while typing in the terminal |
 | `1`…`9` | While the brainstorm asks a question with answers to pick from: focus the answer with that number; `Enter` sends it |
+| `o` | Open the canvas window on the question's boards (during the judge's wait, the approaches'), on the focused answer's board or else the first; in the builder check's review, on the cursor decision's boards |
 | `Esc` | Back one level, as the pane's back control does: from the "Decided so far" history opened over the question back to it; from the design opened over the question (or over the agent writing) back to it. A focused field keeps its own `Esc` |
 | `j` / `k` | In the builder check's review: next / previous decision |
 | `Enter` | In the review: open or close the cursor decision (a focused button keeps its own `Enter`) |
@@ -305,11 +307,12 @@ The canvas keeps Excalidraw's own tool keys while it has focus.
 
 | Keys | Action |
 |---|---|
-| `j` / `k` (or `↓` / `↑`) | Next / previous change in the table |
-| `a` | Apply the selected change (when its Apply button is enabled), then move to the next change to review |
-| `x` | Keep the selected change as is, then move to the next change to review |
-| `u` | Undo an applied change (not once its backup has expired), or review a kept one again |
-| `Esc` | On a tab under 1200 px wide, close the change detail sheet |
+| `j` / `k` (or `↓` / `↑`) | Next / previous row: the waiting rows, then the "Arc did this week" lines |
+| `Enter` | Open or close the focused row or line |
+| `Esc` | Close the opened row or line |
+| `a` | Press the opened row's main button (Apply and switch over, Clear N, Move to …, Try again or Check now), when it is enabled |
+| `x` | Press the opened row's keep button (Keep sharing, Keep them or Keep), when it is enabled |
+| `u` | Undo the focused "Arc did this week" line; a split a cleanup has emptied says to undo that cleanup first |
 
 ### Route DAG (the orchestrator run's graph)
 

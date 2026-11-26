@@ -28,9 +28,12 @@ function toolResultImages(content) {
     (b) => b?.type === "image" && b.source?.type === "base64" && typeof b.source.data === "string" && typeof b.source.media_type === "string" && IMAGE_MEDIA_TYPE.test(b.source.media_type)
   ).map((b) => ({ mediaType: b.source.media_type, data: b.source.data }));
 }
+function textLines(text) {
+  return text === "" ? [] : (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n");
+}
 function buildEditDiff(path, oldStr, newStr) {
-  const a = oldStr === "" ? [] : oldStr.split("\n");
-  const b = newStr === "" ? [] : newStr.split("\n");
+  const a = textLines(oldStr);
+  const b = textLines(newStr);
   let head = 0;
   while (head < a.length && head < b.length && a[head] === b[head]) {
     head++;
@@ -182,6 +185,7 @@ var VERB_BY_TOOL = {
   Grep: "grep",
   Glob: "glob",
   Task: "spawned",
+  Agent: "spawned",
   Skill: "skill",
   AskUserQuestion: "asked"
 };
@@ -238,6 +242,19 @@ function parseCommand(content) {
 function bashNeverRan(body) {
   const t = body.trimStart();
   return t !== "" && !/^Exit code \d+/.test(t) && !/^(Interrupted\b|\[Tool call interrupted)/.test(t);
+}
+function failedExit(body) {
+  const m = /^Exit code (\d+)/.exec(body.trimStart());
+  return m ? Number(m[1]) : 1;
+}
+function plural(n, noun) {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+function globSummary(body) {
+  if (body.trim() === "No files found") {
+    return "no files";
+  }
+  return plural(body.split("\n").filter((l) => l !== "" && !l.startsWith("(Results are truncated")).length, "file");
 }
 var USER_REJECTED_RE = /^(?:The user doesn't want to proceed with this tool use|The tool use was rejected)\b/;
 var PERMISSION_DENIED_RE = /^(?:Permission (?:to|for) [^\n]*?\b(?:has been|was) denied\b|[^\n]*\bdenied by your permission settings\b)/;
@@ -319,6 +336,10 @@ function isSubagentFinish(content, actionById) {
   const tool = id != null ? actionById.get(id)?._tool : void 0;
   return tool != null ? SUBAGENT_TOOLS.has(tool) : content.includes("<result>");
 }
+function withFinishId(note, content) {
+  const id = note.source === "subagent" ? notificationTag(content, "tool-use-id") : void 0;
+  return id ? { ...note, toolUseId: id } : note;
+}
 var BASH_INPUT_RE = /^<bash-input>([^]*)<\/bash-input>$/;
 var BASH_OUTPUT_RE = /^<bash-stdout>([^]*?)<\/bash-stdout>\s*<bash-stderr>([^]*?)<\/bash-stderr>$/;
 function applyBashRecord(entries, content, rec) {
@@ -360,11 +381,26 @@ function applyCommandOutput(entries, content) {
 function parseNotice(prompt) {
   const structured = prompt.includes("<summary>") ? parseTaskNotification(prompt) : null;
   if (structured != null) {
-    return { ...structured, notice: true };
+    return { ...withFinishId(structured, prompt), notice: true };
   }
   const m = /<task-notification>([^]*?)<\/task-notification>/.exec(prompt);
   const summary = (m ? m[1] : prompt).trim();
   return summary !== "" ? { kind: "notification", summary, notice: true, ...notificationSource(summary) } : null;
+}
+var HAND_BACK_RE = /^<agent-message from="[^"]*">\n\[Subagent hand-back\][^\n]*\n([^]*?)\n?<\/agent-message>$/;
+function parseHandBack(text, name) {
+  const m = HAND_BACK_RE.exec(text.trim());
+  if (m == null) {
+    return null;
+  }
+  const result = m[1].replace(/^ {2}/gm, "");
+  return {
+    kind: "notification",
+    summary: typeof name === "string" && name !== "" ? `Agent "${name}" reported` : "Agent reported",
+    ...result.trim() !== "" ? { result } : {},
+    notice: true,
+    source: "subagent"
+  };
 }
 var PASTED_CONTENT_RE = /<pasted_content id="[^"]+">\n?([^]*?)\n?<\/pasted_content id="[^"]+">/g;
 function unwrapPasted(text) {
@@ -384,10 +420,16 @@ function queuedEntry(rec) {
   if (att.commandMode !== "prompt" || prompt.trim() === "") {
     return null;
   }
-  return { kind: "user", text: unwrapPasted(prompt), queued: true, ...recTs({ timestamp: att.timestamp ?? rec.timestamp }) };
+  const ts = recTs({ timestamp: att.timestamp ?? rec.timestamp });
+  const handBack = att.origin?.kind === "peer" ? parseHandBack(prompt, att.origin.name) : null;
+  return handBack != null ? { ...handBack, ...ts } : { kind: "user", text: unwrapPasted(prompt), queued: true, ...ts };
 }
-function joinedEntries(rec) {
-  if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN) {
+function isCommandRecord(rec) {
+  const content = rec?.type === "user" ? rec.message?.content : void 0;
+  return typeof content === "string" && parseCommand(content) != null;
+}
+function joinedEntries(rec, prev) {
+  if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN || isCommandRecord(prev)) {
     return [];
   }
   const content = rec.message?.content;
@@ -440,8 +482,8 @@ function projectTranscriptRecords(records) {
   const actionById = /* @__PURE__ */ new Map();
   const replied = repliedMessages(records);
   let thoughtFrom;
-  for (const r of records) {
-    const rec = r;
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i];
     if (rec == null) {
       continue;
     }
@@ -484,6 +526,9 @@ function projectTranscriptRecords(records) {
           if (SHELL_TOOLS.has(block.name) && typeof block.input?.command === "string") {
             action.command = block.input.command;
           }
+          if (SUBAGENT_TOOLS.has(block.name) && typeof block.id === "string") {
+            action.toolUseId = block.id;
+          }
           const cwd = typeof rec.cwd === "string" ? rec.cwd : void 0;
           const filePath = relativePath(String(block.input?.file_path ?? ""), cwd);
           if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
@@ -520,7 +565,7 @@ function projectTranscriptRecords(records) {
     }
     if (rec.type === "user") {
       if (rec.isMeta === true) {
-        entries.push(...joinedEntries(rec));
+        entries.push(...joinedEntries(rec, records[i - 1]));
         continue;
       }
       if (rec.isCompactSummary === true) {
@@ -537,19 +582,27 @@ function projectTranscriptRecords(records) {
         }
         const note = parseTaskNotification(content);
         if (note != null) {
-          entries.push({
-            ...note,
-            ...recTs(rec),
-            ...isSubagentFinish(content, actionById) ? { source: "subagent" } : {}
-          });
+          entries.push(
+            withFinishId(
+              {
+                ...note,
+                ...recTs(rec),
+                ...isSubagentFinish(content, actionById) ? { source: "subagent" } : {}
+              },
+              content
+            )
+          );
         } else if (applyCommandOutput(entries, content)) {
         } else if (opensWith(content, "<local-command-stdout>")) {
         } else if (isInterrupted(content)) {
           entries.push({ kind: "interrupted" });
         } else {
           const cmd = parseCommand(content);
+          const handBack = cmd == null ? parseHandBack(content, rec.origin?.name) : null;
           if (cmd != null) {
             entries.push({ kind: "command", ...cmd, ...recTs(rec) });
+          } else if (handBack != null) {
+            entries.push({ ...handBack, ...recTs(rec) });
           } else if (content.trim() !== "") {
             entries.push({ kind: "user", text: unwrapPasted(content), ...recTs(rec) });
           }
@@ -612,8 +665,7 @@ function projectTranscriptRecords(records) {
             truncated,
             ...tool === "Read" && typeof input?.file_path === "string" ? { path: relativePath(input.file_path, cwd) } : {}
           };
-          const lineCount = body.split("\n").length;
-          action.summary = `${lineCount} line${lineCount === 1 ? "" : "s"}`;
+          action.summary = tool === "Glob" ? globSummary(body) : plural(body.split("\n").length, "line");
         } else if (shell && raw) {
           const ran = !blocked && declined == null;
           action.detail = {
@@ -621,7 +673,7 @@ function projectTranscriptRecords(records) {
             command: action.command,
             // a call that never ran has no output; its reason is the error
             output: ran ? body : "",
-            exit: !ran ? null : failed ? 1 : 0
+            exit: !ran ? null : failed ? failedExit(body) : 0
           };
         } else if (action.detail?.kind === "edit") {
           const numbered = editFromPatch(action.detail.files[0].path, rec.toolUseResult?.structuredPatch);
@@ -705,6 +757,10 @@ function projectTranscriptRecords(records) {
     }
   }
   return entries;
+}
+function notificationTag(text, tag) {
+  const m = new RegExp(`<${tag}>([^]*?)</${tag}>`).exec(text);
+  return m ? m[1].trim() : void 0;
 }
 
 // frontend/app/view/agents/pitranscriptprojection.ts
@@ -796,6 +852,12 @@ function editDetailFor(name, args) {
   }
   return void 0;
 }
+function thoughtOf(content) {
+  if (textBlocks(content).length > 0) {
+    return "";
+  }
+  return content.filter((b) => b?.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim() !== "").map((b) => b.thinking.trim()).join("\n\n");
+}
 function mapAssistantContent(rec, entries, actionById) {
   const content = rec.message?.content;
   for (const text of textBlocks(content)) {
@@ -803,6 +865,10 @@ function mapAssistantContent(rec, entries, actionById) {
   }
   if (!Array.isArray(content)) {
     return;
+  }
+  const thought = thoughtOf(content);
+  if (thought !== "") {
+    entries.push({ kind: "thought", text: thought, ...recTs2(rec) });
   }
   for (const b of content) {
     if (b == null || b.type !== "toolCall" && b.type !== "tool_use" || typeof b.name !== "string" || b.name === "") {

@@ -68,7 +68,7 @@ const railSubState = `(() => {
     const row = label?.closest(".rounded-\\\\[10px\\\\]");
     return row ? row.lastElementChild?.textContent.trim() ?? null : null;
 })()`;
-const INTERIOR = `document.querySelector('button[title="Back to parent (Esc)"]')?.parentElement?.parentElement`;
+const SUBAGENT_VIEW = `document.querySelector("[data-subagent-view]")`;
 
 function writeFixture(dir) {
     const parentPath = writeTranscript(dir, SESSION, [
@@ -201,19 +201,19 @@ export default function (_kit) {
                 );
                 await polishWaitFor(
                     h,
-                    `${flatOf(INTERIOR)}.includes(${JSON.stringify(CHILD_READ)}) && ${flatOf(RAIL)}.includes("Tools used")`,
+                    `${flatOf(SUBAGENT_VIEW)}.includes(${JSON.stringify(CHILD_READ)}) && ${flatOf(RAIL)}.includes("Tools used")`,
                     LOAD_WAIT_MS
                 );
-                const interior = await h.ev(flatOf(INTERIOR));
+                const view = await h.ev(flatOf(SUBAGENT_VIEW));
                 const rail = await h.ev(flatOf(RAIL));
-                await h.shot("cdp-shots/agent-subagents-4-interior.png");
+                await h.shot("cdp-shots/agent-subagents-4-subagent-view.png");
                 rec(
-                    "4. the subagent interior and its Tools used leave out the SubagentHandback call",
-                    interior.includes(CHILD_READ) &&
-                        !interior.toLowerCase().includes(HANDBACK) &&
+                    "4. the subagent view and its Tools used leave out the SubagentHandback call",
+                    view.includes(CHILD_READ) &&
+                        !view.toLowerCase().includes(HANDBACK) &&
                         rail.includes("Tools used") &&
                         !rail.toLowerCase().includes(HANDBACK),
-                    JSON.stringify({ interior: interior.slice(0, 200), rail: rail.slice(0, 300) })
+                    JSON.stringify({ view: view.slice(0, 200), rail: rail.slice(0, 300) })
                 );
                 return steps;
             },
@@ -226,7 +226,7 @@ export default function (_kit) {
                         console.error(`${NAME} teardown: ${what} failed: ${e?.message ?? e}`);
                     }
                 };
-                await step("close the subagent interior", () =>
+                await step("close the subagent view", () =>
                     agentPage(
                         h,
                         `const S = await mod("app/view/agents/subagentsstore.ts");

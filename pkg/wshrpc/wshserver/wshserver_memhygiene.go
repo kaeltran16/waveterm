@@ -34,3 +34,17 @@ func (ws *WshServer) DecideMemoryChangeCommand(ctx context.Context, data wshrpc.
 	}
 	return memhygiene.Decide(data.Project, data.ChangeId, data.Verdict)
 }
+
+func (ws *WshServer) ApplyMemoryRowCommand(ctx context.Context, data wshrpc.CommandApplyMemoryRowData) (*wshrpc.MemRowResult, error) {
+	if wavebase.IsSnapshot() {
+		return nil, fmt.Errorf("snapshot store: not applying the %s row of %s, it writes the real memory folders and repo settings", data.Row, data.Project)
+	}
+	return memhygiene.ApplyRow(ctx, data.Project, data.Row, data.ChangeId)
+}
+
+func (ws *WshServer) UndoMemoryBatchCommand(ctx context.Context, data wshrpc.CommandUndoMemoryBatchData) (*wshrpc.MemHygieneProject, error) {
+	if wavebase.IsSnapshot() {
+		return nil, fmt.Errorf("snapshot store: not undoing batch %s of %s, it writes the real memory folders and repo settings", data.BatchId, data.Project)
+	}
+	return memhygiene.UndoBatch(data.Project, data.BatchId, data.ChangeId)
+}

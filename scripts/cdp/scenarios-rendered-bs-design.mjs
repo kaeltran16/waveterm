@@ -3,10 +3,10 @@
 // keeping the settled design whole, and
 // Confirm all and Check with a builder sending the pane's lines. kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
 
+import { BS_ROW_MAX_PX } from "./scenarios-shared.mjs";
+
 const NAME = "rendered-bs-design";
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
-// the header row alone measures 46px (69px wrapped); this is workspace-brainstorm-cards's bound, the full card is taller
-const ROW_MAX_PX = 80;
 
 const TITLES = [
   ["what", "What counts"],
@@ -248,7 +248,7 @@ export default (kit) => {
             r.chip === "Ready for the builder check" &&
             r.open === "Open brainstorm" &&
             r.height != null &&
-            r.height < ROW_MAX_PX &&
+            r.height < BS_ROW_MAX_PX &&
             back &&
             full;
           return [ok, { folded, back, full, ...r }];

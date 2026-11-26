@@ -19,7 +19,10 @@ automatically a visual question.
 ## Starting a canvas
 
 1. `<topic>` is a short kebab-case name from the brief; `<root>` is
-   `.superpowers/design/<topic>/project/` in the working directory.
+   `.superpowers/design/<topic>/project/` in the working directory. Arc attaches one canvas per
+   agent, and revealing another topic replaces it, so in a session that already has a canvas,
+   add new boards to it as a new row; start a new topic only when the user asks for a separate
+   canvas.
 2. `git check-ignore -q .superpowers/design`. Not ignored: tell the user and ask to add
    `.superpowers/` to `.gitignore` before writing anything.
 3. Copy `support.js` from this skill's directory to `<root>/support.js`, so each artboard's

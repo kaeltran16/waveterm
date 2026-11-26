@@ -53,11 +53,13 @@ function OptionList({ view, compact }: { view: AnswerView; compact: boolean }) {
                     data-picked={o.picked ? "" : undefined}
                     className={cn("flex min-w-0 items-baseline gap-2.5", o.picked ? "text-foreground" : "text-ink-mid")}
                 >
-                    <span className="flex w-3 shrink-0 justify-center self-center">
+                    <span className="flex h-lh w-3 shrink-0 items-center justify-center self-start">
                         {o.picked ? <Check size={12} strokeWidth={2.8} className="text-success" aria-hidden /> : null}
                     </span>
-                    <span className={cn("shrink-0", o.picked && "font-semibold")}>{o.label}</span>
-                    {o.detail ? <span className="min-w-0 text-muted [overflow-wrap:anywhere]">{o.detail}</span> : null}
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className={cn(o.picked && "font-semibold")}>{o.label}</span>
+                        {o.detail ? <span className="text-muted [overflow-wrap:anywhere]">{o.detail}</span> : null}
+                    </span>
                 </div>
             ))}
             {view.ownWords != null ? (

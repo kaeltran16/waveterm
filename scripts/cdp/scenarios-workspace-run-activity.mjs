@@ -4,7 +4,7 @@
 // and the 3.4m between Lead started and Plan reviewed is the one quiet gap.
 
 import { polishNap } from "./scenarios-shared.mjs";
-import { arrange, clickAt, openRunTab, page, pickView, reseed, RUN_TAB, SETTLE_MS, stepper, teardown } from "./workspace-run-fixture.mjs";
+import { ANSWERED_A, ANSWERED_Q, arrange, clickAt, openRunTab, page, pickView, reseed, RUN_TAB, SETTLE_MS, stepper, teardown } from "./workspace-run-fixture.mjs";
 
 const NAME = "workspace-run-activity";
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
@@ -115,14 +115,22 @@ export const workspaceRunActivity = {
             return [ok, { clicked, filters: a.filters, rows: a.rows, open: a.open.length, own, faded: others.filter((k) => k.opacity === FADED).length }];
         });
 
-        await step("a row opens to its events", async () => {
+        await step("a row opens to its events, saying what was asked and answered", async () => {
             await clickFilter(h, "all");
             // t-1's oldest row: spawned, asked, answered
             const clicked = await clickAt(h, `[...(${ACTIVITY}?.querySelectorAll('[data-timeline-row][data-timeline-task="t-1"]') ?? [])].at(-1)`);
             await polishNap(SETTLE_MS);
             const a = await readActivity(h);
             await h.shot(SHOT(4, "open"));
-            const ok = clicked && a.open.length === 1 && a.open[0].entries === 3 && /Child answered/.test(a.open[0].text) && !a.chrome;
+            const text = a.open[0]?.text ?? "";
+            const ok =
+                clicked &&
+                a.open.length === 1 &&
+                a.open[0].entries === 3 &&
+                /Question answered/.test(text) &&
+                text.includes(ANSWERED_Q) &&
+                text.includes(ANSWERED_A) &&
+                !a.chrome;
             return [ok, { clicked, open: a.open }];
         });
 

@@ -176,6 +176,16 @@ export function leadAgentOf<T extends { id: string }>(lineage: Lineage, agents: 
     });
 }
 
+// runAgentOf is the roster agent of a run outside any run tree, a quick run's one agent: an agent with a role is a
+// lead's, a worker's or a stage session's, and opens as part of its tree
+export function runAgentOf<T extends { id: string; runId?: string }>(
+    lineage: Lineage,
+    agents: T[],
+    runId: string
+): T | undefined {
+    return agents.find((a) => a.runId === runId && lineage.roles[a.id] == null);
+}
+
 // agentProject is the project an agent is shown under. A worker's or stage session's own is an engine tree, so
 // it reads its lead's, else its run's checkout.
 export function agentProject(lineage: Lineage, agents: AgentVM[], agent: AgentVM): string {
@@ -558,6 +568,7 @@ export const PLAN_REVIEWER_ROLE = "plan-reviewer";
 const STAGE_LABELS: Record<string, string> = {
     [PLAN_REVIEWER_ROLE]: "Plan review",
     verifier: "Final verification",
+    "end-reviewer": "End review",
     [BUILDER_CHECK_ROLE]: "Builder check",
     [BRAINSTORM_JUDGE_ROLE]: "Judge",
 };

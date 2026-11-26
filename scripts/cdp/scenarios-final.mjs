@@ -7,7 +7,11 @@ import { SURFACE_LABEL } from "./attach.mjs";
 import {
     FST_CHECK,
     FST_DETAIL,
+    FST_FINAL_FAILURES,
+    FST_FINAL_KEPT,
+    FST_FINAL_SCENARIO,
     FST_UNVERIFIED,
+    FST_VERIFY_KEPT,
     RAIL_VISIBLE_KEY,
     RUN_SHEET_POLISH_TASKS,
     TREE_RAIL_FIXTURE,
@@ -709,17 +713,20 @@ const FST_MARK = "final-stage verify";
 const FST_LIVE_VERIFY = `printf '${FST_MARK} 1\\n${FST_MARK} 2\\n${FST_MARK} 3\\n'; for i in $(seq 1 300); do sleep 3; echo "${FST_MARK} still running $i"; done`;
 const FST_LIVE_FINAL = "true";
 const FST_KEPT_MARK = "final-stage kept check output";
+const FST_KEPT_EMPTY = "the step printed nothing";
 const FST_REASON =
     "the Verify loop of the final-stage scenario never ends on its own, so the scenario ends the stage here and records why";
 const FST_VERIFIER_MS = 180_000;
-const FST_STEP_TEXT = ["passed 22s", "passed 41s", "passed 7m 11s", "passed 3m 08s", "passed 3m 00s"];
+// the pane's step rows show the time alone; the rail and the DAG peek card the state and its time
+const FST_STEP_TIME = ["22s", "41s", "7m 11s", "3m 08s", "3m 00s"];
+const FST_STEP_TEXT = FST_STEP_TIME.map((t) => `passed ${t}`);
 const FST_TOTAL = "14m 22s";
 const FST_WAIT_MS = 8000;
 // a watchdog tick starts the stage (every 30s), then the Tree step and Verify's second publish
 const FST_ENGINE_WAIT_MS = 90_000;
 
 const FST_SUB_SECOND_MS = 211;
-const FST_SUB_SECOND_TEXT = "passed <1s";
+const FST_SUB_SECOND_TIME = "<1s";
 const FST_ENDED_BANNER = "Session ended · read-only transcript";
 
 // shared's fstPublishSteps is not exported: one passed final-step event, the way the page appends the engine's
@@ -756,6 +763,35 @@ async function fstPublishMemoryHeld(h, ctx, role) {
         data: { channelid: ctx.channelId, runid: ctx.runId, event },
     });
 }
+// a fast-track stage's end review, seeded on the dag's Check and Verify: reviewing beside a running Verify, or the
+// stage failed by its findings alone. fasttrack stays unset, so the engine leaves the seeded end review alone
+const FST_ER_FINDING = "t-2's test asserts nothing the task changed";
+async function fstShowEndReview(h, ctx, state) {
+    const now = Date.now();
+    const final =
+        state === "reviewing"
+            ? {
+                  state: "checking",
+                  round: 1,
+                  step: "verify",
+                  stepts: now - 60_000,
+                  startedts: now - 120_000,
+                  endreview: { state, startedts: now - 100_000 },
+              }
+            : { state: "failed", round: 1, detail: `[End review] ${FST_ER_FINDING}`, endreview: { state, text: FST_ER_FINDING } };
+    const print = (dag) =>
+        JSON.stringify([dag?.final?.state ?? "", dag?.final?.endreview?.state ?? "", dag?.finalcmd ?? "", dag?.fasttrack === true]);
+    const nudge = await seedDag(
+        h,
+        ctx,
+        (dag) => {
+            const { final: _final, pastfinals: _past, finalcmd: _cmd, fasttrack: _fast, ...rest } = dag;
+            return { ...rest, final };
+        },
+        print
+    );
+    return { nudge };
+}
 const fstStates = (steps) => (steps ?? []).map((s) => s.state);
 const fstRepeat = (state, n) => Array(n).fill(state);
 const fstFlat = (text) => text.replace(/\s+/g, " ").trim();
@@ -779,6 +815,52 @@ const FST_LIB = `
         }));
     const outputOf = (root) => root?.querySelector("[data-final-output]")?.textContent ?? null;
     const shotsOf = (root) => flat(root?.querySelector("[data-final-shots-link]")) || null;
+    // the pane's step rows: the head's mark, ink, facts and open state, and the body an opened row draws
+    const cardOf = (el) =>
+        el
+            ? {
+                  runner: flat(el.querySelector("[data-card-head] .font-mono")),
+                  counts: flat(el.querySelector("[data-test-counts]")),
+                  failures: [...el.querySelectorAll("[data-test-failure]")].map((f) => ({
+                      name: flat(f.querySelector("[data-test-name]")),
+                      where: flat(f.querySelector("[data-test-where]")),
+                      message: flat(f.querySelector("[data-test-message]")),
+                  })),
+                  view: el.querySelector("[data-card-view]")?.getAttribute("data-card-view") ?? null,
+                  raw: flat(el.querySelector('[data-card-view="raw"]')),
+              }
+            : null;
+    const paneStepsOf = (root) =>
+        [...(root?.querySelectorAll("[data-final-step]") ?? [])].map((s) => {
+            const head = s.querySelector("[data-final-step-head]");
+            const body = s.querySelector("[data-final-step-body]");
+            return {
+                key: s.getAttribute("data-final-step"),
+                state: s.getAttribute("data-final-step-state"),
+                // the mark slot cross-fades, so the glyph read is the one its current kind draws, not one leaving
+                mark: (() => {
+                    const kind = head?.querySelector("[data-final-step-mark]")?.getAttribute("data-final-step-mark");
+                    return head?.querySelector('[data-crossfade="' + kind + '"] [role="img"]')?.getAttribute("aria-label") ?? null;
+                })(),
+                quiet: head?.classList.contains("text-ink-mid") ?? false,
+                button: head?.tagName === "BUTTON",
+                expanded: head?.getAttribute("aria-expanded") ?? null,
+                command: head?.querySelector("[data-final-step-command]")?.getAttribute("title") ?? null,
+                fact: flat(head?.querySelector("[data-final-step-fact]")),
+                factTone: head?.querySelector("[data-final-step-fact]")?.classList.contains("text-warning") ? "warning" : "muted",
+                exit: flat(head?.querySelector("[data-final-step-exit]")) || null,
+                body: body
+                    ? {
+                          text: flat(body),
+                          command: flat(body.querySelector("[data-bash-command]")) || null,
+                          output: body.querySelector("[data-bash-output]")?.textContent ?? null,
+                          panel: body.querySelector("[data-tool-panel]") != null,
+                          error: flat(body.querySelector("[data-tool-error]")) || null,
+                          card: cardOf(body.querySelector('[data-tool-card="test"]')),
+                      }
+                    : null,
+            };
+        });
 `;
 const FST_TREE = `document.querySelector("[data-agent-tree]")`;
 const FST_RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
@@ -817,15 +899,27 @@ const FST_AGENT = `(() => {
         strip: slot?.parentElement?.getAttribute("aria-label") ?? null,
         fold: fold ? flat(fold) : null,
         pane: pane
-            ? {
-                  text: flat(pane),
-                  steps: stepsOf(pane),
-                  output: outputOf(pane),
-                  end: pane.querySelector("[data-final-end]") != null,
-                  form: pane.querySelector("[data-run-sheet-end-final]") != null,
-                  past: pastOf(pane),
-                  shots: shotsOf(pane),
-              }
+            ? (() => {
+                  const detail = pane.querySelector("[data-final-detail]");
+                  const box = pane.querySelector("[data-final-steps]");
+                  return {
+                      text: flat(pane),
+                      steps: paneStepsOf(pane),
+                      // the running command's live tail, inside its opened row
+                      output: pane.querySelector("[data-final-step-body] [data-bash-output]")?.textContent ?? null,
+                      // the failure detail drawn above the step box, as a red error block
+                      detail: detail?.querySelector("[data-tool-error]") ? flat(detail) : null,
+                      detailAbove:
+                          detail != null &&
+                          box != null &&
+                          (detail.compareDocumentPosition(box) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+                      errors: pane.querySelectorAll("[data-tool-error]").length,
+                      end: pane.querySelector("[data-final-end]") != null,
+                      form: pane.querySelector("[data-run-sheet-end-final]") != null,
+                      past: pastOf(pane),
+                      shots: shotsOf(pane),
+                  };
+              })()
             : null,
         railSteps: rail?.querySelectorAll("[data-final-step]").length ?? 0,
         stage: stage ? { text: flat(stage), steps: stepsOf(stage), past: pastOf(stage), shots: shotsOf(stage) } : null,
@@ -1115,7 +1209,7 @@ export const finalStageScenario = {
         await shot("b2-tree-dag");
 
         wait = await fstShow(h, ctx, "alongside");
-        a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("Check") && s.pane.steps[0].text === "passed 22s", wait);
+        a = await fstAgent(h, (s) => s.rows[0].sub.startsWith("Check") && s.pane.steps[0].fact === FST_STEP_TIME[0], wait);
         await shot("b3-alongside-pane");
         d = await fstDag(h, ctx, (s) => s.node.meta === "round 1 · Check · verifier", wait);
         rec(
@@ -1125,7 +1219,7 @@ export const finalStageScenario = {
                 a.rows[0].tone === "run" &&
                 fstSame(fstStates(a.pane.steps), ["passed", "running", "waiting", "running"]) &&
                 fstSame(a.pane.steps.map((s) => s.key), ["tree", "check", "verify", "verifier"]) &&
-                a.pane.steps[0].text === "passed 22s" &&
+                a.pane.steps[0].fact === FST_STEP_TIME[0] &&
                 d.node.meta === "round 1 · Check · verifier" &&
                 fstSame(d.node.strip, ["passed", "running", "waiting", "running"]),
             { row: a?.rows, pane: a?.pane?.steps, node: d?.node }
@@ -1146,11 +1240,57 @@ export const finalStageScenario = {
         if ((await h.activeSurfaceLabel()) !== SURFACE_LABEL.agent) await h.goto("agent");
         const heldPane = await fstUntil(h, memoryOf(FST_PANE), (t) => t === FST_MEMORY_TEXT, { nudge: holdNudge });
         const heldRail = await fstUntil(h, memoryOf(`${FST_RAIL}?.querySelector("[data-final-rail]")`), (t) => t === FST_MEMORY_TEXT);
+        // in the pane's row the hold takes the command's place, in warning
+        const heldLook = await h.ev(`(() => {
+            const row = ${FST_PANE}?.querySelector('[data-final-step="check"]');
+            return {
+                warning: row?.querySelector("[data-final-step-memory]")?.classList.contains("text-warning") ?? false,
+                command: row?.querySelector("[data-final-step-command]") != null,
+            };
+        })()`);
         await shot("b3b-memory-pane");
         rec(
-            "B3b. a running Check held at the memory gate reads waiting for memory · 2.1 GB free, 3.5 GB needed on its step in the DAG peek card, the pane and the rail",
-            () => heldPeek === FST_MEMORY_TEXT && heldPane === FST_MEMORY_TEXT && heldRail === FST_MEMORY_TEXT,
-            { heldPeek, heldPane, heldRail }
+            "B3b. a running Check held at the memory gate reads waiting for memory · 2.1 GB free, 3.5 GB needed on its step in the DAG peek card, the pane and the rail; in the pane's row it reads in warning where the command reads",
+            () =>
+                heldPeek === FST_MEMORY_TEXT &&
+                heldPane === FST_MEMORY_TEXT &&
+                heldRail === FST_MEMORY_TEXT &&
+                heldLook.warning &&
+                !heldLook.command,
+            { heldPeek, heldPane, heldRail, heldLook }
+        );
+
+        wait = await fstShowEndReview(h, ctx, "reviewing");
+        const endReviewIs = (s, state) => s.pane?.steps.some((p) => p.key === "review" && p.state === state);
+        a = await fstAgent(h, (s) => endReviewIs(s, "running") && s.rows[0]?.sub.endsWith("end review alongside"), wait);
+        await shot("b3c-end-review-alongside");
+        rec(
+            "B3c. the end review beside a running Verify: the pane lists End review running before the Verifier, and the row's activity names the end review alongside",
+            () =>
+                fstSame(a.pane.steps.map((s) => s.key), ["tree", "check", "verify", "review", "verifier"]) &&
+                fstSame(fstStates(a.pane.steps), ["passed", "passed", "running", "running", "waiting"]) &&
+                a.pane.text.includes("End review") &&
+                /^Verify · \S.* · end review alongside$/.test(a.rows[0].sub),
+            { row: a?.rows, pane: a?.pane?.steps }
+        );
+
+        wait = await fstShowEndReview(h, ctx, "failed");
+        a = await fstAgent(h, (s) => endReviewIs(s, "failed") && s.rows[0]?.tone === "fail", wait);
+        await shot("b3d-end-review-failed");
+        rec(
+            "B3d. a stage whose detail is only the end review's: End review failed, its chip alone saying so, the Verifier and the commands not failed and none in warning, the findings as the red block above the step box",
+            () =>
+                a.rows[0].sub === "failed at End review · round 1" &&
+                fstSame(fstStates(a.pane.steps), ["passed", "passed", "passed", "failed", "passed"]) &&
+                fstSame(
+                    a.pane.steps.filter((s) => s.key === "review").map((s) => [s.exit, s.fact]),
+                    [["failed", ""]]
+                ) &&
+                a.pane.steps.every((s) => s.factTone === "muted") &&
+                a.pane.detail?.includes(FST_ER_FINDING) &&
+                a.pane.detailAbove &&
+                a.pane.errors === 1,
+            { row: a?.rows, pane: a?.pane?.steps, detail: a?.pane?.detail, detailAbove: a?.pane?.detailAbove }
         );
 
         wait = await fstShow(h, ctx, "reviewing");
@@ -1174,9 +1314,26 @@ export const finalStageScenario = {
         );
         await shot("b4-reviewing-dag");
 
+        // round 1's Final and Verify kept their output beside its ARC_FINAL_OUT (finalStepsDir), written before the
+        // stage shows so the Final row opens on it
+        const keptDir = join(ctx.out, "1-steps");
+        mkdirSync(keptDir, { recursive: true });
+        writeFileSync(join(keptDir, "final.txt"), FST_FINAL_KEPT);
+        writeFileSync(join(keptDir, "verify.txt"), FST_VERIFY_KEPT);
+        const paneStep = (s, key) => s?.pane?.steps.find((p) => p.key === key);
+        const paneHead = (key) => `${FST_PANE}?.querySelector('[data-final-step="${key}"] [data-final-step-head]')`;
         wait = await fstShow(h, ctx, "failed");
-        a = await fstAgent(h, (s) => s.rows[0].tone === "fail" && s.pane.steps[3].state === "failed", wait);
+        a = await fstAgent(
+            h,
+            (s) => s.rows[0].tone === "fail" && paneStep(s, "final").state === "failed" && paneStep(s, "final").body?.card != null,
+            wait
+        );
         await shot("b5-failed-pane");
+        await finalShotsClick(h, paneHead("verify"));
+        const besideVerify = await fstUntil(h, FST_AGENT, (s) => paneStep(s, "verify")?.body?.card != null);
+        await finalShotsClick(h, `${FST_PANE}?.querySelector('[data-final-step="final"] [data-raw-toggle]')`);
+        const rawFinal = await fstUntil(h, FST_AGENT, (s) => paneStep(s, "final")?.body?.card?.view === "raw");
+        await shot("b5-failed-raw");
         await finalShotsClick(h, `${FST_PANE}?.querySelector("[data-final-shots-link]")`);
         const paneViewer = (await fstUntil(h, FST_AGENT, (s) => s.viewer))?.viewer;
         await closeViewer();
@@ -1186,14 +1343,34 @@ export const finalStageScenario = {
         const peekViewer = (await fstUntil(h, FST_DAG, (s) => s.viewer))?.viewer;
         await shot("b5-failed-viewer");
         await closeViewer();
+        const final = paneStep(a, "final");
+        const verifier = paneStep(a, "verifier");
+        const verifyCard = paneStep(besideVerify, "verify")?.body?.card;
+        const rawText = paneStep(rawFinal, "final")?.body?.card?.raw ?? "";
         rec(
-            "B5. failed at Final in round 1: the detail whole, the Verifier not run, the lead has it, and the screenshots open the viewer from the pane and the DAG peek card",
+            "B5. failed at Final in round 1: the Final row opens on its own as a final-verify Tests card, its failures named with their scenario, its X square and exit 1 chip, no red detail; Verify opens beside it as a go test card; raw shows the output; the Verifier reads not run, quiet; the lead has it, and the screenshots open the viewer from the pane and the DAG peek card",
             () =>
                 a.rows[0].sub === "failed at Final · round 1" &&
                 a.rows[0].tone === "fail" &&
                 a.slot === "fail" &&
                 fstSame(fstStates(a.pane.steps), [...fstRepeat("passed", 3), "failed", "notrun"]) &&
-                a.pane.text.includes(fstFlat(FST_DETAIL)) &&
+                fstSame(a.pane.steps.map((s) => s.expanded), [null, "false", "false", "true", null]) &&
+                final.mark === "Failed" &&
+                final.exit === "exit 1" &&
+                final.body.card.runner === "final-verify" &&
+                fstSame(
+                    final.body.card.failures.map((f) => [f.name, f.where]),
+                    FST_FINAL_FAILURES.map((f) => [f.step, FST_FINAL_SCENARIO])
+                ) &&
+                final.body.error == null &&
+                a.pane.detail == null &&
+                a.pane.errors === 0 &&
+                verifier.fact === "not run" &&
+                verifier.quiet &&
+                verifyCard?.runner === "go test" &&
+                paneStep(besideVerify, "final")?.body?.card != null &&
+                rawText.includes(`# ${FST_FINAL_SCENARIO}`) &&
+                rawText.includes(FST_FINAL_FAILURES[0].detail) &&
                 a.pane.text.includes("The lead has this failure") &&
                 !a.pane.end &&
                 a.pane.shots != null &&
@@ -1203,28 +1380,37 @@ export const finalStageScenario = {
                 d.peek.text.includes(fstFlat(FST_DETAIL)) &&
                 d.peek.shots != null &&
                 peekViewer,
-            { row: a?.rows, slot: a?.slot, pane: a?.pane, paneViewer, node: d?.node, peek: d?.peek, peekViewer }
+            {
+                row: a?.rows,
+                slot: a?.slot,
+                steps: a?.pane?.steps,
+                detail: a?.pane?.detail,
+                errors: a?.pane?.errors,
+                verifyCard,
+                raw: rawText.slice(0, 200),
+                paneViewer,
+                node: d?.node,
+                peek: d?.peek,
+                peekViewer,
+            }
         );
 
-        // a step that ended kept its output beside the round's ARC_FINAL_OUT (finalStepsDir); only Check's is
-        // written here, so Verify stands for a step whose output is gone
-        const keptDir = join(ctx.out, "1-steps");
-        mkdirSync(keptDir, { recursive: true });
+        // Check kept a plain output: it opens in place as a Bash panel, and a second click closes it
         writeFileSync(join(keptDir, "check.txt"), `${FST_KEPT_MARK}\n`);
         await h.goto("agent");
-        const paneCell = (key) => `${FST_PANE}?.querySelector('[data-final-step="${key}"]')`;
-        const keptRead = `(() => ({
-            pane: (${FST_PANE}?.textContent ?? "").replace(/\\s+/g, " ").trim(),
-            pressed: [...(${FST_PANE}?.querySelectorAll('[data-final-step][aria-pressed="true"]') ?? [])].map((c) => c.getAttribute("data-final-step")),
-            rail: (${FST_RAIL}?.querySelector("[data-final-rail]")?.textContent ?? "").replace(/\\s+/g, " ").trim(),
-        }))()`;
-        await finalShotsClick(h, paneCell("check"));
-        const keptCheck = await fstUntil(h, keptRead, (s) => s.pane.includes(FST_KEPT_MARK));
+        const keptRead = `(() => {
+            ${FST_LIB}
+            return {
+                check: paneStepsOf(${FST_PANE}).find((s) => s.key === "check") ?? null,
+                rail: flat(${FST_RAIL}?.querySelector("[data-final-rail]")),
+            };
+        })()`;
+        await finalShotsClick(h, paneHead("check"));
+        const keptCheck = await fstUntil(h, keptRead, (s) => (s.check?.body?.output ?? "").includes(FST_KEPT_MARK));
         await shot("b5b-kept-check");
-        await finalShotsClick(h, paneCell("verify"));
-        const keptGone = await fstUntil(h, keptRead, (s) => s.pane.includes("no output kept"));
-        await finalShotsClick(h, paneCell("verify"));
-        const keptClosed = await fstUntil(h, keptRead, (s) => s.pressed.length === 0);
+        await finalShotsClick(h, paneHead("check"));
+        // the body leaves through its pane's exit, so it is waited out
+        const keptClosed = await fstUntil(h, keptRead, (s) => s.check?.expanded === "false" && s.check.body == null);
         await finalShotsClick(h, `${FST_RAIL}?.querySelector('[data-final-rail] [data-final-step="check"]')`);
         const keptRail = await fstUntil(h, keptRead, (s) => s.rail.includes(FST_KEPT_MARK));
         await shot("b5b-kept-rail");
@@ -1240,20 +1426,77 @@ export const finalStageScenario = {
         await finalShotsClick(h, dagCell);
         // the output leaves through its pane's exit, so its text is waited out too
         const keptDagClosed = await fstUntil(h, dagRead, (s) => s.expanded.length === 0 && !s.text.includes(FST_KEPT_MARK));
+        // a rerun of Check that printed nothing: its event's new end versions the file, so the pane reads it afresh
+        writeFileSync(join(keptDir, "check.txt"), "");
+        await wait.nudge();
+        await h.goto("agent");
+        await finalShotsClick(h, paneHead("check"));
+        const keptEmpty = await fstUntil(h, keptRead, (s) => (s.check?.body?.text ?? "").includes(FST_KEPT_EMPTY), {
+            nudge: wait.nudge,
+        });
+        await shot("b5b-kept-empty");
         rec(
-            "B5b. a step that ended opens the output it kept: Check's from the pane, the rail and the DAG peek card (under its row, the outcome still shown), Verify's says none was kept, and a second click returns to the outcome",
+            "B5b. a step that ended opens the output it kept: Check's in place in the pane as a Bash panel that a second click closes, in the rail and in the DAG peek card (under its row, the outcome still shown); an empty kept output reads the step printed nothing",
             () =>
-                fstSame(keptCheck.pressed, ["check"]) &&
-                keptCheck.pane.includes(`$ ${FST_CHECK}`) &&
-                fstSame(keptGone.pressed, ["verify"]) &&
-                !keptGone.pane.includes(FST_KEPT_MARK) &&
-                keptClosed.pane.includes(fstFlat(FST_DETAIL)) &&
+                keptCheck.check.expanded === "true" &&
+                keptCheck.check.body.panel &&
+                keptCheck.check.body.card == null &&
+                keptCheck.check.body.command?.endsWith(fstFlat(FST_CHECK)) &&
+                keptClosed.check.body == null &&
                 keptRail.rail.includes(FST_KEPT_MARK) &&
                 fstSame(keptDag.expanded, ["check"]) &&
                 keptDag.text.includes(fstFlat(FST_DETAIL)) &&
                 keptDagClosed.text.includes(fstFlat(FST_DETAIL)) &&
-                !keptDagClosed.text.includes(FST_KEPT_MARK),
-            { keptCheck, keptGone, keptClosed, keptRail, keptDag, keptDagClosed }
+                !keptDagClosed.text.includes(FST_KEPT_MARK) &&
+                keptEmpty.check.expanded === "true" &&
+                keptEmpty.check.body.text.includes(FST_KEPT_EMPTY) &&
+                !keptEmpty.check.body.text.includes(FST_KEPT_MARK),
+            {
+                keptCheck: keptCheck?.check,
+                keptClosed: keptClosed?.check,
+                keptRail,
+                keptDag,
+                keptDagClosed,
+                keptEmpty: keptEmpty?.check,
+            }
+        );
+
+        // B5's stage with a failed end review too: applyEndReview appends the findings to the Final's detail
+        await fstShow(h, ctx, "failed");
+        const erDetail = `${FST_DETAIL}\n\n[End review] ${FST_ER_FINDING}`;
+        const erNudge = await seedDag(
+            h,
+            ctx,
+            (dag) => ({
+                ...dag,
+                final: { ...dag.final, detail: erDetail, endreview: { state: "failed", text: FST_ER_FINDING } },
+            }),
+            (dag) => JSON.stringify([dag?.final?.state ?? "", dag?.final?.endreview?.state ?? "", dag?.final?.detail ?? ""])
+        );
+        a = await fstAgent(
+            h,
+            // fstShow publishes the step events afresh, so the Final's kept output is read again
+            (s) =>
+                paneStep(s, "review")?.state === "failed" &&
+                (s.pane?.detail ?? "").includes(FST_ER_FINDING) &&
+                paneStep(s, "final")?.body?.card != null,
+            { nudge: erNudge }
+        );
+        await shot("b5c-failed-end-review");
+        const erFinal = paneStep(a, "final");
+        rec(
+            "B5c. B5's stage with a failed end review: the Final row still opens as a final-verify card with no error, End review reads failed, and the findings alone are the red block above the step box",
+            () =>
+                erFinal.state === "failed" &&
+                erFinal.expanded === "true" &&
+                erFinal.body.card.runner === "final-verify" &&
+                erFinal.body.error == null &&
+                paneStep(a, "review").state === "failed" &&
+                a.pane.detailAbove &&
+                a.pane.detail.includes(FST_ER_FINDING) &&
+                FST_DETAIL.split("\n").every((line) => !a.pane.detail.includes(fstFlat(line))) &&
+                a.pane.errors === 1,
+            { steps: a?.pane?.steps, detail: a?.pane?.detail, detailAbove: a?.pane?.detailAbove, errors: a?.pane?.errors }
         );
 
         wait = await fstShow(h, ctx, "fixing");
@@ -1273,6 +1516,31 @@ export const finalStageScenario = {
             { row: a?.rows, pane: a?.pane, past: a?.stage?.past, node: d?.node, peek: d?.peek }
         );
         await shot("b6-fixing-dag");
+
+        // the pane's Round 1 line, below the steps, opens to the round's failure as the red block
+        await h.goto("agent");
+        const pastLine = `${FST_PANE}?.querySelector('[data-final-past-round="1"]')`;
+        const pastRead = `(() => {
+            const line = ${pastLine};
+            const detail = line?.parentElement?.querySelector("[data-final-past-round-detail]");
+            return {
+                line: (line?.textContent ?? "").replace(/\\s+/g, " ").trim(),
+                expanded: line?.getAttribute("aria-expanded") ?? null,
+                error: (detail?.querySelector("[data-tool-error]")?.textContent ?? "").replace(/\\s+/g, " ").trim(),
+            };
+        })()`;
+        await finalShotsClick(h, pastLine);
+        const pastOpen = await fstUntil(h, pastRead, (s) => s.error !== "");
+        await shot("b6b-past-round-open");
+        rec(
+            "B6b. the pane's Round 1 line reads Round 1 and failed at Final, and a click opens its failure detail beneath it as the red block",
+            () =>
+                pastOpen.line.startsWith("Round 1") &&
+                pastOpen.line.includes("failed at Final") &&
+                pastOpen.expanded === "true" &&
+                pastOpen.error === fstFlat(FST_DETAIL),
+            pastOpen
+        );
 
         // the verifier's tab joins the roster. Until the stage names its run, that tab is a stage row an earlier
         // round left, and the stage's row is its own
@@ -1421,7 +1689,7 @@ export const finalStageScenario = {
         if (await h.ev(`${FST_ROW} == null && ${FST_FOLD} != null`)) await finalShotsClick(h, FST_FOLD);
         await fstUntil(h, FST_AGENT, (s) => s.rows.length === 1);
         await clickRow();
-        const subSecond = await fstUntil(h, FST_AGENT, (s) => s.pane?.steps?.[0]?.text === FST_SUB_SECOND_TEXT, {
+        const subSecond = await fstUntil(h, FST_AGENT, (s) => s.pane?.steps?.[0]?.fact === FST_SUB_SECOND_TIME, {
             nudge: republish,
         });
         await shot("b10b-sub-second-pane");
@@ -1429,13 +1697,13 @@ export const finalStageScenario = {
             "P10. a step that ran 211 ms reads <1s in the pane, and the steps around it keep their times",
             () =>
                 subSecond.pane.steps[0].key === "tree" &&
-                subSecond.pane.steps[0].text === FST_SUB_SECOND_TEXT &&
-                fstSame(subSecond.pane.steps.slice(1).map((s) => s.text), FST_STEP_TEXT.slice(1, 5)),
-            { steps: subSecond?.pane?.steps?.map((s) => [s.key, s.text]) }
+                subSecond.pane.steps[0].fact === FST_SUB_SECOND_TIME &&
+                fstSame(subSecond.pane.steps.slice(1).map((s) => s.fact), FST_STEP_TIME.slice(1, 5)),
+            { steps: subSecond?.pane?.steps?.map((s) => [s.key, s.fact]) }
         );
-        const verifierCell = `${FST_PANE}?.querySelector('[data-final-step="verifier"]')`;
-        const clickable = await h.ev(`${verifierCell}?.getAttribute("role") === "button"`);
-        await finalShotsClick(h, verifierCell);
+        const verifierHead = `${FST_PANE}?.querySelector('[data-final-step="verifier"] [data-final-step-head]')`;
+        const clickable = await h.ev(`${verifierHead}?.tagName === "BUTTON"`);
+        await finalShotsClick(h, verifierHead);
         const opened = await fstUntil(
             h,
             `(() => {
@@ -1529,12 +1797,16 @@ export const finalStageScenario = {
         await finalShotsClick(h, `${FST_TREE}?.querySelector("[data-final-row]")`);
         a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane.output != null && s.stage != null);
         rec(
-            "A4. clicking the tree's row focuses it: the pipeline, the running command and its output, the stage's facts and step list once, and End final stage",
+            "A4. clicking the tree's row focuses it: the pipeline, Verify running with the spinner and opened on its live tail and the tail's note, no card, the stage's facts and step list once, and End final stage",
             () =>
                 a.rows[0].selected &&
                 a.railSteps === a.stage.steps.length &&
                 fstSame(fstStates(a.pane.steps), ["passed", "running", "waiting", "waiting"]) &&
-                a.pane.text.includes(`$ ${FST_LIVE_VERIFY}`) &&
+                a.pane.steps[1].mark === "Running" &&
+                a.pane.steps[1].expanded === "true" &&
+                a.pane.steps[1].body.command.endsWith(fstFlat(FST_LIVE_VERIFY)) &&
+                a.pane.steps[1].body.text.endsWith("output tail · the engine publishes it every 10s") &&
+                a.pane.steps[1].body.card == null &&
                 a.pane.output.includes(`${FST_MARK} 3`) &&
                 a.pane.end &&
                 fstSame(fstStates(a.stage.steps), ["passed", "running", "waiting", "waiting"]) &&

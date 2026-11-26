@@ -23,10 +23,11 @@ import {
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
+import { memoryOpenAtom } from "@/app/view/agents/memorystore";
 import { pickerFlipAtom, viewModeAtom } from "@/app/view/agents/renderedmode";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
-import { workspaceAtom } from "@/app/view/agents/workspacestore";
+import { closeWorkspaceTab, openWorkspaceTab, workspaceAtom } from "@/app/view/agents/workspacestore";
 import { codePeekFocusedAtom } from "@/app/view/code/codepeekstore";
 import { codeTreeFocusedAtom } from "@/app/view/code/codestore";
 import { autonomyPanelOpenAtom } from "@/app/view/jarvis/autonomyladder";
@@ -192,7 +193,8 @@ describe("keybinding conflict invariant", () => {
         }
     });
 
-    // an agent with a brainstorm never shows its canvas, so b takes over and c stands down
+    // in Terminal an agent with a brainstorm never shows its canvas, so b takes over and c stands down (the stub roster
+    // is empty, so a1 never renders)
     it("the two b bindings never both match, and every surface's bindings stay conflict-free with a brainstorm", () => {
         const model = withCanvas();
         attachBrainstorm("a1", { topic: "bs", cwd: "/p" }, 0);
@@ -239,6 +241,50 @@ describe("keybinding conflict invariant", () => {
             detachBrainstorm("a1");
             expect(open.when!(agentCtx) || close.when!(agentCtx)).toBe(false);
         } finally {
+            detachBrainstorm("a1");
+            detachCanvas("a1");
+        }
+    });
+
+    // in Rendered a brainstorm agent's canvas is a tab beside its Brainstorm tab, so b and c switch between the two
+    it("in Rendered, with a brainstorm and a canvas, each key's open and close never both match on either tab", () => {
+        const model = { ...withCanvas(), agentsAtom: atom([{ id: "a1", agent: "claude", blockId: "b1" }]) };
+        globalStore.set(viewModeAtom("a1"), "rendered");
+        attachBrainstorm("a1", { topic: "bs", cwd: "/p" }, 0);
+        globalStore.set(listNavAtom, null);
+        const askRef = { current: { id: "w1", state: "asking" } as AgentVM };
+        const all = [
+            ...buildGlobalBindings(model),
+            ...buildListNavBindings(model),
+            ...buildChannelsAskBindings(model, askRef),
+            ...buildJarvisBindings(),
+            ...buildCockpitBindings(),
+            ...buildAgentBindings(model),
+            ...buildFilesBindings(),
+            ...buildCodeBindings(stubModel()),
+        ];
+        const find = (id: string) => all.find((x) => x.id === id)!;
+        const agentCtx: KeyContext = { surface: "agent", editable: false, modalOpen: false, leader: null };
+        try {
+            for (const [tab, opens] of [
+                ["brainstorm", "agent:canvas-open"],
+                ["canvas", "agent:brainstorm-open"],
+            ] as const) {
+                openWorkspaceTab("a1", { kind: tab });
+                for (const kind of ["brainstorm", "canvas"]) {
+                    const open = find(`agent:${kind}-open`);
+                    const close = find(`agent:${kind}-close`);
+                    for (const ctx of contexts()) {
+                        expect(open.when!(ctx) && close.when!(ctx), `${kind} on the ${tab} tab`).toBe(false);
+                    }
+                }
+                expect(find(opens).when!(agentCtx), tab).toBe(true);
+                expect(find(`agent:${tab}-close`).when!(agentCtx), tab).toBe(true);
+                expect(() => assertNoConflicts(all)).not.toThrow();
+            }
+        } finally {
+            closeWorkspaceTab("a1", "brainstorm");
+            closeWorkspaceTab("a1", "canvas");
             detachBrainstorm("a1");
             detachCanvas("a1");
         }
@@ -323,13 +369,16 @@ describe("keybinding conflict invariant", () => {
         ).not.toThrow();
     });
 
-    // j, k and the arrows also move a list-nav cursor, which the Setup surface never sets
-    it("global + list-nav + memory-tab bindings do not conflict", () => {
+    // j, k and the arrows also move a list-nav cursor, which the Setup surface never sets; Escape closes an
+    // opened row only while one is
+    it.each([null, "split/mp"])("global + list-nav + memory-tab bindings do not conflict, opened: %s", (open) => {
         const model = { ...stubModel(), surfaceAtom: {}, paletteOpenAtom: {}, newAgentOpenAtom: {} };
         globalStore.set(listNavAtom, null);
+        globalStore.set(memoryOpenAtom, open);
         expect(() =>
             assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildMemoryBindings()])
         ).not.toThrow();
+        globalStore.set(memoryOpenAtom, null);
     });
 
     it("Escape stays unambiguous on the Diff surface with filters active", () => {

@@ -1,7 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// Pure test-output parser for the rendered view's test card: go test (-json, -v, plain) and vitest.
+// Pure test-output parser for the rendered view's test card: go test (-json, -v, plain), vitest and Arc's CDP runners.
 // Deterministic, linear in the output, never throws on odd input; null when nothing is recognized.
 
 export interface TestFailure {
@@ -12,7 +12,7 @@ export interface TestFailure {
 }
 
 export interface TestSummary {
-    runner: "go" | "vitest";
+    runner: "go" | "vitest" | "final-verify";
     unit: "test" | "package";
     pass: number;
     fail: number;
@@ -28,24 +28,65 @@ export function stripAnsi(s: string): string {
     return s.replace(CSI_RE, "");
 }
 
-// a t.Errorf line: "    plan_test.go:88: want 3 tasks, got 1"
-const GO_LOC_LINE = /^\s*([\w.\-/\\]+\.go:\d+): ?(.*)$/;
+// Arc's own runners: verify.mjs (go packages), the CDP runners and the task that wraps one; either path separator
+const TEST_CMD =
+    /(?:^|[\s;&|(])(?:go\s+test|vitest|task\s+verify:ui)\b|(?:^|[\s;&|(/\\])scripts[\\/](?:cdp[\\/](?:final-)?)?verify\.mjs\b/;
 
-interface Message {
-    message?: string;
-    loc?: string;
+export function isTestCommand(cmd: string): boolean {
+    return TEST_CMD.test(cmd);
 }
 
-// keeps the first located message for a test
-function noteMessage(m: Message, line: string): void {
-    if (m.loc != null) {
+// a t.Errorf line: "    plan_test.go:88: want 3 tasks, got 1"
+const GO_LOC_LINE = /^(\s*)([\w.\-/\\]+\.go:\d+): ?(.*)$/;
+// go indents a log line's continuation this much past the line itself
+const GO_CONTINUATION_INDENT = 4;
+const GO_RUN = /^=== (?:RUN|CONT|NAME|PAUSE)\s+(\S+)/;
+const GO_RESULT = /^\s*--- (PASS|FAIL|SKIP): (\S+)/;
+
+// up to n leading whitespace characters cut, so indent past them stays
+function dedent(line: string, n: number): string {
+    let i = 0;
+    while (i < n && i < line.length && /\s/.test(line[i])) i++;
+    return line.slice(i);
+}
+
+interface Message {
+    lines?: string[];
+    loc?: string;
+    // the first located line's indent: what every later line is dedented by
+    indent?: number;
+}
+
+// The whole message a test printed, from its first located line on, its own === RUN / --- FAIL lines left out.
+// attributed: the line is known to be the test's (go test -json names it); plain text attributes only indented lines,
+// since go indents every log line and its own FAIL, PASS and exit status lines are not.
+function noteMessage(m: Message, line: string, attributed: boolean): void {
+    if (GO_RUN.test(line) || GO_RESULT.test(line)) {
         return;
     }
-    const lm = GO_LOC_LINE.exec(line);
-    if (lm) {
-        m.loc = lm[1];
-        m.message = lm[2].trim();
+    if (m.loc == null) {
+        const lm = GO_LOC_LINE.exec(line);
+        if (lm) {
+            m.loc = lm[2];
+            m.indent = lm[1].length;
+            m.lines = [lm[3].trimEnd()];
+        }
+        return;
     }
+    if (!attributed && !/^\s/.test(line)) {
+        return;
+    }
+    m.lines.push(dedent(line, m.indent + GO_CONTINUATION_INDENT).trimEnd());
+}
+
+// the lines joined, blank lines at either end dropped
+function messageText(lines: string[] | undefined): string {
+    const all = lines ?? [];
+    let start = 0;
+    let end = all.length;
+    while (start < end && all[start].trim() === "") start++;
+    while (end > start && all[end - 1].trim() === "") end--;
+    return all.slice(start, end).join("\n");
 }
 
 // a failing parent test whose subtest also failed adds nothing the subtest does not say
@@ -64,7 +105,7 @@ function toFailure(pkg: string | undefined, test: string, m: Message | undefined
     return {
         ...(pkg ? { pkg } : {}),
         test,
-        message: m?.message || fallback,
+        message: messageText(m?.lines) || fallback,
         ...(m?.loc ? { loc: m.loc } : {}),
     };
 }
@@ -100,7 +141,7 @@ function parseGoJson(lines: string[]): TestSummary | null {
         if (ev.Action === "output" && test != null && typeof ev.Output === "string") {
             const key = `${pkg}\x00${test}`;
             const m = messages.get(key) ?? {};
-            noteMessage(m, ev.Output.replace(/\r?\n$/, ""));
+            noteMessage(m, ev.Output.replace(/\r?\n$/, ""), true);
             messages.set(key, m);
         }
         if (ev.Action === "fail") {
@@ -130,9 +171,7 @@ function parseGoJson(lines: string[]): TestSummary | null {
     };
 }
 
-const GO_RUN = /^=== (?:RUN|CONT|NAME|PAUSE)\s+(\S+)/;
-const GO_RESULT = /^\s*--- (PASS|FAIL|SKIP): (\S+)/;
-// "ok  \tpkg\t0.1s", "ok  \tpkg\t(cached)", "FAIL\tpkg\t0.2s", "FAIL\tpkg [build failed]"
+// "ok\tpkg\t0.1s", "ok  \tpkg\t(cached)", "FAIL\tpkg\t0.2s", "FAIL\tpkg [build failed]"
 const GO_PKG_OK = /^ok\s+(\S+)\s+(?:\d+(?:\.\d+)?s|\(cached\)|\[no tests to run\])/;
 const GO_PKG_FAIL = /^FAIL\s+(\S+)(\s+(?:\d+(?:\.\d+)?s|\[[^\]]+\]))/;
 const GO_PKG_NOTESTS = /^\?\s+(\S+)\s+\[no test files\]/;
@@ -190,7 +229,7 @@ function parseGoText(lines: string[]): TestSummary | null {
         }
         if (current != null) {
             const m = messages.get(current) ?? {};
-            noteMessage(m, line);
+            noteMessage(m, line, false);
             messages.set(current, m);
         }
     }
@@ -214,6 +253,8 @@ const VITEST_COUNT = /(\d+)\s+(passed|failed|skipped|todo)/g;
 // " FAIL  a.test.ts > suite > name", or " FAIL  a.test.ts [ a.test.ts ]" when the file itself failed
 const VITEST_FAIL = /^\s*FAIL\s+(\S+\.[cm]?[jt]sx?)(?:\s+>\s+(.*?))?(?:\s+\[.*\])?\s*$/;
 const VITEST_LOC = /^\s*❯\s+(\S+?:\d+)(?::\d+)?\s*$/;
+// the "⎯⎯⎯[1/3]⎯" rule between failures, or the "Test Files" summary
+const VITEST_BLOCK_END = /^\s*(?:⎯|Test Files\s)/;
 
 function parseVitest(lines: string[]): TestSummary | null {
     let summary: string | undefined;
@@ -233,34 +274,110 @@ function parseVitest(lines: string[]): TestSummary | null {
         else if (m[2] === "failed") counts.fail += n;
         else counts.skip += n;
     }
+    // a failure's message is every line from its FAIL header to its bare location line; a stack frame with a function
+    // name before it stays in the message
     const failures: TestFailure[] = [];
-    let open: TestFailure | null = null;
+    let open: { failure: TestFailure; lines: string[] } | null = null;
+    const close = () => {
+        if (open != null) {
+            open.failure.message = messageText(open.lines);
+            open = null;
+        }
+    };
     for (const line of lines) {
         const head = VITEST_FAIL.exec(line);
         if (head) {
-            open = { pkg: head[1], test: head[2] ?? "", message: "" };
-            failures.push(open);
+            close();
+            open = { failure: { pkg: head[1], test: head[2] ?? "", message: "" }, lines: [] };
+            failures.push(open.failure);
             continue;
         }
         if (open == null) {
             continue;
         }
-        if (open.message === "" && line.trim() !== "") {
-            open.message = line.trim();
+        const loc = VITEST_LOC.exec(line);
+        if (loc) {
+            open.failure.loc = loc[1];
+            close();
             continue;
         }
-        const loc = VITEST_LOC.exec(line);
-        if (loc && open.loc == null) {
-            open.loc = loc[1];
+        // a block cut before its location still ends at the next failure's rule or the summary
+        if (VITEST_BLOCK_END.test(line)) {
+            close();
+            continue;
+        }
+        open.lines.push(line.trimEnd());
+    }
+    close();
+    return { runner: "vitest", unit: "test", ...counts, failures };
+}
+
+// scripts/cdp/report.mjs formatResults: "# scenario", "  PASS|FAIL|SKIP  step", its detail indented eight spaces
+// beneath, "  ERROR: msg" under a header when the scenario threw
+const CDP_HEADER = /^# (.+?)\s*$/;
+const CDP_STEP = /^ {2}(PASS|FAIL|SKIP) {2}(.*?)\s*$/;
+const CDP_ERROR = /^ {2}ERROR: (.*?)\s*$/;
+const CDP_DETAIL = /^ {3,}\S/;
+// shotsManifest's name for the same failure
+const CDP_THREW = "the scenario threw";
+
+function parseFinalVerify(lines: string[]): TestSummary | null {
+    const counts = { pass: 0, fail: 0, skip: 0 };
+    const failures: TestFailure[] = [];
+    let scenario: string | undefined;
+    // the last FAIL, still collecting its detail lines; a PASS or SKIP detail is not kept
+    let open: { failure: TestFailure; lines: string[] } | null = null;
+    const close = () => {
+        if (open != null) {
+            open.failure.message = open.lines.join("\n") || "failed";
             open = null;
         }
+    };
+    for (const line of lines) {
+        const header = CDP_HEADER.exec(line);
+        if (header) {
+            close();
+            scenario = header[1];
+            continue;
+        }
+        if (scenario == null) {
+            continue;
+        }
+        const err = CDP_ERROR.exec(line);
+        if (err) {
+            close();
+            counts.fail++;
+            failures.push({ pkg: scenario, test: CDP_THREW, message: err[1] || "failed" });
+            continue;
+        }
+        const step = CDP_STEP.exec(line);
+        if (step) {
+            close();
+            const verdict = step[1].toLowerCase() as "pass" | "fail" | "skip";
+            counts[verdict]++;
+            if (verdict === "fail") {
+                const failure = { pkg: scenario, test: step[2], message: "" };
+                failures.push(failure);
+                open = { failure, lines: [] };
+            }
+            continue;
+        }
+        if (open != null && CDP_DETAIL.test(line)) {
+            open.lines.push(line.trim());
+        } else {
+            close();
+        }
     }
-    return { runner: "vitest", unit: "test", ...counts, failures };
+    close();
+    if (counts.pass + counts.fail + counts.skip === 0) {
+        return null;
+    }
+    return { runner: "final-verify", unit: "test", ...counts, failures };
 }
 
 export function parseTestOutput(output: string): TestSummary | null {
     const lines = stripAnsi(output).split(/\r?\n/);
-    return parseGoJson(lines) ?? parseVitest(lines) ?? parseGoText(lines);
+    return parseGoJson(lines) ?? parseVitest(lines) ?? parseFinalVerify(lines) ?? parseGoText(lines);
 }
 
 function lastSegment(path: string): string {
@@ -277,6 +394,9 @@ export interface FailureLabel {
 // How a failure row names its test and place. vitest's pkg and loc name the same file, so only loc's file:line
 // shows; a go package path shares its module prefix on every row, so only its last element prefixes the location.
 export function failureLabel(runner: TestSummary["runner"], f: TestFailure): FailureLabel {
+    if (runner === "final-verify") {
+        return { name: f.test, where: f.pkg, whereFull: f.pkg };
+    }
     if (runner === "vitest") {
         const full = f.loc ?? f.pkg;
         return { name: f.test || (f.pkg ?? ""), ...(full ? { where: lastSegment(full), whereFull: full } : {}) };

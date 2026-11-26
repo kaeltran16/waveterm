@@ -31,7 +31,7 @@ import {
 } from "react";
 import { canSendComposer, useAgentComposer, useComposerHandle, type AgentComposerHandle } from "./agentcomposer";
 import { FilesSummary } from "./agentdetailsrail";
-import { agentDiffScope, openDiff } from "./agentdiffnav";
+import { openAgentDiff } from "./agentdiffnav";
 import type { ContextFacts } from "./agentrailmodel";
 import type { AgentsViewModel } from "./agents";
 import { sendAgentBash } from "./agentsend";
@@ -185,6 +185,12 @@ function ContextRing({
 function ChangesRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }) {
     useRailGit(agent);
     const chip = useCheckoutFacts(model, agent).chip;
+    const title = chip?.title ? `${chip.title} · Open the Changes tab` : "Open the Changes tab";
+    const openChanges = (e: { ctrlKey: boolean }) => {
+        if (!openBeside(model, agent.id, { kind: "changes", selected: null }, e)) {
+            openAgentDiff(model, agent);
+        }
+    };
     return (
         <AnimatePresence initial={false}>
             {chip ? (
@@ -196,30 +202,33 @@ function ChangesRow({ model, agent }: { model: AgentsViewModel; agent: AgentVM }
                     exit="exit"
                     className="overflow-hidden"
                 >
-                    <button
-                        type="button"
-                        data-composer-changes
-                        onClick={(e) => {
-                            if (!openBeside(model, agent.id, { kind: "changes", selected: null }, e)) {
-                                openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent));
-                            }
-                        }}
-                        title={chip.title ? `${chip.title} · Open the Changes tab` : "Open the Changes tab"}
-                        className="group mb-2.5 flex w-full cursor-pointer items-center gap-[9px] border-b border-edge-mid pb-2.5 text-left text-ink-mid"
-                    >
-                        <FileDiff size={13} strokeWidth={2} aria-hidden className="shrink-0" />
-                        <span
+                    {/* only the summary and the pill open the changes: a whole-row button caught clicks meant for
+                    the box below */}
+                    <div className="mb-2.5 flex w-full items-center gap-[9px] border-b border-edge-mid pb-2.5 text-ink-mid">
+                        <button
+                            type="button"
                             data-composer-changes-summary
-                            className="min-w-0 truncate font-mono text-[11px] font-semibold text-secondary"
+                            onClick={openChanges}
+                            title={title}
+                            className="flex min-w-0 cursor-pointer items-center gap-[9px] rounded-[6px] hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                         >
-                            <FilesSummary chip={chip} />
-                        </span>
+                            <FileDiff size={13} strokeWidth={2} aria-hidden className="shrink-0" />
+                            <span className="min-w-0 truncate font-mono text-[11px] font-semibold text-secondary">
+                                <FilesSummary chip={chip} />
+                            </span>
+                        </button>
                         <span className="flex-1" />
-                        <span className="inline-flex shrink-0 items-center gap-[3px] rounded-[6px] px-[6px] py-[2px] text-[12px] font-semibold text-accent-soft group-hover:bg-surface-hover">
+                        <button
+                            type="button"
+                            data-composer-changes
+                            onClick={openChanges}
+                            title={title}
+                            className="inline-flex shrink-0 cursor-pointer items-center gap-[3px] rounded-[6px] px-[6px] py-[2px] text-[12px] font-semibold text-accent-soft hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                        >
                             Review changes
                             <ChevronRight size={12} strokeWidth={2} aria-hidden />
-                        </span>
-                    </button>
+                        </button>
+                    </div>
                 </motion.div>
             ) : null}
         </AnimatePresence>

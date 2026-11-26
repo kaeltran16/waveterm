@@ -17,7 +17,7 @@ vi.mock("@/app/store/wshclientapi", () => ({
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
 
-import { agentDiffScope, diffScopeOfRun, landedRunTip, openDiff, openRunDiff, runDiffScope } from "./agentdiffnav";
+import { agentDiffScope, landedRunTip, openDiff, openRunDiff, runDiffScope } from "./agentdiffnav";
 import { scopeKey } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
 import { HISTORY_RPC_TIMEOUT_MS } from "./historyquery";
@@ -75,14 +75,6 @@ describe("openDiff", () => {
             cwd: "/repo",
             baseCommit: "9f2c1de",
         });
-    });
-
-    // a run landing on its own branch did its work in that tree; the checkout holds the human's edits
-    it("diffs a run where its lanes landed", () => {
-        const run = { id: "r3", projectpath: "/repo", basecommit: "9f2c1de" } as Run;
-        expect(diffScopeOfRun(run).repo.origin).toMatchObject({ cwd: "/repo" });
-        const landed = { ...run, landpath: "/repo/.waveterm/worktrees/r3" } as Run;
-        expect(diffScopeOfRun(landed)).toEqual(runDiffScope("r3", "/repo/.waveterm/worktrees/r3", "9f2c1de"));
     });
 
     it("degrades a missing base commit to the live diff rather than undefined", () => {

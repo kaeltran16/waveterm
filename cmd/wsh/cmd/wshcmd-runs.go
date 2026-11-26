@@ -794,6 +794,9 @@ func runsShowLines(ch *waveobj.Channel, r *waveobj.Run, digest *wshrpc.CommandDa
 	if r.Autonomous {
 		route += "  autonomous"
 	}
+	if digest != nil && digest.Group != nil && digest.Group.FastTrack {
+		route += "  fast track"
+	}
 	if route != "" {
 		lines = append(lines, "route    "+route)
 	}

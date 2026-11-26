@@ -5,6 +5,7 @@ package agentworker
 
 import (
 	"context"
+	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/baseds"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
@@ -14,8 +15,10 @@ import (
 
 // ResumeWorkersAtBoot settles the workers the previous wavesrv left: no process survived it, so every armed worker is
 // disarmed before a block resync can replay its first prompt, and one cut off mid-task (its parent's turn unanswered)
-// resumes in its own session with the nudge. A refused resume leaves the worker stopped with its notice owed. Event
-// history did not survive either, so each stopped worker is published idle for the roster.
+// resumes in its own session with the nudge. A refused resume leaves the worker stopped with its notice owed, raised
+// as an orphan when its parent's tab is gone, since no settle will come. Event
+// history did not survive either, so each stopped worker is published idle for the roster, as of its transcript's
+// last write: the time it went idle, not the boot's.
 func ResumeWorkersAtBoot(ctx context.Context) {
 	tabs, err := wstore.DBGetAllObjsByType[*waveobj.Tab](ctx, waveobj.OType_Tab)
 	if err != nil {
@@ -50,7 +53,15 @@ func resumeAtBoot(ctx context.Context, tab *waveobj.Tab) {
 			logErr("boot: resuming worker %s: %v", tab.OID, err)
 		}
 	}
-	if err := PublishStatus(ctx, blockId, baseds.AgentState_Idle); err != nil {
+	if block.Meta.GetBool(MetaNoticeOwed, false) {
+		raiseStoppedOrphan(ctx, tab, block)
+	}
+	idleAt, ok := lastTranscriptWrite(block)
+	if !ok {
+		// it never wrote a transcript, so nothing says when it stopped
+		idleAt = time.Now()
+	}
+	if err := PublishStatus(ctx, blockId, baseds.AgentState_Idle, idleAt); err != nil {
 		logErr("boot: publishing stopped worker %s: %v", tab.OID, err)
 	}
 }

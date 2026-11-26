@@ -66,17 +66,11 @@ export function revealedCanvas(address: string | undefined): { topic: string; bo
 }
 
 // a canvas reveal row: the Mockup card on the latest (transcriptlayout's lastCanvasReveal), a row that opens the
-// canvas on an earlier one, and the plain row for a canvas the agent no longer has or one its brainstorm holds (the
-// brainstorm's cards open its boards)
+// canvas on an earlier one, and the plain row for a canvas the agent no longer has
 export type CanvasRevealView = "card" | "row-open" | "row";
 
-export function canvasRevealView(o: {
-    latest: boolean;
-    topic: string;
-    canvas: CanvasState | null;
-    brainstorm: boolean;
-}): CanvasRevealView {
-    if (o.brainstorm || o.canvas == null || o.canvas.topic !== o.topic) {
+export function canvasRevealView(o: { latest: boolean; topic: string; canvas: CanvasState | null }): CanvasRevealView {
+    if (o.canvas == null || o.canvas.topic !== o.topic) {
         return "row";
     }
     if (o.latest) {

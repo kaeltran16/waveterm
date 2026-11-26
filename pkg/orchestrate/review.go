@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/wavetermdev/waveterm/pkg/agentsessions"
 	"github.com/wavetermdev/waveterm/pkg/jarvis"
 	"github.com/wavetermdev/waveterm/pkg/memgate"
 	"github.com/wavetermdev/waveterm/pkg/runroute"
@@ -364,6 +365,17 @@ func unfinishedDescendants(g *waveobj.TaskGroup, id string) []string {
 	return out
 }
 
+// forLaterHasReader reports a descendant of id that reads its For later tasks at dispatch: one not started yet, or one
+// already dispatched, as a lane mate that finished before the lane merged was.
+func forLaterHasReader(g *waveobj.TaskGroup, id string) bool {
+	for _, d := range descendants(g, id) {
+		if t := taskByID(g, d); amendable(t.State) || t.RunID != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func unionIDs(a, b []string) []string {
 	out := append([]string{}, a...)
 	for _, id := range b {
@@ -601,7 +613,7 @@ const reviewTestsAgainstCriteria = "The task states acceptance criteria and the 
 // merge. The reviewer works in the worker's tree, so that is where it reads the docs.
 func reviewPrompt(g *waveobj.TaskGroup, task *waveobj.TaskNode, worker *waveobj.Run, told []string, findings []wshrpc.GoalpostFinding) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are the reviewer for task %s", task.ID)
+	b.WriteString(agentsessions.RunReviewerOpening + task.ID)
 	if g.PlanPath != "" {
 		fmt.Fprintf(&b, " of the plan at %s", DocPath(g, worker.ProjectPath, g.PlanPath))
 	}

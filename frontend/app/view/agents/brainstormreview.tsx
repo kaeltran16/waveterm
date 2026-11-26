@@ -28,6 +28,7 @@ import {
     type BrainstormPart,
     type PartPick,
     type PartView,
+    type ReviewModel,
     type ReviewRow,
 } from "./brainstormmodel";
 import { pickPart, sendBrainstorm } from "./brainstormsend";
@@ -549,46 +550,68 @@ export function AnsweredRail({ f, agent }: { f: BrainstormFile; agent?: AgentVM 
                     {line.rest}
                 </p>
             </div>
-            {r.answered.length > 0 ? (
-                <section aria-label="You answered" className="flex flex-col">
-                    {r.answered.map((y, i) => (
-                        <div
-                            key={i}
-                            data-brainstorm-answered
-                            className="flex flex-col gap-[6px] border-t border-edge-faint py-[10px]"
-                        >
-                            <span className="text-[12.5px] leading-[1.45] text-ink-mid">{y.q}</span>
-                            <div className="flex items-start gap-[8px]">
-                                <CheckMark />
-                                <span className="text-[13.5px] font-semibold leading-[1.45] text-primary">{y.a}</span>
-                            </div>
-                            {y.changed.length > 0 ? (
-                                <span className="pl-[21px] text-[11.5px] text-muted">
-                                    Changed{" "}
-                                    {y.changed.map((c, j) => (
-                                        <Fragment key={c.id}>
-                                            {j > 0 ? ", " : null}
-                                            {agent != null ? (
-                                                <button
-                                                    type="button"
-                                                    data-brainstorm-answered-link={c.id}
-                                                    onClick={() => setReviewCursor(agent.id, c.id)}
-                                                    className={cn(LINK, "border-0 bg-transparent p-0 text-[11.5px]")}
-                                                >
-                                                    {c.title}
-                                                </button>
-                                            ) : (
-                                                c.title
-                                            )}
-                                        </Fragment>
-                                    ))}
-                                </span>
-                            ) : null}
-                        </div>
-                    ))}
-                </section>
-            ) : null}
+            <AnsweredSection answered={r.answered} agent={agent} />
         </aside>
+    );
+}
+
+// the builder's questions the user answered, for the answered rail and the narrow check's summary panel. titled heads
+// it with its count, which the rail's line says instead
+export function AnsweredSection({
+    answered,
+    agent,
+    titled = false,
+}: {
+    answered: ReviewModel["answered"];
+    agent?: AgentVM;
+    titled?: boolean;
+}) {
+    if (answered.length === 0) {
+        return null;
+    }
+    return (
+        <section aria-label="You answered" className="flex flex-col">
+            {titled ? (
+                <h3 className={cn(SECTION_HEAD, "pb-[6px]")}>
+                    You answered · <TickNumber value={answered.length} />
+                </h3>
+            ) : null}
+            {answered.map((y, i) => (
+                <div
+                    key={i}
+                    data-brainstorm-answered
+                    className="flex flex-col gap-[6px] border-t border-edge-faint py-[10px]"
+                >
+                    <span className="text-[12.5px] leading-[1.45] text-ink-mid">{y.q}</span>
+                    <div className="flex items-start gap-[8px]">
+                        <CheckMark />
+                        <span className="text-[13.5px] font-semibold leading-[1.45] text-primary">{y.a}</span>
+                    </div>
+                    {y.changed.length > 0 ? (
+                        <span className="pl-[21px] text-[11.5px] text-muted">
+                            Changed{" "}
+                            {y.changed.map((c, j) => (
+                                <Fragment key={c.id}>
+                                    {j > 0 ? ", " : null}
+                                    {agent != null ? (
+                                        <button
+                                            type="button"
+                                            data-brainstorm-answered-link={c.id}
+                                            onClick={() => setReviewCursor(agent.id, c.id)}
+                                            className={cn(LINK, "border-0 bg-transparent p-0 text-[11.5px]")}
+                                        >
+                                            {c.title}
+                                        </button>
+                                    ) : (
+                                        c.title
+                                    )}
+                                </Fragment>
+                            ))}
+                        </span>
+                    ) : null}
+                </div>
+            ))}
+        </section>
     );
 }
 

@@ -34,8 +34,9 @@ export const channelMessagesAtom = atom<Record<string, ChannelMessage[]>>({}) as
 export const activeChannelRunsAtom = atom<Run[]>([]) as PrimitiveAtom<Run[]>;
 export const activeChannelMessagesAtom = atom<ChannelMessage[]>([]) as PrimitiveAtom<ChannelMessage[]>;
 
-// the channel activeChannelRunsAtom was last filled for: one channel's versions are never sent for another
-let runsChannelId: string | undefined;
+// The channel activeChannelRunsAtom was last filled for. One channel's versions are never sent for another, and
+// a reader resolving a run waits until this is its channel: selecting a channel does not wait for its runs.
+export const activeChannelRunsForAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 // refreshes run one at a time, so each diffs against the list the one before it left
 let streamsLoad: Promise<void> = Promise.resolve();
 
@@ -46,7 +47,7 @@ export function loadActiveChannelStreams(channelId: string): Promise<void> {
 }
 
 async function refreshActiveChannelStreams(channelId: string): Promise<void> {
-    const held = runsChannelId === channelId ? globalStore.get(activeChannelRunsAtom) : [];
+    const held = globalStore.get(activeChannelRunsForAtom) === channelId ? globalStore.get(activeChannelRunsAtom) : [];
     const [runsRtn, msgsRtn] = await Promise.all([
         RpcApi.GetChannelRunChangesCommand(TabRpcClient, { channelid: channelId, known: knownRunVersions(held) }),
         RpcApi.GetChannelMessagesCommand(TabRpcClient, { channelid: channelId }),
@@ -55,8 +56,8 @@ async function refreshActiveChannelStreams(channelId: string): Promise<void> {
     if (globalStore.get(activeChannelIdAtom) !== channelId) {
         return;
     }
-    runsChannelId = channelId;
     globalStore.set(activeChannelRunsAtom, mergeRunChanges(held, runsRtn.runids ?? [], runsRtn.runs ?? []));
+    globalStore.set(activeChannelRunsForAtom, channelId);
     globalStore.set(activeChannelMessagesAtom, msgsRtn.messages ?? []);
 }
 
@@ -131,8 +132,10 @@ export async function primeChannels(): Promise<void> {
 export async function selectChannel(channelId: string): Promise<void> {
     await WOS.loadAndPinWaveObject<Channel>(WOS.makeORef("channel", channelId));
     globalStore.set(activeChannelIdAtom, channelId);
-    // seed the row-backed streams for the newly-active channel (the bump-subscription below keeps them fresh)
-    await loadActiveChannelStreams(channelId);
+    // Seed the row-backed streams for the newly-active channel (the bump-subscription below keeps them fresh).
+    // Not awaited: a cold load sends the channel's whole run history (seconds on a long-lived project), and
+    // every opener (a DAG, a run sheet) would wait on it. Readers wait on activeChannelRunsForAtom instead.
+    loadActiveChannelStreams(channelId).catch((e) => console.error(`loading channel ${channelId} runs failed`, e));
     // stamp last-read so the rail unread badge clears (fire-and-forget; failure is non-fatal)
     RpcApi.SetChannelReadCommand(TabRpcClient, { channelid: channelId, ts: Date.now() }).catch(() => {});
 }

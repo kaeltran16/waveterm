@@ -49,11 +49,16 @@ export function toolResultImages(content: unknown): ToolImage[] {
         .map((b: any) => ({ mediaType: b.source.media_type, data: b.source.data }));
 }
 
+// a text's lines; its final newline ends the last line rather than starting an empty one
+function textLines(text: string): string[] {
+    return text === "" ? [] : (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n");
+}
+
 // An edit's old and new strings as a diff. The lines both share at either end are the anchor quoted around the change,
 // so they stay context and only the lines between count as removed and added.
 export function buildEditDiff(path: string, oldStr: string, newStr: string): EditFile {
-    const a = oldStr === "" ? [] : oldStr.split("\n");
-    const b = newStr === "" ? [] : newStr.split("\n");
+    const a = textLines(oldStr);
+    const b = textLines(newStr);
     let head = 0;
     while (head < a.length && head < b.length && a[head] === b[head]) {
         head++;

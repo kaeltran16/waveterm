@@ -5,8 +5,10 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -542,6 +544,41 @@ func TestWorkStampKey(t *testing.T) {
 	for _, c := range cases {
 		if got := workStampKey(c.ev); got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestWorkStampMeta(t *testing.T) {
+	commit := ccHookEvent{HookEventName: "PostToolUse", ToolName: "Bash", ToolInput: json.RawMessage(`{"command":"git commit -m x"}`), Cwd: "/wt"}
+	edit := ccHookEvent{HookEventName: "PostToolUse", ToolName: "Edit", ToolInput: json.RawMessage(`{"file_path":"/wt/a.go"}`), Cwd: "/wt"}
+	branchIs := func(branch string, err error) func(string) (string, error) {
+		return func(cwd string) (string, error) {
+			if cwd != "/wt" {
+				t.Errorf("branch asked in %q, want the event's cwd", cwd)
+			}
+			return branch, err
+		}
+	}
+	noGit := func(string) (string, error) {
+		t.Error("git asked for an event that is not a commit")
+		return "", nil
+	}
+	ts, branch := waveobj.MetaKey_AgentLastCommitTs, waveobj.MetaKey_AgentLastCommitBranch
+	cases := []struct {
+		name     string
+		ev       ccHookEvent
+		branchOf func(string) (string, error)
+		want     waveobj.MetaMapType
+	}{
+		{"commit in a linked worktree", commit, branchIs("feat/x", nil), waveobj.MetaMapType{ts: int64(42), branch: "feat/x"}},
+		{"commit in a main checkout", commit, branchIs("", nil), waveobj.MetaMapType{ts: int64(42), branch: nil}},
+		{"git fails", commit, branchIs("feat/x", errors.New("boom")), waveobj.MetaMapType{ts: int64(42), branch: nil}},
+		{"edit", edit, noGit, waveobj.MetaMapType{waveobj.MetaKey_AgentLastEditTs: int64(42)}},
+		{"turn ended", ccHookEvent{HookEventName: "Stop", Cwd: "/wt"}, noGit, waveobj.MetaMapType{}},
+	}
+	for _, c := range cases {
+		if got := workStampMeta(c.ev, 42, c.branchOf); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}
 }

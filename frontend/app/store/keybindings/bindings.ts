@@ -21,11 +21,14 @@ import { enterAction, pickAdvance } from "@/app/view/agents/askflow";
 import {
     checkMain,
     checkReview,
+    judgeWait,
+    mainView,
     OPTION_KEYS,
     optionNumber,
     paneBack,
     paneView,
     pickableOptions,
+    type BrainstormFile,
     type PartPick,
     type ReviewRow,
 } from "@/app/view/agents/brainstormmodel";
@@ -33,21 +36,28 @@ import { pickPart, reportSendFailure } from "@/app/view/agents/brainstormsend";
 import {
     focusedBrainstorm,
     moveReviewCursor,
+    openBrainstormBoard,
     openBrainstormDesign,
     openBrainstormHistory,
     shownBrainstormFile,
     toggleReviewRow,
+    type BrainstormState,
 } from "@/app/view/agents/brainstormstore";
+import { partScope, questionScope, scopeOpenBoard } from "@/app/view/agents/brainstormwindowmodel";
 import { paneState, shownBoard } from "@/app/view/agents/canvasmodel";
 import {
     canvasWindowAtom,
+    canvasWindowScopeAtom,
     focusedCanvas,
     getCanvas,
     openCanvasWindow,
     selectCanvasBoard,
+    selectCanvasWindowDigit,
     setMarking,
     stepCanvasBoard,
+    stepCanvasWindow,
 } from "@/app/view/agents/canvasstore";
+import type { WindowScope } from "@/app/view/agents/canvaswindowmodel";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
 import { sendPendingComments } from "@/app/view/agents/commentsend";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
@@ -76,15 +86,14 @@ import {
 } from "@/app/view/agents/githistorystore";
 import { canHandToPhone } from "@/app/view/agents/handtophone";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
-import { canApply, isPending, stepChange, undoExpired } from "@/app/view/agents/memorymodel";
 import {
-    decideMemory,
-    memoryBusyAtom,
-    memoryDetailOpenAtom,
-    memorySelection,
-    memorySheetOpen,
-    selectMemoryChange,
-    type MemVerdict,
+    memoryFocusAtom,
+    memoryOpenAtom,
+    memoryRefusedAtom,
+    pressMemoryRow,
+    stepMemoryFocus,
+    toggleMemoryOpen,
+    undoMemoryLine,
 } from "@/app/view/agents/memorystore";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
 import { toggleHandToPhone } from "@/app/view/agents/remotestore";
@@ -152,7 +161,6 @@ import { peekTarget } from "@/app/view/jarvis/openref";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { backToOrigin } from "@/app/view/jarvis/returnsurface";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
-import { fireAndForget } from "@/util/util";
 import type { MutableRefObject } from "react";
 import { listNavAtom } from "./listnav";
 import type { Binding, KeyContext } from "./types";
@@ -482,7 +490,10 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 const inTerm = active?.closest?.(".cockpit-focus-pane") != null;
                 const surface = active?.closest?.("[data-cockpit-surface-wrap]");
                 const inSurface = surface != null;
-                const renderedShown = surface?.querySelector("[data-rendered-view]") != null;
+                // Rendered stays mounted, invisible, under an open subagent, whose view is not the parent's session
+                const renderedShown =
+                    surface?.querySelector("[data-rendered-view]")?.checkVisibility({ visibilityProperty: true }) ===
+                    true;
                 if (!ctrlCReachesSession(inTerm, inSurface, focusedShown(model) != null, renderedShown)) {
                     return false;
                 }
@@ -1019,13 +1030,52 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         }
         pickPart(agent, row.id, pick).catch((e) => reportSendFailure(agent.id, e));
     };
+    // the scope the shown brainstorm opens the canvas window on: the asked question's (the judge's wait included), or
+    // the review cursor's part's. null in the design list, while the agent writes, and under the narrow history
+    const shownScope = (s: BrainstormState, f: BrainstormFile): WindowScope | null => {
+        const onCanvas = s.boards.map((b) => b.name);
+        const pending = s.sent != null;
+        const view = paneView(s);
+        const main =
+            view === "check"
+                ? checkMain(f, s.designOpen, pending)
+                : view === "design"
+                  ? mainView(f, s.designOpen, pending)
+                  : null;
+        if (main === "review") {
+            const row = reviewRow();
+            return row == null ? null : partScope(f, row.id, onCanvas);
+        }
+        const asked = (main === "question" || main === "judging") && !s.historyOpen;
+        return asked ? questionScope(f, onCanvas, judgeWait(f, pending)) : null;
+    };
+    // the answer row a digit focused, by its data-brainstorm-option index; null with none focused
+    const focusedAnswer = (): number | null => {
+        const row = (document.activeElement as HTMLElement | null)?.closest?.(
+            "[data-brainstorm-pane] [data-brainstorm-option]"
+        );
+        const at = row?.getAttribute("data-brainstorm-option");
+        return at == null ? null : Number(at);
+    };
+    // where o opens the window: the focused answer's first tab, else the scope's first
+    const windowTarget = (): { canvas: string; board: string; scope: WindowScope } | null => {
+        const s = brainstorm();
+        const f = shownBrainstormFile(s);
+        const scope = s != null && f?.canvas != null ? shownScope(s, f) : null;
+        if (scope == null) {
+            return null;
+        }
+        const board = scopeOpenBoard(scope, scope.source.kind === "question" ? focusedAnswer() : null);
+        return board == null ? null : { canvas: f!.canvas!, board, scope };
+    };
     // the asked question's options the pane draws, each picked by its digit
     const pickable = () => {
         const s = brainstorm();
         return s == null ? 0 : pickableOptions(shownBrainstormFile(s), s);
     };
-    // an agent with a brainstorm never shows its canvas, so the canvas keys stand down for it
-    const canvas = () => (brainstorm() == null ? focusedCanvas(model) : null);
+    // in Terminal an agent with a brainstorm never shows its canvas, so the canvas keys stand down for it there; in
+    // Rendered its canvas is a tab of its own
+    const canvas = () => (rendered() || brainstorm() == null ? focusedCanvas(model) : null);
     // in Terminal a shown brainstorm or canvas hides the rail and the terminal, so their keys stand down there; in
     // Rendered it is a tab beside the transcript, whose keys stay
     const centerFree = () => shown() == null || rendered();
@@ -1540,13 +1590,14 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             },
         },
         // b, c and m change meaning with the brainstorm's or the canvas's state, so each is two bindings with
-        // exclusive when()s and every footer chip keeps a static label
+        // exclusive when()s and every footer chip keeps a static label. An open fires while its own kind is not the one
+        // shown, so with both tabs in the Rendered pane b and c switch between them
         {
             id: "agent:canvas-open",
             keys: "c",
             group: "Agent",
             label: "Show the agent's canvas",
-            when: (ctx) => agentNav(ctx) && canvas() != null && shown() == null,
+            when: (ctx) => agentNav(ctx) && canvas() != null && shown() !== "canvas",
             run: () => showPane(model, focusId()!, "canvas", true, Date.now()),
         },
         {
@@ -1562,7 +1613,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             keys: "b",
             group: "Agent",
             label: "Show the agent's brainstorm",
-            when: (ctx) => agentNav(ctx) && brainstorm() != null && shown() == null,
+            when: (ctx) => agentNav(ctx) && brainstorm() != null && shown() !== "brainstorm",
             run: () => showPane(model, focusId()!, "brainstorm", true, Date.now()),
         },
         {
@@ -1576,8 +1627,9 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
         {
             // b and c only fire off the terminal, and Ctrl+G b / c are Code / Jarvis, so this is the one door
             // that works while typing. A terminal sends it as plain ^B, so no TUI can bind it apart from Ctrl+B.
-            // Not gated on editable, like F11. An agent has a brainstorm or a canvas, never both; with neither it
-            // flips Terminal / Rendered, so the composer has the same door back
+            // Not gated on editable, like F11. The brainstorm wins over the canvas: in Terminal an agent with a
+            // brainstorm never shows its canvas, and in Rendered the chord shows the Brainstorm tab from the Canvas
+            // tab. With neither it flips Terminal / Rendered, so the composer has the same door back
             id: "agent:view-chord",
             keys: "Ctrl:Shift:b",
             group: "Agent",
@@ -1589,7 +1641,7 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
             run: () => {
                 const kind = brainstorm() != null ? "brainstorm" : canvas() != null ? "canvas" : null;
                 if (kind != null) {
-                    showPane(model, focusId()!, kind, shown() == null, Date.now());
+                    showPane(model, focusId()!, kind, shown() !== kind, Date.now());
                     return;
                 }
                 const id = renderableId();
@@ -1597,6 +1649,20 @@ export function buildAgentBindings(model: AgentsViewModel): Binding[] {
                     return false;
                 }
                 toggleViewMode(id);
+            },
+        },
+        {
+            id: "agent:brainstorm-window",
+            keys: "o",
+            group: "Agent",
+            label: "Open the question's or the review part's boards in the canvas window",
+            when: (ctx) => inBrainstorm(ctx) && windowTarget() != null,
+            run: (ctx) => {
+                const t = inBrainstorm(ctx) ? windowTarget() : null;
+                if (t == null) {
+                    return false;
+                }
+                openBrainstormBoard(focusId(), t.canvas, t.board, Date.now(), t.scope);
             },
         },
         // a digit focuses its answer row, so Enter, the row's own key, sends it
@@ -2302,8 +2368,7 @@ export function buildCodeBindings(model: AgentsViewModel): Binding[] {
 }
 
 // The Setup surface's Memory tab keys, registered by the tab while it is mounted, so the surface check is
-// enough to keep them off every other tab. A verdict key does what its button does, and nothing while the
-// button is disabled.
+// enough to keep them off every other tab. a, x and u do what their button does, and nothing while it is disabled.
 export function buildMemoryBindings(): Binding[] {
     const on = (ctx: KeyContext) => ctx.surface === "setup" && !ctx.editable && !ctx.modalOpen;
     const bind = (id: string, keys: string, label: string, run: () => void | boolean): Binding => ({
@@ -2314,45 +2379,31 @@ export function buildMemoryBindings(): Binding[] {
         when: on,
         run,
     });
-    const move = (delta: number) => () => {
-        const { project, change } = memorySelection();
-        const next = project == null ? null : stepChange(project, change?.id ?? null, delta);
-        if (next == null) {
-            return false;
-        }
-        selectMemoryChange(next);
-    };
-    const decide = (verdict: MemVerdict, allowed: (p: MemHygieneProject, c: MemChange) => boolean) => () => {
-        const { project, change } = memorySelection();
-        if (project == null || change == null || globalStore.get(memoryBusyAtom) || !allowed(project, change)) {
-            return false;
-        }
-        fireAndForget(() => decideMemory(project.project, change.id, verdict));
-    };
+    const focused = () => globalStore.get(memoryFocusAtom);
     return [
-        bind("next", "j", "Next change", move(1)),
-        bind("prev", "k", "Previous change", move(-1)),
-        bind("next-arrow", "ArrowDown", "Next change", move(1)),
-        bind("prev-arrow", "ArrowUp", "Previous change", move(-1)),
-        bind("apply", "a", "Apply the change", decide("apply", canApply)),
-        bind(
-            "keep",
-            "x",
-            "Keep as is",
-            decide("keep", (_p, c) => isPending(c))
-        ),
-        bind("undo", "u", "Undo an applied change, or review a kept one again", () => {
-            const c = memorySelection().change;
-            return decide(
-                c?.status === "applied" ? "undo" : "reopen",
-                (_p, ch) => !isPending(ch) && !undoExpired(ch, Date.now())
-            )();
+        bind("next", "j", "Next row or line", () => stepMemoryFocus(1)),
+        bind("prev", "k", "Previous row or line", () => stepMemoryFocus(-1)),
+        bind("next-arrow", "ArrowDown", "Next row or line", () => stepMemoryFocus(1)),
+        bind("prev-arrow", "ArrowUp", "Previous row or line", () => stepMemoryFocus(-1)),
+        bind("open", "Enter", "Open or close the focused row or line", () => {
+            const key = focused();
+            if (key == null) {
+                return false;
+            }
+            toggleMemoryOpen(key);
+        }),
+        bind("apply", "a", "Press the opened row's main button", () => pressMemoryRow("primary")),
+        bind("keep", "x", "Press the opened row's keep button", () => pressMemoryRow("keep")),
+        bind("undo", "u", "Undo the focused line", () => {
+            const key = focused();
+            return key != null && undoMemoryLine(key);
         }),
         {
-            ...bind("close-detail", "Escape", "Close the change detail", () =>
-                globalStore.set(memoryDetailOpenAtom, false)
-            ),
-            when: (ctx) => on(ctx) && memorySheetOpen() && noEscapeMenuOpen(),
+            ...bind("close", "Escape", "Close the opened row or line", () => {
+                globalStore.set(memoryOpenAtom, null);
+                globalStore.set(memoryRefusedAtom, null);
+            }),
+            when: (ctx) => on(ctx) && globalStore.get(memoryOpenAtom) != null && noEscapeMenuOpen(),
         },
     ];
 }
@@ -2400,6 +2451,9 @@ export function buildCanvasWindowBindings(escape: () => void): Binding[] {
         const s = shown(ctx);
         return s != null && !s.marking && paneState(s) === "board";
     };
+    // the Other boards grid shows no one board to mark
+    const markable = (ctx: KeyContext) =>
+        ready(ctx) && !(globalStore.get(canvasWindowScopeAtom) != null && getCanvas(id()!)!.all);
     const bind = (name: string, keys: string, label: string, when: Binding["when"], run: () => void): Binding => ({
         id: `canvas-window:${name}`,
         keys,
@@ -2411,7 +2465,7 @@ export function buildCanvasWindowBindings(escape: () => void): Binding[] {
     });
     return [
         bind("escape", "Escape", "Drop the drawn mark, else close the window", (ctx) => shown(ctx) != null, escape),
-        bind("mark-start", "m", "Mark part of the board", ready, () => setMarking(id()!, true)),
+        bind("mark-start", "m", "Mark part of the board", markable, () => setMarking(id()!, true)),
         bind(
             "mark-stop",
             "m",
@@ -2419,8 +2473,18 @@ export function buildCanvasWindowBindings(escape: () => void): Binding[] {
             (ctx) => shown(ctx)?.marking === true,
             () => setMarking(id()!, false)
         ),
-        bind("prev", "[", "Previous board", ready, () => stepCanvasBoard(id()!, -1)),
-        bind("next", "]", "Next board", ready, () => stepCanvasBoard(id()!, 1)),
+        bind("prev", "[", "Previous board", ready, () => stepCanvasWindow(id()!, -1)),
+        bind("next", "]", "Next board", ready, () => stepCanvasWindow(id()!, 1)),
+        // an unscoped window has no answers to number, so its digits stay unclaimed
+        ...Array.from({ length: 9 }, (_, i) =>
+            bind(
+                `digit-${i + 1}`,
+                String(i + 1),
+                `Show answer ${i + 1}'s board, or a part's board ${i + 1}`,
+                (ctx) => ready(ctx) && globalStore.get(canvasWindowScopeAtom) != null,
+                () => selectCanvasWindowDigit(id()!, i)
+            )
+        ),
     ];
 }
 

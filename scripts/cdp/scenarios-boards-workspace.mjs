@@ -52,6 +52,11 @@ const box = (x, y, text) => ({ type: "rectangle", x, y, width: 180, height: 70, 
 const FIRST_DRAWING = [box(0, 0, "Tauri shell"), box(260, 0, "wavesrv"), box(520, 0, "agents")];
 const SECOND_DRAWING = [box(260, 160, "pkg/orchestrate"), { type: "arrow", x: 350, y: 75, width: 0, height: 80 }];
 const SHAPES = FIRST_DRAWING.length + SECOND_DRAWING.length;
+// wider than the narrow tab at full size, so it shows whole only when the view fits it
+const LIVE_DRAWING = {
+    title: "Restarting a worker",
+    add: [box(0, 0, "crash"), box(260, 0, "supervisor"), box(520, 0, "restart"), box(780, 0, "resume")],
+};
 
 const SURF = `document.querySelector("[data-cockpit-surface-wrap]")`;
 const RV = `${SURF}?.querySelector("[data-rendered-view]")`;
@@ -73,6 +78,7 @@ const TAB_APP = `(() => {
     return null;
 })()`;
 const text = (expr) => `((${expr})?.textContent ?? "").replace(/\\s+/g, " ").trim()`;
+const TAB_EDIT = `${TAB}?.querySelector("[data-board-edit]")`;
 
 // placement: the board tab's button in the pane's tab row, the Boards surface's switcher, the drawer's toast
 const BOARD_KEY = (ctx) => `board:${ctx.boardId}`;
@@ -137,13 +143,18 @@ const PAGE = `
         await new Promise((r) => setTimeout(r, 50));
         input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
     };
-    // every frame for ms after fn runs, in one evaluation: a CDP round trip per frame is slower than the motion
-    const sample = async (ms, fn, read) => {
+    // every painted frame for ms after fn runs, or until stop(), in one evaluation: a CDP round trip per frame is slower
+    // than the motion, and a timer can skip a micro motion's few frames when a render holds the thread; the timeout
+    // keeps a window that paints nothing from stalling it
+    const sample = async (ms, fn, read, stop = () => false) => {
         const frames = [];
         await fn();
-        for (const end = performance.now() + ms; performance.now() < end; ) {
+        for (const end = performance.now() + ms; performance.now() < end && !stop(); ) {
             frames.push(read());
-            await new Promise((r) => setTimeout(r, 16));
+            await new Promise((r) => {
+                requestAnimationFrame(r);
+                setTimeout(r, 50);
+            });
         }
         return frames;
     };
@@ -322,6 +333,7 @@ async function arrange(h) {
         ctx.boardId = made.info.id;
         ctx.boardDir = dirname(made.info.path);
         await page(h, `fx.talks[${q(ctx.boardId)}] = ${q(startTalk(ctx, made.ids))}; return true;`);
+        ctx.prevWidth = await page(h, `return globalStore.get(W.workspaceWidthAtom);`);
         await page(
             h,
             `globalStore.set(W.workspaceWidthAtom, ${PANE_PX});
@@ -413,10 +425,14 @@ export const boardsWorkspace = {
             }
         };
 
-        const facts = new RegExp(`^3 drawings · ${SHAPES} shapes · drawn ${HHMM}$`);
+        // its frameless shapes open as one drawing, Earlier drawings, and the facts count the row's drawings
+        const facts = new RegExp(`^1 drawing · ${SHAPES} shapes · drawn ${HHMM}$`);
 
         await run("W1 idle, 2 shapes selected: no header and no line; under the canvas the ask bar holds the bare agent chip, the Selected chip entering (moment 1), Ask the board, Ask, and the facts at its end", async () => {
             await polishWaitFor(h, `/shapes/.test(${BAR}?.querySelector("[data-board-facts]")?.textContent ?? "")`, WAIT_MS);
+            // asking about shapes is Edit's
+            await h.ev(`${TAB_EDIT}?.click()`);
+            await polishWaitFor(h, `${TAB_EDIT}?.getAttribute("aria-pressed") === "true"`, 5000);
             await polishNap(SETTLE_MS);
             const frames = await page(h, `return sample(${SAMPLE_MS}, () => select(2), readChip);`);
             await polishNap(SETTLE_MS);
@@ -505,7 +521,7 @@ export const boardsWorkspace = {
                 q(s.buttons) === q(["Stop"]) &&
                 elapsed.size > 1 &&
                 ticks.every((l) => l?.flash !== "changeFlash");
-            return { ok, detail: q({ s, revealing: revealing.length, elapsed: [...elapsed] }) };
+            return { ok, detail: q({ s, revealing: revealing.length, frames: frames.length, shown: frames.findIndex((l) => l != null), elapsed: [...elapsed] }) };
         });
 
         await run("W1 failed: the drawing turn failing in place keeps one line whose detail washes once (moment 14), with the error and Retry; Retry re-asks that turn", async () => {
@@ -553,7 +569,8 @@ export const boardsWorkspace = {
             await page(h, `fx.calls.choice = []; return true;`);
             const frames = await page(
                 h,
-                `return sample(${SAMPLE_MS}, () => ${LINE}?.querySelector('[data-board-choice="keep"]')?.click(), readLine);`
+                // until the line is gone, however late the choice's re-render starts its collapse
+                `return sample(${WAIT_MS}, () => ${LINE}?.querySelector('[data-board-choice="keep"]')?.click(), readLine, () => !${LINE});`
             );
             const cleared = await polishWaitFor(h, `!${LINE}`, WAIT_MS);
             const choice = await page(h, `return fx.calls.choice;`);
@@ -588,7 +605,7 @@ export const boardsWorkspace = {
                 form &&
                 surface === "Boards" &&
                 back;
-            return { ok, detail: q({ s, cleared, choice, collapsing: collapsing.length, form, surface, back }) };
+            return { ok, detail: q({ s, cleared, choice, collapsing: collapsing.length, frames: frames.length, moved: frames.findIndex((l) => l == null || l.height < final), form, surface, back }) };
         });
 
         await run("W1 narrow window: at 1000px wide the bar fits the pane: the facts at its end and the agent chip's label are truncated, the input group keeps at least 200px, and Ask is fully visible", async () => {
@@ -600,6 +617,53 @@ export const boardsWorkspace = {
             await polishNap(SETTLE_MS);
             const ok = s.bar && s.factsTruncated && s.groupPx >= MIN_BOX_PX && s.barFits && s.askVisible && s.chipTruncated;
             return { ok, detail: q(s) };
+        });
+
+        await run("W1 drawings row: in the narrow board tab the row shows the board's one drawing, Earlier drawings; a drawing landed through the page's live apply joins the row as current and lies wholly inside the tab's visible canvas", async () => {
+            const ROW = `[...(${TAB}?.querySelectorAll("[data-board-drawings] [data-board-drawing]") ?? [])]`;
+            const readRow = () =>
+                h.ev(`${ROW}.map((b) => ({
+                    id: b.getAttribute("data-board-drawing"),
+                    title: b.querySelector("[data-board-drawing-title]")?.textContent ?? "",
+                    current: b.getAttribute("aria-current") === "true",
+                }))`);
+            await h.cdp("Emulation.setDeviceMetricsOverride", NARROW);
+            await polishNap(SETTLE_MS);
+            const before = await readRow();
+            await page(
+                h,
+                `await B.liveBoardApply(${q(ctx.boardId)})({
+                    id: "fx-live-drawing", channelid: fx.channelId, boardid: ${q(ctx.boardId)}, turnid: "fx-live",
+                    add: ${q(JSON.stringify(LIVE_DRAWING.add))}, title: ${q(LIVE_DRAWING.title)}, ts: Date.now(),
+                });
+                return true;`
+            );
+            await polishWaitFor(h, `${ROW}.length === 2`, WAIT_MS);
+            await polishNap(SETTLE_MS);
+            const after = await readRow();
+            const view = await h.ev(`(() => {
+                const a = ${TAB_APP}, s = a?.state;
+                const f = a?.scene.getNonDeletedElements().find((e) => e.id === ${q(after.at(-1)?.id ?? "")});
+                if (f == null) return null;
+                const z = s.zoom.value, left = (f.x + s.scrollX) * z, top = (f.y + s.scrollY) * z;
+                return { left, top, right: left + f.width * z, bottom: top + f.height * z, width: s.width, height: s.height };
+            })()`);
+            await h.shot(SHOT("W1", "drawings-row"));
+            await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
+            await polishNap(SETTLE_MS);
+            const ok =
+                before.length === 1 &&
+                before[0].title === "Earlier drawings" &&
+                before[0].current &&
+                after.length === 2 &&
+                after[1].title === LIVE_DRAWING.title &&
+                after[1].current &&
+                view != null &&
+                view.left >= 0 &&
+                view.top >= 0 &&
+                view.right <= view.width &&
+                view.bottom <= view.height;
+            return { ok, detail: q({ before, after, view }) };
         });
 
         await run("W2 expanded: Expand gives the turns column (the agent's request rows, the copied reply with Back to the transcript and Draw instead, the agent's request being drawn with its seconds) with no ask box, beside the full-width canvas with the ask bar under it; Back to the transcript returns to W1 with the drawing line", async () => {
@@ -715,7 +779,7 @@ export const boardsWorkspace = {
             return { ok, detail: q({ closed, joined, s }) };
         });
 
-        await run("open from Boards: picking the tied board in the Boards switcher lands on the Agent surface with the board tab active", async () => {
+        await run("open from Boards: picking the tied board in the Boards switcher opens it on the Boards surface, its agent rendering, the agent's tabs untouched", async () => {
             const scratch = await page(
                 h,
                 `const info = await RpcApi.BoardStartCommand(TabRpcClient, {
@@ -731,20 +795,19 @@ export const boardsWorkspace = {
             const onBoards = await polishWaitFor(h, `${text(SWITCHER)} === ${q(SCRATCH)}`, WAIT_MS);
             await h.ev(`${SWITCHER}?.click()`);
             await polishWaitFor(h, `!!${switcherRow(ctx.boardId)}`, WAIT_MS);
+            const before = (await readPane(h)).active;
             await h.ev(`${switcherRow(ctx.boardId)}?.click()`);
-            const landed = await polishWaitFor(h, `!!${TAB}?.querySelector(".excalidraw")`, WAIT_MS);
+            const landed = await polishWaitFor(
+                h,
+                `${text(SWITCHER)} === ${q(BOARD)} && !!${BOARDS_SURFACE}?.querySelector(".excalidraw")`,
+                WAIT_MS
+            );
             await polishNap(SETTLE_MS);
             const s = await readPane(h);
             const surface = await h.activeSurfaceLabel();
             await h.shot(SHOT("open", "from-boards"));
-            const ok =
-                onBoards &&
-                landed &&
-                surface === "Agent" &&
-                s.focusId === ctx.agentId &&
-                s.active === `Board · ${BOARD}` &&
-                !s.boardUnseen;
-            return { ok, detail: q({ onBoards, landed, surface, s }) };
+            const ok = onBoards && landed && surface === "Boards" && s.active === before;
+            return { ok, detail: q({ onBoards, landed, surface, before, s }) };
         });
 
         await run("toast off-screen: with the Boards surface shown, the tied agent's request answering raises the drawer's toast, and its Open lands on the Agent surface with that agent and the board tab active", async () => {
@@ -777,6 +840,46 @@ export const boardsWorkspace = {
                 s.focusId === ctx.agentId &&
                 s.active === `Board · ${BOARD}`;
             return { ok, detail: q({ onBoards, toasted, toast, landed, surface, s }) };
+        });
+
+        await run("Edit is the board's: Edit, turned on in the agent's board tab, is still on for that board on the Boards surface and on the tab after switching back", async () => {
+            // the Edit switch under scope, and the view mode and toolbar of the canvas beside it
+            const readEdit = (scope) =>
+                page(
+                    h,
+                    `const scope = ${scope};
+                    const el = scope?.querySelector(".excalidraw");
+                    const key = el && Object.keys(el).find((k) => k.startsWith("__reactFiber$"));
+                    let app = null;
+                    for (let f = key ? el[key] : null; f != null && app == null; f = f.return) {
+                        if (typeof f.stateNode?.updateScene === "function" && f.stateNode?.scene != null) app = f.stateNode;
+                    }
+                    return {
+                        edit: scope?.querySelector("[data-board-edit]")?.getAttribute("aria-pressed") ?? null,
+                        viewMode: app?.state?.viewModeEnabled ?? null,
+                        toolbar: !!el?.querySelector(".App-toolbar"),
+                    };`
+                );
+            if ((await h.ev(`${TAB_EDIT}?.getAttribute("aria-pressed")`)) !== "true") {
+                await h.ev(`${TAB_EDIT}?.click()`);
+            }
+            await polishWaitFor(h, `${TAB_EDIT}?.getAttribute("aria-pressed") === "true"`, 5000);
+            const tab = await readEdit(TAB);
+            await page(h, `await B.loadBoardList(fx.channelId); B.selectBoard(fx.channelId, ${q(ctx.boardId)}); return true;`);
+            await h.goto("boards");
+            const onBoards = await polishWaitFor(
+                h,
+                `${text(SWITCHER)} === ${q(BOARD)} && !!${BOARDS_SURFACE}?.querySelector(".excalidraw .App-toolbar")`,
+                WAIT_MS
+            );
+            const boards = await readEdit(BOARDS_SURFACE);
+            await h.shot(SHOT("edit", "on-boards"));
+            await h.goto("agent");
+            const back = await polishWaitFor(h, `!!${TAB}?.querySelector(".excalidraw .App-toolbar")`, WAIT_MS);
+            const tabAgain = await readEdit(TAB);
+            const on = (r) => r.edit === "true" && r.viewMode === false && r.toolbar;
+            const ok = on(tab) && onBoards && on(boards) && back && on(tabAgain);
+            return { ok, detail: q({ tab, onBoards, boards, back, tabAgain }) };
         });
 
         await run("Escape with the board mounted twice: with the board tab active in the agent's workspace and the same board open on Boards, closing that tab leaves Escape to the Boards canvas: a selected shape clears and the surface stays Boards", async () => {
@@ -835,6 +938,10 @@ export const boardsWorkspace = {
                       return true;`
                   )
                 : null
+        );
+        // the width is stored, so left at PANE_PX it narrows every later scenario's transcript column
+        await step("restore the pane width", () =>
+            ctx.prevWidth != null ? page(h, `globalStore.set(W.workspaceWidthAtom, ${ctx.prevWidth}); return true;`) : null
         );
         await step("unpin the Boards project", () =>
             page(h, `globalStore.set(B.boardsChannelAtom, null); return true;`)

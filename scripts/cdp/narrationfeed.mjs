@@ -115,19 +115,17 @@ const clickRow = (text) => `(() => {
     return true;
 })()`;
 
-// the open panels: footer, wrapping and horizontal overflow
+// the open panels: buttons, wrapping and horizontal overflow
 const PANEL_PROBE = `(() => [...${ROOT}.querySelectorAll('[data-tool-panel]')].map((p) => {
-    const btn = p.querySelector('button[aria-label="Open full view"]');
     const pre = p.querySelector('pre');
-    const footer = btn ? btn.parentElement : null;
     const body = p.firstElementChild;
     return {
         text: (p.textContent || '').slice(0, 200),
         // a bare command's body leaves the command to its row
         row: p.closest('[data-step]')?.querySelector('[data-step-head]')?.textContent ?? '',
-        btnText: btn ? btn.textContent.trim() : null,
-        btnTitle: btn ? btn.getAttribute('title') : null,
-        footer: footer ? footer.textContent : null,
+        // a body that fits draws no expand button, and no step body draws Open full view or a footer strip for it
+        buttons: p.querySelectorAll('button').length,
+        children: p.children.length,
         hasExit: /exit \\d/i.test(p.textContent || ''),
         ws: pre ? getComputedStyle(pre).whiteSpace : null,
         overflow: Math.max(p.scrollWidth - p.clientWidth, body.scrollWidth - body.clientWidth),
@@ -242,8 +240,6 @@ async function shotPanel(h, text, file) {
     await sleep(200);
     await h.shot(file);
 }
-// the open tool detail modal: the one whose head is not inside the fixture
-const MODAL_HEAD = `document.querySelector('[data-tool-modal-head]')`;
 
 async function panelSteps(h) {
     const steps = [];
@@ -359,64 +355,6 @@ async function panelSteps(h) {
     });
     await shotPanel(h, "src/jitter.ts", "cdp-shots/narration-feed-new-file.png");
 
-    // the grep row's Open full view
-    const inlineWidth = await h.ev(`${panelWith("src/client.ts")}?.getBoundingClientRect().width ?? null`);
-    await h.ev(`${panelWith("src/client.ts")}?.querySelector('button[aria-label="Open full view"]')?.click()`);
-    await sleep(700);
-    const full = await h.ev(`(() => {
-        const head = ${MODAL_HEAD};
-        const body = document.querySelector('[data-tool-modal-body]');
-        if (!head || !body) return null;
-        const line = [...body.querySelectorAll('[data-line-text]')].find((t) => t.textContent.includes('computeRetryBudget'));
-        return {
-            width: body.getBoundingClientRect().width,
-            square: head.querySelector('[role="img"]') != null,
-            whole: line != null && line.textContent === ${JSON.stringify(GREP_LONG)} && getComputedStyle(line).whiteSpace === 'pre',
-            lineHeight: line ? Math.round(line.getBoundingClientRect().height) : null,
-        };
-    })()`);
-    steps.push({
-        step: "[640] Open full view is wider than the inline panel, shows a grep line whole on one line, and has no status square for a successful call",
-        ok:
-            inlineWidth != null &&
-            full != null &&
-            full.width > inlineWidth + 100 &&
-            full.square === false &&
-            full.whole === true &&
-            full.lineHeight < 24,
-        detail: JSON.stringify({ inlineWidth, ...full }),
-    });
-    await h.shot("cdp-shots/narration-feed-full-view.png");
-    await h.ev(`${MODAL_HEAD}?.querySelector('button[aria-label="Close"]')?.click()`);
-    await sleep(700);
-
-    // a failed call's full view leads with its error, its mark a word
-    const openedFail = await h.ev(openStep("Edited src/missing.ts"));
-    await sleep(600);
-    await h.ev(`${panelWith("src/missing.ts")}?.querySelector('button[aria-label="Open full view"]')?.click()`);
-    await sleep(700);
-    const failed = await h.ev(`(() => {
-        const head = ${MODAL_HEAD};
-        const body = document.querySelector('[data-tool-modal-body]');
-        if (!head || !body) return null;
-        return {
-            lead: body.firstElementChild?.hasAttribute('data-tool-error') ? body.firstElementChild.textContent : null,
-            failedWord: [...head.querySelectorAll('span')].some((s) => s.textContent === 'failed'),
-            square: head.querySelector('[role="img"]') != null,
-        };
-    })()`);
-    steps.push({
-        step: '[640] a failed call\'s full view leads with its error and marks it with a "failed" word, not a square',
-        ok:
-            openedFail === true &&
-            failed?.lead === "File has not been read yet. Read it first before writing to it." &&
-            failed.failedWord === true &&
-            failed.square === false,
-        detail: JSON.stringify(failed),
-    });
-    await h.shot("cdp-shots/narration-feed-full-view-error.png");
-    await h.ev(`${MODAL_HEAD}?.querySelector('button[aria-label="Close"]')?.click()`);
-    await sleep(700);
     return steps;
 }
 
@@ -494,36 +432,23 @@ export const narrationFeed = {
         await sleep(600);
         const panels = await h.ev(PANEL_PROBE);
         const fail = panels.find((p) => p.text.includes("TestBackoff"));
-        const ok = panels.find((p) => p.row.includes("task check:ts"));
+        const ok = await h.ev(`(() => {
+            const step = [...${ROOT}.querySelectorAll('[data-step]')].find((s) => s.querySelector('[data-step-head]')?.textContent.includes('task check:ts'));
+            if (!step) return null;
+            return { expanded: step.querySelector('[data-step-head]').getAttribute('aria-expanded'), panel: step.querySelector('[data-tool-panel]') != null, hasExit: /exit \\d/i.test(step.textContent || '') };
+        })()`);
         steps.push({
-            step: '[640] bash panel footer: only "Open full view", with aria-label and no title; the exit chip stays on the row',
-            ok:
-                opened === true &&
-                fail != null &&
-                fail.btnText === "Open full view" &&
-                fail.btnTitle === null &&
-                fail.footer === "Open full view" &&
-                fail.hasExit === false,
+            step: "[640] a bash body that fits: no button and no footer strip, only its body; the exit chip stays on the row",
+            ok: opened === true && fail != null && fail.buttons === 0 && fail.children === 1 && fail.hasExit === false,
             detail: JSON.stringify(fail ?? null),
         });
         steps.push({ step: "[640] bash output wraps (pre-wrap)", ok: fail?.ws === "pre-wrap", detail: `ws=${fail?.ws}` });
         steps.push({
-            step: "[640] command-only bash with exit 0 opens with no exit chip",
-            ok: openedOk === true && ok != null && ok.hasExit === false,
+            step: "[640] command-only bash with exit 0 and no output opens to its whole command on the row: no exit chip, no empty panel",
+            ok: openedOk === true && ok?.expanded === "true" && ok.panel === false && ok.hasExit === false,
             detail: JSON.stringify(ok ?? null),
         });
         await h.shot("cdp-shots/narration-feed-wide.png");
-
-        // "Open full view" opens the tool detail modal, which keeps its lines unwrapped
-        await h.ev(`[...${ROOT}.querySelectorAll('button[aria-label="Open full view"]')][0].click()`);
-        await sleep(700);
-        const modalWs = await h.ev(`(() => {
-            const root = ${ROOT};
-            const pres = [...document.querySelectorAll('pre')].filter((p) => !root.contains(p) && (p.textContent || '').includes('TestBackoff'));
-            return pres.length ? getComputedStyle(pres[pres.length - 1]).whiteSpace : null;
-        })()`);
-        steps.push({ step: "tool detail modal keeps unwrapped lines (white-space: pre)", ok: modalWs === "pre", detail: `ws=${modalWs}` });
-        await h.shot("cdp-shots/narration-feed-modal.png");
 
         // narrow: the long token must wrap inside the panels, not scroll them sideways
         await show(h, 360);

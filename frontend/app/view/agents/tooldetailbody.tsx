@@ -1,16 +1,15 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-import { modalsModel } from "@/app/store/modalmodel";
+import { turnTransition } from "@/app/element/motiontokens";
 import { MONO_FAINT } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
-import { ArrowUpRight, Ban, Check, Ellipsis, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
-import type { ActionDetail, AgentActionEntry, DiffLine } from "./agentsviewmodel";
+import { Ban, Check, ChevronDown, ChevronRight, Ellipsis, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { ActionDetail, DiffLine } from "./agentsviewmodel";
 import { BODY_LINES_MAX, capDiffFiles, capGrepGroups, capGroups, capLines, capText, moreLinesLabel } from "./bodycap";
 import { highlightLine } from "./highlight";
 import {
-    fullViewFile,
     groupGrepMatches,
     isCodePath,
     newFileLines,
@@ -19,9 +18,6 @@ import {
     pathTail,
     type GutterLine,
 } from "./tooldetailmodel";
-import type { TranscriptContext } from "./transcriptcontext";
-import { openFileBeside } from "./workspacedocsstore";
-import { openBeside } from "./workspacestore";
 
 // one size for code across the transcript (tool panels, prose code blocks), sized to sit just under the 14px prose
 export const CODE_TEXT = "text-[12.5px]";
@@ -38,41 +34,96 @@ const HANGING_INDENT = "pl-[2ch] [text-indent:-2ch]";
 export const BODY_BUTTON =
     "inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] px-1.5 py-[3px] font-sans text-[12px] text-ink-mid hover:bg-lane hover:text-primary";
 
-// the strip along a body's box that holds "Open full view", inside the box
-export const BODY_FOOTER = "flex items-center justify-end border-t border-edge-faint px-2 py-1";
-
-// a read or write/edit of one file opens in the workspace pane where the Rendered view has one beside it: a write/edit
-// of a doc the agent wrote in the Docs tab, anything else in the File tab (a read keeps its cited line there); anything
-// else, or any other host, opens the modal
-export function OpenFullView({ action, ctx }: { action: AgentActionEntry; ctx?: TranscriptContext }) {
-    const open = (e: MouseEvent) => {
-        const file = fullViewFile(action.detail);
-        if (file != null && ctx?.model != null && ctx.agentId != null) {
-            const beside =
-                action.detail?.kind === "edit"
-                    ? openFileBeside(ctx.model, ctx.agentId, file, e)
-                    : openBeside(ctx.model, ctx.agentId, { kind: "file", ...file }, e);
-            if (beside) {
-                return;
-            }
-        }
-        modalsModel.pushModal("AgentToolDetailModal", { action });
-    };
+// a disclosure chevron that turns as its pane opens: right to down, or with `flip` down to up
+export function TurnChevron({
+    open,
+    size,
+    strokeWidth,
+    flip,
+}: {
+    open: boolean;
+    size: number;
+    strokeWidth: number;
+    flip?: boolean;
+}) {
+    const Icon = flip ? ChevronDown : ChevronRight;
     return (
-        <button type="button" aria-label="Open full view" onClick={open} className={BODY_BUTTON}>
-            <ArrowUpRight size={12} strokeWidth={2.2} aria-hidden />
-            Open full view
-        </button>
+        <Icon
+            size={size}
+            strokeWidth={strokeWidth}
+            aria-hidden
+            style={turnTransition}
+            className={cn(
+                "transition-transform motion-reduce:transition-none",
+                open && (flip ? "rotate-180" : "rotate-90")
+            )}
+        />
     );
 }
 
-// what an inline body's line cap left out; the full view has it
-export function MoreLines({ hidden, className }: { hidden: number; className?: string }) {
-    return hidden > 0 ? (
-        <div data-more-lines className={cn("font-sans text-[12px] text-muted", className)}>
-            {moreLinesLabel(hidden)}
+// the nearest ancestor that scrolls vertically
+function scrollerOf(el: HTMLElement): HTMLElement | null {
+    for (let p = el.parentElement; p != null; p = p.parentElement) {
+        const overflow = getComputedStyle(p).overflowY;
+        if ((overflow === "auto" || overflow === "scroll") && p.scrollHeight > p.clientHeight) {
+            return p;
+        }
+    }
+    return null;
+}
+
+// what an inline body's line cap left out, as the button that lifts the cap in place; expanded, it puts the cap back.
+// A body that fits draws nothing. Collapsing from a long body's end would leave the reader far past it, so the button
+// keeps its place in the viewport across the collapse.
+export function MoreLines({
+    hidden,
+    label,
+    expanded,
+    onToggle,
+    className,
+}: {
+    hidden: number;
+    label?: string;
+    expanded: boolean;
+    onToggle: () => void;
+    className?: string;
+}) {
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    // the button's viewport top when Show less was pressed, until the collapse lays out
+    const collapseTopRef = useRef<number | null>(null);
+    useLayoutEffect(() => {
+        const top = collapseTopRef.current;
+        const button = buttonRef.current;
+        collapseTopRef.current = null;
+        const scroller = top != null && button != null ? scrollerOf(button) : null;
+        if (scroller != null) {
+            scroller.scrollTop += button.getBoundingClientRect().top - top;
+        }
+    }, [expanded]);
+    if (hidden <= 0) {
+        return null;
+    }
+    const toggle = () => {
+        if (expanded) {
+            collapseTopRef.current = buttonRef.current?.getBoundingClientRect().top ?? null;
+        }
+        onToggle();
+    };
+    return (
+        <div className={className}>
+            <button
+                ref={buttonRef}
+                type="button"
+                data-more-lines
+                aria-expanded={expanded}
+                onClick={toggle}
+                className={cn(BODY_BUTTON, "-ml-1.5")}
+            >
+                <TurnChevron open={expanded} size={12} strokeWidth={2.2} flip />
+                {expanded ? "Show less" : (label ?? moreLinesLabel(hidden))}
+            </button>
         </div>
-    ) : null;
+    );
 }
 
 // why a call was passed over rather than failed (a hook blocked it, the user declined it, a rule denied it): the Ban
@@ -337,7 +388,8 @@ export function DiffRow({
 }
 
 // Shared per-kind detail renderer, inline and in the modal. capped: a transcript body, cut to BODY_LINES_MAX whole lines
-// with "N more lines" under it (a step's panel, a card); the modal and a host that scrolls its own box draw it whole.
+// with an "N more lines" button under it that expands it in place (a step's panel, a card); the modal and a host that
+// scrolls its own box draw it whole.
 // hideCommand: the row's own text is the command, so the body does not repeat it.
 // Tokens only — no raw hex. See StepsOpen.dc.html and Main.dc.html.
 export function ToolDetailBody({
@@ -355,12 +407,15 @@ export function ToolDetailBody({
     const pad = modal ? "px-4 py-3" : "px-3 py-2";
     const wrap = lineWrap(variant);
     const max = capped ? BODY_LINES_MAX : Infinity;
+    const [expanded, setExpanded] = useState(false);
+    const more = (hidden: number, className: string) => (
+        <MoreLines hidden={hidden} expanded={expanded} onToggle={() => setExpanded((v) => !v)} className={className} />
+    );
     if (detail.kind === "grep") {
         // one header per file, its lines numbered under it; inline wraps, the modal shows each line whole
-        const { groups, hidden } = capGrepGroups(
-            groupGrepMatches(detail.matches, detail.pattern, detail.ignoreCase),
-            max
-        );
+        const all = groupGrepMatches(detail.matches, detail.pattern, detail.ignoreCase);
+        const cut = capGrepGroups(all, max);
+        const groups = expanded ? all : cut.groups;
         return (
             <div className={cn("flex flex-col", modal && "overflow-x-auto")}>
                 {groups.map((g, i) => (
@@ -390,7 +445,7 @@ export function ToolDetailBody({
                         </div>
                     </div>
                 ))}
-                <MoreLines hidden={hidden} className={pad} />
+                {more(cut.hidden, pad)}
                 {detail.more ? <div className={cn(pad, MONO_FAINT)}>{detail.more}</div> : null}
             </div>
         );
@@ -401,7 +456,8 @@ export function ToolDetailBody({
         // highlighted, as before, and a list of paths with no line numbers hangs its wrapped lines.
         const all: GutterLine[] =
             parseLineGutter(detail.snippet) ?? detail.snippet.split("\n").map((text) => ({ text }));
-        const { lines, hidden } = capLines(all, max);
+        const cut = capLines(all, max);
+        const lines = expanded ? all : cut.lines;
         return (
             <div className={cn(pad, modal && "overflow-x-auto")}>
                 <div className={cn("font-mono leading-[1.7]", CODE_TEXT, modal && "min-w-min")}>
@@ -412,7 +468,7 @@ export function ToolDetailBody({
                         hang={detail.path == null}
                     />
                 </div>
-                <MoreLines hidden={hidden} className="mt-1" />
+                {more(cut.hidden, "mt-1")}
             </div>
         );
     }
@@ -422,7 +478,8 @@ export function ToolDetailBody({
         if (!command && !detail.output) {
             return null;
         }
-        const { text: output, hidden } = capText(detail.output, max);
+        const cut = capText(detail.output, max);
+        const output = expanded ? detail.output : cut.text;
         return (
             <div className={pad}>
                 {command ? (
@@ -452,13 +509,14 @@ export function ToolDetailBody({
                         {output}
                     </pre>
                 ) : null}
-                <MoreLines hidden={hidden} className="mt-1" />
+                {more(cut.hidden, "mt-1")}
             </div>
         );
     }
     if (detail.kind === "skill") {
         // the row and the modal's head already name the skill, so the body is its arguments alone
-        const { text: args, hidden } = capText(detail.args, max);
+        const cut = capText(detail.args, max);
+        const args = expanded ? detail.args : cut.text;
         return (
             <div className={pad}>
                 <pre
@@ -469,19 +527,20 @@ export function ToolDetailBody({
                 >
                     {args}
                 </pre>
-                <MoreLines hidden={hidden} className="mt-1" />
+                {more(cut.hidden, "mt-1")}
             </div>
         );
     }
     if (detail.kind === "ask") {
         // a question is its group's header line, each option a line
-        const { groups: questions, hidden } = capGroups(
+        const cut = capGroups(
             detail.questions,
             (q) => q.options,
             (q, options) => ({ ...q, options }),
             () => true,
             max
         );
+        const questions = expanded ? detail.questions : cut.groups;
         return (
             <div className="flex flex-col">
                 {questions.map((q, i) => (
@@ -499,13 +558,14 @@ export function ToolDetailBody({
                         {q.typed ? <AskOptionLine label={q.typed} picked note="typed" /> : null}
                     </div>
                 ))}
-                <MoreLines hidden={hidden} className={pad} />
+                {more(cut.hidden, pad)}
             </div>
         );
     }
     // edit: per file, a header (path, "new" for an added file, +a −d) over its lines; an added file is all one green
     // wall as a diff, so it previews as the file itself. A capped diff keeps each file's counts whole.
-    const { files, hidden } = capDiffFiles(detail.files, max);
+    const cut = capDiffFiles(detail.files, max);
+    const files = expanded ? detail.files : cut.files;
     return (
         <div className="flex flex-col">
             {files.map((f, i) => {
@@ -557,7 +617,7 @@ export function ToolDetailBody({
                     </div>
                 );
             })}
-            <MoreLines hidden={hidden} className={pad} />
+            {more(cut.hidden, pad)}
         </div>
     );
 }

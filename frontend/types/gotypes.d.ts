@@ -331,7 +331,10 @@ declare global {
         turnid: string;
         add?: string;
         update?: string;
+        graph?: string;
         remove?: string[];
+        title?: string;
+        drawingid?: string;
         ts: number;
     };
 
@@ -436,6 +439,7 @@ declare global {
         question?: string;
         on?: string;
         selectedids?: string[];
+        drawingid?: string;
         briefing?: BoardBriefing;
         kept?: boolean;
         state: string;
@@ -785,6 +789,13 @@ declare global {
         decisionid: string;
     };
 
+    // wshrpc.CommandApplyMemoryRowData
+    type CommandApplyMemoryRowData = {
+        project: string;
+        row: string;
+        changeid: string;
+    };
+
     // wshrpc.CommandAskData
     type CommandAskData = {
         oref: string;
@@ -838,6 +849,7 @@ declare global {
         question: string;
         on?: string;
         selectedids?: string[];
+        drawingid?: string;
     };
 
     // wshrpc.CommandBoardChoiceData
@@ -1475,6 +1487,7 @@ declare global {
         files: GitAgentEditFile[];
         bashcalls: number;
         reason?: string;
+        cwd?: string;
     };
 
     // wshrpc.CommandGitBlameData
@@ -2267,6 +2280,13 @@ declare global {
         callercwd?: string;
     };
 
+    // wshrpc.CommandUndoMemoryBatchData
+    type CommandUndoMemoryBatchData = {
+        project: string;
+        batchid: string;
+        changeid: string;
+    };
+
     // wshrpc.CommandVaultGraphRtnData
     type CommandVaultGraphRtnData = {
         nodes: GraphNode[];
@@ -2798,6 +2818,18 @@ declare global {
         append?: boolean;
     };
 
+    // waveobj.FinalEndReview
+    type FinalEndReview = {
+        state: string;
+        runid?: string;
+        startedts?: number;
+        respawns?: number;
+        text?: string;
+        unverified?: string;
+        waiting?: boolean;
+        judged?: boolean;
+    };
+
     // waveobj.FinalShot
     type FinalShot = {
         name: string;
@@ -2830,6 +2862,7 @@ declare global {
         output?: string;
         shots?: FinalShot[];
         shotsmanifest?: boolean;
+        endreview?: FinalEndReview;
     };
 
     // wconfig.FullConfigType
@@ -3019,6 +3052,18 @@ declare global {
         to: string;
     };
 
+    // wshrpc.MemBatch
+    type MemBatch = {
+        id: string;
+        kind: string;
+        at: number;
+        changeids: string[];
+        skipped: MemSkip[];
+        indexbefore: MemIndexStats;
+        indexafter: MemIndexStats;
+        undoblock?: MemUndoBlock;
+    };
+
     // wshrpc.MemChange
     type MemChange = {
         id: string;
@@ -3085,6 +3130,7 @@ declare global {
         index: MemIndexStats;
         ownindex?: MemIndexStats;
         changes: MemChange[];
+        batches?: MemBatch[];
     };
 
     // wshrpc.MemIndexDelta
@@ -3118,6 +3164,35 @@ declare global {
         settingspath: string;
         settingsvalue: string;
         stripharvester: boolean;
+    };
+
+    // wshrpc.MemRowResult
+    type MemRowResult = {
+        project: MemHygieneProject;
+        stop: string;
+        here: number;
+        total: number;
+        changed: number;
+        newer: number;
+        failed: string;
+        error: string;
+    };
+
+    // wshrpc.MemSkip
+    type MemSkip = {
+        changeid: string;
+        kind: string;
+        title: string;
+        reason: string;
+        error: string;
+    };
+
+    // wshrpc.MemUndoBlock
+    type MemUndoBlock = {
+        project: string;
+        batchid: string;
+        at: number;
+        memories: number;
     };
 
     // waveobj.MetaTSType
@@ -3193,6 +3268,7 @@ declare global {
         "app:loom"?: boolean;
         "agent:transcriptpath"?: string;
         "agent:lastcommitts"?: number;
+        "agent:lastcommitbranch"?: string;
         "agent:lasteditts"?: number;
         "agent:turnstartts"?: number;
         "agent:transcripts"?: string[];
@@ -3283,6 +3359,7 @@ declare global {
         plantext?: string;
         spectext?: string;
         prior?: PlanReviewPrior;
+        amended?: boolean;
         pastrounds?: PlanReviewRound[];
     };
 
@@ -3877,6 +3954,13 @@ declare global {
         writerrouteid: string;
     };
 
+    // wshrpc.SubagentCall
+    type SubagentCall = {
+        name: string;
+        input?: {[key: string]: any};
+        startedatms?: number;
+    };
+
     // wshrpc.SubagentFileInfo
     type SubagentFileInfo = {
         agentid: string;
@@ -3884,6 +3968,14 @@ declare global {
         firstprompt: string;
         startedatms: number;
         done: boolean;
+        stopped?: boolean;
+        endedatms?: number;
+        tooluseid?: string;
+        agenttype?: string;
+        description?: string;
+        background?: boolean;
+        toolcount: number;
+        currentcall?: SubagentCall;
     };
 
     // wps.SubscriptionRequest
@@ -3935,6 +4027,7 @@ declare global {
         pastfinals?: FinalStage[];
         maxfinalrounds?: number;
         maxreviewrounds?: number;
+        fasttrack?: boolean;
     };
 
     // waveobj.TaskNode

@@ -133,10 +133,15 @@ which opens the design with those notes open. Coming back from the design clears
 whose state alone changed (a confirm) is not new. The skill puts a summary of any report in the
 question's `why` too, since the link says only how many notes there are.
 
-A part's mockups draw under its body when its row opens: each board a scaled live thumbnail with
-Open full size (the canvas), each of its `spikes` (a throwaway live page under the canvas folder, for
+A part's mockups draw under its body when its row opens: each board a name chip that opens the canvas
+window scoped to the part (its boards as tabs, a band with its title and gist), each of its `spikes` (a throwaway live page under the canvas folder, for
 motion a board cannot show) a link that opens it in the browser from the same served folder.
 `PartMockups` in `brainstormui.tsx` draws both, from `partBoards` and `partSpikes`.
+
+Once an answer picks one option, the boards and spikes only the other options named leave the design: the
+agent keeps a part's `boards` as the full set, so Arc drops them as it reads the file (`withoutPassedOver`), and
+they no longer show on the part, in its canvas window, behind a later question's link or as the run's prototype.
+An answer in the user's own words drops nothing.
 
 An open question draws its own mockups: each option's `boards` and `spikes` (each approach's, while
 the judge weighs) beside that answer's row, and the asked part's that no answer names over the rows
@@ -319,6 +324,12 @@ to the judge**). The judge rides the builder check's machinery.
 
   ![The attention popup for a brainstorm question](../images/brainstorm/06-popup.png)
 
+- **Canvas tab.** In the Rendered view the brainstorm's canvas has its own tab beside the Brainstorm tab: the
+  workspace pane's Canvas tab lists every board of the brainstorm's canvas, a turn that reveals the canvas adds it
+  (behind a question the same turn asks), and `b` and `c` switch between the two tabs. While a question is open, a
+  row whose board an answer names carries the question's number and that board's tab label from the question's
+  window, and opens that window scoped to the question. The Terminal view shows only the brainstorm, whose cards open
+  its boards.
 - **Compaction.** After a compaction the agent re-reads the file and stamps `compacted`; the terminal
   shows a banner with the counts until you next open the brainstorm.
 - **Agent exited.** Its tab closes, as every agent tab does on exit. The brainstorm stays in its file:

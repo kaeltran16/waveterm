@@ -42,22 +42,24 @@ func TestAgentStatusEvent(t *testing.T) {
 func TestIdleOnExitEvent(t *testing.T) {
 	// agent session -> idle event carrying the runtime as agent
 	meta := waveobj.MetaMapType{"session:agent": "claude"}
-	ev := idleOnExitEvent("blk1", meta, 42)
+	// the retained event is what a reloaded roster seeds from, so it keeps the transcript the agent reported
+	blockMeta := waveobj.MetaMapType{waveobj.MetaKey_AgentTranscriptPath: "/t/s.jsonl"}
+	ev := idleOnExitEvent("blk1", meta, blockMeta, 42)
 	if ev == nil {
 		t.Fatal("agent session should produce an idle event, got nil")
 	}
 	data := ev.Data.(baseds.AgentStatusData)
-	if data.State != baseds.AgentState_Idle || data.ORef != "block:blk1" || data.Agent != "claude" {
-		t.Errorf("data = %#v, want idle/block:blk1/claude", data)
+	if data.State != baseds.AgentState_Idle || data.ORef != "block:blk1" || data.Agent != "claude" || data.TranscriptPath != "/t/s.jsonl" {
+		t.Errorf("data = %#v, want idle/block:blk1/claude with its transcript", data)
 	}
 
 	// codex runtime preserved
-	if ev := idleOnExitEvent("blk1", waveobj.MetaMapType{"session:agent": "codex"}, 42); ev == nil || ev.Data.(baseds.AgentStatusData).Agent != "codex" {
+	if ev := idleOnExitEvent("blk1", waveobj.MetaMapType{"session:agent": "codex"}, nil, 42); ev == nil || ev.Data.(baseds.AgentStatusData).Agent != "codex" {
 		t.Errorf("codex runtime not preserved: %#v", ev)
 	}
 
 	// plain terminal (no session:agent) -> no emit
-	if ev := idleOnExitEvent("blk1", waveobj.MetaMapType{}, 42); ev != nil {
+	if ev := idleOnExitEvent("blk1", waveobj.MetaMapType{}, blockMeta, 42); ev != nil {
 		t.Errorf("non-agent block should emit nothing, got %#v", ev)
 	}
 }

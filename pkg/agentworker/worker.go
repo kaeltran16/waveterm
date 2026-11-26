@@ -117,6 +117,16 @@ func blockCacheExpiry(blockId string) (time.Time, bool) {
 	if err != nil || block == nil {
 		return time.Time{}, false
 	}
+	written, ok := lastTranscriptWrite(block)
+	if !ok {
+		return time.Time{}, false
+	}
+	return written.Add(orchestrate.WorkerCacheTTL), true
+}
+
+// lastTranscriptWrite is when the block's agent last wrote its transcript. False while the block has reported no
+// transcript or none is written.
+func lastTranscriptWrite(block *waveobj.Block) (time.Time, bool) {
 	path := block.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
 	if path == "" {
 		return time.Time{}, false
@@ -125,12 +135,13 @@ func blockCacheExpiry(blockId string) (time.Time, bool) {
 	if err != nil {
 		return time.Time{}, false
 	}
-	return info.ModTime().Add(orchestrate.WorkerCacheTTL), true
+	return info.ModTime(), true
 }
 
-// PublishStatus publishes the retained agent:status the roster keys off, with the block's harness (its tab's
-// session:agent), cwd and transcript path as stored. A stopped worker publishes idle so the roster still lists it.
-func PublishStatus(ctx context.Context, blockId, state string) error {
+// PublishStatus publishes the retained agent:status the roster keys off, as of at, with the block's harness (its tab's
+// session:agent), cwd and transcript path as stored. A stopped worker publishes idle so the roster still lists it; a
+// working one marks a turn start.
+func PublishStatus(ctx context.Context, blockId, state string, at time.Time) error {
 	block, err := wstore.DBMustGet[*waveobj.Block](ctx, blockId)
 	if err != nil {
 		return fmt.Errorf("loading worker block %s: %w", blockId, err)
@@ -143,10 +154,15 @@ func PublishStatus(ctx context.Context, blockId, state string) error {
 	if err != nil {
 		return fmt.Errorf("loading worker tab %s: %w", tabId, err)
 	}
-	ev := blockcontroller.AgentStatusEvent(blockId, state, tab.Meta.GetString(metaTabHarness, ""), time.Now().UnixMilli())
+	ev := blockcontroller.AgentStatusEvent(blockId, state, tab.Meta.GetString(metaTabHarness, ""), at.UnixMilli())
 	data := ev.Data.(baseds.AgentStatusData)
 	data.Cwd = block.Meta.GetString(waveobj.MetaKey_CmdCwd, "")
 	data.TranscriptPath = block.Meta.GetString(waveobj.MetaKey_AgentTranscriptPath, "")
+	if state == baseds.AgentState_Working {
+		// its working callers publish as their prompt is sent, so the turn's timer counts from now, not from the
+		// transcript's last message
+		data.Hook = baseds.AgentHook_UserPromptSubmit
+	}
 	ev.Data = data
 	wps.Broker.Publish(ev)
 	return nil

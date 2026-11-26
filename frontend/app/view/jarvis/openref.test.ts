@@ -44,7 +44,7 @@ import type { AgentVM } from "../agents/agentsviewmodel";
 import { attachBrainstorm, detachBrainstorm, getBrainstorm } from "../agents/brainstormstore";
 import { attachCanvas, detachCanvas, getCanvas, setCanvasMode, setMark } from "../agents/canvasstore";
 import { activeChannelIdAtom } from "../agents/channelsstore";
-import { memorySelectedChangeAtom, memorySelectedProjectAtom } from "../agents/memorystore";
+import { memoryFocusAtom, memoryOpenAtom } from "../agents/memorystore";
 import { viewModeAtom } from "../agents/renderedmode";
 import { setupTabAtom } from "../agents/setupstore";
 import { closeWorkspaceTab, workspaceAtom } from "../agents/workspacestore";
@@ -110,8 +110,8 @@ beforeEach(() => {
     globalStore.set(peekItemAtom, null);
     globalStore.set(petPeekOpenAtom, false);
     globalStore.set(setupTabAtom, "instructions");
-    globalStore.set(memorySelectedProjectAtom, null);
-    globalStore.set(memorySelectedChangeAtom, null);
+    globalStore.set(memoryOpenAtom, null);
+    globalStore.set(memoryFocusAtom, null);
 });
 
 describe("run and channel landings", () => {
@@ -452,23 +452,35 @@ describe("effort landing", () => {
 });
 
 describe("memory hygiene landing", () => {
-    const projects = (...names: string[]) => ({ projects: names.map((project) => ({ project })) });
+    // a failed check is a project's one waiting row
+    const projects = (...names: string[]) => ({
+        projects: names.map((project) => ({ project, changes: [], lasterror: project === "quiet" ? "" : "boom" })),
+    });
 
-    it("writes the Memory tab and the project before it switches to Setup", async () => {
+    it("writes the Memory tab and opens the project's first waiting row before it switches to Setup", async () => {
         const model = makeModel();
         rpc.ListMemoryHygieneCommand.mockResolvedValue(projects("other", "a:b"));
-        globalStore.set(memorySelectedChangeAtom, "c-old");
+        globalStore.set(memoryOpenAtom, "failed/other");
         let atSwitch: unknown = null;
         const unsub = globalStore.sub(model.surfaceAtom, () => {
             atSwitch = {
                 tab: globalStore.get(setupTabAtom),
-                project: globalStore.get(memorySelectedProjectAtom),
-                change: globalStore.get(memorySelectedChangeAtom),
+                open: globalStore.get(memoryOpenAtom),
+                focus: globalStore.get(memoryFocusAtom),
             };
         });
         expect(await openAddress(model, "memhygiene:a:b")).toEqual({ ok: true });
         unsub();
-        expect(atSwitch).toEqual({ tab: "memory", project: "a:b", change: null });
+        expect(atSwitch).toEqual({ tab: "memory", open: "failed/a:b", focus: "failed/a:b" });
+        expect(globalStore.get(model.surfaceAtom)).toBe("setup");
+    });
+
+    it("lands on the tab with nothing opened for a project with nothing waiting", async () => {
+        const model = makeModel();
+        rpc.ListMemoryHygieneCommand.mockResolvedValue(projects("other", "quiet"));
+        globalStore.set(memoryOpenAtom, "failed/other");
+        expect(await openAddress(model, "memhygiene:quiet")).toEqual({ ok: true });
+        expect(globalStore.get(memoryOpenAtom)).toBeNull();
         expect(globalStore.get(model.surfaceAtom)).toBe("setup");
     });
 
@@ -482,7 +494,7 @@ describe("memory hygiene landing", () => {
         });
         expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
         expect(globalStore.get(setupTabAtom)).toBe("instructions");
-        expect(globalStore.get(memorySelectedProjectAtom)).toBeNull();
+        expect(globalStore.get(memoryOpenAtom)).toBeNull();
     });
 
     it("says the list failed rather than that the project is missing", async () => {
@@ -526,18 +538,23 @@ describe("a newer open", () => {
         expect(pushToast).not.toHaveBeenCalled();
     });
 
-    it("supersedes a run landing while its channel streams load, leaving the newer sheet alone", async () => {
+    it("supersedes a run landing while it selects its channel, leaving the newer sheet alone", async () => {
         const model = makeModel();
         objects.set("run:r1", { oid: "r1", channeloid: "c1" });
-        objects.set("channel:c1", { oid: "c1" });
-        const streams = deferred<{ messages: [] }>();
-        rpc.GetChannelMessagesCommand.mockImplementation(() => streams.promise);
+        // the first channel load is the lookup, the second is selectChannel's: hold only the select
+        const channel = deferred<unknown>();
+        let channelLoads = 0;
+        loadAndPin.mockImplementation((oref: string) =>
+            oref === "channel:c1" && ++channelLoads === 2
+                ? channel.promise
+                : Promise.resolve(oref === "channel:c1" ? { oid: "c1" } : (objects.get(oref) ?? null))
+        );
         rpc.EffortGetCommand.mockResolvedValue({ effort: { oid: "e-1" } });
         const first = openTarget(model, { kind: "run", runId: "r1" });
-        await vi.waitFor(() => expect(rpc.GetChannelMessagesCommand).toHaveBeenCalled());
+        await vi.waitFor(() => expect(channelLoads).toBe(2));
         expect(await openAddress(model, "effort:e-1")).toEqual({ ok: true });
 
-        streams.resolve({ messages: [] });
+        channel.resolve({ oid: "c1" });
         expect(await first).toEqual({ ok: false, reason: "superseded", message: "" });
         expect(globalStore.get(activeSubjectAtom)).toEqual({ kind: "effort", id: "e-1" });
         expect(globalStore.get(activeRunIdAtom)["c1"]).toBeUndefined();

@@ -75,6 +75,7 @@ export type AgentEntry =
           notice?: true;
           ts?: number;
           source?: "command" | "monitor" | "subagent";
+          toolUseId?: string; // a subagent finish's Agent/Task call id
       }
     // the human interrupted the agent mid-turn ([Request interrupted by user])
     | { kind: "interrupted" }
@@ -106,6 +107,7 @@ export type AgentEntry =
           startedTs?: number; // tool_use time while the call has no outcome yet, so a live call can show its elapsed
           ts?: number; // tool_use time, Claude's projection only
           command?: string; // the raw Bash command at tool_use, so a running wsh call is recognised before its result
+          toolUseId?: string; // an Agent/Task call's id, which its subagent's meta names
           // no tool_result yet: running, waiting on a permission prompt, or never finished. Claude's projection only;
           // absent reads as done.
           pending?: true;
@@ -773,7 +775,7 @@ export function canSubmitAsk(
 }
 
 /** Pure: the single muted footer hint for an ask, so one consistent line always renders.
- *  - one single-select question, no typed text: prompt to answer (mentions 1–9 only when the picker is numbered)
+ *  - one single-select question, no typed text: prompt to answer (mentions 1–N only when the picker is numbered)
  *  - a typed answer in any question: "press Enter to send" (replaces "press Enter to submit" when both apply)
  *  - one multi-select question: "press Enter to submit" (multi-select needs a confirm)
  *  - multiple questions: "N/M answered" (typed text counts as answered), plus "press Enter to submit"/"press
@@ -791,7 +793,9 @@ export function answerHint(
     const hasTyped = questions.some((_, qi) => (texts[qi] ?? "").trim() !== "");
     const needsConfirm = questions.some((q) => q.multiSelect) || hasTyped;
     if (total === 1 && !needsConfirm) {
-        return numbered ? "Press 1–9 or click to answer" : "Click to answer";
+        // only digits 1–9 pick, so a longer list names 9
+        const keys = Math.min(questions[0].options.length, 9);
+        return numbered && keys > 0 ? `Press ${keys === 1 ? "1" : `1–${keys}`} or click to answer` : "Click to answer";
     }
     const parts: string[] = [];
     if (total > 1) {

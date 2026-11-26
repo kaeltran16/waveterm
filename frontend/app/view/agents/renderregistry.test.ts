@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { ChartCard } from "./chartcard";
-import { blockRendererFor, isGitDiffCommand, isTestCommand, toolRendererKey } from "./renderregistry";
+import { blockRendererFor, isGitDiffCommand, toolRendererKey } from "./renderregistry";
 
 const DIFF = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b";
 const GO_TEST = "--- FAIL: TestX (0.00s)\n    x_test.go:3: bad\nFAIL\tpkg/x\t0.1s";
@@ -24,6 +24,11 @@ describe("toolRendererKey", () => {
         expect(toolRendererKey(bash("go test ./pkg/x", GO_TEST))).toBe("test");
         expect(toolRendererKey(bash("npx vitest run a.test.ts", " Tests  2 passed (2)"))).toBe("test");
     });
+    it("renders a final-verify run whose output parses", () => {
+        expect(toolRendererKey(bash("node scripts/cdp/final-verify.mjs final-stage", "\n# s\n  PASS  1. a"))).toBe(
+            "test"
+        );
+    });
     it("returns null when the output does not parse", () => {
         expect(toolRendererKey(bash("git diff", ""))).toBeNull();
         expect(toolRendererKey(bash("go test ./...", "no idea what this is"))).toBeNull();
@@ -37,7 +42,7 @@ describe("toolRendererKey", () => {
     });
 });
 
-describe("isGitDiffCommand / isTestCommand", () => {
+describe("isGitDiffCommand", () => {
     it("matches git diff and git show, with global flags and in a compound command", () => {
         expect(isGitDiffCommand("git diff")).toBe(true);
         expect(isGitDiffCommand("git --no-pager diff --cached")).toBe(true);
@@ -51,12 +56,6 @@ describe("isGitDiffCommand / isTestCommand", () => {
         const start = performance.now();
         expect(isGitDiffCommand("git " + "-a ".repeat(60) + "status")).toBe(false);
         expect(performance.now() - start).toBeLessThan(100);
-    });
-    it("matches go test and vitest", () => {
-        expect(isTestCommand("go test -json ./...")).toBe(true);
-        expect(isTestCommand("npx vitest run x")).toBe(true);
-        expect(isTestCommand("go build ./...")).toBe(false);
-        expect(isTestCommand("npm run lint")).toBe(false);
     });
 });
 

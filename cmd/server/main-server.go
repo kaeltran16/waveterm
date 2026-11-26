@@ -31,6 +31,7 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/remote/fileshare/wshfs"
 	"github.com/wavetermdev/waveterm/pkg/remotemode"
 	"github.com/wavetermdev/waveterm/pkg/service"
+	"github.com/wavetermdev/waveterm/pkg/usagestats"
 	"github.com/wavetermdev/waveterm/pkg/util/envutil"
 	"github.com/wavetermdev/waveterm/pkg/util/shellutil"
 	"github.com/wavetermdev/waveterm/pkg/util/sigutil"
@@ -57,6 +58,37 @@ var WaveVersion = "0.0.0"
 var BuildTime = "0"
 
 const TempAttachmentSweepInterval = 4 * time.Hour
+
+const (
+	usageKeepStartDelay = time.Minute
+	// shorter than Claude Code's 30-day purge by far, and with the parse cache warm a pass rereads only changed files
+	usageKeepInterval = 24 * time.Hour
+)
+
+// usageKeepLoop keeps every transcript's usage all-time, shortly after start and then daily, so a session counts
+// on Usage after its transcript is purged even when Usage is not opened before then. It waits a little so the
+// all-time read does not compete with startup.
+func usageKeepLoop() {
+	defer func() {
+		panichandler.PanicHandler("usageKeepLoop", recover())
+	}()
+	// usage links sessions to runs from the shared run cache, whose first fill decodes every run (~1.5 s on a
+	// 5,000-run store): pay it here, not on the first Usage load
+	if _, err := wstore.GetAllRunsShared(context.Background()); err != nil {
+		log.Printf("usage keep: warming the run cache: %v", err)
+	}
+	time.Sleep(usageKeepStartDelay)
+	for {
+		buckets, metas, err := usagestats.ScanUsage(0)
+		if err == nil {
+			err = usagestats.Keep(context.Background(), buckets, metas)
+		}
+		if err != nil {
+			log.Printf("usage keep: %v", err)
+		}
+		time.Sleep(usageKeepInterval)
+	}
+}
 
 var shutdownOnce sync.Once
 var initConfigWatcher = wconfig.InitWatcher
@@ -398,6 +430,7 @@ func main() {
 	if !snapshot {
 		jarvisvolunteer.StartLooseEndSweep(context.Background())
 		memhygiene.StartSweep(context.Background())
+		go usageKeepLoop()
 	}
 	go wshserver.WarmRouteCatalog() // the first picker to open finds the model catalog listed instead of waiting on the CLIs
 	agentsessions.StartWarmup()     // the session list and search find every transcript of the window read

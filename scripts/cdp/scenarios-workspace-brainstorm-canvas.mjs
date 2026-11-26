@@ -1,8 +1,9 @@
 // Scenario `workspace-brainstorm-canvas`: the workspace pane's Brainstorm and Canvas tabs (Task 8 of
 // docs/superpowers/plans/2026-11-17-workspace-pane.md; the Brainstorm and Canvas boards). One fixture claude agent in
 // the Rendered view (scenarios-rendered-brainstorm.mjs's kit arranges it), first with a brainstorm whose file the steps
-// rewrite, then with only a canvas. In Rendered the cards' open links open a tab beside the transcript; in Terminal the
-// tree's chips still take over the center. The viewport and the agent's tabs are put back in teardown.
+// rewrite, then with only a canvas, and last with a brainstorm asking on that canvas. In Rendered the cards' open links
+// open a tab beside the transcript; in Terminal the tree's chips still take over the center. The viewport and the
+// agent's tabs are put back in teardown.
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -36,9 +37,16 @@ const CENTER = `document.querySelector("[data-agent-center]")`;
 const MOCKUP = `${RV}?.querySelector("[data-rendered-mockup]")`;
 const KEY = {
     b: { key: "b", code: "KeyB", keyCode: 66, text: "b" },
+    m: { key: "m", code: "KeyM", keyCode: 77, text: "m" },
+    next: { key: "]", code: "BracketRight", keyCode: 221, text: "]" },
     four: { key: "4", code: "Digit4", keyCode: 52, text: "4" },
     Enter: { key: "Enter", code: "Enter", keyCode: 13, text: "\r" },
+    Escape: { key: "Escape", code: "Escape", keyCode: 27 },
 };
+const C_WIN = `document.querySelector("[data-canvas-window]")`;
+// the picked board's frame: in marking, the mark layer over its iframe
+const WIN_BOARD = `${C_WIN}?.querySelector("[data-canvas-board]")`;
+const CENTER_BOARD = `${CENTER}?.querySelector("[data-canvas-pane] [data-canvas-board]")`;
 
 // a real key press; CDP takes Enter's text as a carriage return
 async function press(h, { key, code, keyCode, text }) {
@@ -94,6 +102,51 @@ async function setView(h, rendered) {
         return true;
     })()`);
     return polishWaitFor(h, rendered ? `${RV} != null` : `${RV} == null`, WAIT_MS);
+}
+
+// a real mouse click at an element's center, the kind that moves focus into a board's iframe
+async function mouseClick(h, el) {
+    const at = await h.ev(`(() => {
+        const r = (${el})?.getBoundingClientRect();
+        return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+    })()`);
+    if (at == null) return false;
+    for (const type of ["mousePressed", "mouseReleased"]) {
+        await h.cdp("Input.dispatchMouseEvent", { type, x: at.x, y: at.y, button: "left", clickCount: 1 });
+    }
+    return true;
+}
+
+// where the keys go: a key pressed while the page lacks focus never arrives, so a step reads this before pressing
+const focusFacts = (h, frame) =>
+    h.ev(`(() => ({
+        page: document.hasFocus(),
+        board: document.activeElement != null && document.activeElement === (${frame})?.querySelector("iframe"),
+        active: document.activeElement?.tagName ?? null,
+    }))()`);
+
+// the board's page has loaded (BoardIframe fades in on load), so its key relay is listening
+const boardLoaded = (h, frame) =>
+    polishWaitFor(h, `(() => { const f = (${frame})?.querySelector("iframe"); return f != null && getComputedStyle(f).opacity === "1"; })()`, WAIT_MS);
+
+const canvasFacts = (h, ctx) =>
+    store(
+        h,
+        ctx,
+        `const M = await mod("app/view/agents/canvaswindowmodel.ts");
+        const c = C.getCanvas(id);
+        return { window: globalStore.get(C.canvasWindowAtom), board: c?.board ?? null, all: c?.all ?? null, marking: c?.marking ?? null, mark: c?.mark != null, escape: c ? M.canvasEscape(c) : null };`
+    );
+
+// the canvas state once ok(it) holds, or at WAIT_MS as it is then
+async function waitFacts(h, ctx, ok) {
+    const deadline = Date.now() + WAIT_MS;
+    let f = await canvasFacts(h, ctx);
+    while (!ok(f) && Date.now() < deadline) {
+        await polishNap(100);
+        f = await canvasFacts(h, ctx);
+    }
+    return f;
 }
 
 // the tree row's brainstorm or canvas chip
@@ -265,6 +318,155 @@ const base = scenario(NAME, { file: WORKING }, async (h, ctx, step) => {
         const rendered = await setView(h, true);
         const kept = await polishWaitFor(h, `${CANVAS_IN_TAB} != null`, WAIT_MS);
         return [terminal && clicked && center && left && rendered && kept, { terminal, clicked, center, left, rendered, kept }];
+    });
+
+    await step("after a click on its board the canvas window still closes on Esc, and in marking Esc still does what it does with no click", async () => {
+        const row = `${CANVAS_IN_TAB}?.querySelector('[data-canvas-tab-preview="${CANVAS_BOARDS[0]}"]')`;
+        const openWindow = async () => {
+            const clicked = await h.ev(`(() => { const r = ${row}; r?.click(); return r != null; })()`);
+            const shown = await polishWaitFor(h, `${WIN_BOARD} != null`, WAIT_MS);
+            return clicked && shown && (await boardLoaded(h, WIN_BOARD));
+        };
+        // the board takes the click and the focus, so the host's window sees no keydown but the relayed one
+        const opened = await openWindow();
+        const onBoard = await mouseClick(h, WIN_BOARD);
+        const focus = await focusFacts(h, WIN_BOARD);
+        await h.shot(SHOT(6, "window-board-focused"));
+        if (focus.page && focus.board) await press(h, KEY.Escape);
+        const closed = await polishWaitFor(h, `${C_WIN} == null`, WAIT_MS);
+
+        // marking: the mark layer is over the board, so the click draws nothing and Esc does what canvasEscape says
+        const reopened = await openWindow();
+        await press(h, KEY.m);
+        const marking = (await waitFacts(h, ctx, (f) => f.marking)).marking;
+        const onLayer = await mouseClick(h, WIN_BOARD);
+        const before = await canvasFacts(h, ctx);
+        const markFocus = await focusFacts(h, WIN_BOARD);
+        if (markFocus.page) await press(h, KEY.Escape);
+        const acted =
+            before.escape === "close"
+                ? await polishWaitFor(h, `${C_WIN} == null`, WAIT_MS)
+                : await polishWaitFor(h, `${C_WIN} != null && ${WIN_BOARD}?.querySelector("[data-canvas-mark]") == null`, WAIT_MS);
+        if (!acted) await store(h, ctx, `C.closeCanvasWindow(); return true;`);
+        return [
+            opened && onBoard && focus.page && focus.board && closed && reopened && marking && onLayer && markFocus.page && acted,
+            { opened, onBoard, focus, closed, reopened, marking, onLayer, before, markFocus, acted },
+        ];
+    });
+
+    await step("in Terminal, after a click on the canvas center's board, ] still steps to the next board", async () => {
+        const terminal = await setView(h, false);
+        const chip = await clickChip(h, "canvas");
+        const center = await polishWaitFor(h, `${CENTER_BOARD} != null`, WAIT_MS);
+        const loaded = center && (await boardLoaded(h, CENTER_BOARD));
+        const onBoard = await mouseClick(h, CENTER_BOARD);
+        const focus = await focusFacts(h, CENTER_BOARD);
+        const before = await canvasFacts(h, ctx);
+        if (focus.page && focus.board) await press(h, KEY.next);
+        const after = await waitFacts(h, ctx, (f) => f.board !== before.board || f.all !== before.all);
+        const stepped = after.board !== before.board || after.all !== before.all;
+        await h.shot(SHOT(7, "terminal-center-key"));
+        await clickChip(h, "canvas");
+        const left = await polishWaitFor(h, `${CENTER}?.querySelector("[data-canvas-pane]") == null`, WAIT_MS);
+        const rendered = await setView(h, true);
+        return [
+            terminal && chip && loaded && onBoard && focus.page && focus.board && stepped && left && rendered,
+            { terminal, chip, loaded, onBoard, focus, before, after, left, rendered },
+        ];
+    });
+
+    // a brainstorm on the canvas the tab lists asks question 4, its first answer naming the first board
+    const [named, unnamed] = CANVAS_BOARDS;
+    const tagLabel = `1 · ${BS_Q4.options[0].label}`;
+    const rowEl = (board) => `${CANVAS_IN_TAB}?.querySelector('[data-canvas-tab-preview="${board}"]')`;
+
+    await step("with question 4 open, the Canvas tab's named row carries the tag line with 4 and the answer's label, an unnamed row none (QuestionCanvasTabTagged board)", async () => {
+        const [first, ...rest] = BS_Q4.options;
+        writeFile(ctx, {
+            ...WORKING,
+            working: null,
+            canvas: `${ctx.topic}-canvas`,
+            question: { ...BS_Q4, options: [{ ...first, boards: [named] }, ...rest] },
+        });
+        await store(
+            h,
+            ctx,
+            `window.__cockpitRosterFixture?.patch(id, { brainstormFile: ${JSON.stringify(ctx.file)} });
+            S.attachBrainstorm(id, { topic: ${JSON.stringify(ctx.topic)}, cwd: ${JSON.stringify(ctx.cwd)} }, Date.now());
+            return true;`
+        );
+        // a pane in use keeps its tab, so the Canvas tab still shows; the click only guards a pane that lost it
+        await h.ev(`(() => { ${TAB("canvas")}?.querySelector('[role="tab"]')?.click(); return true; })()`);
+        const tagged = await polishWaitFor(h, `${rowEl(named)}?.querySelector("[data-canvas-tab-answer]") != null`, RBS_KIT.BS_POLL_WAIT_MS);
+        await polishNap(SETTLE_MS);
+        const rows = await h.ev(`[...(${CANVAS_IN_TAB}?.querySelectorAll("[data-canvas-tab-preview]") ?? [])].map((el) => {
+            const tag = el.querySelector("[data-canvas-tab-answer]");
+            return { board: el.getAttribute("data-canvas-tab-preview"), n: tag?.firstElementChild?.textContent ?? null, label: tag?.lastElementChild?.textContent ?? null };
+        })`);
+        const p = await readPane(h);
+        await h.shot(SHOT(8, "canvas-tab-tagged"));
+        const byBoard = Object.fromEntries(rows.map((r) => [r.board, r]));
+        return [
+            tagged &&
+                p.active === "canvas" &&
+                byBoard[named]?.n === "4" &&
+                byBoard[named]?.label === tagLabel &&
+                byBoard[unnamed] != null &&
+                byBoard[unnamed].n == null &&
+                p.sideways === 0,
+            { tagged, rows, ...p },
+        ];
+    });
+
+    await step("a tagged row opens the canvas window on its board with the question's answer tabs, band and Pick; an untagged row opens it with no band (QuestionWindow board)", async () => {
+        const readWindow = () =>
+            h.ev(`(() => {
+                const win = ${C_WIN};
+                return {
+                    board: win?.querySelector("[data-canvas-board]")?.getAttribute("data-canvas-frame") ?? null,
+                    tabs: [...(win?.querySelectorAll('[role="tab"]') ?? [])].map((t) => t.textContent.trim()),
+                    source: win?.querySelector("[data-canvas-scope-source]")?.textContent.trim() ?? null,
+                    band: win?.querySelector("[data-brainstorm-band]") != null,
+                    pick: win?.querySelector("[data-brainstorm-band-pick]") != null,
+                };
+            })()`);
+        const close = async () => {
+            await h.ev(`document.querySelector('[data-canvas-window] button[aria-label="Close"]')?.click()`);
+            return polishWaitFor(h, `${C_WIN} == null`, WAIT_MS);
+        };
+        const open = async (board) => {
+            const clicked = await h.ev(`(() => { const r = ${rowEl(board)}; r?.click(); return r != null; })()`);
+            const shown = await polishWaitFor(h, `${C_WIN}?.querySelector('[data-canvas-board][data-canvas-frame="${board}"]') != null`, WAIT_MS);
+            return clicked && shown;
+        };
+
+        const openedTagged = await open(named);
+        const banded = await polishWaitFor(h, `${C_WIN}?.querySelector("[data-brainstorm-band-pick]") != null`, WAIT_MS);
+        await polishNap(SETTLE_MS);
+        const scoped = await readWindow();
+        await h.shot(SHOT(9, "question-window"));
+        const closedTagged = await close();
+
+        const openedPlain = await open(unnamed);
+        await polishNap(SETTLE_MS);
+        const plain = await readWindow();
+        const closedPlain = await close();
+        return [
+            openedTagged &&
+                banded &&
+                scoped.board === named &&
+                scoped.tabs.includes(tagLabel) &&
+                (scoped.source ?? "").startsWith("4") &&
+                scoped.band &&
+                scoped.pick &&
+                closedTagged &&
+                openedPlain &&
+                plain.board === unnamed &&
+                plain.source == null &&
+                !plain.band &&
+                closedPlain,
+            { openedTagged, banded, scoped, closedTagged, openedPlain, plain, closedPlain },
+        ];
     });
 });
 

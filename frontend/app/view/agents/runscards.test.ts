@@ -161,6 +161,33 @@ describe("runShowModel", () => {
         expect(new Set(m.tokens?.roles.map((r) => r.fill)).size).toBe(3);
     });
 
+    it.each([
+        { name: "a fast-track dag", autonomous: false, fasttrack: true, meta: "claude opus · fast track" },
+        {
+            name: "an autonomous fast-track dag",
+            autonomous: true,
+            fasttrack: true,
+            meta: "claude opus · autonomous · fast track",
+        },
+        { name: "a dag on the full track", autonomous: false, fasttrack: false, meta: "claude opus" },
+    ])("words the route for $name", ({ autonomous, fasttrack, meta }) => {
+        const m = runShowModel(
+            {
+                run: run({ autonomous, model: "claude-opus" }),
+                group: group(2, { fasttrack }),
+                usage: [row("worker", 1_000)],
+            },
+            now
+        );
+        expect(m.tokens?.meta).toBe(meta);
+    });
+
+    it("labels the end reviewer's tokens", () => {
+        const m = runShowModel({ run: run(), usage: [row("end-reviewer", 1_000)] }, now);
+        expect(m.tokens?.roles[0]).toMatchObject({ role: "end-reviewer", label: "end reviewer" });
+        expect(m.tokens?.roles[0].fill).not.toBe("bg-ink-faint");
+    });
+
     it("omits tokens when nothing was spent", () => {
         expect(runShowModel({ run: run(), usage: [] }, now).tokens).toBeNull();
         expect(runShowModel({ run: run() }, now).tokens).toBeNull();

@@ -6,7 +6,7 @@
 
 import { crc32, deflateSync } from "node:zlib";
 import { assistantText, userText } from "./agent-page-fixtures.mjs";
-import { bsFile } from "./scenarios-shared.mjs";
+import { bsFile, isFlexEnd } from "./scenarios-shared.mjs";
 
 const TOPIC = `rbs-rows-${Date.now().toString(36)}`;
 const S = 1000;
@@ -21,6 +21,11 @@ const Q4 = {
     q: "Should a verify waiting for its turn show in the run's graph?",
     why: "With one Final at a time, a second run's verify can sit for minutes.",
     options: ["A queued chip on the Final node", "Only the attention banner, after 20 minutes", "Both"],
+    details: [
+        "The node shows it is waiting, so a glance at the graph explains the stall.",
+        "Quiet until the wait is long enough to matter, then it reaches you anywhere.",
+        "The chip for a glance, the banner if it runs long.",
+    ],
     picked: 2,
 };
 const BUILDER_Q = "Does time spent queued count toward the run's wall time in Usage?";
@@ -37,7 +42,7 @@ const entry = (n, q) => ({
     ...(q.why ? { why: q.why } : {}),
     a: answerOf(q),
     into: [],
-    options: q.options.map((label) => ({ label, detail: "" })),
+    options: q.options.map((label, i) => ({ label, detail: q.details?.[i] ?? "" })),
     picked: q.picked,
 });
 
@@ -212,7 +217,8 @@ export default (kit) => {
                         body.expanded === "true" &&
                         body.text.includes(Q4.why) &&
                         body.options.length === 3 &&
-                        JSON.stringify(picked) === JSON.stringify(["Both"]) &&
+                        picked.length === 1 &&
+                        picked[0].startsWith("Both\n") &&
                         body.buttons === 0,
                     body,
                 ];
@@ -247,7 +253,7 @@ export default (kit) => {
                     bubble.text.includes(NOTE) &&
                         bubble.text.includes(`marked on Main · ${TOPIC}`) &&
                         bubble.crop === "300x76" &&
-                        bubble.right === "flex-end" &&
+                        isFlexEnd(bubble.right) &&
                         shown &&
                         opened.window === ctx.agentId &&
                         opened.board === "Main.dc.html" &&

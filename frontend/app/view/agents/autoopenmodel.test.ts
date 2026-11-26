@@ -10,7 +10,7 @@ import {
     EMPTY_MEMORY,
     offers,
     remember,
-    startedRunId,
+    startedRun,
     type Arrival,
     type OfferInput,
 } from "./autoopenmodel";
@@ -94,6 +94,11 @@ describe("offers", () => {
         expect(offers(input({ entries: [bash(START, "no channel", { exit: 1 })] }))).toEqual([]);
     });
 
+    it("offers no Run tab for a quick run, whose own agent is the run", () => {
+        const quick = bash('wsh runs start "Fix the slash"', "started run r-q (quick, planning) in waveterm\n");
+        expect(offers(input({ entries: [quick] }))).toEqual([]);
+    });
+
     it("offers the changes of an edit made this session while the checkout has some", () => {
         expect(offers(input({ lastEditMs: AFTER, hasChanges: true }))).toEqual([
             { kind: "changes", id: `${AFTER}`, tab: { kind: "changes", selected: null } },
@@ -109,11 +114,14 @@ describe("offers", () => {
     });
 });
 
-describe("startedRunId", () => {
-    it("reads the id from --json, else from the started line", () => {
-        expect(startedRunId(bash(`${START} --json`, '{"id":"r-9","goal":"x"}'))).toBe("r-9");
-        expect(startedRunId(bash(START, STARTED))).toBe("r-123");
-        expect(startedRunId(bash(START, "something else"))).toBeNull();
+describe("startedRun", () => {
+    it("reads the id and mode from --json, else from the started line", () => {
+        expect(startedRun(bash(`${START} --json`, '{"id":"r-9","mode":"quick"}'))).toEqual({
+            id: "r-9",
+            mode: "quick",
+        });
+        expect(startedRun(bash(START, STARTED))).toEqual({ id: "r-123", mode: "orchestrator" });
+        expect(startedRun(bash(START, "something else"))).toBeNull();
     });
 });
 
@@ -151,6 +159,20 @@ describe("applyArrivals", () => {
         expect(s.tabs.map(tabKey)).toEqual(["canvas", "run:r1"]);
         expect(s.active).toBe("canvas");
         expect(s.unseen).toEqual(["run:r1"]);
+    });
+
+    it("opens a brainstorm's question over a reveal of its agent's canvas, the Canvas tab behind it marked", () => {
+        const turn = offers(
+            input({
+                entries: [bash(REVEAL)],
+                brainstorm: { path: "/p/bs.json", modifiedMs: AFTER, wait: "2", run: null },
+                canvas: { topic: "auto-open", removed: false },
+            })
+        );
+        const s = applyArrivals(EMPTY_WORKSPACE, arrivals(turn, EMPTY_MEMORY));
+        expect(s.tabs.map(tabKey)).toEqual(["brainstorm", "canvas"]);
+        expect(s.active).toBe("brainstorm");
+        expect(s.unseen).toEqual(["canvas"]);
     });
 
     it("opens Changes when it is all the turn brought", () => {

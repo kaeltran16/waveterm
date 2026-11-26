@@ -64,7 +64,7 @@ import {
 import { leadPaneShown } from "./leadpane";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { NarrationTimeline } from "./narrationtimeline";
-import { useWorkingTail } from "./nowlineview";
+import { useTurnLive, useWorkingTail } from "./nowlineview";
 import { clampParallelism } from "./runconfig";
 import { leadDisplayName, type RunInfo } from "./runlineage";
 import { openRunDag } from "./runrailsections";
@@ -931,6 +931,7 @@ function LeadTranscript({
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     const ctx = useTranscriptContext(model, lead);
     const tail = useWorkingTail(model.nowAtom, lead, entries, true);
+    const turnLive = useTurnLive(lead.blockId, lead.state !== "idle", entries);
     // as tall as its entries, up to a cap: a fixed half left a short transcript's space empty while the tasks scrolled
     return (
         <div
@@ -955,14 +956,7 @@ function LeadTranscript({
                     onScroll={onScroll}
                     className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-5 pb-3.5"
                 >
-                    <NarrationTimeline
-                        entries={entries}
-                        accentLatest
-                        active={lead.state !== "idle"}
-                        ctx={ctx}
-                        compact
-                        tail={tail}
-                    />
+                    <NarrationTimeline entries={entries} accentLatest active={turnLive} ctx={ctx} compact tail={tail} />
                 </div>
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>

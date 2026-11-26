@@ -1,7 +1,8 @@
 // Scenario rendered-bs-question: the question card at the end of the Rendered transcript through the FirstQuestion,
 // Judging, JudgePick, JudgeFailed and Answered boards, and HardCases' ten options; the header row, the body's
-// `Question N → <part>` meta line opening the pane at its part; a pick sending the pane's line, recorded as picked
-// here; and the narrow column stacking the option rows. kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
+// `Question N → <part>` meta line opening the pane at its part; the judged list drawn as the pane draws it (label over
+// detail, the rank as a tag, the read with its pros and cons toggle, the dropped behind theirs); a pick sending the
+// pane's line, recorded as picked here; and the narrow column stacking the option rows. kit is scenarios-rendered-brainstorm.mjs's RBS_KIT.
 
 const NAME = "rendered-bs-question";
 const SHOT = (n, what) => `cdp-shots/${NAME}-${n}-${what}.png`;
@@ -45,10 +46,27 @@ const DROPPED = [
     { name: "Sonnet workers", reason: "the A/B kept Opus for quality" },
 ];
 const JUDGED_OPTIONS = [
-    { label: "One Final at a time", detail: "three overlapping verifies were the peak; one queue removes it", pick: true },
-    { label: "Memory gate", detail: "hold new scenario runs while the OS reports low memory" },
-    { label: "Shared node_modules", detail: "one install for every verify tree" },
+    {
+        label: "One Final at a time",
+        detail: "three overlapping verifies were the peak; one queue removes it",
+        pick: true,
+        pros: ["removes the peak that lost scenarios", "needs no memory probe"],
+        cons: ["a busy hour waits longer for its Final"],
+    },
+    {
+        label: "Memory gate",
+        detail: "hold new scenario runs while the OS reports low memory",
+        pros: ["keeps runs parallel"],
+        cons: ["low memory reads late on Windows"],
+    },
+    {
+        label: "Shared node_modules",
+        detail: "one install for every verify tree",
+        pros: ["one npm install instead of one per tree"],
+        cons: ["leaves the verify's own memory as it is"],
+    },
 ];
+const READ = "Queueing Finals removes the peak that lost scenarios; the gate and the shared install each cut less.";
 const AGENT_OPTIONS = APPROACHES.map((a, i) => ({ label: a.name, detail: a.description, ...(i === 0 ? { pick: true } : {}) }));
 // HardCases: one more option than the keys reach
 const TEN_OPTIONS = Array.from({ length: 10 }, (_, i) => ({ label: `Option ${i + 1}`, detail: `detail ${i + 1}` }));
@@ -79,7 +97,10 @@ const file = (over) => ({
 const FIRST = file({ question: Q1, parts: parts(["asked", "open", "open", "open", "open"]) });
 const AT_Q3 = { parts: parts(["yours", "yours", "asked", "open", "open"]), history: HISTORY_2 };
 const JUDGING = file({ ...AT_Q3, question: Q3, working: "The judge is weighing 5 approaches." });
-const JUDGE_PICK = file({ ...AT_Q3, question: { ...Q3, options: JUDGED_OPTIONS, judge: { added: [], dropped: DROPPED } } });
+const JUDGE_PICK = file({
+    ...AT_Q3,
+    question: { ...Q3, options: JUDGED_OPTIONS, read: READ, judge: { added: [], dropped: DROPPED } },
+});
 const JUDGE_FAILED = file({ ...AT_Q3, question: { ...Q3, options: AGENT_OPTIONS, judge: { failed: FAILED_REASON } } });
 const TEN = file({ ...AT_Q3, question: { ...Q3, options: TEN_OPTIONS } });
 const ANSWERED = file({
@@ -110,8 +131,9 @@ export default (kit) => {
     } = kit;
     const CARD = `${HOST}?.querySelector("[data-rendered-bs-question]")`;
 
-    // the card as drawn: its header, meta line and text pieces, its rows (key, label, detail, badge, enabled, detail
-    // under label), its buttons, the dropped approaches, and whether the action row is stacked
+    // the card as drawn: its header, meta line and text pieces, its read and the toggles beside it and the judge's work,
+    // its rows (key, label, detail, badge, rank note, enabled, detail under label, pros and cons), its buttons, the
+    // dropped approaches once shown, and whether the action row is stacked
     const readQ = (h) =>
         h.ev(`(() => {
             const flat = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
@@ -128,14 +150,21 @@ export default (kit) => {
                     label: flat(r.querySelector("[data-rendered-bs-option-label]")),
                     detail: flat(r.querySelector("[data-rendered-bs-option-detail]")),
                     badge: flat(r.querySelector("[data-rendered-bs-pick-badge]")),
+                    note: flat(r.querySelector("[data-rendered-bs-option-note]")),
                     enabled: b != null && !b.disabled,
                     stacked: l && d ? d.top >= l.bottom - 1 : null,
+                    reasons: [...r.querySelectorAll("[data-rendered-bs-proscons] ul")].map((u) => {
+                        const box = u.getBoundingClientRect();
+                        return { items: [...u.querySelectorAll("li")].map(flat), left: box.left, right: box.right, top: box.top };
+                    }),
+                    labelLeft: l?.left ?? null,
                 };
             });
-            const dropped = [...(card?.querySelectorAll("[data-rendered-bs-dropped]") ?? [])].map((d) => {
-                const n = d.querySelector("[data-rendered-bs-dropped-name]");
-                return { text: flat(d), struck: n != null && getComputedStyle(n).textDecorationLine.includes("line-through") };
-            });
+            const dropped = [...(card?.querySelectorAll("[data-brainstorm-judge-dropped] li") ?? [])].map(flat);
+            const toggle = (sel) => {
+                const b = q(sel);
+                return b == null ? null : { text: flat(b), open: b.getAttribute("aria-expanded") === "true" };
+            };
             const actions = q("[data-rendered-bs-q-actions]");
             const hint = q("[data-rendered-bs-picks-hint]")?.getBoundingClientRect();
             const firstBtn = actions?.querySelector("button")?.getBoundingClientRect();
@@ -152,7 +181,10 @@ export default (kit) => {
                 startedOpen: host?.querySelector("[data-rendered-bs-started] button") != null,
                 judgeStatus: flat(q("[data-rendered-bs-judge-status]")),
                 waitDrawn: host?.querySelector("[data-rendered-bs-judge-wait]") != null,
-                work: flat(q("[data-rendered-bs-judge-work]")),
+                read: flat(q("[data-rendered-bs-read]")),
+                reasonsToggle: toggle("[data-brainstorm-proscons-toggle]"),
+                work: flat(q("[data-brainstorm-judge-work]")),
+                droppedToggle: toggle("[data-brainstorm-judge-dropped-toggle]"),
                 hint: flat(q("[data-rendered-bs-picks-hint]")),
                 buttons: [...(actions?.querySelectorAll("button") ?? [])].map(flat),
                 actionsStacked: hint && firstBtn ? hint.top >= firstBtn.bottom - 1 : null,
@@ -243,7 +275,7 @@ export default (kit) => {
                 return [ok, { statusClock, ...r }];
             });
 
-            await step("the file rewritten to JudgePick swaps the list in the same card: Judge's pick on option 1, 3 kept, the 2 dropped struck with reasons", async () => {
+            await step("the file rewritten to JudgePick swaps the list in the same card: each label over its own detail, Judge's pick on option 1 and the rank as a tag on the kept, the 2 dropped behind their toggle until it opens", async () => {
                 // the card node is marked, so its survival shows the list swapped inside it rather than a new card
                 await h.ev(`(() => { const c = ${CARD}; if (c) c.__rbsSame = true; return true; })()`);
                 writeFile(ctx, JUDGE_PICK);
@@ -251,6 +283,19 @@ export default (kit) => {
                 const same = await h.ev(`${CARD}?.__rbsSame === true`);
                 const r = await readQ(h);
                 await h.shot(SHOT(4, "judge-pick"));
+                const opened = await h.ev(`(() => {
+                    const b = ${CARD}?.querySelector("[data-brainstorm-judge-dropped-toggle]");
+                    if (!b) return false;
+                    b.click();
+                    return true;
+                })()`);
+                const listed = await drawn(
+                    h,
+                    `card?.querySelectorAll("[data-brainstorm-judge-dropped] li").length === ${DROPPED.length}`
+                );
+                await polishNap(300);
+                const open = await readQ(h);
+                await h.shot(SHOT(5, "judge-pick-dropped"));
                 const ok =
                     swapped &&
                     same &&
@@ -259,25 +304,70 @@ export default (kit) => {
                     r.judgeStatus === "" &&
                     !r.waitDrawn &&
                     r.rows.length === 3 &&
+                    r.rows.every((x, i) => x.stacked === true && x.detail === JUDGED_OPTIONS[i].detail) &&
                     r.rows[0].badge === "Judge’s pick" &&
+                    r.rows[0].note === "" &&
                     r.rows[1].badge === "" &&
-                    r.rows[1].detail === "kept as the second option" &&
-                    r.rows[2].detail === "kept as the third option" &&
-                    r.work.includes("Judge’s work: weighed the 5 approaches the agent listed, added none, dropped 2.") &&
-                    r.dropped.length === 2 &&
-                    r.dropped.every((d) => d.struck) &&
-                    r.dropped[0].text === `${DROPPED[0].name} ${DROPPED[0].reason}` &&
-                    r.dropped[1].text === `${DROPPED[1].name} ${DROPPED[1].reason}` &&
+                    r.rows[1].note === "kept as the second option" &&
+                    r.rows[2].note === "kept as the third option" &&
+                    r.work === "Judge’s work: weighed the 5 approaches the agent listed, added none, dropped 2." &&
+                    r.droppedToggle?.text === "Show the 2 dropped" &&
+                    !r.droppedToggle.open &&
+                    r.dropped.length === 0 &&
+                    opened &&
+                    listed &&
+                    open.droppedToggle?.text === "Hide the 2 dropped" &&
+                    open.droppedToggle.open &&
+                    JSON.stringify(open.dropped) ===
+                        JSON.stringify(DROPPED.map((d) => `${d.name} Dropped: ${d.reason}`)) &&
                     r.buttons.includes("Guess for me") &&
                     r.hint === hintFor(3);
-                return [ok, { swapped, same, ...r }];
+                return [ok, { swapped, same, opened, listed, ...r, openDropped: open.dropped }];
+            });
+
+            await step("the Judge's read over the options with Show pros and cons on its right; the pros and cons start hidden and, shown, sit under each row in two columns indented to its label", async () => {
+                const r = await readQ(h);
+                const clicked = await h.ev(`(() => {
+                    const b = ${CARD}?.querySelector("[data-brainstorm-proscons-toggle]");
+                    if (!b) return false;
+                    b.click();
+                    return true;
+                })()`);
+                const shown = await drawn(
+                    h,
+                    `card?.querySelectorAll("[data-rendered-bs-proscons]").length === ${JUDGED_OPTIONS.length}`
+                );
+                await polishNap(400);
+                const s = await readQ(h);
+                await h.shot(SHOT(6, "pros-cons"));
+                const reasonsOk = s.rows.every((x, i) => {
+                    const [pros, cons] = x.reasons;
+                    return (
+                        JSON.stringify(pros?.items) === JSON.stringify(JUDGED_OPTIONS[i].pros.map((t) => `+ ${t}`)) &&
+                        JSON.stringify(cons?.items) === JSON.stringify(JUDGED_OPTIONS[i].cons.map((t) => `− ${t}`)) &&
+                        Math.abs(pros.left - x.labelLeft) <= 1 &&
+                        cons.left >= pros.right - 1 &&
+                        Math.abs(cons.top - pros.top) <= 1
+                    );
+                });
+                const ok =
+                    r.read === `Judge’s read: ${READ}` &&
+                    r.reasonsToggle?.text === "Show pros and cons" &&
+                    !r.reasonsToggle.open &&
+                    r.rows.every((x) => x.reasons.length === 0) &&
+                    clicked &&
+                    shown &&
+                    s.reasonsToggle?.text === "Hide pros and cons" &&
+                    s.reasonsToggle.open &&
+                    reasonsOk;
+                return [ok, { clicked, shown, reasonsOk, read: r.read, toggle: s.reasonsToggle, rows: s.rows }];
             });
 
             await step("JudgeFailed: Agent's pick on option 1 and the judge failed, so the read and pick are the agent's: <reason>", async () => {
                 writeFile(ctx, JUDGE_FAILED);
                 await drawn(h, `card?.querySelector('[data-view-swap="failed"]') != null`);
                 const r = await readQ(h);
-                await h.shot(SHOT(5, "judge-failed"));
+                await h.shot(SHOT(7, "judge-failed"));
                 const ok =
                     asks(r, ctx.topic, "Talking it through · 2 of 5 yours") &&
                     r.meta === "Question 3 → Approach" &&
@@ -285,8 +375,10 @@ export default (kit) => {
                     r.rows[0].badge === "Agent’s pick" &&
                     r.rows.slice(1).every((x) => x.badge === "") &&
                     r.rows[1].detail === APPROACHES[1].description &&
+                    r.read === "" &&
+                    r.reasonsToggle == null &&
                     r.work === `Judge’s work: the judge failed, so the read and pick are the agent’s: ${FAILED_REASON}` &&
-                    r.dropped.length === 0 &&
+                    r.droppedToggle == null &&
                     r.hint === hintFor(5);
                 return [ok, r];
             });
@@ -295,7 +387,7 @@ export default (kit) => {
                 writeFile(ctx, ANSWERED);
                 await drawn(h, `(card?.innerText ?? "").includes(${JSON.stringify(Q5.text)})`);
                 const r = await readQ(h);
-                await h.shot(SHOT(6, "answered-q5"));
+                await h.shot(SHOT(8, "answered-q5"));
                 const ok =
                     r.kind === "question" &&
                     asks(r, ctx.topic, "Talking it through · 4 of 5 yours") &&
@@ -310,7 +402,7 @@ export default (kit) => {
                 writeFile(ctx, TEN);
                 await drawn(h, `card?.querySelectorAll("[data-rendered-bs-option-row]").length === ${TEN_OPTIONS.length}`);
                 const r = await readQ(h);
-                await h.shot(SHOT(7, "ten-options"));
+                await h.shot(SHOT(9, "ten-options"));
                 const ok =
                     r.rows.length === 10 &&
                     r.rows.slice(0, 9).every((x, i) => x.key === String(i + 1) && !x.noKey) &&
@@ -326,7 +418,7 @@ export default (kit) => {
                 await drawn(h, `card?.querySelector('[data-view-swap="judged"]') != null`);
                 const narrowed = await narrow(h);
                 const r = await readQ(h);
-                await h.shot(SHOT(8, "narrow"));
+                await h.shot(SHOT(10, "narrow"));
                 const widened = await widen(h);
                 const ok =
                     narrowed &&

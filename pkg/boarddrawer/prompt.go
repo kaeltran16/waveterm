@@ -20,8 +20,11 @@ const (
 	elsewhereLines = "This briefing arrived on a board that already has a talk. If it is about something other than this talk, " +
 		"set `elsewhere` to true and leave out every other key: Arc asks the person whether to start a new board for it. " +
 		"If it belongs here, draw it as any request."
-	agentRequestLine = "This is the agent's own request: draw it. Never flag it as a question."
+	agentRequestLine = "This is the agent's own request: draw it as a new drawing. Never flag it as a question."
 	drawLine         = "The person sent this line to be drawn: draw it, even if it reads as a question. Never flag it."
+	// drawingInViewHead opens the line naming the drawing in view
+	drawingInViewHead = "The drawing in view: "
+	noDrawingLine     = "No drawing is in view: draw this turn's answer as a new drawing."
 
 	// summaryPrompt goes to a forked copy of the earlier board's session, so its talk stays as it was.
 	summaryPrompt = "This board's talk is being handed over to a new board, whose drawer starts fresh. For this one reply, " +
@@ -50,6 +53,7 @@ type firstInput struct {
 type turnInput struct {
 	Scene       Scene
 	SelectedIds []string
+	DrawingId   string // the frame of the drawing in view when the line was asked; none unless a live frame
 	On          string
 	Question    string
 	Briefing    *wshrpc.BoardBriefing
@@ -127,6 +131,12 @@ func turnPrompt(t turnInput) string {
 		}
 		fmt.Fprintf(&b, "\nSelected: %s (ids %s, marked \"selected\" above). The question is about these shapes.\n",
 			on, strings.Join(t.SelectedIds, ", "))
+	}
+	if title, ok := t.Scene.Frames[t.DrawingId]; ok {
+		fmt.Fprintf(&b, "\n%s%q (id %s). A follow-up that changes it sets `\"edit\": true` and changes only its shapes "+
+			"(marked `\"frame\":\"%s\"`); a new question gets a new drawing.\n", drawingInViewHead, title, t.DrawingId, t.DrawingId)
+	} else {
+		b.WriteString("\n" + noDrawingLine + "\n")
 	}
 	if turns := strings.TrimSpace(t.AgentTurns); turns != "" {
 		fmt.Fprintf(&b, "\n%s, the agent this board belongs to, said this since you last heard from it. Draw from it when "+

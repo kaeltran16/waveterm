@@ -249,6 +249,10 @@ export function snippetOf(e: RunEvent): string {
             return [num(d.round) ? `round ${num(d.round)}` : "", num(d.ms) ? secs(num(d.ms)) : ""]
                 .filter(Boolean)
                 .join(" · ");
+        case "child-ask":
+            return str(d.question);
+        case "child-answered":
+            return str(d.answer);
         case "land-held":
             return str(d.reason);
         case "landed":

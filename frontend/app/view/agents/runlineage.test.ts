@@ -29,6 +29,7 @@ import {
     lineageOf,
     mergeGateLine,
     planReviewerOf,
+    runAgentOf,
     runAgentsOf,
     runEngineBusy,
     runInfoOf,
@@ -199,6 +200,13 @@ describe("run facts", () => {
         expect(taskAgentOf(lineage, agents, "r1", "t-1")).toEqual({ id: "w" });
         expect(taskAgentOf(lineage, agents, "r1", "t-2")).toBeUndefined();
         expect(taskAgentOf(lineage, agents, "r2", "t-1")).toBeUndefined();
+    });
+
+    it("finds a quick run's own agent, and no agent of a run tree", () => {
+        const lineage = { roles: { l: { kind: "lead", runId: "r1" } }, runs: {} } as const;
+        const agents = [{ id: "l", runId: "r1" }, { id: "q", runId: "r9" }, { id: "plain" }];
+        expect(runAgentOf(lineage, agents, "r9")).toEqual({ id: "q", runId: "r9" });
+        expect(runAgentOf(lineage, agents, "r1")).toBeUndefined();
     });
 
     it("finds every roster tab a run still holds, its lead and all its task tabs", () => {
@@ -529,6 +537,7 @@ describe("stage sessions", () => {
     it("titles a stage row by its stage", () => {
         expect(stageLabel("plan-reviewer")).toBe("Plan review");
         expect(stageLabel("verifier")).toBe("Final verification");
+        expect(stageLabel("end-reviewer")).toBe("End review");
     });
 });
 

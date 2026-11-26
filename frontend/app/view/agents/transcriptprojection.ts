@@ -4,7 +4,7 @@
 // Pure projection of a Claude Code transcript (JSONL lines) into AgentEntry[].
 // No React, no Wave runtime imports. Deterministic; no LLM (spec §5.3).
 
-import type { AgentEntry, CardTask } from "./agentsviewmodel";
+import type { AgentActionEntry, AgentEntry, CardTask } from "./agentsviewmodel";
 import {
     answerAsk,
     askQuestions,
@@ -35,6 +35,7 @@ const VERB_BY_TOOL: Record<string, string> = {
     Grep: "grep",
     Glob: "glob",
     Task: "spawned",
+    Agent: "spawned",
     Skill: "skill",
     AskUserQuestion: "asked",
 };
@@ -113,6 +114,25 @@ function parseCommand(content: string): { name: string; args?: string } | null {
 export function bashNeverRan(body: string): boolean {
     const t = body.trimStart();
     return t !== "" && !/^Exit code \d+/.test(t) && !/^(Interrupted\b|\[Tool call interrupted)/.test(t);
+}
+
+// a failed command's exit code from its result's opening "Exit code N"; one with none (stopped mid-run) reads 1, since
+// every reader only compares the code to 0
+function failedExit(body: string): number {
+    const m = /^Exit code (\d+)/.exec(body.trimStart());
+    return m ? Number(m[1]) : 1;
+}
+
+function plural(n: number, noun: string): string {
+    return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+// Glob's result lists one path per line, or says it found none; a capped list ends with a note that is no path
+function globSummary(body: string): string {
+    if (body.trim() === "No files found") {
+        return "no files";
+    }
+    return plural(body.split("\n").filter((l) => l !== "" && !l.startsWith("(Results are truncated")).length, "file");
 }
 
 // Claude Code's words when the user rejects a call at its permission prompt. Each refusal opens the result, so a
@@ -236,6 +256,12 @@ function isSubagentFinish(content: string, actionById: Map<string, ActionEntry>)
     return tool != null ? SUBAGENT_TOOLS.has(tool) : content.includes("<result>");
 }
 
+// a subagent finish carries the id of the Agent call it ends, which links it to that call's subagent
+function withFinishId(note: NotificationEntry, content: string): NotificationEntry {
+    const id = note.source === "subagent" ? notificationTag(content, "tool-use-id") : undefined;
+    return id ? { ...note, toolUseId: id } : note;
+}
+
 // a `!` command's two user records in Claude Code's bash mode: the input, then its output
 const BASH_INPUT_RE = /^<bash-input>([^]*)<\/bash-input>$/;
 const BASH_OUTPUT_RE = /^<bash-stdout>([^]*?)<\/bash-stdout>\s*<bash-stderr>([^]*?)<\/bash-stderr>$/;
@@ -288,11 +314,31 @@ function applyCommandOutput(entries: AgentEntry[], content: string): boolean {
 function parseNotice(prompt: string): NotificationEntry | null {
     const structured = prompt.includes("<summary>") ? parseTaskNotification(prompt) : null;
     if (structured != null) {
-        return { ...structured, notice: true };
+        return { ...withFinishId(structured, prompt), notice: true };
     }
     const m = /<task-notification>([^]*?)<\/task-notification>/.exec(prompt);
     const summary = (m ? m[1] : prompt).trim();
     return summary !== "" ? { kind: "notification", summary, notice: true, ...notificationSource(summary) } : null;
+}
+
+// A subagent's report as Claude Code 2.1.330+ hands it back, a message from a peer session: the frame's tag, one
+// "[Subagent hand-back]" preamble line, then the report with each line indented two spaces
+const HAND_BACK_RE = /^<agent-message from="[^"]*">\n\[Subagent hand-back\][^\n]*\n([^]*?)\n?<\/agent-message>$/;
+
+// a hand-back as the subagent's notice, its report dedented; name is the subagent's type when the record carries it
+function parseHandBack(text: string, name: unknown): NotificationEntry | null {
+    const m = HAND_BACK_RE.exec(text.trim());
+    if (m == null) {
+        return null;
+    }
+    const result = m[1].replace(/^ {2}/gm, "");
+    return {
+        kind: "notification",
+        summary: typeof name === "string" && name !== "" ? `Agent "${name}" reported` : "Agent reported",
+        ...(result.trim() !== "" ? { result } : {}),
+        notice: true,
+        source: "subagent",
+    };
 }
 
 // the tag claude code wraps a long typed or pasted message in; pastedContentRe in pkg/agentsessions/humanprompts.go
@@ -322,13 +368,22 @@ function queuedEntry(rec: any): AgentEntry | null {
     if (att.commandMode !== "prompt" || prompt.trim() === "") {
         return null;
     }
-    return { kind: "user", text: unwrapPasted(prompt), queued: true, ...recTs({ timestamp: att.timestamp ?? rec.timestamp }) };
+    const ts = recTs({ timestamp: att.timestamp ?? rec.timestamp });
+    const handBack = att.origin?.kind === "peer" ? parseHandBack(prompt, att.origin.name) : null;
+    return handBack != null ? { ...handBack, ...ts } : { kind: "user", text: unwrapPasted(prompt), queued: true, ...ts };
+}
+
+// a slash command's user record; the meta record right after it is the command's expansion (a skill body)
+function isCommandRecord(rec: any): boolean {
+    const content = rec?.type === "user" ? rec.message?.content : undefined;
+    return typeof content === "string" && parseCommand(content) != null;
 }
 
 // A text the arc mod held while the agent worked and joined to the turn at a tool result: a meta record of the arc
-// plugin, read at the step where it was written. Who wrote it is not recorded, so it draws by its text.
-function joinedEntries(rec: any): AgentEntry[] {
-    if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN) {
+// plugin, read at the step where it was written. Who wrote it is not recorded, so it draws by its text. A slash command
+// the mod delivered carries the same origin on its expansion, which is plumbing like any other skill body.
+function joinedEntries(rec: any, prev: any): AgentEntry[] {
+    if (rec.origin?.kind !== "plugin" || rec.origin?.name !== ARC_PLUGIN || isCommandRecord(prev)) {
         return [];
     }
     const content = rec.message?.content;
@@ -409,8 +464,8 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
     const replied = repliedMessages(records);
     // the message the last thought came from, so its next thinking block joins that thought
     let thoughtFrom: string | undefined;
-    for (const r of records) {
-        const rec: any = r;
+    for (let i = 0; i < records.length; i++) {
+        const rec: any = records[i];
         if (rec == null) {
             continue;
         }
@@ -456,6 +511,9 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     if (SHELL_TOOLS.has(block.name) && typeof block.input?.command === "string") {
                         action.command = block.input.command;
                     }
+                    if (SUBAGENT_TOOLS.has(block.name) && typeof block.id === "string") {
+                        action.toolUseId = block.id;
+                    }
                     const cwd = typeof rec.cwd === "string" ? rec.cwd : undefined;
                     const filePath = relativePath(String(block.input?.file_path ?? ""), cwd);
                     if (block.name === "Edit" && block.input && typeof block.input.old_string === "string") {
@@ -499,7 +557,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
         if (rec.type === "user") {
             if (rec.isMeta === true) {
                 // every other meta record (a skill body, a caveat) is plumbing
-                entries.push(...joinedEntries(rec));
+                entries.push(...joinedEntries(rec, records[i - 1]));
                 continue;
             }
             if (rec.isCompactSummary === true) {
@@ -526,11 +584,16 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                 if (note != null) {
                     // its own record starts a turn, so the turn's time starts at it. The call it names, when in view,
                     // says whether a subagent finished, which its summary alone may not
-                    entries.push({
-                        ...note,
-                        ...recTs(rec),
-                        ...(isSubagentFinish(content, actionById) ? { source: "subagent" as const } : {}),
-                    });
+                    entries.push(
+                        withFinishId(
+                            {
+                                ...note,
+                                ...recTs(rec),
+                                ...(isSubagentFinish(content, actionById) ? { source: "subagent" as const } : {}),
+                            },
+                            content
+                        )
+                    );
                 } else if (applyCommandOutput(entries, content)) {
                     // handled: the output sits under its command, or draws nothing. Never a user bubble.
                 } else if (opensWith(content, "<local-command-stdout>")) {
@@ -539,8 +602,11 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                     entries.push({ kind: "interrupted" });
                 } else {
                     const cmd = parseCommand(content);
+                    const handBack = cmd == null ? parseHandBack(content, rec.origin?.name) : null;
                     if (cmd != null) {
                         entries.push({ kind: "command", ...cmd, ...recTs(rec) });
+                    } else if (handBack != null) {
+                        entries.push({ ...handBack, ...recTs(rec) });
                     } else if (content.trim() !== "") {
                         entries.push({ kind: "user", text: unwrapPasted(content), ...recTs(rec) });
                     }
@@ -609,8 +675,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                             ? { path: relativePath(input.file_path, cwd) }
                             : {}),
                     };
-                    const lineCount = body.split("\n").length;
-                    action.summary = `${lineCount} line${lineCount === 1 ? "" : "s"}`;
+                    action.summary = tool === "Glob" ? globSummary(body) : plural(body.split("\n").length, "line");
                 } else if (shell && raw) {
                     // a background launch's result is only a harness line: the call keeps its command panel
                     const ran = !blocked && declined == null;
@@ -619,7 +684,7 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
                         command: action.command,
                         // a call that never ran has no output; its reason is the error
                         output: ran ? body : "",
-                        exit: !ran ? null : failed ? 1 : 0,
+                        exit: !ran ? null : failed ? failedExit(body) : 0,
                     };
                 } else if (action.detail?.kind === "edit") {
                     // the file's own hunks, numbered; the tool_use's old/new strings stay when the result has none
@@ -710,6 +775,19 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
     return entries;
 }
 
+/** Pure: a subagent's running call (from its listing) as the pending action its step row would draw, so it is named
+ *  by the same verb, target and title code. */
+export function subagentCallEntry(call: SubagentCall): AgentActionEntry | undefined {
+    const timestamp = call.startedatms ? new Date(call.startedatms).toISOString() : undefined;
+    const rec = {
+        type: "assistant",
+        timestamp,
+        message: { content: [{ type: "tool_use", id: "current", name: call.name, input: call.input ?? {} }] },
+    };
+    const [entry] = projectTranscriptRecords([rec]);
+    return entry?.kind === "action" ? entry : undefined;
+}
+
 /** Pure: the task list from the LATEST TodoWrite tool_use in the transcript, or undefined if the
  *  agent never wrote a todo list. `completed` -> done; every other status is not-done. Malformed
  *  todo entries (missing/non-string content) are skipped; an empty todo list yields []. */
@@ -770,6 +848,7 @@ export interface SubagentSpawn {
     toolUseId: string;
     subagentType: string;
     prompt: string;
+    description?: string;
     done: boolean;
     failed: boolean;
     background: boolean; // its tool_result is only the launch ack; a <task-notification> ends it
@@ -814,6 +893,11 @@ export function extractSubagentSpawns(lines: string[]): SubagentSpawn[] {
         } catch {
             continue;
         }
+        // an api-request-blob replays the request's messages: its copied launch ack has no toolUseResult, so it read as
+        // the spawn finishing and the tree hid the still-running subagent
+        if (rec?.type !== "user" && rec?.type !== "assistant") {
+            continue;
+        }
         const content = rec?.message?.content;
         if (typeof content === "string") {
             applyTaskNotification(spawns, content);
@@ -829,6 +913,7 @@ export function extractSubagentSpawns(lines: string[]): SubagentSpawn[] {
                     toolUseId: block.id,
                     subagentType: typeof input.subagent_type === "string" ? input.subagent_type : "",
                     prompt: typeof input.prompt === "string" ? input.prompt : "",
+                    ...(typeof input.description === "string" ? { description: input.description } : {}),
                     done: false,
                     failed: false,
                     background: false,

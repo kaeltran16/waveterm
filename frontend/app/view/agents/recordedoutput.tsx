@@ -5,15 +5,17 @@
 // back to when its fetch fails.
 
 import { cn } from "@/util/util";
-import { createContext, useContext } from "react";
+import { useState } from "react";
 import type { AgentActionEntry } from "./agentsviewmodel";
 import { capText } from "./bodycap";
 import { stripAnsi } from "./testoutput";
-import { BODY_FOOTER, MoreLines, OpenFullView } from "./tooldetailbody";
+import { MoreLines } from "./tooldetailbody";
 
-// inline, so capped to the body's line count; the full view holds the rest
+// inline, so capped to the body's line count; its button expands the rest in place
 export function RecordedOutput({ output, compact }: { output: string; compact?: boolean }) {
-    const { text, hidden } = capText(stripAnsi(output).replace(/\n+$/, ""));
+    const [expanded, setExpanded] = useState(false);
+    const all = stripAnsi(output).replace(/\n+$/, "");
+    const cut = capText(all);
     const pad = compact ? "px-[9px]" : "px-[11px]";
     return (
         <>
@@ -25,15 +27,17 @@ export function RecordedOutput({ output, compact }: { output: string; compact?: 
                     compact ? "py-[7px] text-[11px] leading-[1.6]" : "py-[9px] text-[11.5px] leading-[1.7]"
                 )}
             >
-                {text}
+                {expanded ? all : cut.text}
             </pre>
-            <MoreLines hidden={hidden} className={cn("-mt-1 pb-[7px]", pad)} />
+            <MoreLines
+                hidden={cut.hidden}
+                expanded={expanded}
+                onToggle={() => setExpanded((v) => !v)}
+                className={cn("-mt-1 pb-[7px]", pad)}
+            />
         </>
     );
 }
-
-// a step's own body already carries "Open full view", so a fallback drawn inside one does not repeat it
-export const InStepBody = createContext(false);
 
 function recordedOf(action: AgentActionEntry | undefined): string {
     return action?.detail?.kind === "bash" ? action.detail.output : "";
@@ -52,7 +56,6 @@ export function LoadFailure({
     compact?: boolean;
     className?: string;
 }) {
-    const inStep = useContext(InStepBody);
     const output = recordedOf(action);
     return (
         <div data-wsh-load-failure className={cn("min-w-0", className)}>
@@ -69,11 +72,6 @@ export function LoadFailure({
                     className="mt-1.5 overflow-hidden rounded-[6px] border border-edge-faint bg-surface"
                 >
                     <RecordedOutput output={output} compact={compact} />
-                    {inStep ? null : (
-                        <div className={BODY_FOOTER}>
-                            <OpenFullView action={action!} />
-                        </div>
-                    )}
                 </div>
             ) : null}
         </div>
