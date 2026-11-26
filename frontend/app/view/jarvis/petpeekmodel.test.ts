@@ -244,6 +244,19 @@ describe("queueRows — a held land retries or dismisses in place", () => {
     });
 });
 
+// the pet acks runs only, so an orphaned worker's Acknowledge stays in the Brief and the pet opens its tab
+describe("queueRows — an orphaned worker opens its tab", () => {
+    const ORPHAN = item({ kind: "worker-orphan", key: "worker-orphan:t9", channelid: "", runid: "", oref: "tab:t9", source: "fix login", action: "Acknowledge", text: "Parent ended · Fixed the redirect" }); // prettier-ignore
+
+    it("names the kind, shows the answer, and opens the worker's tab", () => {
+        const row = queueRows([ORPHAN])[0];
+        expect(rowKindLabel(row.kind)).toBe("Orphaned");
+        expect(row.detail).toBe("Parent ended · Fixed the redirect");
+        expect(row.primary).toMatchObject({ verb: "open", label: "Open", target: { kind: "oref", ref: "tab:t9" } });
+        expect(row.links).toEqual([]);
+    });
+});
+
 describe("enterHintLabel", () => {
     it("names what Enter does to the focused row", () => {
         expect(enterHintLabel(queueRows([item({ kind: "run-unverified", key: "u" })])[0].primary)).toBe("acknowledge");

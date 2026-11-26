@@ -76,6 +76,14 @@ describe("actsForAttention", () => {
         ]);
     });
 
+    // an orphaned worker has no run: what waits is its answer, on its own tab
+    it("escorts an orphaned worker to its tab", () => {
+        const orphan = { ...gate(), kind: "worker-orphan", key: "worker-orphan:t9", channelid: "", runid: "", oref: "tab:t9" } as AttentionItem; // prettier-ignore
+        expect(actsForAttention(orphan)).toEqual([
+            { id: "worker-orphan:t9:open", verb: "open", label: "Open", target: { kind: "oref", ref: "tab:t9" } },
+        ]);
+    });
+
     it("falls back to the run for a workflow scan with no usable oref", () => {
         const scan = { ...gate(), kind: "workflow-scan", key: "workflow-scan:run1" } as AttentionItem;
         expect(actsForAttention(scan)[0]).toMatchObject({ target: { ref: "run:run1" } });

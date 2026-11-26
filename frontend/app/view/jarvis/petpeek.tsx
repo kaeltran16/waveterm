@@ -107,6 +107,7 @@ const ROW_DOT: Record<string, string> = {
     "run-land-held": "bg-warning",
     "workflow-scan": "bg-accent",
     "run-unverified": "bg-warning",
+    "worker-orphan": "bg-accent",
 };
 
 const FOCUS_RING = "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";

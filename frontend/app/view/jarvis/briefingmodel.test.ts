@@ -1693,6 +1693,29 @@ describe("queueActions", () => {
         });
     });
 
+    // a worker whose parent's tab is gone: its answer waits here, on the worker's own tab
+    it("reads an orphaned worker as orphaned, opens its tab, and acknowledges it apart from runs", () => {
+        const orphan = item({
+            kind: "worker-orphan",
+            key: "worker-orphan:t9",
+            channelid: "",
+            channelname: "",
+            runid: "",
+            source: "fix login",
+            text: "Parent ended · Fixed the redirect",
+            action: "Acknowledge",
+            oref: "tab:t9",
+        });
+        const rows = buildAttentionQueue({ attention: [orphan, { ...orphan, key: "worker-orphan:t8" }], efforts: [] });
+        const r = rows[0]!;
+        expect(queueLine(r, T0).kind).toBe("orphaned");
+        expect(queueOpenTarget(r.nav)).toEqual({ kind: "oref", oref: "tab:t9" });
+        expect(queueActions(r)).toEqual([{ label: "Acknowledge", kind: "ack-orphan" }]);
+        expect(ackableRuns(rows)).toEqual([]);
+        expect(summarizeAttentionQueue(rows.slice(0, 1), T0)?.detail).toMatch(/^1 orphaned · /);
+        expect(summarizeAttentionQueue(rows, T0)?.detail).toMatch(/^2 orphaned · /);
+    });
+
     it("keeps Unblock and Done on a blocked chunk, which names no channel", () => {
         const chunk = buildAttentionQueue({
             attention: [],
