@@ -44,6 +44,7 @@ const rowFacts = (agentId) => `(() => {
     const text = (sel) => row.querySelector(sel)?.textContent.replace(/\\s+/g, " ").trim() ?? null;
     return {
         status: row.getAttribute("data-step-status"),
+        title: text("[data-step-title]"),
         spinner: row.querySelector('[aria-label="Running"]') != null,
         elapsed: text("[data-step-elapsed]"),
         duration: text("[data-step-duration]"),
@@ -137,14 +138,16 @@ export default function (_kit) {
                 const tests = await facts(S.tests);
                 await h.shot("cdp-shots/transcript-subagents-step-2-live-line.png");
                 rec(
-                    "2. the running foreground step shows the spinner, elapsed, Open and its Grep; the finished one done",
+                    "2. the running foreground step, headed Explore, shows the spinner, elapsed, Open and its Grep; the finished one done",
                     find?.spinner &&
                         !!find.elapsed &&
                         find.open &&
                         find.call === "Searched" &&
                         find.target === "parsePlan(" &&
                         find.count === "9 tools" &&
+                        find.title === "Explore" &&
                         tests != null &&
+                        tests.title === "Explore" &&
                         !tests.spinner &&
                         tests.outcome === "done" &&
                         tests.count === "14 tools" &&
@@ -154,15 +157,21 @@ export default function (_kit) {
 
                 // 3. a background step whose launch ack landed stays running; the finished background notice opens
                 const research = await facts(S.research);
+                const tagAfterDescription = await h.ev(`(() => {
+                    const tag = ${rowOf(S.research.agentId)}?.querySelector("[data-step-background]");
+                    return tag?.previousElementSibling?.textContent.trim() === ${JSON.stringify(S.research.description)};
+                })()`);
                 const noticeOpen = await h.ev(`${FEED}?.querySelector(${JSON.stringify(NOTICE_OPEN)}) != null`);
                 rec(
-                    "3. the acked background step shows the spinner, the background tag and its live line; the notice shows Open",
+                    "3. the acked background step, headed general-purpose, shows the spinner, the background tag after its description and its live line; the notice shows Open",
                     research?.spinner &&
+                        research.title === "general-purpose" &&
                         research.background &&
+                        tagAfterDescription &&
                         research.line === "running" &&
                         !!research.call &&
                         noticeOpen,
-                    JSON.stringify({ research, noticeOpen })
+                    JSON.stringify({ research, tagAfterDescription, noticeOpen })
                 );
 
                 // 4. the parent turns idle with its turn ended: the turn folds, both running background steps under it

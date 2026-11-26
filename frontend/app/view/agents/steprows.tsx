@@ -184,21 +184,29 @@ function isBareCommand(action: AgentActionEntry): boolean {
 }
 
 // open: an opened bare command shows its whole command, wrapped, since its body leaves it out
+// the projection's verb for an Agent call (readableVerb, as no verb is mapped for it); a Task spawn reads "Spawned"
+const AGENT_VERB = "agent";
+
 // background: the step spawned a background subagent, tagged after its description
+// subagentType: the linked subagent's type, which heads an Agent step in place of the generic "Agent"
 function StepTitle({
     step,
     compact,
     open,
     gap,
     background,
+    subagentType,
 }: {
     step: Step;
     compact: boolean;
     open: boolean;
     gap: string;
     background?: boolean;
+    subagentType?: string;
 }) {
-    const { title, mono, subject } = stepTitle(step.action);
+    const named = stepTitle(step.action);
+    const { title, mono, subject } =
+        subagentType && step.action.verb === AGENT_VERB ? { ...named, title: subagentType } : named;
     const head = subject != null && title.endsWith(subject) ? title.slice(0, title.length - subject.length) : title;
     const answer = askAnswer(step.action);
     const totals = editTotals(step.action);
@@ -531,7 +539,14 @@ function StepRow({
     };
     const content = (
         <>
-            <StepTitle step={step} compact={compact} open={open} gap={gap} background={link?.sub.background} />
+            <StepTitle
+                step={step}
+                compact={compact}
+                open={open}
+                gap={gap}
+                background={link?.sub.background}
+                subagentType={link?.sub.type}
+            />
             {/* an ask's title column fills the row itself */}
             {isAsk(action) ? null : <span className="min-w-[6px] flex-1" />}
             <AnimatePresence initial={false}>
