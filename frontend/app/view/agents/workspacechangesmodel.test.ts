@@ -12,6 +12,7 @@ import {
     changesLine,
     changesRows,
     changesView,
+    finishedNote,
     hunkWalk,
     isCitedRow,
     isFileOpen,
@@ -78,6 +79,13 @@ describe("the tab's summary line", () => {
     it("leaves out a branch git did not name", () => {
         expect(changesLine(repo([file("a.ts", 1)], { branch: "" })).where).toBe("uncommitted");
     });
+
+    // the line under it names the commit, and the checkout's branch is not where the list came from
+    it("names no scope for a finished row's list", () => {
+        const merge = { commit: "M", own: [], also: [], gone: false };
+        expect(changesLine(repo([file("a.ts", 1)], { merge })).where).toBe("");
+        expect(changesLine(repo([file("a.ts", 1)], { run: true, verified: { commit: "F", round: 1 } })).where).toBe("");
+    });
 });
 
 const change = (path: string, status = "M"): GitChange => ({ path, status, adds: 1, dels: 0 });
@@ -108,6 +116,47 @@ describe("the groups the tab draws", () => {
     it("counts each group's files", () => {
         expect(groups.map((g) => g.count)).toEqual(["2 files", "2 files", "2 files"]);
         expect(changesGroups([change("a/b.ts")], null, opts)[0].count).toBe("1 file");
+    });
+
+    // a done worker's merge commit holds its lane-mates' files too: its own come first, each part by directory
+    it("puts a finished worker's own files first, then the merge's others marked as also", () => {
+        const split = changesGroups(files, null, { ...opts, own: ["src/b.ts", "pkg/x/z.go"] });
+        expect(split.map((g) => [g.dir, g.also ?? false, g.files.map((f) => f.name)])).toEqual([
+            ["pkg/x", false, ["z.go"]],
+            ["src", false, ["b.ts"]],
+            ["", true, ["README.md", "go.mod"]],
+            ["pkg/x", true, ["a.go"]],
+            ["src", true, ["a.ts"]],
+        ]);
+    });
+});
+
+describe("the line over a finished row's list", () => {
+    const merge = { commit: "9d2e4b1c0ffee", own: ["a.go"], also: [{ id: "t-1", label: "counters" }], gone: false };
+    const order = ["t-1", "t-2", "t-4"];
+
+    it("names the merge commit and the tasks it landed, in the plan's order", () => {
+        const note = finishedNote(repo([], { merge }), "t-4", order);
+        expect(note?.commit).toBe("9d2e4b1");
+        expect(note?.after).toContain("t-1 → t-4");
+    });
+
+    it("says why a gone or unrecorded merge commit lists no diffs", () => {
+        const gone = finishedNote(repo([], { merge: { ...merge, gone: true } }), "t-4", order);
+        expect(gone?.commit).toBe("9d2e4b1");
+        const unrecorded = finishedNote(repo([], { merge: { ...merge, commit: "", gone: true } }), "t-4", order);
+        expect(unrecorded?.commit).toBeUndefined();
+        expect(unrecorded?.before).toContain("t-4");
+    });
+
+    it("names the commit Final verified and its round", () => {
+        const note = finishedNote(repo([], { run: true, verified: { commit: "4c1e9a2f6b8d", round: 2 } }), "", order);
+        expect(note?.commit).toBe("4c1e9a2");
+        expect(note?.after).toContain("round 2");
+    });
+
+    it("is absent for any other read", () => {
+        expect(finishedNote(repo([], { run: true }), "", order)).toBeUndefined();
     });
 });
 

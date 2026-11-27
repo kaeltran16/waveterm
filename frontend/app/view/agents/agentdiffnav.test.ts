@@ -16,11 +16,24 @@ vi.mock("@/app/store/wshclientapi", () => ({
     },
 }));
 vi.mock("@/app/store/wshrpcutil", () => ({ TabRpcClient: {} }));
+// the object store a finished row's range loads its runs and dag from, by oref
+const objects = vi.hoisted(() => new Map<string, unknown>());
+vi.mock("@/app/store/wos", async () => {
+    const { atom } = await import("jotai");
+    return {
+        makeORef: (otype: string, oid: string) => `${otype}:${oid}`,
+        getWaveObjectAtom: () => atom(null),
+        getWaveObjectLoadingAtom: () => atom(false),
+        loadAndPinWaveObject: async (oref: string) => objects.get(oref) ?? null,
+    };
+});
 
-import { agentDiffScope, landedRunTip, openDiff, openRunDiff, runDiffScope } from "./agentdiffnav";
+import { agentDiffScope, landedRunTip, openAgentDiff, openDiff, openRunDiff, runDiffScope } from "./agentdiffnav";
 import { scopeKey } from "./diffscope";
 import { diffScopeAtom } from "./diffscopeatom";
+import { finalStageId } from "./finalstage";
 import { HISTORY_RPC_TIMEOUT_MS } from "./historyquery";
+import { endedWorkerId } from "./runlineage";
 
 const surfaceAtom = atom("cockpit");
 const model = { diffScopeAtom, surfaceAtom } as any;
@@ -200,5 +213,41 @@ describe("openRunDiff, bounded at the landed tip", () => {
     it("keeps the unbounded key for a run with no tip", () => {
         expect(runDiffScope("r6", "/repo", "b1")).toEqual(runDiffScope("r6", "/repo", "b1", ""));
         expect(scopeKey(runDiffScope("r6", "/repo", "b1"))).toBe("run:r6|run:r6:b1");
+    });
+});
+
+// a finished row's Changes tab lists one range; Open on Diff opens the surface on that same range
+describe("openAgentDiff, a finished row", () => {
+    const root = { worktrees: [{ path: "C:/SIEM", branch: "main", ismain: true }] };
+    const seed = (finalCommit?: string) => {
+        objects.clear();
+        objects.set("run:r7", { id: "r7", projectpath: "C:/SIEM/webapp", basecommit: "base000", dagoref: "d7" });
+        objects.set("dag:d7", {
+            id: "d7",
+            tasks: [{ id: "t-4", state: "done", merged: true, runid: "c4" }],
+            final: { state: "passed", round: 3, ...(finalCommit ? { commit: finalCommit } : {}) },
+        });
+        objects.set("run:c4", { id: "c4", endcommit: "merge04" });
+    };
+    const opened = async () => {
+        await vi.waitFor(() => expect(globalStore.get(surfaceAtom)).toBe("files"));
+        return globalStore.get(diffScopeAtom);
+    };
+
+    it("opens a done worker's row on its merge commit, from its parent", async () => {
+        seed();
+        listWorktrees.mockResolvedValue(root);
+        gitHistory.mockResolvedValueOnce({ commits: [{ hash: "merge04", parents: ["main003"] }] });
+        globalStore.set(surfaceAtom, "agent");
+        openAgentDiff(model, { id: endedWorkerId("r7", "t-4"), name: "t-4", runId: "c4" });
+        expect(await opened()).toEqual(runDiffScope("r7", "C:/SIEM", "main003", "merge04"));
+    });
+
+    it("opens the Final stage's row on the run's changes up to the commit Final verified", async () => {
+        seed("final07");
+        listWorktrees.mockResolvedValue(root);
+        globalStore.set(surfaceAtom, "agent");
+        openAgentDiff(model, { id: finalStageId("r7"), name: "Final verification" });
+        expect(await opened()).toEqual(runDiffScope("r7", "C:/SIEM", "base000", "final07"));
     });
 });

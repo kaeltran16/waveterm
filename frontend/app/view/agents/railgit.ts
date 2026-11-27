@@ -12,12 +12,15 @@ import { checkoutFacts, railReloadKey, type CheckoutFacts } from "./agentrailmod
 import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
+import { finalStageRunId } from "./finalstage";
 import { leadLandFacts } from "./leadland";
 import { loadRailForAgent, railStateAtom, type RailGitState } from "./railstore";
-import { leadRunAtom, type LeadRun } from "./runlineagestore";
+import { endedRowRunId } from "./runlineage";
+import { leadRunAtom, runInfoAtom, type LeadRun, type RunInfoRead } from "./runlineagestore";
 
 export const NO_BLOCK: Atom<Block | undefined> = atom(undefined as Block | undefined);
 const NO_LEAD: Atom<LeadRun | undefined> = atom(undefined as LeadRun | undefined);
+const NO_RUN: Atom<RunInfoRead> = atom<RunInfoRead>({ run: undefined, loaded: true });
 
 let holders = 0;
 let loadedKey = "";
@@ -52,7 +55,11 @@ export function useRailGit(agent: AgentVM): RailGitState | null {
     // a lead's list is its run's, so it reloads as a task merges into the run's tree and when the run lands
     const lead = useAtomValue(agent.runId ? leadRunAtom(agent.runId) : NO_LEAD);
     const runKey = lead ? `${lead.merged}|${lead.run.land?.state ?? ""}|${lead.run.land?.commit ?? ""}` : "";
-    const key = `${railReloadKey(agent, block?.meta?.["agent:lasteditts"])}|${runKey}`;
+    // a Final stage row's list is the run's changes up to the commit Final verified, so a new round's commit reloads it
+    const finishedRunId = endedRowRunId(agent.id) ?? finalStageRunId(agent.id);
+    const final = useAtomValue(finishedRunId ? runInfoAtom(finishedRunId) : NO_RUN).run?.dag?.final;
+    const finalKey = finishedRunId ? `${final?.round ?? ""}|${final?.commit ?? ""}` : "";
+    const key = `${railReloadKey(agent, block?.meta?.["agent:lasteditts"])}|${runKey}|${finalKey}`;
     useEffect(() => holdRailGit(agent, key), [key]);
     return useAtomValue(railStateAtom);
 }

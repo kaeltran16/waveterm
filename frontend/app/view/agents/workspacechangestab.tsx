@@ -28,15 +28,17 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { DIFF_NOTES, DiffHunks } from "./diffhunks";
 import { ignoreWsAtom } from "./diffoptions";
-import { lineCountsShown, statusColor } from "./gitstatus";
+import { lineCountsShown, statusColor, type GitChange } from "./gitstatus";
 import { useRailGit } from "./railgit";
 import { loadRailForAgent } from "./railstore";
+import { roleRunId } from "./runlineage";
 import { SurfaceEmptyState } from "./surfacescaffold";
 import {
     anyFileOpen,
     changesLine,
     changesRows,
     changesView,
+    finishedNote,
     hunkWalk,
     type ChangesFile,
     type ChangesRow,
@@ -98,6 +100,7 @@ export function ChangesTab({
     tab: Extract<WorkspaceTab, { kind: "changes" }>;
 }) {
     const rail = useRailGit(agent);
+    const lineage = useAtomValue(model.lineageAtom);
     // the Agent surface stays mounted under the others; off it, the tab does not read
     const onScreen = useAtomValue(model.surfaceAtom) === "agent";
     const ignoreWs = useAtomValue(ignoreWsAtom);
@@ -124,7 +127,8 @@ export function ChangesTab({
             return;
         }
         const { cwd, ref, end } = rail;
-        if (onScreen && cwd && rail.isRepo && (rail.changes?.files.length ?? 0) > 0) {
+        // a sealed list's merge commit is gone, so there is no diff to read
+        if (onScreen && cwd && rail.isRepo && !rail.merge?.gone && (rail.changes?.files.length ?? 0) > 0) {
             fireAndForget(() => loadChangesPatch(agent.id, cwd, ref ?? "", end ?? ""));
         }
     }, [onScreen, rail, ignoreWs, agent.id]);
@@ -154,25 +158,18 @@ export function ChangesTab({
     }
     const line = rail != null && view === "files" ? changesLine(rail) : null;
     const counted = lineCountsShown(rail?.changes);
+    const role = lineage.roles[agent.id];
+    const order = (role ? lineage.runs[roleRunId(role)]?.dag?.tasks : undefined)?.map((t) => t.id) ?? [];
+    const note = rail != null ? finishedNote(rail, role?.kind === "worker" ? role.taskId : "", order) : undefined;
+    if (rail?.merge?.gone && line != null) {
+        return <SealedList files={rail.changes?.files ?? []} line={line} counted={counted} note={note} />;
+    }
     const retry = () => cwd && fireAndForget(() => loadChangesPatch(agent.id, cwd, rail?.ref ?? "", rail?.end ?? ""));
     return (
         <div data-workspace-changes className="flex min-h-0 flex-1 flex-col">
             <div className="flex h-[44px] flex-none items-center gap-[2px] border-b border-border pl-[18px] pr-[10px] font-mono">
                 {line != null ? (
-                    <span
-                        data-workspace-changes-line
-                        className="flex min-w-0 flex-1 items-baseline gap-[8px] overflow-hidden whitespace-nowrap text-[11.5px]"
-                    >
-                        {/* the spaces between the spans are for copied text; a flex row draws none of them */}
-                        <span className="flex-none text-ink-hi">{line.count}</span>{" "}
-                        {counted ? (
-                            <>
-                                <span className="flex-none text-diff-added">+{line.adds}</span>{" "}
-                                <span className="flex-none text-diff-removed">−{line.dels}</span>{" "}
-                            </>
-                        ) : null}
-                        <span className="min-w-0 truncate text-muted">{line.where}</span>
-                    </span>
+                    <SummaryLine line={line} counted={counted} />
                 ) : (
                     <span className="flex-1">
                         <SkeletonLine className="h-[12px] w-[180px]" />
@@ -274,7 +271,8 @@ export function ChangesTab({
                         </button>
                     </div>
                 ) : null}
-                {groups.map((g) => {
+                {note != null ? <NoteLine note={note} /> : null}
+                {groups.map((g, i) => {
                     const paths = g.files.map((f) => f.change.path);
                     const folderOpen = anyFileOpen(openState, paths);
                     const folderLabel = `${folderOpen ? "Collapse" : "Expand"} every file in ${g.dir}/`;
@@ -283,7 +281,12 @@ export function ChangesTab({
                         <FileHeader model={model} agentId={agent.id} f={f} open={open} counted={counted} cwd={cwd} />
                     );
                     return (
-                        <div key={g.dir} data-changes-group={g.dir}>
+                        <div
+                            key={`${g.also ? "also:" : ""}${g.dir}`}
+                            data-changes-group={g.dir}
+                            data-changes-also-group={g.also ? "" : undefined}
+                        >
+                            {g.also && !groups[i - 1]?.also ? <AlsoHeading also={rail?.merge?.also ?? []} /> : null}
                             {foldered ? (
                                 <button
                                     type="button"
@@ -318,6 +321,104 @@ export function ChangesTab({
                         </div>
                     );
                 })}
+            </div>
+        </div>
+    );
+}
+
+type Line = ReturnType<typeof changesLine>;
+type Note = NonNullable<ReturnType<typeof finishedNote>>;
+
+function SummaryLine({ line, counted }: { line: Line; counted: boolean }) {
+    return (
+        <span
+            data-workspace-changes-line
+            className="flex min-w-0 flex-1 items-baseline gap-[8px] overflow-hidden whitespace-nowrap text-[11.5px]"
+        >
+            {/* the spaces between the spans are for copied text; a flex row draws none of them */}
+            <span className="flex-none text-ink-hi">{line.count}</span>{" "}
+            {counted ? (
+                <>
+                    <span className="flex-none text-diff-added">+{line.adds}</span>{" "}
+                    <span className="flex-none text-diff-removed">−{line.dels}</span>{" "}
+                </>
+            ) : null}
+            <span className="min-w-0 truncate text-muted">{line.where}</span>
+        </span>
+    );
+}
+
+// what a finished row's list was read from, its commit set apart
+function NoteLine({ note }: { note: Note }) {
+    return (
+        <p
+            data-workspace-changes-note
+            className="m-0 px-[18px] pb-[2px] pt-[10px] text-[12px] leading-[1.5] text-muted"
+        >
+            {note.before}
+            {note.commit ? <span className="font-mono text-[11.5px] text-ink-mid">{note.commit}</span> : null}
+            {note.after}
+        </p>
+    );
+}
+
+// over a done worker's merge files that are not its own: the other tasks the merge landed
+function AlsoHeading({ also }: { also: { id: string; label: string }[] }) {
+    const lines =
+        also.length > 0 ? also.map((a) => `Also in this merge · ${a.id} ${a.label}`.trim()) : ["Also in this merge"];
+    return (
+        <div data-changes-also className="px-[18px] pb-[8px] pt-[6px] text-[12px] text-muted">
+            {lines.map((l) => (
+                <div key={l}>{l}</div>
+            ))}
+        </div>
+    );
+}
+
+// a done worker's files as its run sealed them, its merge commit gone: counts and no diffs, so no row opens
+function SealedList({
+    files,
+    line,
+    counted,
+    note,
+}: {
+    files: GitChange[];
+    line: Line;
+    counted: boolean;
+    note: Note | undefined;
+}) {
+    return (
+        <div data-workspace-changes data-workspace-changes-sealed className="flex min-h-0 flex-1 flex-col">
+            <div className="flex h-[44px] flex-none items-center border-b border-border pl-[18px] pr-[10px] font-mono">
+                <SummaryLine line={line} counted={counted} />
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto bg-surface-code pb-[16px]">
+                {note != null ? <NoteLine note={note} /> : null}
+                <div className="mx-[8px] mt-[8px] overflow-clip rounded-[8px] border border-border">
+                    {files.map((f, i) => (
+                        <div
+                            key={f.path}
+                            data-changes-sealed-file={f.path}
+                            className={cn(
+                                "flex h-[34px] items-center gap-[8px] bg-surface px-[10px] font-mono",
+                                i > 0 && "border-t border-edge-faint"
+                            )}
+                        >
+                            <span className={cn("w-[10px] flex-none text-[11px] font-bold", statusColor(f.status))}>
+                                {f.status}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-[12px] text-ink-hi">{f.path}</span>
+                            {counted ? (
+                                <>
+                                    <span className="flex-none text-[11px] text-diff-added">+{f.adds}</span>
+                                    <span className="min-w-[24px] flex-none text-[11px] text-diff-removed">
+                                        −{f.dels}
+                                    </span>
+                                </>
+                            ) : null}
+                        </div>
+                    ))}
+                </div>
             </div>
         </div>
     );
