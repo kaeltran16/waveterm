@@ -19,7 +19,6 @@ import (
 	"github.com/wavetermdev/waveterm/pkg/boardforward"
 	"github.com/wavetermdev/waveterm/pkg/boardstore"
 	"github.com/wavetermdev/waveterm/pkg/util/utilfn"
-	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wps"
 	"github.com/wavetermdev/waveterm/pkg/wshrpc"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -46,13 +45,21 @@ type pendingForward struct{ channelId, boardId, turnId string }
 // boardForwarder moves forwards along as their agents report. It indexes the pending ones by the agent tab they wait
 // on, in memory, rebuilt from the talk files on first use, so a wavesrv restart loses none.
 type boardForwarder struct {
-	mu      sync.Mutex
-	loaded  bool
-	pending map[string][]pendingForward
+	mu       sync.Mutex
+	loaded   bool
+	pending  map[string][]pendingForward
+	kickMu   sync.Mutex // guards sweeping and again, apart from mu so an event never waits on a sweep
+	sweeping bool       // a sweep is running
+	again    bool       // an event came during it
 }
 
 // boardForwards is the one forwarder. A var so a test can drop its index, as a restart does.
 var boardForwards = &boardForwarder{}
+
+// forwardAsync runs a sweep off the status publisher's goroutine. A var so tests run it inline.
+var forwardAsync = func(fn func()) { go fn() }
+
+const forwardSweepTimeout = 30 * time.Second
 
 func forwardPending(fw *wshrpc.BoardForward) bool {
 	return fw != nil && (fw.State == boarddrawer.ForwardHeld || fw.State == boarddrawer.ForwardSent)
@@ -186,9 +193,41 @@ func (f *boardForwarder) after(b boarddrawer.Board, t wshrpc.BoardTurn, row *age
 	publishBoardTurn(b, t)
 }
 
-// agentStatus moves the forwards waiting on the agent behind oref: a held one goes once the agent is not asking, and
-// at its turn end a sent one takes the reply its transcript holds.
-func (f *boardForwarder) agentStatus(ctx context.Context, oref waveobj.ORef) {
+// kick asks for a sweep. Status events from every agent call it, so a burst coalesces into one running sweep and at
+// most one more after it, off the publisher's RPC context: run on that context, each event's roster load queued
+// behind the last and timed out, so the event of the agent's turn end was lost and its reply never copied (11-27).
+func (f *boardForwarder) kick() {
+	f.kickMu.Lock()
+	if f.sweeping {
+		f.again = true
+		f.kickMu.Unlock()
+		return
+	}
+	f.sweeping = true
+	f.kickMu.Unlock()
+	forwardAsync(f.sweepUntilQuiet)
+}
+
+func (f *boardForwarder) sweepUntilQuiet() {
+	for {
+		f.sweep()
+		f.kickMu.Lock()
+		if !f.again {
+			f.sweeping = false
+			f.kickMu.Unlock()
+			return
+		}
+		f.again = false
+		f.kickMu.Unlock()
+	}
+}
+
+// sweep moves every pending forward its agent allows: a held one goes once the agent is not asking, and at its turn
+// end a sent one takes the reply its transcript holds. Checking them all lets a forward whose own event was missed
+// move on the next one.
+func (f *boardForwarder) sweep() {
+	ctx, cancel := context.WithTimeout(context.Background(), forwardSweepTimeout)
+	defer cancel()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.load(ctx)
@@ -200,14 +239,14 @@ func (f *boardForwarder) agentStatus(ctx context.Context, oref waveobj.ORef) {
 		log.Printf("board forwards: reading the agents: %v\n", err)
 		return
 	}
-	row := findAgentRow(rows, func(r agentRow) bool {
-		return (oref.OType == waveobj.OType_Block && r.blockId == oref.OID) || (oref.OType == waveobj.OType_Tab && r.TabId == oref.OID)
-	})
-	if row == nil || row.State == wshrpc.AgentsState_Asking {
-		return
-	}
-	for _, p := range slices.Clone(f.pending[row.TabId]) {
-		f.advance(ctx, row, p)
+	for tabId, waiting := range f.pending {
+		row := findAgentRow(rows, func(r agentRow) bool { return r.TabId == tabId })
+		if row == nil || row.State == wshrpc.AgentsState_Asking {
+			continue
+		}
+		for _, p := range slices.Clone(waiting) {
+			f.advance(ctx, row, p)
+		}
 	}
 }
 
@@ -266,17 +305,13 @@ func agentReply(ctx context.Context, row *agentRow, t wshrpc.BoardTurn) (string,
 	return boardforward.ReplyAfter(agentsessions.TurnsSince(path, row.Harness, t.Ts), t.ID)
 }
 
-// noteBoardForwardStatus hands every agent status event to the forwarder. A usage-only report carries no state.
-func noteBoardForwardStatus(ctx context.Context, ev *wps.WaveEvent) {
+// noteBoardForwardStatus has the forwarder sweep on every agent status event. A usage-only report carries no state.
+func noteBoardForwardStatus(ev *wps.WaveEvent) {
 	var data baseds.AgentStatusData
 	if utilfn.ReUnmarshal(&data, ev.Data) != nil || data.State == "" {
 		return
 	}
-	oref, err := waveobj.ParseORef(data.ORef)
-	if err != nil {
-		return
-	}
-	boardForwards.agentStatus(ctx, oref)
+	boardForwards.kick()
 }
 
 // updateBoardTurn changes one turn of a board's talk under the store's lock and returns it as saved.

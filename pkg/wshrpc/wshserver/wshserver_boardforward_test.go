@@ -292,6 +292,27 @@ func TestBoardForwardReplyAfterRestart(t *testing.T) {
 	}
 }
 
+// the 11-27 loss: the agent's own turn-end event never moved the forward, so any later agent's event must
+func TestBoardForwardReplyOnAnotherAgentsStatus(t *testing.T) {
+	f := newForwardFixture(t, baseds.AgentState_Idle)
+	other := f.addAgent("claude")
+	turn := f.forwardedTurn(f.boardAgent(f.agent))
+	forwardBoardTurn(f.board, turn.ID)
+	f.write("user", f.typedNow()[0].text, time.Second)
+	f.write("agent", "one store caches the other", 2*time.Second)
+
+	oref := waveobj.MakeORef(waveobj.OType_Block, other.BlockId).String()
+	publishEvent(f.ctx, wps.WaveEvent{
+		Event:  wps.Event_AgentStatus,
+		Scopes: []string{oref},
+		Data:   baseds.AgentStatusData{ORef: oref, State: baseds.AgentState_Working, Agent: "claude", Ts: time.Now().UnixMilli()},
+	})
+
+	if fw := f.turn(turn.ID).Forward; fw.State != "replied" || fw.Reply != "one store caches the other" {
+		t.Errorf("forward: %+v", fw)
+	}
+}
+
 func TestBoardRerouteDrawnTurnForwardsIt(t *testing.T) {
 	f := newForwardFixture(t, baseds.AgentState_Idle)
 	drawn := f.seed(f.boardAgent(f.agent), wshrpc.BoardTurn{
