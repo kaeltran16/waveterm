@@ -70,6 +70,17 @@ const arm = (h, key, match, { frames = false } = {}) =>
 // nowExpr: where to read the settled look when a re-render replaced the recorded node (a republished event)
 const collect = async (h, key, nowExpr = "null") => {
     await polishNap(SETTLE_MS);
+    // motion runs opacity as a browser animation and height in its own frames, so on a loaded machine the nap can
+    // end with the height done and the fade still running (run 2089c1d0 round 3 read opacity 0.50): read the settled
+    // look once the node's animations stopped, still failing a fade that ends short of 1 or never ends
+    await polishWaitFor(
+        h,
+        `(() => {
+            const n = window.__motionFinal?.[${JSON.stringify(key)}]?.node;
+            return !n?.isConnected || n.getAnimations().every((a) => a.playState !== "running");
+        })()`,
+        WAIT_MS
+    );
     return h.ev(`(() => {
         const read = ${READ};
         const rec = window.__motionFinal?.[${JSON.stringify(key)}];
