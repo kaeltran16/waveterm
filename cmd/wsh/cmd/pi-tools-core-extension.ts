@@ -50,4 +50,17 @@ export function withOrchestrationRules(messages: unknown[], rules: string, now: 
     return [...messages, { role: "user", content: text, timestamp: now }];
 }
 
+// pi's own trigger waits until the window is nearly full, which on a 1M-window model leaves a session
+// working through hundreds of thousands of stale tokens, so those compact early.
+const LARGE_CONTEXT_WINDOW = 1_000_000;
+const LARGE_CONTEXT_COMPACT_PERCENT = 20;
+
+export function shouldAutoCompact(usage: { contextWindow: number; percent: number | null } | undefined): boolean {
+    return (
+        usage?.percent != null &&
+        usage.contextWindow >= LARGE_CONTEXT_WINDOW &&
+        usage.percent >= LARGE_CONTEXT_COMPACT_PERCENT
+    );
+}
+
 export default function noop(): void {}
