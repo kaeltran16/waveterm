@@ -220,6 +220,7 @@ import { cockpitLaunchStays } from "./scenarios-cockpit-launch.mjs";
 import { cockpitOffgrid } from "./scenarios-cockpit-offgrid.mjs";
 import { cockpitRailHelp } from "./scenarios-cockpit-rail.mjs";
 import { cockpitRosterCounts } from "./scenarios-cockpit-roster.mjs";
+import { cockpitThumbs } from "./scenarios-cockpit-thumbs.mjs";
 import { motionRunSheet } from "./scenarios-motion-run-sheet.mjs";
 import { motionDagPeek } from "./scenarios-motion-dag-peek.mjs";
 import { dagRunSettings } from "./scenarios-dag-run-settings.mjs";
@@ -443,6 +444,7 @@ export const SCENARIOS = [
     cockpitRosterCounts,
     cockpitOffgrid,
     cockpitCardLayout,
+    cockpitThumbs,
     cockpitRailHelp,
     workflowScan,
     workflowScanEntry,
