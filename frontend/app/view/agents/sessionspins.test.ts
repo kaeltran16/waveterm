@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { LiveSession } from "./sessionsarchivestore";
-import { isRowPinned, prunePins, rowPinKeys, togglePinnedRow } from "./sessionspins";
+import { isRowPinned, prunePins, rowPinKeys, togglePinnedRow, withSessionPin } from "./sessionspins";
 import type { Row } from "./sessionssearch";
 
 const sess = (over: Partial<SessionActivity> = {}): SessionActivity =>
@@ -89,6 +89,24 @@ describe("togglePinnedRow", () => {
         togglePinnedRow(pins, soloRow("b"));
         togglePinnedRow(pins, soloRow("a"));
         expect(pins).toEqual(["claude:a"]);
+    });
+});
+
+describe("withSessionPin", () => {
+    it("pins a session by its key and unpins it, returning the same array when nothing changes", () => {
+        const pins = ["claude:z"];
+        const pinned = withSessionPin(pins, sess({ id: "a" }), true);
+        expect(pinned).toEqual(["claude:z", "claude:a"]);
+        expect(withSessionPin(pinned, sess({ id: "a" }), true)).toBe(pinned);
+        expect(withSessionPin(pinned, sess({ id: "a" }), false)).toEqual(["claude:z"]);
+        expect(withSessionPin(pins, sess({ id: "a" }), false)).toBe(pins);
+    });
+
+    it("reads a run member as pinned by its run key, and unpinning it clears the run key too", () => {
+        const member = sess({ id: "m1", runid: "r1" });
+        const pins = ["run:r1", "claude:x"];
+        expect(withSessionPin(pins, member, true)).toBe(pins);
+        expect(withSessionPin(pins, member, false)).toEqual(["claude:x"]);
     });
 });
 

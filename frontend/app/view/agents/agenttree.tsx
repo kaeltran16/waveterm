@@ -61,6 +61,7 @@ import { renamingRowAtom } from "./rowrenameatom";
 import { RuntimeMark } from "./runtimemark";
 import { terminalStatus } from "./terminalstatus";
 import { duplicateSession, renameSession, sessionCustomLabel, togglePin } from "./session-models/sessionsidebarmodel";
+import { isTranscriptPinned, setTranscriptPinned } from "./sessionsarchivestore";
 import { agentRunDone, displayAgeMs, formatAgeShort, type AgentVM } from "./agentsviewmodel";
 import { docReviewAtom, parseDocReview } from "./docreview";
 import type { FinalTone } from "./finalstage";
@@ -598,6 +599,21 @@ function ShellTaskRows({
     );
 }
 
+// pins the agent's transcript on the Sessions surface; an agent with no transcript yet has no session to pin
+function sessionsPinItem(transcriptPath: string | undefined): ContextMenuItem[] {
+    if (!transcriptPath) {
+        return [];
+    }
+    const pinned = isTranscriptPinned(transcriptPath);
+    return [
+        {
+            label: pinned ? "Unpin in Sessions" : "Pin in Sessions",
+            icon: pinned ? <PinOff size={15} /> : <Pin size={15} />,
+            click: () => fireAndForget(() => setTranscriptPinned(transcriptPath, !pinned)),
+        },
+    ];
+}
+
 function ParentRow({
     model,
     agent,
@@ -665,6 +681,7 @@ function ParentRow({
                 icon: agent.pinned ? <PinOff size={15} /> : <Pin size={15} />,
                 click: () => togglePin(agent.id, agent.pinned === true),
             },
+            ...sessionsPinItem(agent.transcriptPath),
             { label: "Duplicate", icon: <CopyPlus size={15} />, click: () => duplicateSession(model, agent.id) },
             {
                 label: "Copy name",

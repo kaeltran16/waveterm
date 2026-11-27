@@ -14,7 +14,7 @@ import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { fireAndForget } from "@/util/util";
 import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import type { AgentVM } from "./agentsviewmodel";
-import { prunePins } from "./sessionspins";
+import { isSessionPinned, prunePins, withSessionPin } from "./sessionspins";
 
 export const SESSIONS_WINDOW_DAYS = 30;
 // the first call may parse up to 100 transcripts before it answers
@@ -45,6 +45,35 @@ export function setSessionsPinned(pins: string[]): void {
             meta: { "sessions:pinned": pins.length ? pins : null },
         })
     );
+}
+
+// a live agent's session is its archive entry with the same transcript, as overlayLive matches them
+function sessionOfTranscript(path: string): SessionActivity | undefined {
+    const want = norm(path);
+    return globalStore.get(sessionsArchiveAtom)?.find((s) => !!s.transcriptpath && norm(s.transcriptpath) === want);
+}
+
+export function isTranscriptPinned(path: string): boolean {
+    const s = sessionOfTranscript(path);
+    return s != null && isSessionPinned(s, globalStore.get(sessionsPinnedAtom));
+}
+
+// the archive loads with the Sessions surface and may predate a new session, so a miss reloads it once
+export async function setTranscriptPinned(path: string, pin: boolean): Promise<void> {
+    let s = sessionOfTranscript(path);
+    if (s == null) {
+        await loadSessionsArchive();
+        s = sessionOfTranscript(path);
+    }
+    if (s == null) {
+        console.log("setTranscriptPinned: no Sessions entry for", path);
+        return;
+    }
+    const pins = globalStore.get(sessionsPinnedAtom);
+    const next = withSessionPin(pins, s, pin);
+    if (next !== pins) {
+        setSessionsPinned(next);
+    }
 }
 
 // only a complete scan of the window can say a pinned session left it

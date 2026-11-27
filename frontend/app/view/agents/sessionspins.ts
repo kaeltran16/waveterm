@@ -26,6 +26,28 @@ export function togglePinnedRow(pins: string[], row: Row): string[] {
     return lead ? [...pins, row.key, sessionKey(lead)] : [...pins, row.key];
 }
 
+// one session, pinned from outside the Sessions surface: in a run its row also answers to the run key, so
+// unpinning clears that too
+function sessionPinKeys(s: SessionActivity): string[] {
+    return s.runid ? [sessionKey(s), runSelKey(s.runid)] : [sessionKey(s)];
+}
+
+export function isSessionPinned(s: SessionActivity, pins: readonly string[]): boolean {
+    return sessionPinKeys(s).some((k) => pins.includes(k));
+}
+
+// returns the input array itself when it already says what `pin` asks
+export function withSessionPin(pins: string[], s: SessionActivity, pin: boolean): string[] {
+    if (pin === isSessionPinned(s, pins)) {
+        return pins;
+    }
+    if (pin) {
+        return [...pins, sessionKey(s)];
+    }
+    const drop = new Set(sessionPinKeys(s));
+    return pins.filter((k) => !drop.has(k));
+}
+
 // drops a pin only if the load was sent it and returned no session for it: a pin added while the load ran was
 // never asked about. Returns the input array itself when nothing is dropped, so a caller can test `next !== pins`
 export function prunePins(pins: string[], sessions: SessionActivity[], sent: readonly string[]): string[] {
