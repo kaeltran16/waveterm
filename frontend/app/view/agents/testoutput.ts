@@ -313,11 +313,12 @@ function parseVitest(lines: string[]): TestSummary | null {
 }
 
 // scripts/cdp/report.mjs formatResults: "# scenario", "  PASS|FAIL|SKIP  step", its detail indented eight spaces
-// beneath, "  ERROR: msg" under a header when the scenario threw
+// beneath, "  ERROR: msg" under a header when the scenario threw. A blank line inside a detail prints as the indent
+// alone, so it is still the detail's
 const CDP_HEADER = /^# (.+?)\s*$/;
 const CDP_STEP = /^ {2}(PASS|FAIL|SKIP) {2}(.*?)\s*$/;
 const CDP_ERROR = /^ {2}ERROR: (.*?)\s*$/;
-const CDP_DETAIL = /^ {3,}\S/;
+const CDP_DETAIL = /^ {3,}(\S|$)/;
 // shotsManifest's name for the same failure
 const CDP_THREW = "the scenario threw";
 
@@ -329,7 +330,8 @@ function parseFinalVerify(lines: string[]): TestSummary | null {
     let open: { failure: TestFailure; lines: string[] } | null = null;
     const close = () => {
         if (open != null) {
-            open.failure.message = open.lines.join("\n") || "failed";
+            // a detail ending in a blank line printed a trailing indent-only line, which is not the message's
+            open.failure.message = open.lines.join("\n").trimEnd() || "failed";
             open = null;
         }
     };

@@ -10,6 +10,7 @@ import {
     FST_FINAL_FAILURES,
     FST_FINAL_KEPT,
     FST_FINAL_SCENARIO,
+    FST_FINAL_TAIL,
     FST_UNVERIFIED,
     FST_VERIFY_KEPT,
     RAIL_VISIBLE_KEY,
@@ -19,6 +20,7 @@ import {
     arrangeFixtureRun,
     arrangeSheetDagRun,
     channelRuns,
+    fstRound3Dir,
     fstShow,
     fstWriteRun,
     polishNap,
@@ -866,6 +868,37 @@ const FST_TREE = `document.querySelector("[data-agent-tree]")`;
 const FST_RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
 const FST_ROW = `${FST_TREE}?.querySelector("[data-final-row]")`;
 const FST_PANE = `document.querySelector("[data-final-pane]")`;
+// the pane's Final row and the view its open body swaps in
+const FST_FINAL_BODY = `(() => {
+    const row = ${FST_PANE}?.querySelector('[data-final-step="final"]');
+    const swap = row?.querySelector("[data-final-step-body] [data-view-swap]");
+    return {
+        state: row?.getAttribute("data-final-step-state") ?? null,
+        expanded: row?.querySelector("[data-final-step-head]")?.getAttribute("aria-expanded") ?? null,
+        swap: swap?.getAttribute("data-view-swap") ?? null,
+        opacity: swap ? getComputedStyle(swap).opacity : null,
+        output: swap?.querySelector("[data-bash-output]")?.textContent ?? null,
+        card: swap?.querySelector('[data-tool-card="test"]') != null,
+    };
+})()`;
+// records each view the Final row's body swaps in, with the opacity it mounts at
+const FST_WATCH_SWAPS = `(() => {
+    window.__fstSwapObs?.disconnect();
+    window.__fstSwaps = [];
+    window.__fstSwapObs = new MutationObserver((muts) => {
+        for (const m of muts) for (const n of m.addedNodes) {
+            if (!(n instanceof Element)) continue;
+            for (const el of [n, ...n.querySelectorAll("[data-view-swap]")]) {
+                if (el.matches("[data-view-swap]") && el.closest('[data-final-step-body="final"]')) {
+                    window.__fstSwaps.push({ key: el.getAttribute("data-view-swap"), opacity: getComputedStyle(el).opacity });
+                }
+            }
+        }
+    });
+    window.__fstSwapObs.observe(document.body, { childList: true, subtree: true });
+    return true;
+})()`;
+const FST_READ_SWAPS = `(() => { window.__fstSwapObs?.disconnect(); return window.__fstSwaps ?? []; })()`;
 const FST_MODAL = `document.querySelector("[data-dag-modal-kind]")`;
 const FST_NODE = `${FST_MODAL}?.querySelector('[data-dag-node="final"]')`;
 const FST_DAG_PEEK = `${FST_MODAL}?.querySelector("[data-dag-final-peek]")`;
@@ -1497,6 +1530,62 @@ export const finalStageScenario = {
                 FST_DETAIL.split("\n").every((line) => !a.pane.detail.includes(fstFlat(line))) &&
                 a.pane.errors === 1,
             { steps: a?.pane?.steps, detail: a?.pane?.detail, detailAbove: a?.pane?.detailAbove, errors: a?.pane?.errors }
+        );
+
+        // a click overrides a row's default open state until the round changes: the failed Final row, open on its
+        // own, is clicked closed and stays closed while its round's stage changes (the end review drops away)
+        await finalShotsClick(h, paneHead("final"));
+        const overridden = await fstUntil(h, FST_AGENT, (s) => paneStep(s, "final")?.expanded === "false" && paneStep(s, "final").body == null);
+        wait = await fstShow(h, ctx, "failed");
+        const sameRound = await fstAgent(
+            h,
+            (s) => paneStep(s, "final")?.state === "failed" && paneStep(s, "review") == null && s.pane.detail == null,
+            wait
+        );
+        await shot("b5d-final-closed");
+        // round 3, with the Final command printing: the row opens on its own again, on its live tail
+        const keptDir3 = `${fstRound3Dir(ctx)}-steps`;
+        mkdirSync(keptDir3, { recursive: true });
+        writeFileSync(join(keptDir3, "final.txt"), FST_FINAL_KEPT);
+        const lastTailLine = FST_FINAL_TAIL.trim().split("\n").at(-1);
+        wait = await fstShow(h, ctx, "tailing");
+        const tailing = await fstUntil(h, FST_FINAL_BODY, (s) => s.state === "running" && (s.output ?? "").includes(lastTailLine), wait);
+        await shot("b5d-final-tail");
+        rec(
+            "B5d. a click closes the failed Final row that opened on its own, and it stays closed through a change in the same round; in round 3 the Final row opens on its own again, on the running command's live tail",
+            () =>
+                paneStep(overridden, "final").expanded === "false" &&
+                paneStep(sameRound, "final").expanded === "false" &&
+                paneStep(sameRound, "final").body == null &&
+                tailing.expanded === "true" &&
+                tailing.swap === "tail" &&
+                !tailing.card,
+            { overridden: paneStep(overridden, "final"), sameRound: paneStep(sameRound, "final"), tailing }
+        );
+
+        // the step ends: Final fails with its output kept, and the open body trades the tail for it in place, the kept
+        // view fading in rather than the row closing and reopening
+        await h.ev(FST_WATCH_SWAPS);
+        wait = await fstShow(h, ctx, "refailed");
+        const keptFinal = await fstUntil(
+            h,
+            FST_FINAL_BODY,
+            (s) => s.state === "failed" && s.swap === "kept" && s.card && s.opacity === "1",
+            wait
+        );
+        const swaps = await h.ev(FST_READ_SWAPS);
+        await shot("b5e-final-kept");
+        rec(
+            "B5e. when the running Final step fails, its open row stays open and its body swaps the live tail for the kept output's Tests card, the kept view mounting at opacity 0 and settling at 1",
+            () =>
+                keptFinal.expanded === "true" &&
+                keptFinal.swap === "kept" &&
+                keptFinal.card &&
+                keptFinal.opacity === "1" &&
+                swaps.length > 0 &&
+                swaps.at(-1).key === "kept" &&
+                swaps.at(-1).opacity === "0",
+            { keptFinal, swaps }
         );
 
         wait = await fstShow(h, ctx, "fixing");

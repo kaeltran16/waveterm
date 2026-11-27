@@ -100,6 +100,8 @@ const PROMPT_REFUSAL = "motion-lens refused this prompt on the page";
 const opacities = (sel) => `[...document.querySelectorAll(${JSON.stringify(sel)})].map((el) => getComputedStyle(el).opacity)`;
 // a nudge moved both ways off 0 and came back to rest
 const nudged = (xs) => xs.some((x) => x < 0) && xs.some((x) => x > 0) && xs.at(-1) === 0;
+// a nudge sampler's end state: nudged over the readings so far, in the page
+const FRAMES_NUDGED = `(${nudged})((window.__mlFrames?.values ?? []).filter((x) => x != null))`;
 // a reveal's sampled heights start at 0, pass through a value short of the last, and end open
 const grewOpen = (hs) => hs[0] === 0 && hs.at(-1) > 0 && hs.some((v) => v > 0 && v < hs.at(-1));
 
@@ -234,7 +236,8 @@ export const motionLens = {
             await settle(BUSY_READ_MS);
             sending = await h.ev(opacities(`[data-workflow-send] [data-crossfade="busy"]`));
             await polishWaitFor(h, `!!${PICKS_ERROR}`, HOLD_MS + 2000);
-            await settle();
+            await polishWaitFor(h, FRAMES_NUDGED, SAMPLER_END_WAIT_MS);
+            await polishNap(REST_FRAME_MS);
             pickNudge = distinct(await h.ev(stopFrames));
             pickErrAdded = await h.ev(readAdded);
             pickError = await h.ev(`${PICKS_ERROR}?.textContent.trim() ?? null`);
@@ -259,7 +262,8 @@ export const motionLens = {
         await h.ev(startFrames(translateX(`document.querySelector('[data-workflow-send-error]')?.parentElement`)));
         await h.ev(`document.querySelector('[data-workflow-send]')?.click()`);
         const errored = await polishWaitFor(h, `!!${WFS_LENS("applying")}?.querySelector('[data-workflow-send-error]')`, 10000);
-        await settle();
+        await polishWaitFor(h, FRAMES_NUDGED, SAMPLER_END_WAIT_MS);
+        await polishNap(REST_FRAME_MS);
         const nudge = distinct(await h.ev(stopFrames));
         await h.shot("cdp-shots/motion-lens-send-error.png");
         rec(
@@ -327,7 +331,8 @@ async function startErrorSteps(h, ctx, rec) {
         await polishNap(BUSY_READ_MS);
         busy = await h.ev(opacities(`[data-crossfade="busy"]`));
         await polishWaitFor(h, `!!${IDLE_ERROR}`, HOLD_MS + 2000);
-        await polishNap(SETTLE_MS);
+        await polishWaitFor(h, FRAMES_NUDGED, SAMPLER_END_WAIT_MS);
+        await polishNap(REST_FRAME_MS);
         nudge = distinct(await h.ev(stopFrames));
         added = await h.ev(readAdded);
         error = await h.ev(`${IDLE_ERROR}?.textContent.trim() ?? null`);
@@ -363,7 +368,8 @@ async function startErrorSteps(h, ctx, rec) {
             ${translateX("e")}`));
         await h.ev(`document.querySelector('[data-workflow-scan-button]')?.click()`);
         await polishWaitFor(h, `${HEAD_ERROR}?.textContent.trim() === ${JSON.stringify(START_REFUSAL_AGAIN)}`, 3000);
-        await polishNap(SETTLE_MS);
+        await polishWaitFor(h, FRAMES_NUDGED, SAMPLER_END_WAIT_MS);
+        await polishNap(REST_FRAME_MS);
         headNudge = distinct(await h.ev(stopFrames));
         headError = await h.ev(`${HEAD_ERROR}?.textContent.trim() ?? null`);
         await h.shot("cdp-shots/motion-lens-start-refused-head.png");

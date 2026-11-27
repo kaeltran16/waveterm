@@ -316,6 +316,47 @@ func TestStreamWithoutTranscriptWaits(t *testing.T) {
 	}
 }
 
+// an unreadable transcript's tail returns at once with no lines: the stream sends one empty snapshot and stays
+// open, without starting the tail again on each poll
+func TestStreamSendsOneEmptySnapshotWhenTheTailFails(t *testing.T) {
+	a := handTestClaude("tab-a")
+	a.TranscriptPath = "C:/t/session.jsonl"
+	handTestEnv(t, a)
+	handTestHand(t, "tab-a")
+	const poll = 20 * time.Millisecond
+	agentsTestPoll(t, poll)
+	calls := make(chan string, 4)
+	prev := TranscriptHook
+	TranscriptHook = func(_ context.Context, path string, _ int, _ func([]string) error) error {
+		calls <- path
+		return errors.New("access is denied")
+	}
+	t.Cleanup(func() { TranscriptHook = prev })
+	sink := agentsTestNewSink()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- remoteStream(ctx, "tab-a", sink) }()
+
+	agentsTestRecv(t, sink.agents, "agent")
+	agentsTestRecv(t, calls, "tail call")
+	if got := agentsTestRecv(t, sink.lines, "lines"); len(got) != 0 {
+		t.Errorf("lines %q, want an empty snapshot", got)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("the stream ended with its tail: %v", err)
+	case path := <-calls:
+		t.Fatalf("the failed tail was started again on %q", path)
+	case l := <-sink.lines:
+		t.Fatalf("a second snapshot was sent: %q", l)
+	case <-time.After(10 * poll):
+	}
+	cancel()
+	if err := agentsTestRecv(t, done, "stream end"); err != nil {
+		t.Errorf("a cancelled stream = %v, want nil", err)
+	}
+}
+
 func TestStreamEndsWhenAgentExits(t *testing.T) {
 	a := handTestClaude("tab-a")
 	a.TranscriptPath = "C:/t/session.jsonl"

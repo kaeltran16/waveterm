@@ -215,7 +215,7 @@ func streamKeyOf(a Agent, since int64) streamKey {
 
 // remoteStream sends the agent, then its transcript backlog and appends beside a state poll that sends the
 // agent on each change. It returns a *GoneError when the agent stops being handed over, and nil when ctx
-// ends; it never returns while the tail is still running.
+// ends; it never returns while the tail is still running. A tail that ends on its own leaves the stream open.
 func remoteStream(ctx context.Context, tab string, sink StreamSink) error {
 	a, since, err := LookupHanded(ctx, tab)
 	if err != nil {
@@ -229,6 +229,8 @@ func remoteStream(ctx context.Context, tab string, sink StreamSink) error {
 	key := streamKeyOf(a, since)
 	tailDone := make(chan error, 1)
 	tailing := false
+	// the path the last tail read: one that ended is not started again on it, since it would end the same way
+	tailed := ""
 	defer func() {
 		if tailing {
 			cancel()
@@ -238,10 +240,11 @@ func remoteStream(ctx context.Context, tab string, sink StreamSink) error {
 	poll := time.NewTicker(remoteStreamPoll)
 	defer poll.Stop()
 	for {
-		// a path that appears after the hand-over (a session not yet written) starts the tail then
-		if !tailing && a.TranscriptPath != "" && TranscriptHook != nil {
+		// a path that appears after the hand-over (a session not yet written), or a new session's, starts the tail then
+		if !tailing && a.TranscriptPath != "" && a.TranscriptPath != tailed && TranscriptHook != nil {
 			tailing = true
-			path := a.TranscriptPath
+			tailed = a.TranscriptPath
+			path := tailed
 			go func() { tailDone <- TranscriptHook(ctx, path, 0, sink.Lines) }()
 		}
 		select {
@@ -249,10 +252,17 @@ func remoteStream(ctx context.Context, tab string, sink StreamSink) error {
 			return nil
 		case err := <-tailDone:
 			tailing = false
-			if err == nil || ctx.Err() != nil {
+			if ctx.Err() != nil {
 				return nil
 			}
-			return fmt.Errorf("tail the transcript of tab %s: %w", tab, err)
+			// an unreadable transcript ends its tail at once. Ending the stream for it made the phone reconnect,
+			// over and over; the agent's state still streams, and the transcript reads as one empty snapshot
+			if err != nil {
+				log.Printf("remote mode: tail the transcript of tab %s: %v\n", tab, err)
+			}
+			if err := sink.Lines(nil); err != nil {
+				return err
+			}
 		case <-poll.C:
 			next, nextSince, err := LookupHanded(ctx, tab)
 			var gone *GoneError

@@ -23,23 +23,6 @@ Status legend:
 
 ## 1 · Actionable
 
-- **`final-stage` CDP scenario, Part B flakes** (2026-10-12). B2–B6 failed in 2 of 3 runs after the lead's
-  Final verification block was removed from the details rail, and passed in 2 runs without that change
-  (one of which failed only B6). The failing shape: in B2 the DAG modal's final node still reads the B1
-  state ("waits on every task") while the tree's row shows Tree running, and from B3 on the stage row has
-  lost focus (no pane). That change touches neither the modal nor focus, so the cause is unproven either
-  way. Repro: `ARC_FINAL_OUT=<dir> node scripts/cdp/final-verify.mjs final-stage`, a few runs.
-  **2026-11-03: no repro in 6 runs.** Five passed 23/23 (0, 0b, B1–B10, A0–A7). The sixth failed B7a, B7b and
-  B9 only because it ran beside another run from the same tree: both write `public/cockpit-fixtures/active.json`,
-  and the other's teardown deleted it as this one rebooted, so the page booted with no lead (one tree, one run at
-  a time). A probe of the stored dag at B2–B6 found the seeds intact: no tick wrote between a seed and its read,
-  and the one tick that landed in Part B read the seed and wrote it back. One more run with `DagModal`'s dismiss on
-  unmount removed (the modal coming back with Jarvis, as before `559f5eda`) also passed 23/23, so that lead is
-  ruled out. One mechanism stays open and fits both halves of the shape, unproven: `seedDag` writes through
-  `object.UpdateObject`, outside the dag mutation lock, and a tick (`scheduleLocked`, `pkg/orchestrate/engine.go`)
-  that loaded the dag before the seed writes its snapshot back over it after `seedDag`'s check; the final row then
-  vanishes and `agentsurface.tsx` moves the focus to the lead for good. The window is a tick's length, which load
-  stretches. Next time it fails, read the stored dag's `updatedts` against the seed times before fixing.
 - **A tick holds the dag lock through slow worktree creation** (2026-11-11, run `65ce3ef3`). `runTick` held it
   1m6s-2m39s while `git worktree add` failed and `git worktree remove --force` hit its deadline, and every merge,
   `--continue`, review verdict and child outcome queued behind it (one `--continue` waited 2m37s). Those callers

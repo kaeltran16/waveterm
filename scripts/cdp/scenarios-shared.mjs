@@ -424,13 +424,15 @@ const finalFingerprint = (final, past) =>
 let seedStamp = 0;
 
 // Puts the stored dag into a state the engine has not reached: change maps the dag as read to the dag to
-// write, and print reduces a dag to what the seed must hold. Returns a nudge that seeds again once the stored dag
-// lost it: while a worker is live the engine still ticks, and a tick writes its whole snapshot back over the seed
+// write, and print reduces a dag to what the seed must hold. The write waits for the dag lock (object.UpdateObject
+// takes it for a dag), so it never lands under a tick that would write its snapshot back over it. Returns a nudge
+// that seeds again once the stored dag lost it: while a worker is live the engine still ticks, and a tick after the
+// seed may move what the seed set
 export async function seedDag(h, ctx, change, print) {
     const oref = `dag:${ctx.dagId}`;
     let want = null;
     let stored = null;
-    // the watchdog ticks a running dag, and a tick that read the dag before this write lands over it
+    // a tick between the write and its read-back may already have moved the seed
     for (let i = 0; i < 3 && (stored == null || print(stored) !== want); i++) {
         const next = { ...change(await waveService(h, "object", "GetObject", [oref])), otype: "dag" };
         want = print(next);
@@ -534,6 +536,10 @@ const fstStagePrint = (f) =>
 const fstSeedPrint = (dag) =>
     JSON.stringify([dag?.check ?? "", dag?.verify ?? "", dag?.finalcmd ?? "", fstStagePrint(dag?.final), (dag?.pastfinals ?? []).map(fstStagePrint)]);
 
+// the tailing and refailed rows' round: what the Final command prints while it runs, and where its output is kept
+export const FST_FINAL_TAIL = "final-stage round 3 final tail 1\nfinal-stage round 3 final tail 2\n";
+export const fstRound3Dir = (ctx) => `${ctx.out.replace(/\\/g, "/")}/3`;
+
 // one States row: the dag's commands, its final and past finals, and the round's step events
 function fstStage(ctx, name, { verifier = true, skip } = {}) {
     const now = Date.now();
@@ -545,6 +551,7 @@ function fstStage(ctx, name, { verifier = true, skip } = {}) {
     const ok = (steps) => Object.fromEntries(steps.map((s) => [s, [FST_STEP_MS[s], true]]));
     const commands = ["tree", "check", "verify", "final"].filter((s) => s !== skip);
     const judged = { round: 2, verifierrunid: ctx.verifierRunId, startedts: ctx.verifierStart, ...tree };
+    const round3 = { outdir: fstRound3Dir(ctx), ...tree };
     switch (name) {
         case "waiting":
             return { cmds: five };
@@ -593,13 +600,31 @@ function fstStage(ctx, name, { verifier = true, skip } = {}) {
             };
         case "passed":
             return { cmds: five, final: { state: "passed", ...judged }, pastfinals: past, events: [2, ok(commands)] };
+        // round 3, since the round 2 rows above already published Final's step event: the Final command printing,
+        // then failed with its output kept
+        case "tailing":
+            return {
+                cmds: five,
+                final: { state: "checking", round: 3, step: "final", stepts: now - 30_000, startedts: now - 150_000, output: FST_FINAL_TAIL, ...round3 },
+                pastfinals: past,
+                events: [3, ok(["tree", "check", "verify"])],
+            };
+        case "refailed":
+            return {
+                cmds: five,
+                final: { state: "failed", round: 3, detail: FST_DETAIL, ...round3 },
+                pastfinals: past,
+                events: [3, { ...ok(["tree", "check", "verify"]), final: [125_000, false] }],
+            };
     }
     throw new Error(`no final-stage row named ${name}`);
 }
 
-// seeds a States row and publishes its events; returns a nudge for fstUntil to repeat. While a task's worker is
-// live the engine still ticks the dag, and a tick that loaded it before the seed writes its whole snapshot back
-// over it (the whole-object replace in engine.go), so the nudge seeds the row again once the stored dag lost it
+// publishes a States row's events, then seeds the row; returns a nudge for fstUntil to repeat. Events first, as the
+// engine sends them (runFinalStep appends a step's event before the stage moves on): the other order shows a step
+// that ended with no event yet, so a row that opens on its kept output closes and reopens. While a task's worker is
+// live the engine still ticks the dag, and a tick after the seed may move it, so the nudge seeds the row again once
+// the stored dag lost it
 export async function fstShow(h, ctx, name, opts) {
     const { cmds, final, pastfinals, events } = fstStage(ctx, name, opts);
     const want = fstSeedPrint({ ...cmds, final, pastfinals });
@@ -613,12 +638,12 @@ export async function fstShow(h, ctx, name, opts) {
             },
             fstSeedPrint
         );
-    await seed();
     const publish = events ? () => fstPublishSteps(h, ctx, ...events) : undefined;
     if (publish) await publish();
+    await seed();
     const nudge = async () => {
-        if (fstSeedPrint(await waveService(h, "object", "GetObject", [`dag:${ctx.dagId}`])) !== want) await seed();
         if (publish) await publish();
+        if (fstSeedPrint(await waveService(h, "object", "GetObject", [`dag:${ctx.dagId}`])) !== want) await seed();
     };
     return { nudge };
 }

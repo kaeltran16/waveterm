@@ -22,6 +22,7 @@
 //
 // BUILD_SLOTS final stages run at once, each holding one slot: a slot is a cargo target dir, and `cargo tauri dev`
 // runs the exe it builds there, so a second stage building into it would overwrite the exe the first is running.
+// Those stages run in different trees: a second stage in a tree one already runs in is refused (acquireTreeLock).
 //
 // The user's packaged Arc shares the dev app's image names, so only the PID this script spawned is ever killed.
 import { execFileSync, spawn } from "node:child_process";
@@ -179,6 +180,23 @@ export async function acquireBuildSlot(base, waitMs, slots = BUILD_SLOTS) {
         if (!waited) console.log("waiting for another final stage to finish with a build slot");
         await new Promise((r) => setTimeout(r, POLL_MS));
     }
+}
+
+// one final stage per tree: its scenarios write the tree's public/cockpit-fixtures/active.json and cdp-shots, so a
+// second stage there deletes the first's fixture at its teardown and mixes their screenshots. Keyed by the tree alone
+export function treeLockPath(base, root) {
+    const key = process.platform === "win32" ? root.toLowerCase() : root;
+    const id = createHash("sha1").update(key).digest("hex").slice(0, STORE_ID_LEN);
+    return process.platform === "win32" ? `\\\\.\\pipe\\arc-final-tree-${id}` : join(base, `tree-${id}.sock`);
+}
+
+// resolves the tree's held lock (close it to release), or null while another stage runs in the tree
+export async function acquireTreeLock(base, root) {
+    const path = treeLockPath(base, root);
+    const lock = await listenOn(path);
+    if (lock || process.platform === "win32") return lock;
+    await dropStaleSocket(path);
+    return listenOn(path);
 }
 
 export function unverified(reason) {
@@ -520,6 +538,10 @@ async function main() {
     const bootMs = Number(process.env.ARC_FINAL_BOOT_MS) || DEFAULT_BOOT_MS;
     const lockWaitMs = Number(process.env.ARC_FINAL_LOCK_WAIT_MS) || DEFAULT_LOCK_WAIT_MS;
     mkdirSync(FINAL_BASE, { recursive: true });
+    const root = process.cwd();
+    // refused, not waited for: two stages in one tree are a caller's mistake, and the second would only redo the first
+    const treeLock = await acquireTreeLock(FINAL_BASE, root);
+    if (!treeLock) unverified(`another final-verify is running in ${root}; run one at a time per tree`);
     const slotStart = Date.now();
     const held = await acquireBuildSlot(FINAL_BASE, lockWaitMs);
     if (!held) unverified(`other final stages held every build slot for ${Math.round(lockWaitMs / 1000)}s`);
@@ -532,7 +554,6 @@ async function main() {
     const configPath = join(out, "tauri.final.json");
     const configText = JSON.stringify(tauriConfig(vitePort), null, 2);
     writeFileSync(configPath, configText);
-    const root = process.cwd();
     unlinkBuildJunctions(root);
     const store = storeDir(out, slot);
     sweepStaleStores(slotPath("stores", slot));
@@ -631,6 +652,7 @@ async function main() {
             closeSync(log);
         }
         dropStore(store, out);
+        await new Promise((r) => treeLock.close(r));
     }
     const outcome = reason ? { code: EXIT_UNVERIFIED, line: reason } : finalOutcome(code, close);
     // before the outcome line: the engine reads the last stdout line as the unverified reason
