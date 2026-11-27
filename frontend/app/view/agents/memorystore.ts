@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The Setup surface's Memory tab: its atoms and the memhygiene RPCs. Module-level atoms because the
-// Setup surface unmounts on a switch, and the opened row and a row Apply in flight must survive one (the
+// Setup surface unmounts on a switch, and the selection and a row Apply in flight must survive one (the
 // memhygiene address also writes them before it switches here).
 
 import { globalStore } from "@/app/store/jotaiStore";
@@ -14,11 +14,12 @@ import { atom, type PrimitiveAtom } from "jotai";
 import {
     didLines,
     firstRowKey,
-    focusOrder,
     keepIds,
+    resolveSelection,
     rowButtons,
     rowKey,
-    stepFocus,
+    selectionOrder,
+    stepSelection,
     waitingRows,
     type RowContext,
     type RowKind,
@@ -123,9 +124,8 @@ function replaceProject(updated: MemHygieneProject | null): void {
 // a split's Apply copies every memory and an undo restores them, change by change, past the 5 s default
 const ROW_TIMEOUT_MS = 10 * 60 * 1000;
 
-// the row (rowKey) or did line (<project>/<batchId>) opened in place, and the one keys move through
-export const memoryOpenAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
-export const memoryFocusAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
+// the selected row (rowKey) or did line (<project>/<batchId>); what the detail shows is resolveSelection's
+export const memorySelectedAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 // row keys whose Apply is in flight
 export const memoryApplyingAtom = atom<string[]>([]) as PrimitiveAtom<string[]>;
 // each project's last row Apply result: the newer and failed stops live only here
@@ -210,33 +210,37 @@ export function keepMemoryRow(row: WaitingRow): Promise<void> {
     });
 }
 
-// ---- opening, focus, and the buttons the keys press ----
+// ---- the selection, and the buttons the keys press ----
 
 function projects(): MemHygieneProject[] {
     return globalStore.get(memoryProjectsAtom) ?? [];
 }
 
-// a memhygiene:<project> address: that project's first waiting row, opened
+// the row or line the detail shows, which the keys act on
+export function shownMemoryKey(): string | null {
+    return resolveSelection(projects(), Date.now(), globalStore.get(memorySelectedAtom));
+}
+
+// a memhygiene:<project> address: that project's first waiting row
 export function landMemoryProject(listed: MemHygieneProject[], project: string): void {
-    const key = firstRowKey(listed, project);
-    globalStore.set(memoryOpenAtom, key);
-    globalStore.set(memoryFocusAtom, key);
+    globalStore.set(memorySelectedAtom, firstRowKey(listed, project));
     globalStore.set(memoryRefusedAtom, null);
 }
 
-// one row or line open at a time; opening one focuses it
-export function toggleMemoryOpen(key: string): void {
-    globalStore.set(memoryFocusAtom, key);
-    globalStore.set(memoryOpenAtom, globalStore.get(memoryOpenAtom) === key ? null : key);
+// a refusal answers an Undo on the line it shows on, so moving off that line dismisses it
+export function selectMemory(key: string): void {
+    globalStore.set(memorySelectedAtom, key);
+    if (globalStore.get(memoryRefusedAtom) !== key) {
+        globalStore.set(memoryRefusedAtom, null);
+    }
 }
 
-export function stepMemoryFocus(delta: number): boolean {
-    const order = focusOrder(projects(), Date.now());
-    const next = stepFocus(order, globalStore.get(memoryFocusAtom), delta);
+export function stepMemorySelection(delta: number): boolean {
+    const next = stepSelection(selectionOrder(projects(), Date.now()), shownMemoryKey(), delta);
     if (next == null) {
         return false;
     }
-    globalStore.set(memoryFocusAtom, next);
+    selectMemory(next);
     return true;
 }
 
@@ -266,9 +270,10 @@ export function runRowButton(row: WaitingRow, which: "primary" | "keep" | "undo"
     }
 }
 
-// a and x: the opened row's button, and nothing (the key passes) while there is none or it is disabled
+// a and x: the shown row's button, and nothing (the key passes) while there is none or it is disabled
 export function pressMemoryRow(which: "primary" | "keep"): boolean {
-    const row = waitingRows(projects()).find((r) => r.key === globalStore.get(memoryOpenAtom));
+    const shown = shownMemoryKey();
+    const row = waitingRows(projects()).find((r) => r.key === shown);
     const p = projects().find((x) => x.project === row?.project);
     if (row == null || p == null) {
         return false;

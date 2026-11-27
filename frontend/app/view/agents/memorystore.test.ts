@@ -11,12 +11,13 @@ import {
     memoryApplyingAtom,
     memoryBusyAtom,
     memoryErrorAtom,
-    memoryFocusAtom,
-    memoryOpenAtom,
     memoryProjectsAtom,
     memoryRefusedAtom,
     memoryRowResultsAtom,
+    memorySelectedAtom,
     pressMemoryRow,
+    selectMemory,
+    stepMemorySelection,
     undoMemoryBatch,
     undoMemoryLine,
 } from "./memorystore";
@@ -82,8 +83,7 @@ beforeEach(() => {
     decide.mockReset();
     globalStore.set(memoryProjectsAtom, null);
     globalStore.set(memoryErrorAtom, null);
-    globalStore.set(memoryOpenAtom, null);
-    globalStore.set(memoryFocusAtom, null);
+    globalStore.set(memorySelectedAtom, null);
     globalStore.set(memoryRefusedAtom, null);
 });
 
@@ -249,9 +249,12 @@ describe("the page's keys and Undo", () => {
         expect(globalStore.get(memoryRefusedAtom)).toBeNull();
     });
 
-    it("runs the opened row's button, and nothing while it is disabled or no row is opened", () => {
-        const p = project("mp", [change("m1", "shared"), change("s1", "switch")], true);
-        globalStore.set(memoryProjectsAtom, [p]);
+    // a split still waiting, beside switched()'s line
+    const waiting = () => project("np", [change("m1", "shared"), change("s1", "switch")], true);
+
+    it("runs the shown row's button, and nothing while it is disabled or a did line is shown", () => {
+        const p = waiting();
+        globalStore.set(memoryProjectsAtom, [p, switched()]);
         applyRow.mockResolvedValue({
             project: p,
             stop: "",
@@ -262,12 +265,33 @@ describe("the page's keys and Undo", () => {
             failed: "",
             error: "",
         });
+        selectMemory("mp/b1");
         expect(pressMemoryRow("primary")).toBe(false);
-        globalStore.set(memoryOpenAtom, "split/mp");
+        // a stored key no longer listed shows the first row, which the key presses
+        selectMemory("split/gone");
         globalStore.set(memoryBusyAtom, true);
         expect(pressMemoryRow("primary")).toBe(false);
         globalStore.set(memoryBusyAtom, false);
         expect(pressMemoryRow("primary")).toBe(true);
-        expect(applyRow.mock.calls.map((c) => c[1])).toEqual([{ project: "mp", row: "split", changeid: "" }]);
+        expect(applyRow.mock.calls.map((c) => c[1])).toEqual([{ project: "np", row: "split", changeid: "" }]);
+    });
+
+    it("steps from the shown item, stopping at the end", () => {
+        globalStore.set(memoryProjectsAtom, [waiting(), switched()]);
+        expect(stepMemorySelection(1)).toBe(true);
+        expect(globalStore.get(memorySelectedAtom)).toBe("mp/b1");
+        stepMemorySelection(1);
+        expect(globalStore.get(memorySelectedAtom)).toBe("mp/b1");
+        stepMemorySelection(-1);
+        expect(globalStore.get(memorySelectedAtom)).toBe("split/np");
+    });
+
+    it("selecting another item dismisses a refusal", () => {
+        globalStore.set(memoryProjectsAtom, [switched({ project: "det", batchid: "c1", at: 1, memories: 2 })]);
+        undoMemoryLine("mp/b1");
+        selectMemory("mp/b1");
+        expect(globalStore.get(memoryRefusedAtom)).toBe("mp/b1");
+        selectMemory("split/np");
+        expect(globalStore.get(memoryRefusedAtom)).toBeNull();
     });
 });

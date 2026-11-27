@@ -88,15 +88,7 @@ import {
 } from "@/app/view/agents/githistorystore";
 import { canHandToPhone } from "@/app/view/agents/handtophone";
 import { anyFilterActive } from "@/app/view/agents/historyquery";
-import {
-    memoryFocusAtom,
-    memoryOpenAtom,
-    memoryRefusedAtom,
-    pressMemoryRow,
-    stepMemoryFocus,
-    toggleMemoryOpen,
-    undoMemoryLine,
-} from "@/app/view/agents/memorystore";
+import { pressMemoryRow, shownMemoryKey, stepMemorySelection, undoMemoryLine } from "@/app/view/agents/memorystore";
 import { railVisibleAtom, terminalFullscreenAtom } from "@/app/view/agents/railstore";
 import { toggleHandToPhone } from "@/app/view/agents/remotestore";
 import { canRender, toggleViewMode } from "@/app/view/agents/renderedmode";
@@ -2468,32 +2460,17 @@ export function buildMemoryBindings(): Binding[] {
         when: on,
         run,
     });
-    const focused = () => globalStore.get(memoryFocusAtom);
     return [
-        bind("next", "j", "Next row or line", () => stepMemoryFocus(1)),
-        bind("prev", "k", "Previous row or line", () => stepMemoryFocus(-1)),
-        bind("next-arrow", "ArrowDown", "Next row or line", () => stepMemoryFocus(1)),
-        bind("prev-arrow", "ArrowUp", "Previous row or line", () => stepMemoryFocus(-1)),
-        bind("open", "Enter", "Open or close the focused row or line", () => {
-            const key = focused();
-            if (key == null) {
-                return false;
-            }
-            toggleMemoryOpen(key);
-        }),
-        bind("apply", "a", "Press the opened row's main button", () => pressMemoryRow("primary")),
-        bind("keep", "x", "Press the opened row's keep button", () => pressMemoryRow("keep")),
-        bind("undo", "u", "Undo the focused line", () => {
-            const key = focused();
+        bind("next", "j", "Next row or line", () => stepMemorySelection(1)),
+        bind("prev", "k", "Previous row or line", () => stepMemorySelection(-1)),
+        bind("next-arrow", "ArrowDown", "Next row or line", () => stepMemorySelection(1)),
+        bind("prev-arrow", "ArrowUp", "Previous row or line", () => stepMemorySelection(-1)),
+        bind("apply", "a", "Press the selected row's main button", () => pressMemoryRow("primary")),
+        bind("keep", "x", "Press the selected row's keep button", () => pressMemoryRow("keep")),
+        bind("undo", "u", "Undo the selected line", () => {
+            const key = shownMemoryKey();
             return key != null && undoMemoryLine(key);
         }),
-        {
-            ...bind("close", "Escape", "Close the opened row or line", () => {
-                globalStore.set(memoryOpenAtom, null);
-                globalStore.set(memoryRefusedAtom, null);
-            }),
-            when: (ctx) => on(ctx) && globalStore.get(memoryOpenAtom) != null && noEscapeMenuOpen(),
-        },
     ];
 }
 

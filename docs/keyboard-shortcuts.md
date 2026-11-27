@@ -310,12 +310,10 @@ The canvas keeps Excalidraw's own tool keys while it has focus.
 
 | Keys | Action |
 |---|---|
-| `j` / `k` (or `↓` / `↑`) | Next / previous row: the waiting rows, then the "Arc did this week" lines |
-| `Enter` | Open or close the focused row or line |
-| `Esc` | Close the opened row or line |
-| `a` | Press the opened row's main button (Apply and switch over, Clear N, Move to …, Try again or Check now), when it is enabled |
-| `x` | Press the opened row's keep button (Keep sharing, Keep them or Keep), when it is enabled |
-| `u` | Undo the focused "Arc did this week" line; a split a cleanup has emptied says to undo that cleanup first |
+| `j` / `k` (or `↓` / `↑`) | Select the next / previous row in the list: the waiting rows, then the "Arc did this week" lines; the detail shows the selected one |
+| `a` | Press the selected row's main button (Apply and switch over, Clear N, Move to …, Try again or Check now), when it is enabled |
+| `x` | Press the selected row's keep button (Keep sharing, Keep them or Keep), when it is enabled |
+| `u` | Undo the selected "Arc did this week" line; a split a cleanup has emptied says to undo that cleanup first |
 
 ### Route DAG (the orchestrator run's graph)
 

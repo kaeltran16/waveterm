@@ -9,17 +9,16 @@ import {
     digest,
     emptyText,
     firstRowKey,
-    focusOrder,
     keepIds,
     kindLabel,
     kindTone,
+    resolveSelection,
     rowButtons,
+    selectionOrder,
     splitCounts,
-    splitItemChip,
     splitList,
     splitState,
-    spotCheck,
-    stepFocus,
+    stepSelection,
     waitingRows,
     waitingStatus,
     type WaitingRow,
@@ -518,21 +517,13 @@ describe("a waiting row's buttons", () => {
 });
 
 describe("a split row opened", () => {
-    it("spot-checks two moves and two copies, skipping left-out memories", () => {
-        const p = sharing("MP-Frontend", [1, 1, 51], [1, 37]);
-        expect(spotCheck(p).map((c) => c.id)).toEqual(["m0", "m1", "c0", "c1"]);
-        p.changes[0].status = "kept";
-        expect(spotCheck(p).map((c) => c.id)).toEqual(["m1", "m2", "c0", "c1"]);
-    });
-
-    it("lists every change under Move here and Copy here, a left-out one still counted and marked", () => {
+    it("lists every change under Move here and Copy here, a left-out one still counted", () => {
         const p = sharing("MP-Frontend", [1, 1, 51], [1, 37]);
         p.changes[1].status = "kept";
         expect(splitList(p).map((g) => [g.label, g.count, g.changes.map((c) => c.id)])).toEqual([
             ["Move here", 53, ["m0", "m1", "m2"]],
             ["Copy here", 38, ["c0", "c1"]],
         ]);
-        expect(p.changes.slice(0, 4).map(splitItemChip)).toEqual(["Move", "Left out", "Move", "Copy"]);
     });
 
     function result(p: MemHygieneProject, over: Partial<MemRowResult>): MemRowResult {
@@ -772,33 +763,65 @@ describe("Arc did this week", () => {
             batches: [batch("c", "cleanup", at(22, 10, 2), ["r1", "r2"])],
         });
         const lines = didLines([routine(), cleanup, switchedSplit()], FLOW_NOW);
-        expect(lines.map((l) => [l.key, l.title, l.text, l.see])).toEqual([
+        expect(lines.map((l) => [l.key, l.title, l.text])).toEqual([
             [
                 "MP-Frontend/s",
                 "MP-Frontend",
                 "Own memory since yesterday at 09:40 · 90 came over, 1 left out in SIEM’s · switched over",
-                "memories",
             ],
-            [
-                "cyber_anomaly_detector/c",
-                "SIEM’s memory",
-                "Cleared 6 memories no project loads on Nov 22 at 10:02",
-                "memories",
-            ],
-            ["waveterm/b1", "waveterm", expect.stringMatching(/^10 changes/), "changes"],
+            ["cyber_anomaly_detector/c", "SIEM’s memory", "Cleared 6 memories no project loads on Nov 22 at 10:02"],
+            ["waveterm/b1", "waveterm", expect.stringMatching(/^10 changes/)],
         ]);
     });
 
-    it("keys move focus through the waiting rows, then the did lines, stopping at either end", () => {
-        const order = focusOrder([...flowAuto().slice(1), routine()], FLOW_NOW);
+    it("keys move the selection through the waiting rows, then the did lines, stopping at either end", () => {
+        const order = selectionOrder([...flowAuto().slice(1), routine()], FLOW_NOW);
         expect(order).toEqual([...waitingRows(flowAuto()).map((r) => r.key), "waveterm/b1"]);
-        expect(stepFocus(order, null, 1)).toBe(order[0]);
-        expect(stepFocus(order, "gone", -1)).toBe(order[0]);
-        expect(stepFocus(order, order[6], 1)).toBe("waveterm/b1");
-        expect(stepFocus(order, "waveterm/b1", 1)).toBe("waveterm/b1");
-        expect(stepFocus(order, order[1], -1)).toBe(order[0]);
-        expect(stepFocus(order, order[0], -1)).toBe(order[0]);
-        expect(stepFocus([], null, 1)).toBeNull();
+        expect(stepSelection(order, null, 1)).toBe(order[0]);
+        expect(stepSelection(order, "gone", -1)).toBe(order[0]);
+        expect(stepSelection(order, order[6], 1)).toBe("waveterm/b1");
+        expect(stepSelection(order, "waveterm/b1", 1)).toBe("waveterm/b1");
+        expect(stepSelection(order, order[1], -1)).toBe(order[0]);
+        expect(stepSelection(order, order[0], -1)).toBe(order[0]);
+        expect(stepSelection([], null, 1)).toBeNull();
+    });
+
+    // a detector with its cleanup, two doc moves and failed check waiting, d1 already moved by batch "d"
+    const docMoved = () =>
+        detector({
+            changes: [...detector().changes.filter((c) => c.id !== "d1"), docMove("d1", "moved", "applied")],
+            batches: [batch("d", "doc", at(24, 11, 0), ["d1"])],
+        });
+
+    it.each([
+        {
+            name: "a stored key still listed",
+            ps: () => [docMoved(), switchedSplit()],
+            stored: "doc/cyber_anomaly_detector/d2",
+            want: "doc/cyber_anomaly_detector/d2",
+        },
+        {
+            name: "an applied split follows to its did line",
+            ps: () => [docMoved(), switchedSplit()],
+            stored: "split/MP-Frontend",
+            want: "MP-Frontend/s",
+        },
+        {
+            name: "an applied doc move follows to its did line",
+            ps: () => [docMoved(), switchedSplit()],
+            stored: "doc/cyber_anomaly_detector/d1",
+            want: "cyber_anomaly_detector/d",
+        },
+        {
+            name: "a gone key falls to the first",
+            ps: () => [docMoved(), switchedSplit()],
+            stored: "failed/gone",
+            want: "cleanup/cyber_anomaly_detector",
+        },
+        { name: "nothing stored shows the first", ps: () => [switchedSplit()], stored: null, want: "MP-Frontend/s" },
+        { name: "an empty list shows nothing", ps: () => [project()], stored: "split/MP-Frontend", want: null },
+    ])("the shown item: $name", ({ ps, stored, want }) => {
+        expect(resolveSelection(ps(), FLOW_NOW, stored)).toBe(want);
     });
 
     it("a digest lists each applied change, the index line, and Undo all N; a split undoes only whole", () => {
