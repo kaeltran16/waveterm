@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The Resource Manager's footer readout: Arc's whole CPU and memory at a glance, and the door to the popover.
-// Drawn in the global footer and in the Cockpit's own hints bar, so the popover anchors to whichever was clicked.
+// Drawn in the global footer, which the popover anchors to.
 
 import { cn } from "@/util/util";
 import { useAtom, useAtomValue } from "jotai";

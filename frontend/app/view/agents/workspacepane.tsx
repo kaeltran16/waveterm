@@ -5,11 +5,18 @@
 // resizable split, not a rail: it opens at the stored width, drags from its left edge, expands over the center and
 // collapses to a 44px strip. The surface renders it only while the agent has tabs (workspacestore.ts holds them).
 
-import { cardVariants, indicatorSlide, MOTION, popoverReveal, SHEET_SLIDE_PX } from "@/app/element/motiontokens";
+import {
+    cardVariants,
+    easeFluidCss,
+    indicatorSlide,
+    MOTION,
+    popoverReveal,
+    SHEET_SLIDE_PX,
+} from "@/app/element/motiontokens";
 import { TickNumber } from "@/app/element/ticknumber";
 import { ViewSwap } from "@/app/element/viewswap";
 import { cn } from "@/util/util";
-import { useAtom, useAtomValue } from "jotai";
+import { atom, useAtom, useAtomValue } from "jotai";
 import {
     ChevronLeft,
     ChevronRight,
@@ -30,7 +37,7 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion, useIsPresent } from "motion/react";
-import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useBoardInfo } from "../boards/boardview";
 import { effortDetailAtom } from "../jarvis/effortstore";
@@ -41,6 +48,9 @@ import { BrainstormPane } from "./brainstormpane";
 import { brainstormAtom, brainstormWaitOf } from "./brainstormstore";
 import { canvasStateAtom } from "./canvasstore";
 import { childAsksAtom } from "./childaskstore";
+import type { RunWait } from "./cockpitsessionmodel";
+import { runWaitAtom } from "./cockpitsessionstore";
+import { runTabDot, tabNeeds, type TabDot } from "./cockpitzoommodel";
 import { useRunInfo } from "./runlineagestore";
 import { useRunAsks } from "./runrailsections";
 import { WorkspaceBoardTab } from "./workspaceboardtab";
@@ -61,7 +71,6 @@ import {
     tabKey,
     tabLabel,
     tabWaiting,
-    waitingOnYou,
     type WaitInput,
     type WorkspaceState,
     type WorkspaceTab,
@@ -100,9 +109,16 @@ const TAB_LABEL = "min-w-0 max-w-[200px] truncate";
 const TAB_CLOSE_BOX = "mr-[6px] h-[18px] w-[18px] flex-none";
 const DOT_INLINE = "h-[6px] w-[6px] flex-none rounded-full";
 const DOT_CORNER = "absolute left-[20px] top-[6px] box-content h-[6px] w-[6px] rounded-full border-2 border-surface";
-// amber is something waiting on you; the accent is a tab that joined behind the shown one and has not been seen
-const DOT_TONE = { waiting: "bg-asking", unseen: "bg-accent" } as const;
-const DOT_LABEL = { waiting: "waiting on you", unseen: "new since you looked" } as const;
+// amber is something waiting on you; the muted ink a run's wait its conductor has; the accent is a tab that joined
+// behind the shown one and has not been seen
+const DOT_TONE: Record<TabDot, string> = { waiting: "bg-asking", held: "bg-ink-faint", unseen: "bg-accent" };
+const DOT_LABEL: Record<TabDot, string> = {
+    waiting: "waiting on you",
+    held: "its conductor has it",
+    unseen: "new since you looked",
+};
+// a wait changing hands recolors the dot rather than swapping it (moment 17)
+const DOT_MORPH = { transitionDuration: `${MOTION.durMacro}s`, transitionTimingFunction: easeFluidCss };
 
 // paneReveal's opacity and timing. The pane arrives and leaves at its full width, sliding like a sheet: growing its
 // width would narrow the transcript beside it every frame, rewrapping the whole feed. A change of shape (strip,
@@ -134,6 +150,7 @@ export function WorkspacePane({
     const openPx = dragPx ?? (onBoard ? boardPaneWidth(boardStored, room) : paneWidth(stored, room));
     const target = shape === "strip" ? STRIP_PX : shape === "expanded" && availablePx != null ? availablePx : openPx;
     const waits = useWaitInput(model, agent);
+    const runWaits = useRunWaits(ws.tabs);
     const present = useIsPresent();
     return (
         <motion.aside
@@ -167,7 +184,7 @@ export function WorkspacePane({
                         <PaneStrip
                             agentId={agent.id}
                             tabs={ws.tabs.length}
-                            needs={waitingOnYou(ws.tabs, waits)}
+                            needs={ws.tabs.reduce((n, t) => n + tabNeeds(t, runWaitOf(runWaits, t), waits), 0)}
                             unseen={ws.unseen.length}
                         />
                     </motion.div>
@@ -192,7 +209,7 @@ export function WorkspacePane({
                                 onReset={() => (onBoard ? setBoardStored(null) : setStored(DEFAULT_PANE_PX))}
                             />
                         ) : null}
-                        <TabStrip agentId={agent.id} ws={ws} waits={waits} />
+                        <TabStrip agentId={agent.id} ws={ws} waits={waits} runWaits={runWaits} />
                         <TabBody model={model} agent={agent} ws={ws} />
                     </motion.div>
                 )}
@@ -205,6 +222,20 @@ export function WorkspacePane({
 function RunAsksBinder({ runId }: { runId: string }) {
     useRunAsks(useRunInfo(runId).run);
     return null;
+}
+
+// each Run tab's wait, by run id, as the shell's escalation decides it (null when the run waits on nothing)
+function useRunWaits(tabs: WorkspaceTab[]): Record<string, RunWait | null> {
+    const key = tabs.flatMap((t) => (t.kind === "run" ? [t.runId] : [])).join(",");
+    const waitsAtom = useMemo(() => {
+        const ids = key ? key.split(",") : [];
+        return atom((get) => Object.fromEntries(ids.map((id) => [id, get(runWaitAtom(id))])));
+    }, [key]);
+    return useAtomValue(waitsAtom);
+}
+
+function runWaitOf(runWaits: Record<string, RunWait | null>, tab: WorkspaceTab): RunWait | null {
+    return tab.kind === "run" ? (runWaits[tab.runId] ?? null) : null;
 }
 
 // a Final tab's run, from the lineage the tree holds: a finished run's tab must not ask the server for it
@@ -317,7 +348,17 @@ function shallowEqual(a: Record<string, number>, b: Record<string, number>): boo
     return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
 }
 
-function TabStrip({ agentId, ws, waits }: { agentId: string; ws: WorkspaceState; waits: WaitInput }) {
+function TabStrip({
+    agentId,
+    ws,
+    waits,
+    runWaits,
+}: {
+    agentId: string;
+    ws: WorkspaceState;
+    waits: WaitInput;
+    runWaits: Record<string, RunWait | null>;
+}) {
     const expanded = ws.expanded;
     const expandLabel = expanded ? "Restore the transcript beside it" : "Expand to full width";
     const [tablist, setTablist] = useState<HTMLDivElement | null>(null);
@@ -349,13 +390,11 @@ function TabStrip({ agentId, ws, waits }: { agentId: string; ws: WorkspaceState;
                                 agentId={agentId}
                                 tab={t}
                                 active={ws.active === tabKey(t)}
-                                dot={
-                                    tabWaiting(t, waits) > 0
-                                        ? "waiting"
-                                        : ws.unseen.includes(tabKey(t))
-                                          ? "unseen"
-                                          : null
-                                }
+                                dot={runTabDot(
+                                    runWaitOf(runWaits, t),
+                                    tabWaiting(t, waits),
+                                    ws.unseen.includes(tabKey(t))
+                                )}
                                 iconOnly={iconOnly[i]}
                                 measureRow={measureRow}
                             />
@@ -399,7 +438,7 @@ function TabButton({
     agentId: string;
     tab: WorkspaceTab;
     active: boolean;
-    dot: keyof typeof DOT_TONE | null;
+    dot: TabDot | null;
     iconOnly: boolean;
     measureRow: HTMLDivElement | null;
 }) {
@@ -471,9 +510,15 @@ function TabButton({
                         role="img"
                         aria-label={DOT_LABEL[dot]}
                         data-workspace-tab-waiting={dot === "waiting" ? true : undefined}
+                        data-workspace-tab-held={dot === "held" ? true : undefined}
                         data-workspace-tab-unseen={dot === "unseen" ? true : undefined}
+                        style={DOT_MORPH}
                         // icon-only, the dot sits on the icon's top-right corner, ringed in the strip's background
-                        className={cn(iconOnly ? DOT_CORNER : DOT_INLINE, DOT_TONE[dot])}
+                        className={cn(
+                            iconOnly ? DOT_CORNER : DOT_INLINE,
+                            DOT_TONE[dot],
+                            "transition-colors motion-reduce:transition-none"
+                        )}
                     />
                 ) : null}
             </button>

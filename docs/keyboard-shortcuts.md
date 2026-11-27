@@ -83,7 +83,7 @@ cancelled now, in All and in Commands, so it never starts a run named "cancel".
 
 | Keys | Action |
 |---|---|
-| `[` / `]` | Previous / next surface (cycles `SURFACE_ORDER`, wraps) |
+| `[` / `]` | Previous / next surface (cycles `SURFACE_ORDER`, wraps); while the Cockpit has a session zoomed they step its pane's tabs instead |
 | `j` / `k` (or `↓` / `↑`) | Move the cursor within the active region |
 | `Enter` | Open / activate the item under the cursor |
 | `Space` | Peek the item under the cursor in the avatar popup, without leaving the surface (see Peek below) |
@@ -123,17 +123,20 @@ A link inside an item view does a full open, even with `Ctrl` held.
 
 | Keys | Action |
 |---|---|
-| `j` / `k` | Next / previous card or task row |
-| `n` | Jump to the next ask |
-| `h` / `l` (or `←` / `→`) | Move to the other column; on an ask with several questions, switch question |
-| `1`…`9` on a task row | Answer the worker's question, else run the row's action |
-| `Enter` on a task row | Send the worker's answer, else open the worker |
-| `r` / `Space` / `b` on a task row | Tell the row's worker, peek it, or background the row's card |
-| `1`…`9` | Select an answer option; on a single-choice question, move to the next unanswered one (never sends) |
-| `Enter` | Send the answer once every question is answered, else move to the next unanswered question; with no ask, open focus |
-| `r` | Reply inline to the agent |
-| `t` | Open the agent's terminal |
-| `b` | Background the agent (keeps it running) |
+| `←` / `→` | Previous / next session |
+| `↑` / `↓` | The session above / below; down from the last row to the Idle line's names, then the runs with no conductor (`↑` retraces) |
+| `Space` | Zoom the selected session; on an Idle name, zoom it and bring it back to the grid; on a strip line, open that run on its own surface |
+| `d` | Dismiss the selected session to the Idle line |
+| `Enter` | Open the selected session on the Agent surface |
+
+With a session zoomed:
+
+| Keys | Action |
+|---|---|
+| `Esc` | Back to all sessions, on the same session (in the composer, `Esc` stops the agent, as on the Agent surface) |
+| `[` / `]` | Previous / next tab in the session's pane (reopens a collapsed pane) |
+| `d` | Collapse the session's pane to its strip, or restore it |
+| `Enter` | Open the session on the Agent surface (not from the composer or a focused button) |
 
 ### Agent
 

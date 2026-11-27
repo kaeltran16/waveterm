@@ -6,7 +6,6 @@ import { fileURLToPath } from "node:url";
 import { SURFACE_LABEL } from "./attach.mjs";
 import {
     COCKPIT,
-    COCKPIT_LEAD_CARD,
     MIN_FONT_PX,
     MODELS_VIEWPORT,
     PALETTE_INPUT,
@@ -420,93 +419,8 @@ export const uiApi = {
 export const DOC_REVIEW_LEAD_ID = "fx-doc-lead";
 export const DOC_REVIEW_PANEL = `document.querySelector("[data-doc-review]")?.closest('[role="dialog"]')`;
 
-// The Cockpit on the brief type scale (docs/superpowers/specs/2026-09-29-cockpit-polish-design.md): nothing under
-// 10.5px, and the lead card leads with the Workflow icon. Same setup as agent-tree-rail: a fixture roster whose lead
-// carries a real orchestrator run held in planning. No dagsubmit (see TREE_RAIL_FIXTURE), so the card has no plan
-// and no bar; the bar is covered by leadcardmodel.test.ts.
-const COCKPIT_POLISH_LEAD = "cockpit-polish lead";
-
-// the first thing the lead card's header draws: an svg, or the element holding the first text
-const LEAD_MARK_EXPR = `(() => {
-    const header = ${COCKPIT_LEAD_CARD}?.firstElementChild;
-    if (!header) return null;
-    const walk = (el) => {
-        for (const c of el.children) {
-            if (c.tagName.toLowerCase() === "svg") return "svg";
-            const text = [...c.childNodes].find((n) => n.nodeType === Node.TEXT_NODE && n.data.trim());
-            if (text) return "text:" + text.data.trim().slice(0, 20);
-            const found = walk(c);
-            if (found) return found;
-        }
-        return null;
-    };
-    return walk(header);
-})()`;
-
-export const cockpitPolish = {
-    name: "cockpit-polish",
-    surface: "cockpit",
-    async arrange(h) {
-        const cwd = mkdtempSync(join(tmpdir(), "verify-cockpit-polish-"));
-        const ctx = { cwd };
-        // a throw past this point still returns ctx, so teardown removes whatever was already made
-        try {
-            await arrangeFixtureRun(h, ctx, "cockpit-polish", COCKPIT_POLISH_LEAD);
-            // the fixture roster is read once at boot
-            await h.ev("location.reload()");
-            await h.ev(`(async () => {
-                for (let i = 0; i < 60 && !document.querySelector("nav button"); i++) {
-                    await new Promise((r) => setTimeout(r, 500));
-                }
-            })()`);
-            await h.goto("cockpit");
-            // the fixture lead first renders as a plain agent card; it becomes the lead card once its run loads
-            ctx.leadCard = await h.ev(`(async () => {
-                for (let i = 0; i < 60; i++) {
-                    const card = ${COCKPIT_LEAD_CARD};
-                    if (card && (${LEAD_MARK_EXPR} === "svg" || card.textContent.includes("no plan submitted"))) {
-                        return true;
-                    }
-                    await new Promise((r) => setTimeout(r, 250));
-                }
-                return false;
-            })()`);
-            // let the card's enter motion settle
-            await new Promise((r) => setTimeout(r, 800));
-        } catch (e) {
-            ctx.arrangeError = String(e?.message ?? e);
-        }
-        return ctx;
-    },
-    async assert(h, ctx) {
-        const steps = [];
-        const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        rec(
-            "0. the fixture lead renders as its run's lead card on the Cockpit",
-            ctx.arrangeError == null && ctx.leadCard === true,
-            ctx.arrangeError ?? `runId=${ctx.runId}`
-        );
-
-        steps.push(await floorStep(h, "1. no visible text on the Cockpit is under 10.5px", COCKPIT));
-
-        const mark = await h.ev(LEAD_MARK_EXPR);
-        rec("2. the lead card's header leads with an svg (the Workflow icon)", mark === "svg", `mark=${mark}`);
-
-        const chips = await paintEval(h, `
-            const bar = document.querySelector("[data-cockpit-hints]");
-            const keys = [...(bar?.querySelectorAll("span.font-mono") ?? [])];
-            return { bar: bar != null, keys: keys.length, raw: keys.filter((k) => rawOverlay(getComputedStyle(k).backgroundColor)).map((k) => k.textContent) };
-        `);
-        rec("3. the HintsBar's key chips have no raw white or black overlay background", chips.bar && chips.keys > 0 && chips.raw.length === 0, JSON.stringify(chips));
-        return steps;
-    },
-    async teardown(h, ctx) {
-        await teardownFixtureRun(h, ctx, "cockpit-polish");
-    },
-};
-
-// The Cockpit's j/k/n/Enter are the container's own onKeyDown (usecockpitkeyboard.ts), so they work only
-// while focus is inside it. Arriving from the Agent surface left focus on <body> (the palette's restore
+// The Cockpit's arrows, Space, d and Enter are the container's own onKeyDown (usecockpitkeyboard.ts), so they work
+// only while focus is inside it. Arriving from the Agent surface left focus on <body> (the palette's restore
 // target, the xterm, is display:none by then) or on the nav button, and every Cockpit key was dead until a
 // click. A key is dispatched at whatever holds focus, which is where a real keypress would land.
 const COCKPIT_SURFACE = `document.querySelector('[data-cockpit-surface]')`;
@@ -514,10 +428,10 @@ const cockpitKeyReach = `(() => {
     const c = ${COCKPIT_SURFACE};
     if (!c) return { reached: false, active: 'no cockpit surface' };
     let reached = false;
-    const probe = (e) => { if (e.key === 'j') reached = true; };
+    const probe = (e) => { if (e.key === 'ArrowDown') reached = true; };
     c.addEventListener('keydown', probe, true);
     const target = document.activeElement ?? document.body;
-    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', code: 'KeyJ', bubbles: true, cancelable: true }));
+    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true, cancelable: true }));
     c.removeEventListener('keydown', probe, true);
     return { reached, active: target.tagName + (target.getAttribute('data-cockpit-surface') != null ? '[cockpit]' : '') };
 })()`;
@@ -542,7 +456,7 @@ export const cockpitKeysOnArrival = {
         await polishNap(300);
         const viaPalette = await h.ev(cockpitKeyReach);
         steps.push({
-            step: "Agent -> Ctrl+P 'cockpit' -> Enter: j reaches the Cockpit",
+            step: "Agent -> Ctrl+P 'cockpit' -> Enter: ArrowDown reaches the Cockpit",
             ok: opened === true && viaPalette.reached === true,
             detail: `palette=${opened} active=${viaPalette.active}`,
         });
@@ -552,7 +466,7 @@ export const cockpitKeysOnArrival = {
         await h.goto("cockpit");
         const viaNav = await h.ev(cockpitKeyReach);
         steps.push({
-            step: "Agent -> nav click Cockpit: j reaches the Cockpit",
+            step: "Agent -> nav click Cockpit: ArrowDown reaches the Cockpit",
             ok: viaNav.reached === true,
             detail: `active=${viaNav.active}`,
         });
@@ -661,13 +575,14 @@ export const motionGaps = {
     },
 };
 
-// --- surface headers: one shared toolbar on every surface but Agent ------------------------------
+// --- surface headers: one shared toolbar on every surface but Agent and Cockpit -----------------
 // Each surface's SurfaceToolbar measured against the prototype canvas (Main.dc.html) at its main board
 // size. Final runs this on a fresh, empty store, so arrange makes everything a step reads: a git repo at
-// a long path registered as one project (Diff, Code's path fact), a fixture roster (Cockpit, the
-// Sessions live fact, the Jarvis chip), and a saved Claude rate-limit snapshot (Usage).
+// a long path registered as one project (Diff, Code's path fact), a fixture roster (the Sessions
+// live fact, the Jarvis chip), and a saved Claude rate-limit snapshot (Usage).
 const SURFACE_HEADERS_PROJECT = "verify-surface-headers";
-const SURFACE_HEADERS_ORDER = ["cockpit", "jarvis", "code", "files", "sessions", "usage", "settings", "setup"];
+// the Cockpit has its own header (the prototype's count and Space/Esc line), not the shared toolbar
+const SURFACE_HEADERS_ORDER = ["jarvis", "code", "files", "sessions", "usage", "settings", "setup"];
 const SURFACE_HEADERS_WIDE = { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false };
 const SURFACE_HEADERS_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
 const SURFACE_HEADERS_MIN_PATH = 120;
@@ -1416,10 +1331,6 @@ const DRIFT_ASK = {
         ],
     },
 };
-const DRIFT_AGENTS = [
-    { id: "drift-1", name: "drift one", task: "raise the rail", state: "idle", project: "waveterm", activity: "finished the pass", activeMs: 3_600_000 },
-    { id: "drift-2", name: "drift two", task: "swap the glyphs", state: "working", project: "waveterm", activity: "reading files", activeMs: 420_000 },
-];
 // the ink tokens a hint may wear
 const DRIFT_INKS = ["text-muted", "text-ink-faint", "text-ink-mid", "text-secondary", "text-primary", "text-ink-hi"];
 const DRIFT_BADGE = 12;
@@ -1621,60 +1532,6 @@ export const uiDrift = {
                     selected.color !== hovered.hover,
                 detail: JSON.stringify({ options: s.options, hovered, restRaw, selected }),
             };
-        });
-
-        // the cockpit's idle and backgrounded lanes and an agent card: their hovers sit on the surface ramp
-        for (const [name, path, props] of [
-            ["IdleSection", "app/view/agents/idlesection.tsx", `{ agents: ${JSON.stringify([DRIFT_AGENTS[0]])}, nowAtom: J.atom(Date.now()), onOpen() {} }`],
-            ["BackgroundedSection", "app/view/agents/backgroundedsection.tsx", `{ agents: ${JSON.stringify([DRIFT_AGENTS[1]])}, nowAtom: J.atom(Date.now()), onRestore() {} }`],
-        ]) {
-            const label = name.toLowerCase();
-            await run(label, async () => {
-                const s = await lookEval(h, `
-                    unmountAll();
-                    const J = await dep("jotai");
-                    const host = await mount(${JSON.stringify(path)}, ${JSON.stringify(name)}, ${props}, { style: "width:560px" });
-                    // the section header is a clickable div
-                    host.querySelector(".cursor-pointer")?.click();
-                    await until(() => host.querySelector('[class*="hover:bg-surface-hover"]') != null, 3000);
-                    await nap(400);
-                    return { floor: floorWalk([host]) };
-                `);
-                await h.shot(lookShot(`ui-drift-${label}`));
-                steps.push({ step: `${label} renders with no visible text under ${MIN_FONT_PX}px`, ok: floorOk(s.floor), detail: floorDetail(s.floor) });
-                const r = await driftHover(h, `${DRIFT_HOST(name)}?.querySelector('[class*="hover:bg-surface-hover"]')`);
-                return { step: `${label}'s hovered row changes background and is no raw white or black overlay`, ok: hoverOk(r), detail: JSON.stringify(r) };
-            });
-        }
-        await run("agentrow", async () => {
-            const made = await lookEval(h, `
-                unmountAll();
-                const J = await dep("jotai");
-                const { cardShare } = await mod("app/view/agents/cardgridlayout.ts");
-                const noop = () => {};
-                const { NO_LINEAGE } = await mod("app/view/agents/runlineage.ts");
-                // the card reads its transcript context from the model's run lineage (2577f0f5c)
-                const host = await mount("app/view/agents/agentrow.tsx", "AgentRow", {
-                    model: { lineageAtom: J.atom(NO_LINEAGE) },
-                    agent: ${JSON.stringify(DRIFT_AGENTS[1])},
-                    nowAtom: J.atom(Date.now()),
-                    isCursor: false,
-                    selections: {},
-                    texts: {},
-                    sent: false,
-                    composerOpen: false,
-                    onCursor: noop, onOpen: noop, onOpenTerminal: noop, onOpenDiff: noop, onOpenComposer: noop,
-                    onToggleAnswer: noop, onAnswerText: noop, onSubmitAnswer: noop, onBackground: noop,
-                    share: cardShare(false, false),
-                }, { style: "width:560px;height:360px;display:flex;flex-direction:column" });
-                return host.querySelector('button[title="Open terminal (T)"]') != null;
-            `);
-            // the title tooltip host parks a hovered element's title in data-arc-title
-            const r = await driftHover(
-                h,
-                `${DRIFT_HOST("AgentRow")}?.querySelector('button[title="Open terminal (T)"], button[data-arc-title="Open terminal (T)"]')`
-            );
-            return { step: "an agent card's header control changes background under the pointer and is no raw white or black overlay", ok: made && hoverOk(r), detail: JSON.stringify({ made, ...r }) };
         });
 
         // the nav rail at 78px with a two-digit count, in a store of its own so no live badge is touched

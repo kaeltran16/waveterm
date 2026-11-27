@@ -41,12 +41,6 @@ export function finishedRunLabel(run: Pick<RunInfo, "dag" | "status" | "land">):
     return (run.land && landView(run.land)?.label) || "run complete";
 }
 
-/** Pure: what a run whose final stage failed waits on. Nothing runs until a fix round is planned: the lead's, or
- *  with no lead to plan it, one the engine launches a lead for. */
-export function finalFailedLine(leadFixes: boolean): string {
-    return `final failed · ${finalFailedWait(leadFixes)}`;
-}
-
 export function finalFailedWait(leadFixes: boolean): string {
     return leadFixes ? "waiting on the lead's fix round" : "waiting on a fix round";
 }

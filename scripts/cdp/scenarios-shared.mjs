@@ -352,7 +352,6 @@ export async function teardownFixtureRun(h, ctx, name, restore) {
     if (trees.size) console.log(`${name} teardown: run trees gone: ${[...trees].join(", ")}`);
 }
 export const COCKPIT = `document.querySelector("[data-cockpit-surface]")`;
-export const COCKPIT_LEAD_CARD = `${COCKPIT}?.querySelector('[data-agent-id="${TREE_RAIL_LEAD_ID}"]')`;
 
 // The Jarvis run sheet on the brief type scale (docs/superpowers/specs/2026-09-29-run-sheet-polish-design.md):
 // nothing under 10.5px in the sheet body or its header, the shared task strip under the verb, and the compact

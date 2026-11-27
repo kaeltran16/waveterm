@@ -267,7 +267,3 @@ export function tabWaiting(tab: WorkspaceTab, input: WaitInput): number {
             return 0;
     }
 }
-
-export function waitingOnYou(tabs: WorkspaceTab[], input: WaitInput): number {
-    return tabs.reduce((n, t) => n + tabWaiting(t, input), 0);
-}

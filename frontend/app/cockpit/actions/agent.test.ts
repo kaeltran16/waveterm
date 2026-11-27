@@ -3,6 +3,7 @@ import { RpcApi } from "@/app/store/wshclientapi";
 import { sentPromptsAtom } from "@/app/view/agents/agentsend";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { channelsAtom } from "@/app/view/agents/channelsstore";
+import { cockpitViewAtomFor, sessionSightAtom } from "@/app/view/agents/cockpitsessionstore";
 import { liveEntriesByIdAtom } from "@/app/view/agents/livetranscriptatoms";
 import type { ProjectRow } from "@/app/view/agents/projectsstore";
 import { getAgentStatusAtom } from "@/app/view/agents/session-models/agentstatusstore";
@@ -34,6 +35,7 @@ const thing = (over: Partial<AgentVM> = {}, rest: Partial<Omit<AgentThing, "agen
     agent: vm(over),
     contextLevel: null,
     hasDiff: false,
+    onGrid: false,
     ...rest,
 });
 const applies = (id: string, t: AgentThing) => AGENT_KIND.actions.find((a) => a.id === id)!.applies(t);
@@ -84,15 +86,20 @@ describe("agent actions", () => {
             globalStore.set(liveEntriesByIdAtom, {});
         }
     });
-    it("backgrounds a working or asking agent and dismisses an idle one", () => {
-        expect(available(thing({ state: "working" }))).toContain("agent:background");
-        expect(available(thing({ state: "working" }))).not.toContain("agent:dismiss");
-        expect(available(thing({ state: "asking" }))).toContain("agent:background");
-        expect(available(thing({ state: "idle" }))).toContain("agent:dismiss");
-        expect(available(thing({ state: "idle" }))).not.toContain("agent:background");
-        const labels = Object.fromEntries(AGENT_KIND.actions.map((a) => [a.id, a.label]));
-        expect(labels["agent:background"]).toBe("Move to background");
-        expect(labels["agent:dismiss"]).toBe("Dismiss");
+    it("offers Dismiss for a session on the grid in any state, and nothing to background", () => {
+        for (const state of ["working", "asking", "idle"] as const) {
+            expect(available(thing({ state }, { onGrid: true }))).toContain("agent:dismiss");
+        }
+        expect(available(thing({ state: "idle" }))).not.toContain("agent:dismiss");
+        expect(AGENT_KIND.actions.map((a) => a.id)).not.toContain("agent:background");
+    });
+    it("Dismiss moves the session to the Idle line", async () => {
+        await AGENT_KIND.actions
+            .find((a) => a.id === "agent:dismiss")!
+            .run(thing({ id: "tabD" }, { onGrid: true }), {
+                model: {} as any,
+            } as any);
+        expect(globalStore.get(sessionSightAtom)["tabD"]?.dismissedAt).toEqual(expect.any(Number));
     });
     it("offers Compact and Clear only when the context level offers a reset", () => {
         const idle = { state: "idle" as const };
@@ -117,12 +124,14 @@ describe("agent actions", () => {
     });
     it("builds entries keyed and titled as the palette's agent rows", () => {
         const agents = [vm(), vm({ id: "tab2", name: "fern", task: "Fix race", usage: { contextpct: 90 } as any })];
-        const get = ((a: unknown) => (a === model.agentsAtom ? agents : {})) as any;
         const model = { agentsAtom: {} } as any;
+        const view = { sessions: [{ agent: agents[1] }], idle: [], orphans: [], turnCount: 0, loaded: true };
+        const get = ((a: unknown) =>
+            a === model.agentsAtom ? agents : a === cockpitViewAtomFor(model) ? view : {}) as any;
         const entries = AGENT_KIND.entries(get, model);
-        expect(entries.map((e) => [e.key, e.title])).toEqual([
-            ["agent:tab1", "loom"],
-            ["agent:tab2", "fern — Fix race"],
+        expect(entries.map((e) => [e.key, e.title, e.thing.onGrid])).toEqual([
+            ["agent:tab1", "loom", false],
+            ["agent:tab2", "fern — Fix race", true],
         ]);
         expect(entries[0].thing.contextLevel).toBeNull();
         expect(entries[1].thing.contextLevel).toBe("hot");

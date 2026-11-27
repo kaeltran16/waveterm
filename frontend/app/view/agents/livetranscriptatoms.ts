@@ -32,7 +32,6 @@ const EMPTY_WAITING: WaitingPrompt[] = [];
 
 const entriesFamily = atomFamily((id: string) => selectAtom(liveEntriesByIdAtom, (m) => m[id] ?? EMPTY_ENTRIES));
 const activityFamily = atomFamily((id: string) => selectAtom(lastActivityByIdAtom, (m) => m[id]));
-const tasksFamily = atomFamily((id: string) => selectAtom(tasksByIdAtom, (m) => m[id]));
 const earlierFamily = atomFamily((id: string) => selectAtom(earlierByIdAtom, (m) => m[id]));
 const waitingFamily = atomFamily((id: string) => selectAtom(waitingByIdAtom, (m) => m[id] ?? EMPTY_WAITING));
 
@@ -50,7 +49,6 @@ export const idsWithEntriesAtom: Atom<Set<string>> = selectAtom(
 
 export const entriesAtomFor = (id: string): Atom<AgentEntry[]> => entriesFamily(id);
 export const activityAtomFor = (id: string): Atom<number | undefined> => activityFamily(id);
-export const tasksAtomFor = (id: string): Atom<CardTask[] | undefined> => tasksFamily(id);
 export const earlierAtomFor = (id: string): Atom<EarlierTurns | undefined> => earlierFamily(id);
 export const waitingAtomFor = (id: string): Atom<WaitingPrompt[]> => waitingFamily(id);
 
@@ -75,7 +73,6 @@ export function dropLiveId(id: string, store: Store = globalStore): void {
     dropFromMap(store, waitingByIdAtom, id);
     entriesFamily.remove(id);
     activityFamily.remove(id);
-    tasksFamily.remove(id);
     earlierFamily.remove(id);
     waitingFamily.remove(id);
 }

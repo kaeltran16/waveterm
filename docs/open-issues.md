@@ -39,6 +39,14 @@ Status legend:
   (`cmd/wsh/cmd/wshcmd-agenthook.go`). Deleting either before the flip puts superpowers back into every engine
   session.
 
+- **Old Cockpit leftovers** (2026-11-27, run `3b49300f`). The Cockpit rethink removed the cards and the Events
+  rail and left these behind:
+  - `railSeenAtom` lost its only writer, so the project Overview's Finished region treats every finish as unread.
+    Give it a seen moment of its own, or drop the unread split.
+  - `tasksByIdAtom` and the `extract*Tasks` projections still run on every transcript chunk, but nothing reads them.
+  - The background-agents poll now feeds only the pet's finished event. `backgroundAgentVMsAtom` and
+    `dismissBackgroundAgent` have no caller.
+
 Tracked in their own initiatives, not here:
 
 - **Orchestrator wall-clock** — effort `b1fe5d7e`: live-verify the unit-tested fixes, the Timing section live check.

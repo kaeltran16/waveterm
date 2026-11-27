@@ -21,7 +21,7 @@ export const GLOBAL_HINTS: FooterHint[] = [
     { ids: ["go:cockpit"], glyph: "g", label: "go" }, // bare g-leader; drops in the terminal
     { ids: ["leader:enter"], keys: "Ctrl:g", label: "go" }, // the same tree, reachable in the terminal
     { ids: ["surface:back-home"], glyph: "esc", label: "home" }, // deep surfaces only (via its when)
-    { ids: ["list:peek", "cockpit:peek"], glyph: "space · ctrl+click", label: "peek", ctrlLit: true },
+    { ids: ["list:peek"], glyph: "space · ctrl+click", label: "peek", ctrlLit: true },
     { ids: ["palette"], keys: "Ctrl:p", label: "palette" },
     { ids: ["new-agent"], keys: "Ctrl:n", label: "new" },
     { ids: ["help"], glyph: "?", label: "help" }, // Shift+?; drops in the terminal

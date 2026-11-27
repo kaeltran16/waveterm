@@ -31,7 +31,7 @@ const STREAM_OPEN_MS = 1_500;
 
 const TREE_ROW = (id) => `document.querySelector('[data-agent-tree] [data-tree-agent="${id}"]')`;
 const RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
-const COCKPIT_CARD = (id) => `document.querySelector('[data-cockpit-surface] [data-agent-id="${id}"]')`;
+const COCKPIT_THUMB = (id) => `document.querySelector('[data-cockpit-surface] [data-cockpit-thumb="${id}"]')`;
 
 // the tree row's chips and the rail's Tools used verbs, as the page shows them
 const seen = (id) => `(() => {
@@ -138,10 +138,10 @@ export default function (_kit) {
                 await h.goto("cockpit");
                 const carded = await polishWaitFor(
                     h,
-                    `(${COCKPIT_CARD(ctx.id)}?.textContent ?? "").includes(${JSON.stringify(NARRATION)})`,
+                    `(${COCKPIT_THUMB(ctx.id)}?.textContent ?? "").includes(${JSON.stringify(NARRATION)})`,
                     WAIT_MS
                 );
-                await h.shot("cdp-shots/agent-streams-3-cockpit-card.png");
+                await h.shot("cdp-shots/agent-streams-3-cockpit-thumb.png");
                 await h.goto("agent");
                 await focusAgent(h, ctx.id);
                 append(...toolCall("toolu_glob1", "Glob", { pattern: "**/*.ts" }, "config.ts"));
@@ -149,7 +149,7 @@ export default function (_kit) {
                 const back = await h.ev(seen(ctx.id));
                 await h.shot("cdp-shots/agent-streams-3-back.png");
                 rec(
-                    "3. after a Cockpit visit (its card showed the transcript) and back, the chip and Tools used stay and the stream still delivers",
+                    "3. after a Cockpit visit (its thumbnail showed the transcript) and back, the chip and Tools used stay and the stream still delivers",
                     carded && hasChip(back) && ["read", "edited", "ran", "grep", "glob"].every((v) => back.verbs.includes(v)),
                     JSON.stringify({ carded, ...back })
                 );
@@ -175,13 +175,13 @@ export default function (_kit) {
                     },
                 ]);
                 await h.goto("cockpit");
-                const lateCard = await polishWaitFor(h, `${COCKPIT_CARD(lateId)} != null`, WAIT_MS);
-                // the card mounting starts the stream; give its rpc time to reach the backend before the folder exists
+                const lateCard = await polishWaitFor(h, `${COCKPIT_THUMB(lateId)} != null`, WAIT_MS);
+                // the shell starts a working agent's stream; give its rpc time to reach the backend before the folder exists
                 await new Promise((r) => setTimeout(r, STREAM_OPEN_MS));
                 const missingAtOpen = !existsSync(join(ctx.dir, "late-project"));
                 mkdirSync(lateDir, { recursive: true });
                 appendFileSync(latePath, lateLines.map((t) => assistantText(t)).join("\n") + "\n");
-                const lateText = `(${COCKPIT_CARD(lateId)}?.textContent ?? "")`;
+                const lateText = `(${COCKPIT_THUMB(lateId)}?.textContent ?? "")`;
                 const rendered = await polishWaitFor(
                     h,
                     `${JSON.stringify(lateLines)}.every((t) => ${lateText}.includes(t))`,
@@ -191,7 +191,7 @@ export default function (_kit) {
                 rec(
                     "4. an agent whose transcript folder did not exist when its stream opened shows both lines written once the folder appears",
                     lateCard && missingAtOpen && rendered,
-                    JSON.stringify({ lateCard, missingAtOpen, rendered, card: await h.ev(lateText) })
+                    JSON.stringify({ lateCard, missingAtOpen, rendered, thumb: await h.ev(lateText) })
                 );
                 return steps;
             },

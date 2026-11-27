@@ -1,27 +1,18 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The cockpit's Events rail: what changed state, never what an agent said. A run's events are the engine's
+// The fleet's events (the project Overview's Finished region): what changed state, never what an agent said. A run's events are the engine's
 // persisted ones; a plain agent has no history anywhere, so its transitions are observed here and are lost on
 // reload (effort 9868f8d2, decided frontend-only). Pure.
 
 import { isFinishTransition } from "./agentrowmodel";
-import { matchesProjectFilter, projectOf, type AgentState, type AgentVM } from "./agentsviewmodel";
+import { matchesProjectFilter, type AgentState, type AgentVM } from "./agentsviewmodel";
 import { leadlessCardId } from "./cardgridlayout";
 import { rowKey } from "./leadcardmodel";
 import type { Lineage, RunInfo } from "./runlineage";
 import { detailOf, eventText, finalEndedWords } from "./runtimeline";
 
-export type RailKind =
-    | "asked"
-    | "answered"
-    | "finished"
-    | "quiet"
-    | "failed"
-    | "told"
-    | "acted"
-    | "landed"
-    | "sentback";
+type RailKind = "asked" | "answered" | "finished" | "quiet" | "failed" | "told" | "acted" | "landed" | "sentback";
 
 export interface RailEvent {
     key: string;
@@ -33,8 +24,6 @@ export interface RailEvent {
     // the run an engine event belongs to; a run's events fold under its newest one
     group?: string;
 }
-
-export type RailRow = RailEvent & { more?: string };
 
 export interface AgentSnap {
     state: AgentState;
@@ -310,55 +299,7 @@ export function splitUnread(events: RailEvent[], seenTs: number): { fresh: RailE
 export type RailSeen = { all: number; byProject: Record<string, number> };
 export const NO_RAIL_SEEN: RailSeen = { all: 0, byProject: {} };
 
-/** Pure: the seen state after "mark all read" in `projectFilter`, up to the newest event `ts` it showed. */
-export function markRailRead(seen: RailSeen, projectFilter: string, ts: number): RailSeen {
-    return projectFilter === "all"
-        ? { ...seen, all: ts }
-        : { ...seen, byProject: { ...seen.byProject, [projectFilter]: ts } };
-}
-
 /** Pure: the read stamp for one project's events: the latest of its own and the all-projects one. */
 export function seenTsFor(seen: RailSeen, project: string): number {
     return Math.max(seen.all, seen.byProject[project] ?? 0);
-}
-
-/** Pure: splitUnread with each event read against its own project's stamp. */
-export function splitUnreadScoped(
-    events: RailEvent[],
-    seen: RailSeen,
-    agents: AgentVM[],
-    lineage: Lineage
-): { fresh: RailEvent[]; old: RailEvent[] } {
-    const agentOf = railEventAgent(agents, lineage);
-    const isFresh = (e: RailEvent) => {
-        const a = agentOf(e);
-        return e.ts > (a != null ? seenTsFor(seen, projectOf(a)) : seen.all);
-    };
-    return { fresh: events.filter(isFresh), old: events.filter((e) => !isFresh(e)) };
-}
-
-/** Pure: the rows a list shows. A run with several events shows its newest, which counts the rest, until it is
- *  opened; plain agents' events always show. */
-export function groupRailEvents(events: RailEvent[], open: Record<string, boolean>): RailRow[] {
-    const count: Record<string, number> = {};
-    for (const e of events) {
-        if (e.group != null) {
-            count[e.group] = (count[e.group] ?? 0) + 1;
-        }
-    }
-    const seen = new Set<string>();
-    const out: RailRow[] = [];
-    for (const e of events) {
-        const g = e.group;
-        if (g == null || count[g] < 2) {
-            out.push(e);
-        } else if (!seen.has(g)) {
-            seen.add(g);
-            // the row above names the run, so the toggle need not
-            out.push({ ...e, more: open[g] ? "show less" : `+${count[g] - 1} more` });
-        } else if (open[g]) {
-            out.push(e);
-        }
-    }
-    return out;
 }

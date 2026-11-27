@@ -2,7 +2,6 @@
 
 import { modelLabel, type SubagentVM } from "@/app/view/agents/session-models/sessionviewmodel";
 import type { BuilderCheckRecord } from "./brainstormmodel";
-import { sessionIdFromTranscript } from "./launch";
 import { registeredProjectFor } from "./projectlabel";
 import { projectNameFromTranscriptPath } from "./projectname";
 import { isStandingBy, type ShellTask } from "./shelltasks";
@@ -256,18 +255,6 @@ export function groupAgents(agents: AgentVM[]): AgentSections {
         working: sorted.filter((a) => a.state === "working"),
         idle: sorted.filter((a) => a.state === "idle"),
     };
-}
-
-/** Pure: the text of the most recent message-kind entry, or undefined. Drives the working row's
- *  current-activity line and the focus view's accented "now" message. */
-export function latestMessageText(entries: AgentEntry[]): string | undefined {
-    for (let i = entries.length - 1; i >= 0; i--) {
-        const e = entries[i];
-        if (e.kind === "message") {
-            return e.text;
-        }
-    }
-    return undefined;
 }
 
 export type AgentActionEntry = Extract<AgentEntry, { kind: "action" }>;
@@ -631,22 +618,6 @@ export function applyAgentOrder(order: string[], agents: AgentVM[]): AgentVM[] {
         .filter(Boolean) as AgentVM[];
 }
 
-/** Pure: split the grid's agents into the active set (rendered on the grid) and the backgrounded set
- *  (collapsed lane). An id in `backgroundedIds` goes to backgrounded; order within each is preserved.
- *  Asking and just-finished agents are passed in too: it is pruning the set (prunedBackgrounded), not
- *  this split, that resurfaces a backgrounded agent once it stops working. */
-export function partitionBackgrounded(
-    working: AgentVM[],
-    backgroundedIds: Set<string>
-): { active: AgentVM[]; backgrounded: AgentVM[] } {
-    const active: AgentVM[] = [];
-    const backgrounded: AgentVM[] = [];
-    for (const a of working) {
-        (backgroundedIds.has(a.id) ? backgrounded : active).push(a);
-    }
-    return { active, backgrounded };
-}
-
 /** Pure: the ask to jump to after `current`, cycling with wrap. Defaults to the first ask when
  *  `current` is absent or no longer in the list. Undefined for an empty list. */
 export function nextAskId(ids: string[], current?: string): string | undefined {
@@ -1002,13 +973,6 @@ export interface CardTask {
     done: boolean;
 }
 
-/** Pure: done/total/percent for a task list. */
-export function taskProgress(tasks: CardTask[]): { done: number; total: number; pct: number } {
-    const total = tasks.length;
-    const done = tasks.filter((t) => t.done).length;
-    return { done, total, pct: total === 0 ? 0 : Math.round((done / total) * 100) };
-}
-
 /** A just-launched agent that doesn't exist in the roster yet (the reporter hasn't emitted a status).
  *  `tabId` is the session tab we created — the SAME id the real roster row will use (`row.tabId`),
  *  so supersede needs no id migration. */
@@ -1092,12 +1056,4 @@ export function backgroundAgentToVM(bg: BackgroundAgentData, projectName: string
         needsInput: bg.state === "blocked",
         activeMs: bg.startedts ? Math.max(0, now - bg.startedts) : undefined,
     };
-}
-
-/** Pure: drop background agents that are already tracked as live hook-fed agents. A live agent's
- *  session id is the stem of its transcript filename (sessionIdFromTranscript); a background agent's
- *  id IS its session id. Same id => same session => show it once (the live, richer one wins). */
-export function dedupBackgroundAgents(background: AgentVM[], liveAgents: AgentVM[]): AgentVM[] {
-    const liveSessionIds = new Set(liveAgents.map((a) => sessionIdFromTranscript(a.transcriptPath)).filter(Boolean));
-    return background.filter((b) => !liveSessionIds.has(b.id));
 }

@@ -111,13 +111,15 @@ function Popup() {
         hide();
     };
     const brainstorm = bubble.kind === "brainstorm";
+    // a run's wait that came to you takes the waiting color, as its run line does
+    const waiting = brainstorm || bubble.kind === "escalated";
     return (
         // the padding is the window's room for the card's shadow
         <div ref={frame} className="w-fit p-6">
             <BubbleCard
                 marker="attention-popup"
                 label={bubble.label}
-                dot={brainstorm ? "bg-warning" : "bg-accent"}
+                dot={waiting ? "bg-warning" : "bg-accent"}
                 tone={brainstorm ? "text-warning" : "text-muted"}
                 name={bubble.name}
                 text={<PlainInlineMarkdown text={bubble.text} />}

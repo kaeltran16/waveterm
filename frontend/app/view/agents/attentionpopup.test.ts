@@ -41,6 +41,14 @@ describe("popupBubble", () => {
     ])("labels %s with its action %s", (kind, action) => {
         expect(popupBubble([], [item({ kind, action })], false).label).toBe(action);
     });
+    it("carries why a run's wait came to you as its detail line", () => {
+        const escalated = { ...item({ key: "a", kind: "dag-blocked", action: "Review" }), escalated: "why it came" };
+        expect(popupBubble([], [escalated], false)).toMatchObject({
+            kind: "escalated",
+            label: "Review",
+            detail: "why it came",
+        });
+    });
     it("names the first new item with the others counted", () => {
         const next = [item({ key: "a" }), item({ key: "b" }), item({ key: "c" })];
         expect(popupBubble([], next, false)).toMatchObject({ key: "a", more: 2 });

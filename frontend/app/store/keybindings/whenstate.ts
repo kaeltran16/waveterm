@@ -28,6 +28,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";
 import { brainstormAtom } from "@/app/view/agents/brainstormstore";
 import { canvasStateAtom } from "@/app/view/agents/canvasstore";
+import { cockpitZoomAtom } from "@/app/view/agents/cockpitsessionstore";
 import { escapeMenusOpenAtom } from "@/app/hook/useEscapeClose";
 import { compareOnAtom } from "@/app/view/agents/comparestore";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
@@ -81,6 +82,7 @@ export const PREDICATE_ATOMS: Atom<unknown>[] = [
     usageWorkScopeAtom, // usage:back, surface:back-home
     usageWorkItemAtom, // usage:back, surface:back-home
     boardOwnsEscapeAtom, // boards:clear, and surface:back-home stands down to it
+    cockpitZoomAtom, // buildCockpitBindings, the cockpit:zoom-* keys, and surface:next/prev stand down to them
 ];
 
 function bumpWhenVersion() {

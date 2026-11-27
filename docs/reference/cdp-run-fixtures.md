@@ -73,7 +73,7 @@ lead starts, and a seed is never ticked over. It throws (after cancelling) if a 
   cancel fails on a tab that does not exist.
 - `live-run-fixture.mjs` builds the live-run review's three runs on these (one task per state, a leadless run, a
   failed Final) with the page-only injections only a live worker makes: the digest's ask reasons, child asks and
-  run events. `lead-card-merge-gate` and `agent-tree-rail` use it.
+  run events. `agent-tree-rail` uses it.
 - Page events are replaced by the first load of a run's history: publish them again once the run's view is up.
 
 ## A run with a final stage

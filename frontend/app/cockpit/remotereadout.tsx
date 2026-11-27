@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Remote mode's footer chip: off, starting, on or down at a glance, and the door to Settings > Remote.
-// Drawn in the global footer and in the Cockpit's own hints bar, beside the resource readout.
+// Drawn in the global footer, beside the resource readout.
 
 import { globalStore } from "@/app/store/jotaiStore";
 import type { AgentsViewModel } from "@/app/view/agents/agents";

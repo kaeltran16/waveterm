@@ -62,8 +62,6 @@ export type SurfaceKey =
 // entries are chorded — there is no unchorded remainder.
 export const SURFACE_ORDER: SurfaceKey[] = ["cockpit", "jarvis", "agent", "code", "files", "sessions", "boards", "usage"];
 
-export type ChipFilter = "all" | "asking" | "working" | "idle";
-
 export class AgentsViewModel implements ViewModel {
     viewType: string;
     blockId: string;
@@ -94,8 +92,6 @@ export class AgentsViewModel implements ViewModel {
     cursorIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
     // the Cockpit grid's card order; the Agent surface's tree follows the roster instead
     orderAtom = atom<string[]>([]) as PrimitiveAtom<string[]>;
-    backgroundedIdsAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
-    dismissedAtom = atom<Set<string>>(new Set<string>()) as PrimitiveAtom<Set<string>>;
     answerSelAtom = atom<Record<string, Record<number, Set<number>>>>({}) as PrimitiveAtom<
         Record<string, Record<number, Set<number>>>
     >;
@@ -119,8 +115,6 @@ export class AgentsViewModel implements ViewModel {
         return diffScopeAtom;
     }
     focusReplyAtom = atom(false);
-    railOpenAtom = atom(true);
-    chipFilterAtom = atom<ChipFilter>("all");
     // Sessions surface: status filter chip (All / Live / Needs you / Done). Default "all".
     sessionsStatusFilterAtom = atom<SessionStatusFilter>("all");
     // Sessions surface: selected left-list entry. "all" = merged feed; "run:<id>" = an orchestrator run;
@@ -170,12 +164,8 @@ export class AgentsViewModel implements ViewModel {
     // the query the next open starts with, consumed by that open (Code's Ctrl+Shift+O seeds "@")
     paletteSeedAtom = atom<string | null>(null) as PrimitiveAtom<string | null>;
 
-    // handoff-parity filters + per-card layout (spec §State). Project scope is a single source bound to
-    // both the app-bar switcher and the header button.
+    // the project scope, one source bound to the app-bar switcher
     projectFilterAtom = atom<string>("all"); // "all" | <projectName>
-    liveOnlyAtom = atom(false);
-    // which card's composer is expanded (one at a time); asking cards are always expanded regardless
-    openComposerIdAtom = atom<string | undefined>(undefined) as PrimitiveAtom<string | undefined>;
 
     constructor({ blockId, nodeModel, tabModel }: ViewModelInitType) {
         this.blockId = blockId;

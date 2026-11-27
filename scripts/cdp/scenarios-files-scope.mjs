@@ -704,9 +704,9 @@ async function filterPicker(h, text) {
     return until(h, `${q(FILTER_INPUT)}?.value === ${JSON.stringify(text)}`, 3000);
 }
 
-// The cockpit reads its roster from the dev fixture once at boot, and a card draws its diff chip only once its
-// transcript names a cwd with changes: a transcript that names the project and makes the uncommitted edit (a claude
-// agent counts only its own edits) gives a real chip from the real pipeline. The fixture file may be a developer's
+// The app reads its roster from the dev fixture once at boot, and an agent has a diff only once its transcript names a
+// cwd with changes: a transcript that names the project and makes the uncommitted edit (a claude agent counts only its
+// own edits) gives a real diff from the real pipeline. The fixture file may be a developer's
 // own, so it is kept and put back in teardown.
 function seedChipAgent(dir) {
     const transcriptRoot = mkdtempSync(join(tmpdir(), "verify-diff-chip-"));
@@ -858,19 +858,6 @@ export const diffScope = {
                 "2. picker keyboard: ArrowDown + Enter picks the second of two matches and closes; Enter on no match stays open",
                 typed && rowsShown === 2 && highlighted && scoped && closed && stillOpen && noMatch,
                 JSON.stringify({ typed, rowsShown, highlighted, scoped, closed, stillOpen, noMatch, label: await pickerLabel(h) })
-            );
-
-            const pinned = await openOnDiff(h, SCOPE.project);
-            await h.goto("cockpit");
-            const chipSel = `[data-diff-chip]`;
-            const chip = await until(h, `!!${q(chipSel)}`, 15000);
-            if (chip) await h.ev(`${q(chipSel)}.click()`);
-            const named = chip && (await until(h, `(${q("[data-files-source-picker]")}?.textContent ?? "").trim() === ${JSON.stringify(SCOPE.agent)}`, 10000));
-            await h.shot("cdp-shots/diff-scope-card-chip.png");
-            rec(
-                "3. card chip scopes to the agent: with Diff pinned to the project, the Cockpit card's diff chip opens Diff on that agent",
-                pinned && chip && named,
-                JSON.stringify({ pinned, chip, named, label: await pickerLabel(h) })
             );
 
             await runSteps(h, ctx, rec);

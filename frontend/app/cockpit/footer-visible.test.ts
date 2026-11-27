@@ -182,7 +182,7 @@ describe("peek chip", () => {
         expect(peekChip({ ...jarvis, editable: true })).toBeUndefined();
     });
 
-    it("shows on the cockpit through its documented Space, which the surface handles itself", () => {
-        expect(peekChip({ ...jarvis, surface: "cockpit" })?.label).toBe("peek");
+    it("hides on the cockpit, where Space zooms a session", () => {
+        expect(peekChip({ ...jarvis, surface: "cockpit" })).toBeUndefined();
     });
 });

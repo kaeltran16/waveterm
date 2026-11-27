@@ -1,92 +1,40 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The cockpit surface's keyboard dispatch (cursor nav, answer selection, surface switch, triage keys).
-// These keys are cockpit-local — handled here, not by the global keybinding registry. Extracted from
-// cockpitsurface.tsx as a hook taking a single deps object.
+// The Cockpit grid's own keys: the arrows walk the cursor along the path (thumbnails, the Idle line, the strip),
+// Space zooms a thumbnail or an Idle name and opens a strip line's run, d dismisses a thumbnail, Enter opens a
+// session on the Agent surface. Cockpit-local, handled here rather than by the global keybinding registry. While a
+// session is zoomed every key here stands down: the zoom's own bindings (bindings.ts' cockpit:zoom-*) hold them.
 
-import { globalStore } from "@/app/store/jotaiStore";
 import { tabbedControlOwns } from "@/app/store/keybindings/dispatcher";
-import { peekTarget } from "@/app/view/jarvis/openref";
 import { type KeyboardEvent, type MutableRefObject } from "react";
-import type { AgentsViewModel } from "./agents";
-import { answerDigitTarget, hasAnswerableAsk, moveCursor, nextAskId, type AgentVM } from "./agentsviewmodel";
-import { enterAction, pickAdvance } from "./askflow";
-import { askerAt, columnJump, type RowTarget } from "./cardgridlayout";
-import { isRowKey, rowCardId } from "./leadcardmodel";
+import { dismissedCursor, stepCursor, type ArrowKey, type GridPath, type GridTrail } from "./cockpitgridmodel";
 
 export type CockpitKeyDeps = {
-    model: AgentsViewModel;
-    navigableIds: string[];
+    path: GridPath;
     cursorId: string | undefined;
-    setCursorId: (v: (string | undefined) | ((p: string | undefined) => string | undefined)) => void;
-    answerTab: Record<string, number>;
-    answerSel: Record<string, Record<number, Set<number>>>;
-    navCols: string[][];
-    rowTargets: Record<string, RowTarget>;
-    askTargets: string[];
-    roster: AgentVM[];
-    lastJumpRef: MutableRefObject<string | undefined>;
-    setOpenComposerId: (v: string | undefined) => void;
-    selectQuestion: (id: string, qi: number) => void;
-    toggleAnswer: (id: string, qi: number, oi: number) => void;
-    submitAnswer: (id: string) => void;
-    toggleBackground: (id: string) => void;
-    openFocus: (id: string, reply: boolean) => void;
-    scrollToPulse: (id: string) => void;
-    focusRowComposer: (id: string) => void;
+    zoomed: boolean;
+    setCursorId: (id: string | undefined) => void;
+    trailRef: MutableRefObject<GridTrail>;
+    zoom: (agentId: string) => void;
+    // an Idle name zooms back out of the Idle line
+    zoomIdle: (agentId: string) => void;
+    dismiss: (agentId: string, nextCursor: string | undefined) => void;
+    openStrip: (stopId: string) => void;
+    openAgent: (agentId: string) => void;
 };
 
+const ARROWS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+
 export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => void {
-    const {
-        model,
-        navigableIds,
-        cursorId,
-        setCursorId,
-        answerTab,
-        navCols,
-        rowTargets,
-        askTargets,
-        roster,
-        lastJumpRef,
-        setOpenComposerId,
-        selectQuestion,
-        toggleAnswer,
-        submitAnswer,
-        toggleBackground,
-        openFocus,
-        scrollToPulse,
-        focusRowComposer,
-    } = deps;
-
-    // the atoms, not the render's snapshot: a digit's toggle has just written them
-    const answersOf = (id: string) => ({
-        sel: globalStore.get(model.answerSelAtom)[id] ?? {},
-        txt: globalStore.get(model.answerTextAtom)[id] ?? {},
-    });
-    // a digit picks an option, then moves on as a click does, but never submits: Enter stays the confirm step
-    const pickDigit = (asker: AgentVM, qi: number, oi: number) => {
-        toggleAnswer(asker.id, qi, oi);
-        const { sel, txt } = answersOf(asker.id);
-        const next = pickAdvance(asker.ask?.questions ?? [], sel, txt, qi);
-        if (next != null) {
-            selectQuestion(asker.id, next);
-        }
-    };
-    const enterAsk = (asker: AgentVM) => {
-        const { sel, txt } = answersOf(asker.id);
-        const action = enterAction(asker.ask?.questions ?? [], sel, txt, answerTab[asker.id] ?? 0);
-        if ("qi" in action) {
-            selectQuestion(asker.id, action.qi);
-        } else {
-            submitAnswer(asker.id);
-        }
-    };
-
+    const { path, cursorId, zoomed, setCursorId, trailRef, zoom, zoomIdle, dismiss, openStrip, openAgent } = deps;
     return (e: KeyboardEvent) => {
+        if (zoomed) {
+            return;
+        }
         const t = e.target as HTMLElement;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) {
-            return; // typing — let the input own its keys
+            return;
         }
         // every key here is a bare key: a chord the global dispatcher did not take is not this surface's
         if (e.ctrlKey || e.altKey || e.metaKey) {
@@ -96,122 +44,36 @@ export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => 
         if (tabbedControlOwns(e)) {
             return;
         }
-        // surface switch (`[`/`]`) now lives in the global keybinding registry (bindings.ts), so it
-        // fires from every surface, not just the cockpit — see docs Pass A (F1/F2).
-        // a run card can hold a lead the live list parked, so look the card up in the whole roster
-        const cur = roster.find((a) => a.id === cursorId);
-        const row = cursorId != null && isRowKey(cursorId) ? rowTargets[cursorId] : undefined;
-        // on a task row, space, r and b act on the row as they act on a card: peek its worker, reply to it with
-        // Tell, background its card. A row without one does nothing
-        if (row && (e.key === " " || e.key === "r" || e.key === "b")) {
+        if (ARROWS.has(e.key)) {
             e.preventDefault();
-            if (e.key === " " && row.peekId) {
-                // the peek renders only a live roster agent, so an ended transcript opens as enter does
-                if (roster.some((a) => a.id === row.peekId)) {
-                    void peekTarget(model, { kind: "agent", tabId: row.peekId });
-                } else {
-                    openFocus(row.peekId, false);
-                }
-            } else if (e.key === "r") {
-                row.tell?.();
-            } else if (e.key === "b") {
-                const card = roster.find((a) => a.id === rowCardId(cursorId!));
-                if (card && card.state !== "asking") {
-                    toggleBackground(card.id);
-                }
-            }
+            const step = stepCursor(path, cursorId, e.key as ArrowKey, trailRef.current);
+            trailRef.current = step.trail;
+            setCursorId(step.id);
             return;
         }
-        if (row && (/^[1-9]$/.test(e.key) || e.key === "Enter" || e.key === "t")) {
-            e.preventDefault();
-            // a worker is not a grid card, so look it up in the whole roster
-            const asker = askerAt(cursorId, roster, rowTargets);
-            if (/^[1-9]$/.test(e.key)) {
-                const d = parseInt(e.key, 10);
-                const target = asker ? answerDigitTarget(asker, answerTab[asker.id] ?? 0, d) : null;
-                if (asker && target) {
-                    pickDigit(asker, target.qi, target.oi);
-                } else {
-                    row.actions[d - 1]?.();
-                }
-            } else if (e.key === "Enter") {
-                if (asker?.state === "asking" && hasAnswerableAsk(asker)) {
-                    enterAsk(asker);
-                } else if (row.openId) {
-                    openFocus(row.openId, false);
-                }
-            } else if (row.openId) {
-                model.openTerminal(row.openId);
-            }
+        if (cursorId == null) {
             return;
         }
-        if (e.key === "ArrowDown" || e.key === "j") {
-            e.preventDefault();
-            setCursorId((c) => moveCursor(navigableIds, c, 1));
-        } else if (e.key === "ArrowUp" || e.key === "k") {
-            e.preventDefault();
-            setCursorId((c) => moveCursor(navigableIds, c, -1));
-        } else if (e.key === "ArrowLeft" || e.key === "ArrowRight" || e.key === "h" || e.key === "l") {
-            const back = e.key === "ArrowLeft" || e.key === "h";
-            // a question with several parts keeps h/l for its tabs, on its own card or on its worker's task row
-            const asker = askerAt(cursorId, roster, rowTargets);
-            const n = asker?.ask?.questions?.length ?? 0;
-            if (asker?.state === "asking" && n > 1) {
+        const onGrid = path.grid.includes(cursorId);
+        const onIdle = path.idle.includes(cursorId);
+        const onStrip = path.strip.includes(cursorId);
+        if (e.key === " ") {
+            if (onGrid) {
                 e.preventDefault();
-                const curTab = Math.min(answerTab[asker.id] ?? 0, n - 1);
-                selectQuestion(asker.id, Math.max(0, Math.min(n - 1, curTab + (back ? -1 : 1))));
-                return;
-            }
-            const target = columnJump(navCols, rowCardId, cursorId, back ? -1 : 1);
-            if (target) {
+                zoom(cursorId);
+            } else if (onIdle) {
                 e.preventDefault();
-                setCursorId(target);
-            }
-        } else if (e.key === "n") {
-            e.preventDefault();
-            const target = nextAskId(askTargets, lastJumpRef.current);
-            if (target) {
-                lastJumpRef.current = target;
-                setCursorId(target);
-                scrollToPulse(target);
-            }
-        } else if (e.key === "Enter") {
-            e.preventDefault();
-            if (!cur) return;
-            if (cur.state === "asking" && hasAnswerableAsk(cur)) {
-                enterAsk(cur);
-            } else {
-                openFocus(cur.id, false);
-            }
-        } else if (e.key === " ") {
-            if (cur) {
+                zoomIdle(cursorId);
+            } else if (onStrip) {
                 e.preventDefault();
-                void peekTarget(model, { kind: "agent", tabId: cur.id });
+                openStrip(cursorId);
             }
-        } else if (e.key === "r") {
+        } else if (e.key === "d" && onGrid) {
             e.preventDefault();
-            if (cur && !hasAnswerableAsk(cur)) {
-                setOpenComposerId(cur.id);
-                requestAnimationFrame(() => focusRowComposer(cur.id));
-            }
-        } else if (e.key === "t") {
+            dismiss(cursorId, dismissedCursor(path.grid, cursorId));
+        } else if (e.key === "Enter" && (onGrid || onIdle)) {
             e.preventDefault();
-            if (cur) {
-                model.openTerminal(cur.id);
-            }
-        } else if (e.key === "b") {
-            e.preventDefault();
-            if (cur && cur.state !== "asking") {
-                toggleBackground(cur.id);
-            }
-        } else if (/^[1-9]$/.test(e.key)) {
-            if (cur) {
-                const target = answerDigitTarget(cur, answerTab[cur.id] ?? 0, parseInt(e.key, 10));
-                if (target) {
-                    e.preventDefault();
-                    pickDigit(cur, target.qi, target.oi);
-                }
-            }
+            openAgent(cursorId);
         }
     };
 }

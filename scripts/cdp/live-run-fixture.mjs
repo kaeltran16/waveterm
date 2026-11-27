@@ -4,9 +4,7 @@
 // has every task landed and its Final stage failed in round 1, finalizing. The roster is set in the page
 // (setPageRoster), and what only a live worker or the engine's event log would make is injected in the page too:
 // the digest's ask reasons, the child asks, and run events. Used by the Cockpit and Agent scenarios that check them.
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
     arrangeHeldRun,
@@ -58,15 +56,7 @@ export const LIVE_IDS = {
     r9: "fx-live-ar9",
     b1: "fx-live-b1",
     plain: "fx-live-plain",
-    leadD: "fx-live-lead-d",
-    leadE: "fx-live-lead-e",
 };
-const TASKS_D = [
-    { id: "t-1", label: "split the reader" },
-    { id: "t-2", label: "parse the header" },
-    { id: "t-3", label: "parse the body", deps: ["t-2"] },
-];
-export const PHASE2_WORKER_MODEL = "claude-haiku-5-5";
 
 // makes the three runs; ctx.live holds them by key, ctx.held (for teardown) every run made
 export async function arrangeLiveRuns(h, ctx) {
@@ -163,65 +153,6 @@ export function liveRoster(ctx) {
 
 export const setLiveRoster = (h, ctx) => setPageRoster(h, liveRoster(ctx));
 
-// Phase 2's lead card states, made after phase 1's steps, whose layout checks count the cards on screen. Run D is held
-// with its plan under review in round 2, t-2 done but waiting on its lane's tip t-3, and its own landing tree; run E
-// is an orchestrator run still planning (no dag), created with a worker route. ctx.phase2 holds them; ctx.held (for
-// teardownHeldRuns) every run made.
-export async function arrangePhase2Runs(h, ctx) {
-    const now = Date.now();
-    const D = await arrangeHeldRun(h, ctx, { key: "D", title: "verify live-run D: plan review and lanes", tasks: TASKS_D });
-    const d2 = await heldStandIn(h, D, "t-2");
-    const d3 = await heldStandIn(h, D, "t-3");
-    const reviewer = await heldStandIn(h, D, "plan reviewer");
-    // mergerequired: a done task not at its lane's tip reads mergestate "waiting" in the engine's digest
-    await seedHeldRun(
-        h,
-        D,
-        {
-            "t-2": { state: "done", runid: d2, firstactivity: now - 8 * M },
-            "t-3": { state: "running", runid: d3, firstactivity: now - 3 * M, spawnedts: now - 3 * M },
-        },
-        {
-            mergerequired: true,
-            planreview: { state: "reviewing", round: 2, reviewers: [{ lens: "followup", state: "reviewing", runid: reviewer, startedts: now - 2 * M }] },
-        }
-    );
-    D.landPath = join(D.cwd, "land");
-    await fstWriteRun(h, D.runId, (r) => ({ ...r, landpath: D.landPath }));
-
-    // a planning run is a lead's run with no dag yet: arrangeHeldRun would submit one, so E is made here
-    const cwd = mkdtempSync(join(tmpdir(), "verify-held-E-"));
-    const E = { key: "E", title: "verify live-run E: planning", cwd, children: {} };
-    (ctx.held ??= []).push(E);
-    execFileSync("git", ["init", "-q", "--initial-branch=main"], { cwd, stdio: "pipe" });
-    E.ws = (await h.rpc("workspacelist", null))[0].workspacedata.oid;
-    E.channelId = (await h.rpc("createchannel", { name: "verify-held-E", projectpath: cwd })).oid;
-    const created = await h.rpc("createrun", {
-        channelid: E.channelId,
-        workspaceid: E.ws,
-        goal: `${E.title}: do nothing`,
-        runtime: "claude",
-        mode: "orchestrator",
-        deferstart: true,
-        workerroute: { runtime: "claude", model: PHASE2_WORKER_MODEL },
-    });
-    E.runId = created.run.id;
-    ctx.phase2 = { D, E };
-}
-
-// the live roster plus run D's and run E's leads, each at its prompt with transcript lines
-export function phase2Roster(ctx) {
-    const { D, E } = ctx.phase2;
-    const base = { project: "verify-live-run", agent: "claude", model: "opus", state: "working", atPrompt: true };
-    return [
-        ...liveRoster(ctx),
-        { ...base, id: LIVE_IDS.leadD, name: "live-run lead D", task: "lead run D", activeMs: 12 * M, runId: D.runId, blockId: "fx-blk-live-lead-d",
-            previousInfo: [msg("Submitted the plan: 3 tasks in 2 lanes."), msg("Waiting on the plan review.")] },
-        { ...base, id: LIVE_IDS.leadE, name: "live-run lead E", task: "lead run E", activeMs: 2 * M, runId: E.runId, blockId: "fx-blk-live-lead-e",
-            previousInfo: [msg("Reading the goal.")] },
-    ];
-}
-
 // the digest's ask reasons and the run's child asks: only a live worker's question makes them. The next digest load
 // or asks refresh replaces them, so a step re-injects before it reads them
 export const injectLiveAsks = (h, ctx) =>
@@ -246,58 +177,6 @@ export const injectLiveAsks = (h, ctx) =>
         return "ok";`
     );
 
-// t-7's Verify error when the engine found no failing line: a reason, then output that is no failure
-export const LIVE_GATE_VERIFY_ERROR = "exit 1: ✔ adds two positive numbers\n✔ handles zero";
-
-// run A's state the phase 3 card steps read, page-only and opt-in: t-5 and t-7 forwarded to you, t-7's Verify error
-// with no failing line found, and t-10 a lane tip held by t-8's Verify. The next digest load replaces the digest
-// part, so a step injects again before it reads; undoLiveGateDigest puts back what this changed.
-export const injectLiveGateDigest = (h, ctx) =>
-    lookEval(
-        h,
-        `const { globalStore } = await mod("app/store/jotaiStore.ts");
-        const L = await mod("app/view/agents/runlineagestore.ts");
-        const WOS = await mod("app/store/wos.ts");
-        const id = ${JSON.stringify(ctx.live.A.runId)};
-        const now = Date.now();
-        if (!(await until(() => globalStore.get(L.runDigestsAtom)[id], 15000))) return "no digest for run A";
-        const dagRef = WOS.makeORef("dag", WOS.getObjectValue(WOS.makeORef("run", id))?.dagoref);
-        const dag = WOS.getObjectValue(dagRef);
-        if (dag == null) return "no dag for run A";
-        const patch = {
-            "t-5": { forwardedts: now - 60000 },
-            "t-7": { forwardedts: now - 30000, verifyfailline: undefined },
-            "t-10": { mergestate: "held", mergeheldby: "t-8", mergegatets: now - 120000 },
-        };
-        const d = globalStore.get(L.runDigestsAtom)[id];
-        window.__liveGateSaved ??= Object.fromEntries(Object.keys(patch).map((k) => [k, d.tasks.find((t) => t.taskid === k) ?? null]));
-        const missing = Object.keys(patch).filter((k) => !d.tasks.some((t) => t.taskid === k)).map((k) => ({ taskid: k }));
-        const tasks = [...d.tasks, ...missing].map((t) => (patch[t.taskid] ? { ...t, ...patch[t.taskid] } : t));
-        globalStore.set(L.runDigestsAtom, (prev) => ({ ...prev, [id]: { ...d, tasks } }));
-        WOS.setObjectValue({ ...dag, tasks: dag.tasks.map((t) => (t.id === "t-7" ? { ...t, verifyerror: ${JSON.stringify(LIVE_GATE_VERIFY_ERROR)} } : t)) });
-        return "ok";`
-    );
-
-export const undoLiveGateDigest = (h, ctx) =>
-    lookEval(
-        h,
-        `const { globalStore } = await mod("app/store/jotaiStore.ts");
-        const L = await mod("app/view/agents/runlineagestore.ts");
-        const WOS = await mod("app/store/wos.ts");
-        const id = ${JSON.stringify(ctx.live.A.runId)};
-        const saved = window.__liveGateSaved;
-        delete window.__liveGateSaved;
-        if (saved) {
-            globalStore.set(L.runDigestsAtom, (prev) => {
-                const d = prev[id];
-                if (d == null) return prev;
-                const tasks = d.tasks.filter((t) => saved[t.taskid] !== null).map((t) => (t.taskid in saved ? saved[t.taskid] : t));
-                return { ...prev, [id]: { ...d, tasks } };
-            });
-        }
-        await WOS.reloadWaveObject(WOS.makeORef("dag", WOS.getObjectValue(WOS.makeORef("run", id))?.dagoref));
-        return "ok";`
-    );
 
 // run events no RPC writes: the page appends each run:event it receives to that run's list until the next reload
 export async function publishLiveEvents(h, ctx) {

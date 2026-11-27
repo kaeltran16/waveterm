@@ -5,18 +5,25 @@
 // task's row opens to its body: what it came to, its open question, its files and answered questions, a running
 // worker's latest steps, and Open agent / Open changes. What each says is workspaceruntabmodel.ts'.
 
-import { easeFluidCss, MOTION } from "@/app/element/motiontokens";
+import { useChangeFlash, useLastShown } from "@/app/element/motionhooks";
+import { changeFlashClass, easeFluidCss, MOTION } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
+import { TickNumber } from "@/app/element/ticknumber";
 import { globalStore } from "@/app/store/jotaiStore";
 import { openTaskWorker, resolveTaskWorker } from "@/app/view/orchestrate/taskcorrelate";
 import { cn } from "@/util/util";
 import { atom, useAtomValue } from "jotai";
 import { ArrowUpRight, LoaderCircle } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { formatAgo } from "./agentsviewmodel";
+import { attentionAtom } from "./attentionstore";
 import { runAtom } from "./channelsstore";
 import { ChildAskEntry } from "./childaskcard";
 import { ASK_OWNER_USER, childAskKey } from "./childaskmodel";
 import { childAskErrorAtom, takeOverChildAsk } from "./childaskstore";
+import type { RunWait } from "./cockpitsessionmodel";
+import { runWaitAtom } from "./cockpitsessionstore";
+import { noteParts, waitAnchor } from "./cockpitzoommodel";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { runFinished, type RunInfo } from "./runlineage";
@@ -76,6 +83,8 @@ function arrivedAsks(asks: DagAskItem[], seen: Set<string>): string[] {
 
 export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
     const now = useAtomValue(model.nowAtom);
+    const wait = useAtomValue(runWaitAtom(run.runId));
+    const waitItem = useAtomValue(attentionAtom).find((i) => i.key === wait?.key);
     const children = useChildRuns(run.dag);
     const evidence: TaskEvidence = Object.fromEntries(Object.entries(children).map(([id, r]) => [id, r?.evidence]));
     // an open question opens its row once, on arrival; closing it after is the user's call
@@ -88,10 +97,21 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
         }
     }, [asks, seenAsks]);
     const rows = taskRows(run.dag, run.digest, now, evidence);
+    const review = planReviewRow(run.dag, events, now);
+    const final = finalRow(run.dag, events, now);
+    const rowIds = [review ? "planreview" : "", ...rows.map((r) => r.id), final ? "final" : ""].filter(Boolean);
+    const anchor = wait != null ? waitAnchor(waitItem, wait, rowIds) : null;
+    // the wait's card under the row it sits at; every slot stays mounted, so a handled wait folds away (moment 6b)
+    const waitAt = (at: string) => (
+        <WaitSlot wait={anchor === at ? wait : null} item={waitItem} now={now} padded={at !== "top"} />
+    );
+    // the row the conductor holds the wait at reads muted, saying so
+    const heldAt = (at: string) => anchor === at && wait?.owner === "conductor";
     if (rows.length === 0) {
         return (
-            <div className="px-[18px] py-[14px] text-[12.5px] text-muted">
-                No plan submitted yet, so there are no tasks.
+            <div className="flex flex-col gap-[10px] px-[18px] py-[14px]">
+                {waitAt("top")}
+                <span className="text-[12.5px] text-muted">No plan submitted yet, so there are no tasks.</span>
             </div>
         );
     }
@@ -104,15 +124,19 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
             return next;
         });
     const ctx = { dag: run.dag, digest: run.digest, evidence, events, now, live: !runFinished(run) };
-    const review = planReviewRow(run.dag, events, now);
-    const final = finalRow(run.dag, events, now);
     return (
         <div className="px-[18px] pb-[18px] pt-[4px]">
+            {waitAt("top")}
             <div
                 data-workspace-run-tasks
                 className="flex flex-col divide-y divide-edge-faint overflow-hidden rounded-[10px] border border-edge-mid"
             >
-                {review ? <StageRow stage="planreview" row={review} /> : null}
+                {review ? (
+                    <div>
+                        <StageRow stage="planreview" row={review} held={heldAt("planreview")} />
+                        {waitAt("planreview")}
+                    </div>
+                ) : null}
                 {rows.map((r) => {
                     const task = run.dag.tasks.find((t) => t.id === r.id);
                     const body = taskBody(task, ctx);
@@ -121,6 +145,8 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
                         <TaskRow
                             key={r.id}
                             row={r}
+                            held={heldAt(r.id)}
+                            waitCard={waitAt(r.id)}
                             open={open.has(r.id)}
                             onToggle={() => toggle(r.id)}
                             body={body}
@@ -148,7 +174,12 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
                         />
                     );
                 })}
-                {final ? <StageRow stage="final" row={final} /> : null}
+                {final ? (
+                    <div>
+                        <StageRow stage="final" row={final} held={heldAt("final")} />
+                        {waitAt("final")}
+                    </div>
+                ) : null}
             </div>
         </div>
     );
@@ -166,26 +197,37 @@ function Dot({ dot, size }: { dot: RowDot; size: string }) {
     );
 }
 
-function StageRow({ stage, row }: { stage: "planreview" | "final"; row: StageRowView }) {
+// held: the run's wait sits at this row and its conductor has it, so the row reads muted and says so
+const HELD_WORD = " · conductor has it";
+
+function StageRow({ stage, row, held }: { stage: "planreview" | "final"; row: StageRowView; held: boolean }) {
     return (
         <div
             data-workspace-run-stage={stage}
             className="flex items-center gap-[10px] bg-surface px-[14px] py-[9px] text-[12.5px] text-ink-mid"
         >
-            <Dot dot={row.dot} size="h-[8px] w-[8px]" />
+            <Dot dot={held ? "waits" : row.dot} size="h-[8px] w-[8px]" />
             <span>{row.label}</span>
             <span className="flex-1" />
             <span data-stage-word className="text-[12px] text-muted">
-                {row.word}
+                {held ? `${row.word}${HELD_WORD}` : row.word}
             </span>
             {row.time ? <span className="font-mono text-[11px] text-muted">{row.time}</span> : null}
         </div>
     );
 }
 
-function StateWord({ row }: { row: TaskRowView }) {
+function StateWord({ row, held }: { row: TaskRowView; held: boolean }) {
     if (!row.state) {
         return null;
+    }
+    if (held) {
+        return (
+            <span data-task-state className="truncate text-[12px] text-muted">
+                {row.state}
+                {HELD_WORD}
+            </span>
+        );
     }
     if (row.dot === "failed") {
         return (
@@ -203,6 +245,8 @@ function StateWord({ row }: { row: TaskRowView }) {
 
 function TaskRow({
     row,
+    held,
+    waitCard,
     open,
     onToggle,
     body,
@@ -211,6 +255,8 @@ function TaskRow({
     actions,
 }: {
     row: TaskRowView;
+    held: boolean;
+    waitCard: ReactNode;
     open: boolean;
     onToggle: () => void;
     body: TaskBodyView;
@@ -226,20 +272,88 @@ function TaskRow({
                 onClick={onToggle}
                 className="flex w-full cursor-pointer items-center gap-[10px] px-[14px] py-[10px] text-left text-[13.5px] text-secondary hover:bg-surface-hover"
             >
-                <Dot dot={row.dot} size="h-[8px] w-[8px]" />
+                <Dot dot={held ? "waits" : row.dot} size="h-[8px] w-[8px]" />
                 <span className="min-w-0 truncate">{row.name}</span>
                 {row.sub ? <span className="flex-none font-mono text-[12px] text-muted">{row.sub}</span> : null}
                 <span className="flex-1" />
-                <StateWord row={row} />
+                <StateWord row={row} held={held} />
                 {row.adds != null ? <AddsDels adds={row.adds} dels={row.dels} compact /> : null}
                 {row.time ? <span className="flex-none font-mono text-[11px] text-muted">{row.time}</span> : null}
                 <span className="flex flex-none text-muted">
                     <TurnChevron open={open} size={12} strokeWidth={2.2} />
                 </span>
             </button>
+            {waitCard}
             <PaneReveal open={open}>
                 <TaskBody body={body} ask={ask} steps={steps} actions={actions} />
             </PaneReveal>
+        </div>
+    );
+}
+
+// A run's wait at its row: who has it, and while the conductor watches, how long until it comes to you. It recolors
+// and flashes once when it becomes yours (moment 14), its minutes roll (12), and it folds away once handled (6b).
+function WaitSlot({
+    wait,
+    item,
+    now,
+    padded,
+}: {
+    wait: RunWait | null;
+    item: AttentionItem | undefined;
+    now: number;
+    padded: boolean;
+}) {
+    const shown = useLastShown(wait);
+    return (
+        <PaneReveal open={wait != null}>
+            {shown != null ? (
+                <div className={padded ? "pb-[12px] pl-[38px] pr-[14px] pt-[2px]" : "pb-[10px]"}>
+                    <WaitCard wait={shown} since={item?.waitingsince} now={now} />
+                </div>
+            ) : null}
+        </PaneReveal>
+    );
+}
+
+function WaitCard({ wait, since, now }: { wait: RunWait; since: number | undefined; now: number }) {
+    const mine = wait.owner === "you";
+    const flash = useChangeFlash(wait.owner);
+    const note = noteParts(wait);
+    return (
+        <div
+            data-workspace-run-wait={wait.owner}
+            style={DOT_MORPH}
+            className={cn(
+                "flex flex-col gap-[8px] rounded-[10px] border px-[14px] py-[12px] transition-colors motion-reduce:transition-none",
+                mine ? "border-warning/45 bg-warning/[0.08]" : "border-edge-mid bg-surface-raised",
+                flash && changeFlashClass
+            )}
+        >
+            <div className={ASK_HEAD}>
+                <span
+                    style={DOT_MORPH}
+                    className={cn(
+                        "h-[6px] w-[6px] flex-none rounded-full transition-colors motion-reduce:transition-none",
+                        mine ? "bg-asking" : "bg-ink-faint"
+                    )}
+                />
+                <span className="text-secondary">{wait.short}</span>
+                {since ? <span>· {formatAgo(now - since)}</span> : null}
+            </div>
+            <span className="text-[13.5px] leading-[1.45] text-primary">{wait.label}</span>
+            <span
+                data-wait-note
+                style={DOT_MORPH}
+                className={cn(
+                    "text-[12px] leading-[1.45] transition-colors motion-reduce:transition-none",
+                    mine ? "text-warning" : "text-muted"
+                )}
+            >
+                {note.before}
+                {note.minutes != null ? <TickNumber value={note.minutes} /> : null}
+                {note.after}
+            </span>
         </div>
     );
 }

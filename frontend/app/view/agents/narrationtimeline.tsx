@@ -708,6 +708,7 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     unfold,
     entryRow,
     subagents,
+    still,
 }: {
     entries: AgentEntry[];
     accentLatest?: boolean;
@@ -737,6 +738,9 @@ export const NarrationTimeline = memo(function NarrationTimeline({
     // the agent's subagents (ctx.agentId's): each Agent step and finish notice of one draws its progress and Open, and a
     // running one's step stays out of the fold. Only the Rendered view passes them
     subagents?: SubagentVM[];
+    // a thumbnail's read-only copy: no CSS animation plays under it, so a running step's spinner is a static ring and
+    // several live transcripts on screen cost no frames between new lines
+    still?: boolean;
 }) {
     // ctx feeds the layout only through its role (a run brief), so a host's fresh ctx object does not relayout; a host's
     // fresh marks array relayouts only when a mark moves, and a fresh subagent list only when which ones run changes
@@ -1045,7 +1049,10 @@ export const NarrationTimeline = memo(function NarrationTimeline({
 
     return (
         <SubagentStepsContext.Provider value={subagentSteps}>
-            <div className={cn("leading-relaxed", className)} onMouseDown={armSelectionCopy}>
+            <div
+                className={cn("leading-relaxed", still && "[&_*]:animate-none", className)}
+                onMouseDown={armSelectionCopy}
+            >
                 <AnimatePresence initial={false}>
                     {withMarks(visibleItems.map((item) => renderItem(item)))}
                 </AnimatePresence>

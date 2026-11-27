@@ -21,7 +21,6 @@ import {
     tabWaiting,
     toggleCollapsed,
     updateTab,
-    waitingOnYou,
     type RunGraphState,
     type WorkspaceState,
     type WorkspaceTab,
@@ -283,7 +282,7 @@ describe("tabLabel", () => {
     });
 });
 
-describe("tabWaiting and waitingOnYou", () => {
+describe("tabWaiting", () => {
     const ask = (runId: string, owner: string) => ({ runId, owner });
     const asks = (...items: { runId: string; owner: string }[]) =>
         items.reduce<Record<string, { owner?: string }[]>>((acc, a) => {
@@ -312,13 +311,6 @@ describe("tabWaiting and waitingOnYou", () => {
         expect(tabWaiting(final, input)).toBe(1);
         expect(tabWaiting(final, { ...input, failedFinals: [] })).toBe(0);
         expect(tabWaiting(final, { ...input, runAsks: asks(ask("r1", "lead")) })).toBe(0);
-    });
-
-    it("sums what waits on you across the open tabs", () => {
-        const runAsks = asks(ask("r1", "user"), ask("r2", "user"), ask("r2", "user"), ask("r9", "user"));
-        const tabs = [run("r1"), run("r2"), changes, { kind: "brainstorm" } as WorkspaceTab];
-        expect(waitingOnYou(tabs, { runAsks, brainstormAsking: true, failedFinals: [] })).toBe(4);
-        expect(waitingOnYou([], { runAsks, brainstormAsking: true, failedFinals: [] })).toBe(0);
     });
 });
 
