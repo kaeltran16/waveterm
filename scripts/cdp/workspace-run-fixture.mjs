@@ -588,16 +588,22 @@ export async function pickView(h, view) {
     return readHead(h);
 }
 
-// a scenario's step recorder: one throwing step is one FAIL, not the end of the run
-export function stepper() {
+// a scenario's step recorder: one throwing step is one FAIL, not the end of the run. Given h, a shot taken inside a
+// step is tagged with that step (attach.mjs), so the Final tab can name it and outline it when the step fails
+export function stepper(h) {
     const steps = [];
     const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
     const step = async (name, fn) => {
+        const shot = h?.shot;
+        // the step is recorded once fn returns, so its index is the count so far
+        if (shot) h.shot = (path, opts) => shot(path, { step: steps.length, ...opts });
         try {
             const [ok, detail] = await fn();
             rec(name, ok, detail);
         } catch (err) {
             rec(name, false, `threw: ${err?.message ?? err}`);
+        } finally {
+            if (shot) h.shot = shot;
         }
     };
     return { steps, rec, step };

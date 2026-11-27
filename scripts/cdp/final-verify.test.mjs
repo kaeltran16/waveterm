@@ -787,15 +787,20 @@ describe("releaseDevApp", () => {
 });
 
 describe("finalManifest", () => {
-    it("prefixes every file with cdp-shots/ and keeps the rest of the entry", () => {
+    it("prefixes every file, and each file's step key, with cdp-shots/ and keeps the rest of the entry", () => {
         const steps = [{ step: "a", state: "pass" }];
         expect(
             finalManifest([
-                { name: "runs", files: ["runs.png", "nested/open.png"], steps },
+                { name: "runs", files: ["runs.png", "nested/open.png"], filesteps: { "nested/open.png": 0 }, steps },
                 { name: "empty", files: [], steps: [] },
             ])
         ).toEqual([
-            { name: "runs", files: ["cdp-shots/runs.png", "cdp-shots/nested/open.png"], steps },
+            {
+                name: "runs",
+                files: ["cdp-shots/runs.png", "cdp-shots/nested/open.png"],
+                filesteps: { "cdp-shots/nested/open.png": 0 },
+                steps,
+            },
             { name: "empty", files: [], steps: [] },
         ]);
     });

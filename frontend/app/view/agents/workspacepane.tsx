@@ -133,7 +133,7 @@ export function WorkspacePane({
     const onBoard = ws.tabs.find((t) => tabKey(t) === ws.active)?.kind === "board";
     const openPx = dragPx ?? (onBoard ? boardPaneWidth(boardStored, room) : paneWidth(stored, room));
     const target = shape === "strip" ? STRIP_PX : shape === "expanded" && availablePx != null ? availablePx : openPx;
-    const waits = useWaitInput(agent);
+    const waits = useWaitInput(model, agent);
     const present = useIsPresent();
     return (
         <motion.aside
@@ -148,7 +148,13 @@ export function WorkspacePane({
                 present ? "relative" : "pointer-events-none absolute inset-y-0 right-0"
             )}
         >
-            {ws.tabs.map((t) => (t.kind === "run" ? <RunAsksBinder key={tabKey(t)} runId={t.runId} /> : null))}
+            {ws.tabs.map((t) =>
+                t.kind === "run" ? (
+                    <RunAsksBinder key={tabKey(t)} runId={t.runId} />
+                ) : t.kind === "final" ? (
+                    <FinalAsksBinder key={tabKey(t)} model={model} runId={t.runId} />
+                ) : null
+            )}
             <AnimatePresence initial={false}>
                 {shape === "strip" ? (
                     <motion.div
@@ -201,12 +207,22 @@ function RunAsksBinder({ runId }: { runId: string }) {
     return null;
 }
 
-function useWaitInput(agent: AgentVM): WaitInput {
+// a Final tab's run, from the lineage the tree holds: a finished run's tab must not ask the server for it
+function FinalAsksBinder({ model, runId }: { model: AgentsViewModel; runId: string }) {
+    useRunAsks(useAtomValue(model.lineageAtom).runs[runId]);
+    return null;
+}
+
+function useWaitInput(model: AgentsViewModel, agent: AgentVM): WaitInput {
     const runAsks = useAtomValue(childAsksAtom);
     const brainstorm = useAtomValue(brainstormAtom(agent.id));
+    const runs = useAtomValue(model.lineageAtom).runs;
     // the header's rule: the brainstorm asks while the agent waits on a question or press its file holds
     const brainstormAsking = agent.state === "asking" && brainstormWaitOf(brainstorm, agent) != null;
-    return { runAsks, brainstormAsking };
+    const failedFinals = Object.values(runs)
+        .filter((r) => r.dag?.final?.state === "failed")
+        .map((r) => r.runId);
+    return { runAsks, brainstormAsking, failedFinals };
 }
 
 function ResizeHandle({

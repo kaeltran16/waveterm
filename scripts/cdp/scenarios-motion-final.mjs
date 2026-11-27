@@ -11,6 +11,8 @@ import { FINAL_SHOTS_UICTX, FST_DETAIL, fstShow, polishNap, polishWaitFor, seedF
 const PANE = `document.querySelector("[data-final-pane]")`;
 // the stage's own row has the workspace pane's Final tab beside its pane, never the details rail
 const FINAL_TAB = `document.querySelector("[data-workspace-final]")`;
+// the Final tab's first screenshot: the failed scenario's first, which is where the viewer opened from the old link
+const TAB_SHOT = `${FINAL_TAB}?.querySelector("[data-final-tab-shot]")`;
 const ROW = `document.querySelector("[data-agent-tree] [data-final-row]")`;
 const VIEWER = `document.querySelector("[data-final-shots-viewer]")`;
 const KEPT_MARK = "motion-final kept check output";
@@ -304,7 +306,8 @@ export const motionFinal = {
         // --- the screenshot viewer, on round 1 ---
         await polishWaitFor(h, `!!${rerun} && !!${PANE}?.querySelector("[data-final-note]")`, WAIT_MS);
         await arm(h, "viewer", `(n) => (n.matches("[data-final-shots-viewer]") ? n : n.querySelector?.("[data-final-shots-viewer]"))`);
-        await click(h, `${PANE}?.querySelector("[data-final-shots-link]")`);
+        await polishWaitFor(h, `!!${TAB_SHOT}`, WAIT_MS);
+        await click(h, TAB_SHOT);
         const viewer = await collect(h, "viewer");
         const imgLoaded = `(() => { const i = ${VIEWER}?.querySelector("[data-final-shots-stage] img[alt]:not([alt=''])"); return !!i && i.complete && i.naturalWidth > 0; })()`;
         await polishWaitFor(h, imgLoaded, WAIT_MS);
@@ -375,9 +378,8 @@ export const motionFinal = {
         // --- two rounds: the tally's counts roll on a round switch ---
         const fixed = round1.shots.map((sc) => ({ ...sc, steps: sc.steps.map((st) => ({ ...st, state: st.state === "fail" ? "pass" : st.state })) }));
         await seedFinalShots(h, ctx, { final: { ...round1, round: 2, state: "unverified", detail: "", shots: fixed }, pastfinals: [round1] });
-        const link = `${PANE}?.querySelector("[data-final-shots-link]")`;
-        await polishWaitFor(h, `!${PANE}?.querySelector("[data-final-note]") && !!${link}`, WAIT_MS);
-        await click(h, link);
+        await polishWaitFor(h, `!${PANE}?.querySelector("[data-final-note]") && !!${TAB_SHOT}`, WAIT_MS);
+        await click(h, TAB_SHOT);
         const roundBtn = (n) => `[...(${VIEWER}?.querySelectorAll('[role="group"][aria-label="Round"] button') ?? [])].find((b) => b.innerText.trim().startsWith("Round ${n}"))`;
         await polishWaitFor(h, `!!${roundBtn(1)}`, WAIT_MS);
         await polishNap(SETTLE_MS);

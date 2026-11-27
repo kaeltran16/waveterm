@@ -245,14 +245,27 @@ export type WaitInput = {
     runAsks: Record<string, { owner?: string }[]>;
     // the agent's brainstorm waits on the user
     brainstormAsking: boolean;
+    // the runs whose current Final round failed
+    failedFinals: string[];
 };
 
-// what a tab holds that waits on you: a Run tab's user-owned asks, one for an asking Brainstorm tab
+function userAsks(input: WaitInput, runId: string): number {
+    return (input.runAsks[runId] ?? []).filter((a) => a.owner === ASK_OWNER_USER).length;
+}
+
+// what a tab holds that waits on you: a Run tab's user-owned asks, one for an asking Brainstorm tab, and one for a
+// Final tab whose current round failed while its run asks you something
 export function tabWaiting(tab: WorkspaceTab, input: WaitInput): number {
-    if (tab.kind === "run") {
-        return (input.runAsks[tab.runId] ?? []).filter((a) => a.owner === ASK_OWNER_USER).length;
+    switch (tab.kind) {
+        case "run":
+            return userAsks(input, tab.runId);
+        case "final":
+            return input.failedFinals.includes(tab.runId) && userAsks(input, tab.runId) > 0 ? 1 : 0;
+        case "brainstorm":
+            return input.brainstormAsking ? 1 : 0;
+        default:
+            return 0;
     }
-    return tab.kind === "brainstorm" && input.brainstormAsking ? 1 : 0;
 }
 
 export function waitingOnYou(tabs: WorkspaceTab[], input: WaitInput): number {

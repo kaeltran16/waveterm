@@ -5,10 +5,11 @@
 // node all read this one view. Derived from the dag's FinalStage and the run's final-step events, which alone
 // keep a finished step's duration and result. No React, no store.
 
-import { stageHasShots } from "@/app/view/jarvis/finalshotsmodel";
+import { emptyRoundText, stageHasShots } from "@/app/view/jarvis/finalshotsmodel";
 import type { LocalImageStatus } from "@/app/view/jarvis/localimage";
 import type { AgentVM } from "./agentsviewmodel";
-import { fmtDuration, memoryFigures } from "./runcompletion";
+import { shortModel } from "./modelname";
+import { fmtClock, fmtDuration, memoryFigures } from "./runcompletion";
 import { detailOf } from "./runtimeline";
 import { isTestCommand, parseTestOutput, type TestSummary } from "./testoutput";
 
@@ -429,6 +430,21 @@ function nextText(steps: FinalStep[]): string {
         : `next ${names.slice(0, -1).join(", ")}, then ${names[names.length - 1]}`;
 }
 
+// a round's total, once every step it runs in turn has a time, and its start
+function roundTimes(
+    stage: FinalStage | undefined,
+    steps: FinalStep[],
+    evs: Map<string, StepEvent>
+): { total?: number; start?: number } {
+    // the end review works beside the other steps, so it adds nothing to the round's time
+    const serial = steps.filter((s) => s.key !== "review");
+    const total = serial.every((s) => s.ms != null) ? serial.reduce((sum, s) => sum + s.ms, 0) : undefined;
+    const starts = [...evs.values()].map((e) => e.ts - e.ms);
+    // with commands and no event left, startedts may already be the verifier's start, not the round's
+    const startedTs = stage?.verifierrunid && steps.length > 1 ? undefined : stage?.startedts;
+    return { total, start: starts.length > 0 ? Math.min(...starts) : startedTs };
+}
+
 const HIDDEN: FinalStageView = {
     visible: false,
     round: 1,
@@ -476,13 +492,7 @@ export function finalStageView(
     const running = command ?? (verifierRunning ? verifier : review);
     const alongside = command != null && verifierRunning;
 
-    // the end review works beside the other steps, so it adds nothing to the round's time
-    const serial = steps.filter((s) => s.key !== "review");
-    const total = serial.every((s) => s.ms != null) ? serial.reduce((sum, s) => sum + s.ms, 0) : undefined;
-    const starts = [...evs.values()].map((e) => e.ts - e.ms);
-    // with commands and no event left, startedts may already be the verifier's start, not the round's
-    const startedTs = stage?.verifierrunid && steps.length > 1 ? undefined : stage?.startedts;
-    const roundStart = starts.length > 0 ? Math.min(...starts) : startedTs;
+    const { total, start: roundStart } = roundTimes(stage, steps, evs);
 
     const waitsOn = tasks.filter((t) => !TASK_FINISHED.has(t.state)).map((t) => t.id);
     const roundText = `round ${round}`;
@@ -653,6 +663,180 @@ export function finalFailedNote(lead: { asking: boolean } | undefined): string {
     if (lead == null) return `This failure is yours. ${RERUN_HINT}`;
     if (lead.asking) return `The lead is asking you about this failure. ${RERUN_HINT}`;
     return "The lead has this failure and decides what happens next.";
+}
+
+export type FinalTabSection = "why" | "verified" | "verifier" | "shots" | "changes";
+
+// one screenshot file; step is the 0-based step the scenario tagged it with, which names it
+export interface FinalTabFrame {
+    file: string;
+    step?: number;
+    label: string;
+    failed: boolean;
+}
+
+// ran and passed count the steps that ran, skips left out; a plain listing has none
+export interface FinalTabScenario {
+    name: string;
+    failed: number;
+    ran: number;
+    passed: number;
+    frames: FinalTabFrame[];
+}
+
+export interface FinalTabView {
+    // every round, oldest first, and the one shown
+    rounds: number[];
+    round: number;
+    // the shown round is the dag's current one
+    current: boolean;
+    stage: FinalStage;
+    state: string;
+    tone: FinalTone;
+    meta: string;
+    why: { detail: string; note: string } | null;
+    verifier: { ran: boolean; text: string; meta: string; session: boolean };
+    shots: FinalTabScenario[];
+    // why the round has no screenshots, "" when it has some
+    emptyShots: string;
+    order: FinalTabSection[];
+}
+
+export type FinalTabInput = {
+    // the round picked on the tab, null for the current one
+    round: number | null;
+    // the ended verifier's run id whose row opened the tab
+    session?: string;
+    // the shown round's verifier session, once loaded
+    verifierRun?: Pick<Run, "completedts" | "model">;
+    // the run's lead, as finalFailedNote reads it
+    lead?: { asking: boolean };
+};
+
+export const NO_VERDICT_TEXT = "No verdict text was recorded for this round.";
+const VERIFIER_NOT_RUN = "Did not run: the stage ended before it.";
+const VERIFIER_TEXT: Partial<Record<FinalStepState, string>> = {
+    waiting: "Waits for the steps before it.",
+    running: "Reviewing the merged result.",
+};
+const SHORT_COMMIT = 7;
+const ORDER_FAILED: FinalTabSection[] = ["why", "shots", "verifier", "verified", "changes"];
+const ORDER_SESSION: FinalTabSection[] = ["verifier", "verified", "shots", "changes"];
+const ORDER: FinalTabSection[] = ["verified", "verifier", "shots", "changes"];
+
+function capitalize(s: string): string {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// a step that already opens with its own number ("3.", "2b.", "B5."), which the label keeps
+const NUMBERED_STEP = /^[A-Za-z]?\d+[a-z]?\.\s/;
+
+function fileStem(file: string): string {
+    const name = file.slice(file.lastIndexOf("/") + 1);
+    return name.replace(/\.[^.]+$/, "");
+}
+
+function tabScenario(shot: FinalShot): FinalTabScenario {
+    const steps = shot.steps ?? [];
+    const ran = steps.filter((st) => st.state !== "skip");
+    const failed = ran.filter((st) => st.state === "fail").length;
+    const frames = (shot.files ?? []).map((file): FinalTabFrame => {
+        const step = shot.filesteps?.[file];
+        const st = step == null ? undefined : steps[step];
+        if (st == null) {
+            return { file, label: fileStem(file), failed: false };
+        }
+        const label = NUMBERED_STEP.test(st.step) ? st.step : `${step + 1}. ${st.step}`;
+        return { file, step, label, failed: st.state === "fail" };
+    });
+    return { name: shot.name, failed, ran: ran.length, passed: ran.length - failed, frames };
+}
+
+// the scenarios that took a screenshot, failed ones first, each group in manifest order
+function tabShots(stage: FinalStage): FinalTabScenario[] {
+    const all = (stage.shots ?? []).map(tabScenario).filter((s) => s.frames.length > 0);
+    return [...all.filter((s) => s.failed > 0), ...all.filter((s) => s.failed === 0)];
+}
+
+// what the verifier said: its verdict, else, for rounds recorded before it was kept, a fail's detail or the end
+// review's text for a round the end review settled
+function verdictText(stage: FinalStage): string {
+    return (
+        stage.verdicttext || (stage.state === "failed" ? stage.detail : "") || stage.endreview?.text || NO_VERDICT_TEXT
+    );
+}
+
+function verifierOf(stage: FinalStage, step: FinalStep, input: FinalTabInput): FinalTabView["verifier"] {
+    const session = !!input.session && stage.verifierrunid === input.session;
+    if (step.state === "notrun") {
+        return { ran: false, text: VERIFIER_NOT_RUN, meta: "", session };
+    }
+    const ended = !RUNNING_STATES.has(stage.state) && step.state !== "waiting";
+    const reasons = stage.unverified?.length ?? 0;
+    const meta =
+        step.state === "waiting"
+            ? ""
+            : joinDot([
+                  input.verifierRun?.model ? shortModel(input.verifierRun.model) : undefined,
+                  step.ms == null ? undefined : fmtDuration(step.ms),
+                  ended ? (reasons > 0 ? `${reasons} unverified` : "nothing unverified") : undefined,
+              ]);
+    return { ran: true, text: VERIFIER_TEXT[step.state] ?? verdictText(stage), meta, session };
+}
+
+/** Pure: the workspace pane's Final tab, one round of a dag's Final verification at a time. Null for a dag whose
+ *  stage has not begun. */
+export function finalTabView(
+    group: TaskGroup | undefined,
+    events: RunEvent[],
+    now: number,
+    input: FinalTabInput
+): FinalTabView | null {
+    const currentStage = group?.final;
+    if (currentStage == null) {
+        return null;
+    }
+    const currentRound = currentStage.round || 1;
+    const stages = [...(group.pastfinals ?? []).filter((p) => p.round !== currentRound), currentStage].sort(
+        (a, b) => (a.round || 1) - (b.round || 1)
+    );
+    const stage = stages.find((s) => (s.round || 1) === (input.round ?? currentRound)) ?? currentStage;
+    const round = stage.round || 1;
+    const current = stage === currentStage;
+    const evs = roundEvents(events, round);
+    const steps = buildSteps(stage, group, evs, now, input.verifierRun);
+    const { start } = roundTimes(stage, steps, evs);
+    const running = RUNNING_STATES.has(stage.state);
+    const failed = stage.state === "failed";
+    // an ended round is timed by the steps it ran, so one that ended early still has a time
+    const ran = steps.filter((s) => s.key !== "review" && s.state !== "notrun");
+    const total = ran.every((s) => s.ms != null) ? ran.reduce((sum, s) => sum + s.ms, 0) : undefined;
+    const time = running ? span(start, now) : total;
+
+    const state = running ? "running" : stage.state === "" ? "not started" : outcomeText(stage, steps);
+    const max = group.maxfinalrounds;
+    const meta = joinDot([
+        max ? `round ${round} of ${max}` : `round ${round}`,
+        time == null ? undefined : fmtDuration(time),
+        start ? fmtClock(start) : undefined,
+        failed && stage.commit ? `commit ${stage.commit.slice(0, SHORT_COMMIT)}` : undefined,
+    ]);
+    const verifier = verifierOf(stage, steps[steps.length - 1], input);
+    const shots = tabShots(stage);
+    return {
+        rounds: stages.map((s) => s.round || 1),
+        round,
+        current,
+        stage,
+        state: capitalize(state),
+        tone: STAGE_TONES[stage.state] ?? "wait",
+        meta,
+        why: failed ? { detail: stage.detail ?? "", note: current ? finalFailedNote(input.lead) : "" } : null,
+        verifier,
+        shots,
+        emptyShots: shots.length > 0 ? "" : emptyRoundText(stage),
+        order: failed ? ORDER_FAILED : verifier.session ? ORDER_SESSION : ORDER,
+    };
 }
 
 export type FinalKept = { status: LocalImageStatus; text: string };

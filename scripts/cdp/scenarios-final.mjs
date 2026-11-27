@@ -395,7 +395,7 @@ export const finalShotsScenario = {
                 !s.dock.accent,
             JSON.stringify({ row: s?.row, dock: s?.dock })
         );
-        await h.shot("cdp-shots/final-shots-1-row-closed.png");
+        await h.shot("cdp-shots/final-shots-1-row-closed.png", { step: shotStep(steps, "1") });
 
         await finalShotsClick(h, `${FS_ROW}?.querySelector(":scope > button[aria-expanded]")`);
         s = await finalShotsUntil(h, (x) => x.row?.expanded === "true" && x.thumbs.length > 0 && x.thumbs.every((t) => t.img));
@@ -407,7 +407,7 @@ export const finalShotsScenario = {
                 (s.caption ?? "").includes("Round 1 failed on jarvis-peek steps 4 and 5."),
             JSON.stringify({ thumbs: s?.thumbs, caption: s?.caption })
         );
-        await h.shot("cdp-shots/final-shots-2-row-open.png");
+        await h.shot("cdp-shots/final-shots-2-row-open.png", { step: shotStep(steps, "2") });
         // the States rows below are drawn collapsed
         await finalShotsClick(h, `${FS_ROW}?.querySelector(":scope > button[aria-expanded]")`);
 
@@ -430,7 +430,7 @@ export const finalShotsScenario = {
                 v.drawer == null,
             JSON.stringify(v)
         );
-        await h.shot("cdp-shots/final-shots-3-viewer.png");
+        await h.shot("cdp-shots/final-shots-3-viewer.png", { step: shotStep(steps, "3") });
 
         await finalShotsClick(
             h,
@@ -451,7 +451,7 @@ export const finalShotsScenario = {
                 v.drawer?.fails === 2,
             JSON.stringify({ rounds: v?.rounds, tab: v?.tabs[0], steps: v?.steps, drawer: v?.drawer })
         );
-        await h.shot("cdp-shots/final-shots-4-round-1.png");
+        await h.shot("cdp-shots/final-shots-4-round-1.png", { step: shotStep(steps, "4") });
 
         // ArrowUp/Down are the Jarvis list's keys too, and with the sheet open they would open the next run
         const before = await h.ev(FS_JARVIS);
@@ -465,7 +465,7 @@ export const finalShotsScenario = {
         await finalShotsKey(h, "s");
         s = await finalShotsUntil(h, (x) => x.viewer?.steps?.expanded === "false" && x.viewer.drawer == null, 2000);
         keys.steps = { steps: s?.viewer?.steps, drawer: s?.viewer?.drawer };
-        await h.shot("cdp-shots/final-shots-5-keys.png");
+        await h.shot("cdp-shots/final-shots-5-keys.png", { step: shotStep(steps, "5") });
         await finalShotsKey(h, "z");
         keys.fit = (await finalShotsUntil(h, (x) => x.viewer?.zoom?.on === false, 2000))?.viewer?.zoom;
         await finalShotsKey(h, "ArrowRight");
@@ -492,7 +492,7 @@ export const finalShotsScenario = {
                 s.viewer.missing.includes(`/1/cdp-shots/${FINAL_SHOTS_MISSING}.png`),
             JSON.stringify({ missing: s?.viewer?.missing })
         );
-        await h.shot("cdp-shots/final-shots-6-missing.png");
+        await h.shot("cdp-shots/final-shots-6-missing.png", { step: shotStep(steps, "6") });
         await finalShotsClick(h, `${FS_VIEWER}?.querySelector('button[aria-label="Close"]')`);
         await finalShotsUntil(h, (x) => x.viewer == null, 3000);
 
@@ -507,7 +507,7 @@ export const finalShotsScenario = {
                 !s.dock.disabled,
             JSON.stringify({ row: s?.row, dock: s?.dock })
         );
-        await h.shot("cdp-shots/final-shots-7-fixing.png");
+        await h.shot("cdp-shots/final-shots-7-fixing.png", { step: shotStep(steps, "7") });
 
         await seedFinalShots(h, ctx, ctx.stages.passed);
         s = await finalShotsUntil(h, (x) => x.row?.text.includes("passed · 5 scenarios") === true);
@@ -520,7 +520,7 @@ export const finalShotsScenario = {
                 !s.dock.disabled,
             JSON.stringify({ row: s?.row, dock: s?.dock })
         );
-        await h.shot("cdp-shots/final-shots-8a-passed.png");
+        await h.shot("cdp-shots/final-shots-8a-passed.png", { step: shotStep(steps, "8a") });
 
         await seedFinalShots(h, ctx, ctx.stages.empty);
         s = await finalShotsUntil(h, (x) => x.row?.text.includes("no screenshots") === true);
@@ -529,7 +529,7 @@ export const finalShotsScenario = {
             s?.row?.text.includes("unverified · no screenshots") && s.dock?.text === "Screenshots · 0" && s.dock.disabled === true,
             JSON.stringify({ row: s?.row, dock: s?.dock })
         );
-        await h.shot("cdp-shots/final-shots-8b-empty.png");
+        await h.shot("cdp-shots/final-shots-8b-empty.png", { step: shotStep(steps, "8b") });
 
         await seedFinalShots(h, ctx, ctx.stages.plain);
         s = await finalShotsUntil(h, (x) => x.row?.text.includes("passed · 3 screenshots") === true);
@@ -551,7 +551,7 @@ export const finalShotsScenario = {
                 v.text.includes("Round 1 passed"),
             JSON.stringify({ ...plainRow, viewer: v })
         );
-        await h.shot("cdp-shots/final-shots-8c-plain.png");
+        await h.shot("cdp-shots/final-shots-8c-plain.png", { step: shotStep(steps, "8c") });
 
         await finalShotsKey(h, "Escape");
         await finalShotsUntil(h, (x) => x.viewer == null, 3000);
@@ -563,9 +563,9 @@ export const finalShotsScenario = {
             s?.viewer == null && s.sheet === true && s.dock?.focused === true,
             JSON.stringify({ viewer: s?.viewer != null, sheet: s?.sheet, dock: s?.dock })
         );
-        await h.shot("cdp-shots/final-shots-9-closed.png");
+        await h.shot("cdp-shots/final-shots-9-closed.png", { step: shotStep(steps, "9") });
 
-        await finalShotsPastRounds(h, ctx, rec);
+        await finalShotsPastRounds(h, ctx, rec, steps);
         return steps;
     },
     async teardown(h, ctx) {
@@ -577,6 +577,15 @@ export const finalShotsScenario = {
     },
 };
 
+// the step a shot shows, for h.shot's tag (the Final tab names a screenshot by it): a shot named for its step's id
+// (final-stage-b5-failed-pane is B5's, final-shots-8a-passed is 8a's) is that step's once it is recorded, else, taken
+// before it, the step recorded next
+function shotStep(steps, id) {
+    const head = `${id.charAt(0).toUpperCase()}${id.slice(1)}. `;
+    const at = steps.findLastIndex((st) => st.step.startsWith(head));
+    return at >= 0 ? at : steps.length;
+}
+
 // round 2 failed at Verify, so its Final command never ran and it kept no screenshots; the engine writes the detail so
 const FS_VERIFY_FAILED = "Verify `node scripts/verify.mjs ./pkg/waveobj` failed (exit 1):\nFAIL\tpkg/waveobj\t0.4s";
 const FS_ROUND2_EMPTY = "Round 2 ended at Verify, before the Final command ran.";
@@ -585,7 +594,7 @@ const fsRoundButton = (prefix) =>
     `[...(${FS_VIEWER}?.querySelectorAll('[role="group"][aria-label="Round"] button') ?? [])].find((b) => b.innerText.trim().startsWith(${JSON.stringify(prefix)}))`;
 
 // F22 at 1600x950: an earlier round's line in the DAG's Final peek, and a round that ended before it took any shots
-async function finalShotsPastRounds(h, ctx, rec) {
+async function finalShotsPastRounds(h, ctx, rec, steps) {
     await h.cdp("Emulation.setDeviceMetricsOverride", RV_WIDE);
     let seeded = "ok";
     try {
@@ -601,7 +610,7 @@ async function finalShotsPastRounds(h, ctx, rec) {
     await h.ev(`${FS_PAST(1)}?.click()`);
     const detailShown = await polishWaitFor(h, `!!${FS_PAST(1)}?.parentElement?.querySelector("[data-final-past-round-detail]")`, 3000);
     const detail = await h.ev(`(${FS_PAST(1)}?.parentElement?.querySelector("[data-final-past-round-detail]")?.textContent ?? "").trim()`);
-    await h.shot("cdp-shots/final-shots-10-past-round.png");
+    await h.shot("cdp-shots/final-shots-10-past-round.png", { step: shotStep(steps, "10") });
     await h.ev(`${FS_PAST(1)}?.querySelector("[data-final-past-round-shots]")?.click()`);
     let s = await finalShotsUntil(h, (x) => x.viewer?.rounds.some((r) => r.on) === true);
     const onRound = s?.viewer?.rounds.find((r) => r.on)?.text ?? null;
@@ -620,7 +629,7 @@ async function finalShotsPastRounds(h, ctx, rec) {
     await polishWaitFor(h, `!!${FS_VIEWER}?.querySelector("[data-final-shots-empty]")`, 3000);
     const empty = await h.ev(`(${FS_VIEWER}?.querySelector("[data-final-shots-empty]")?.textContent ?? "").trim()`);
     s = await h.ev(FS_READ);
-    await h.shot("cdp-shots/final-shots-11-round-2-empty.png");
+    await h.shot("cdp-shots/final-shots-11-round-2-empty.png", { step: shotStep(steps, "11") });
     rec(
         "11. F22: the viewer on round 2, which failed at Verify, says where the round ended",
         (s?.viewer?.rounds.find((r) => r.on)?.text ?? "").startsWith("Round 2") && empty === FS_ROUND2_EMPTY,
@@ -1166,7 +1175,7 @@ export const finalStageScenario = {
     async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok: fstHolds(ok), detail: JSON.stringify(detail) });
-        const shot = (name) => h.shot(`cdp-shots/final-stage-${name}.png`);
+        const shot = (name) => h.shot(`cdp-shots/final-stage-${name}.png`, { step: shotStep(steps, name.split("-")[0]) });
         const clickRow = () => finalShotsClick(h, FST_ROW);
         const closeViewer = async () => {
             await finalShotsClick(h, `document.querySelector("[data-final-shots-viewer]")?.querySelector('button[aria-label="Close"]')`);
@@ -1372,8 +1381,9 @@ export const finalStageScenario = {
         await finalShotsClick(h, `${FST_PANE}?.querySelector('[data-final-step="final"] [data-raw-toggle]')`);
         const rawFinal = await fstUntil(h, FST_AGENT, (s) => paneStep(s, "final")?.body?.card?.view === "raw");
         await shot("b5-failed-raw");
-        await finalShotsClick(h, `${FST_PANE}?.querySelector("[data-final-shots-link]")`);
-        const paneViewer = (await fstUntil(h, FST_AGENT, (s) => s.viewer))?.viewer;
+        // the screenshots live in the Final tab beside the pane, which has no link of its own
+        await finalShotsClick(h, `document.querySelector("[data-workspace-final] [data-final-tab-shot]")`);
+        const tabViewer = (await fstUntil(h, FST_AGENT, (s) => s.viewer))?.viewer;
         await closeViewer();
         d = await fstDag(h, ctx, (s) => s.node.meta === "round 1 · failed at Final", wait);
         await shot("b5-failed-dag");
@@ -1386,7 +1396,7 @@ export const finalStageScenario = {
         const verifyCard = paneStep(besideVerify, "verify")?.body?.card;
         const rawText = paneStep(rawFinal, "final")?.body?.card?.raw ?? "";
         rec(
-            "B5. failed at Final in round 1: the Final row opens on its own as a final-verify Tests card, its failures named with their scenario, its X square and exit 1 chip, no red detail; Verify opens beside it as a go test card; raw shows the output; the Verifier reads not run, quiet; the lead has it, and the screenshots open the viewer from the pane and the DAG peek card",
+            "B5. failed at Final in round 1: the Final row opens on its own as a final-verify Tests card, its failures named with their scenario, its X square and exit 1 chip, no red detail; Verify opens beside it as a go test card; raw shows the output; the Verifier reads not run, quiet; the lead has it; the pane has no screenshots link, and the screenshots open the viewer from the Final tab and the DAG peek card",
             () =>
                 a.rows[0].sub === "failed at Final · round 1" &&
                 a.rows[0].tone === "fail" &&
@@ -1411,8 +1421,8 @@ export const finalStageScenario = {
                 rawText.includes(FST_FINAL_FAILURES[0].detail) &&
                 a.pane.text.includes("The lead has this failure") &&
                 !a.pane.end &&
-                a.pane.shots != null &&
-                paneViewer &&
+                a.pane.shots == null &&
+                tabViewer &&
                 d.node.meta === "round 1 · failed at Final" &&
                 fstSame(d.node.strip, [...fstRepeat("passed", 3), "failed", "notrun"]) &&
                 d.peek.text.includes(fstFlat(FST_DETAIL)) &&
@@ -1426,7 +1436,8 @@ export const finalStageScenario = {
                 errors: a?.pane?.errors,
                 verifyCard,
                 raw: rawText.slice(0, 200),
-                paneViewer,
+                shots: a?.pane?.shots,
+                tabViewer,
                 node: d?.node,
                 peek: d?.peek,
                 peekViewer,

@@ -293,24 +293,32 @@ describe("tabWaiting and waitingOnYou", () => {
 
     it("counts a Run tab's user-owned asks, not the lead's", () => {
         const runAsks = asks(ask("r1", "user"), ask("r1", "lead"), ask("r1", "user"), ask("r2", "user"));
-        expect(tabWaiting(run("r1"), { runAsks, brainstormAsking: false })).toBe(2);
-        expect(tabWaiting(run("r3"), { runAsks, brainstormAsking: false })).toBe(0);
+        expect(tabWaiting(run("r1"), { runAsks, brainstormAsking: false, failedFinals: [] })).toBe(2);
+        expect(tabWaiting(run("r3"), { runAsks, brainstormAsking: false, failedFinals: [] })).toBe(0);
     });
 
     it("counts one for an asking Brainstorm tab and nothing for the other kinds", () => {
-        const input = { runAsks: {}, brainstormAsking: true };
+        const input = { runAsks: {}, brainstormAsking: true, failedFinals: [] };
         expect(tabWaiting({ kind: "brainstorm" }, input)).toBe(1);
-        expect(tabWaiting({ kind: "brainstorm" }, { ...input, brainstormAsking: false })).toBe(0);
+        expect(tabWaiting({ kind: "brainstorm" }, { ...input, brainstormAsking: false, failedFinals: [] })).toBe(0);
         expect(tabWaiting(changes, input)).toBe(0);
         expect(tabWaiting(file("a.go", 1), input)).toBe(0);
         expect(tabWaiting({ kind: "canvas" }, input)).toBe(0);
     });
 
+    it("marks a Final tab while its run's current round failed and the run holds an ask of yours", () => {
+        const final: WorkspaceTab = { kind: "final", runId: "r1", round: null };
+        const input = { runAsks: asks(ask("r1", "user")), brainstormAsking: false, failedFinals: ["r1"] };
+        expect(tabWaiting(final, input)).toBe(1);
+        expect(tabWaiting(final, { ...input, failedFinals: [] })).toBe(0);
+        expect(tabWaiting(final, { ...input, runAsks: asks(ask("r1", "lead")) })).toBe(0);
+    });
+
     it("sums what waits on you across the open tabs", () => {
         const runAsks = asks(ask("r1", "user"), ask("r2", "user"), ask("r2", "user"), ask("r9", "user"));
         const tabs = [run("r1"), run("r2"), changes, { kind: "brainstorm" } as WorkspaceTab];
-        expect(waitingOnYou(tabs, { runAsks, brainstormAsking: true })).toBe(4);
-        expect(waitingOnYou([], { runAsks, brainstormAsking: true })).toBe(0);
+        expect(waitingOnYou(tabs, { runAsks, brainstormAsking: true, failedFinals: [] })).toBe(4);
+        expect(waitingOnYou([], { runAsks, brainstormAsking: true, failedFinals: [] })).toBe(0);
     });
 });
 
