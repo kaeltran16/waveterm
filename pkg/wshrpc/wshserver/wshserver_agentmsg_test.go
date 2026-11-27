@@ -51,9 +51,17 @@ func agentFacts(tabId, name, blockId, harness, state string) agentTabFacts {
 // what the delivery seam was handed.
 func scriptAgents(t *testing.T, facts *agentRosterFacts) *[]agentsDelivery {
 	t.Helper()
-	oldLoad, oldDeliver, oldMeta, oldTabBlock, oldPrompt := loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock, readPromptBlock
+	oldLoad, oldTab, oldDeliver, oldMeta, oldTabBlock, oldPrompt := loadAgentRosterFacts, loadAgentTabFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock, readPromptBlock
 	sent := &[]agentsDelivery{}
 	loadAgentRosterFacts = func(context.Context) (*agentRosterFacts, error) { return facts, nil }
+	loadAgentTabFacts = func(_ context.Context, tabId string) (*agentTabFacts, error) {
+		for _, tf := range facts.Tabs {
+			if tf.Tab.OID == tabId {
+				return &tf, nil
+			}
+		}
+		return nil, nil
+	}
 	deliverAgentMessage = func(blockId, text string) { *sent = append(*sent, agentsDelivery{blockId, text}) }
 	blockTranscriptMeta = func(context.Context, string) (string, error) { return "", nil }
 	tabAgentBlock = func(_ context.Context, tabId string) string {
@@ -77,7 +85,7 @@ func scriptAgents(t *testing.T, facts *agentRosterFacts) *[]agentsDelivery {
 		return promptBlock{}, nil
 	}
 	t.Cleanup(func() {
-		loadAgentRosterFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock, readPromptBlock = oldLoad, oldDeliver, oldMeta, oldTabBlock, oldPrompt
+		loadAgentRosterFacts, loadAgentTabFacts, deliverAgentMessage, blockTranscriptMeta, tabAgentBlock, readPromptBlock = oldLoad, oldTab, oldDeliver, oldMeta, oldTabBlock, oldPrompt
 		for _, b := range []string{agentsBlockA, agentsBlockB, agentsBlockC} {
 			agentmsg.TurnEnded(b)
 		}

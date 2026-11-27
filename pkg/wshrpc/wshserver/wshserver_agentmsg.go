@@ -138,32 +138,57 @@ func readAgentRosterFacts(ctx context.Context) (*agentRosterFacts, error) {
 	}
 	facts := &agentRosterFacts{Runs: runs, Channels: chans}
 	for _, tab := range tabs {
-		if len(tab.BlockIds) == 0 {
-			continue
+		tf, err := readTabFacts(ctx, tab)
+		if err != nil {
+			return nil, err
 		}
-		blockId := tab.BlockIds[0]
-		rs := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
-		shellRunning := rs != nil && rs.ShellProcStatus == blockcontroller.Status_Running
-		status := orchestrate.LatestAgentStatus(blockId, tab.OID)
-		parentTab := agentworker.ParentOf(tab)
-		if parentTab != "" && !shellRunning {
-			if err := stoppedWorkerStatus(ctx, tab, blockId, &status); err != nil {
-				return nil, err
-			}
+		if tf != nil {
+			facts.Tabs = append(facts.Tabs, *tf)
 		}
-		_, openAsk := agentask.GlobalRegistry.Get(waveobj.MakeORef(waveobj.OType_Block, blockId).String())
-		facts.Tabs = append(facts.Tabs, agentTabFacts{
-			Tab:          tab,
-			BlockId:      blockId,
-			ShellRunning: shellRunning,
-			ProjectPath:  jarvis.MainCheckout(status.Cwd),
-			Status:       status,
-			OpenAsk:      openAsk,
-			HasStream:    agentctl.Has(blockId),
-			ParentTab:    parentTab,
-		})
 	}
 	return facts, nil
+}
+
+// loadAgentTabFacts reads one tab's facts, nil for a tab that is gone. A var so tests script it as they do the roster.
+var loadAgentTabFacts = readAgentTabFacts
+
+func readAgentTabFacts(ctx context.Context, tabId string) (*agentTabFacts, error) {
+	tab, err := wstore.DBGet[*waveobj.Tab](ctx, tabId)
+	if err != nil {
+		return nil, fmt.Errorf("loading tab %s: %w", tabId, err)
+	}
+	if tab == nil {
+		return nil, nil
+	}
+	return readTabFacts(ctx, tab)
+}
+
+// readTabFacts is what the roster judges tab by, nil for a tab with no block.
+func readTabFacts(ctx context.Context, tab *waveobj.Tab) (*agentTabFacts, error) {
+	if len(tab.BlockIds) == 0 {
+		return nil, nil
+	}
+	blockId := tab.BlockIds[0]
+	rs := blockcontroller.GetBlockControllerRuntimeStatus(blockId)
+	shellRunning := rs != nil && rs.ShellProcStatus == blockcontroller.Status_Running
+	status := orchestrate.LatestAgentStatus(blockId, tab.OID)
+	parentTab := agentworker.ParentOf(tab)
+	if parentTab != "" && !shellRunning {
+		if err := stoppedWorkerStatus(ctx, tab, blockId, &status); err != nil {
+			return nil, err
+		}
+	}
+	_, openAsk := agentask.GlobalRegistry.Get(waveobj.MakeORef(waveobj.OType_Block, blockId).String())
+	return &agentTabFacts{
+		Tab:          tab,
+		BlockId:      blockId,
+		ShellRunning: shellRunning,
+		ProjectPath:  jarvis.MainCheckout(status.Cwd),
+		Status:       status,
+		OpenAsk:      openAsk,
+		HasStream:    agentctl.Has(blockId),
+		ParentTab:    parentTab,
+	}, nil
 }
 
 // stoppedWorkerStatus takes a stopped worker's harness, cwd and transcript from its tab and block, which outlive
