@@ -105,6 +105,14 @@ Cockpit and surfaces:
   9b off fixed naps left it alone (`docs/superpowers/plans/2026-11-19-canvas-tab-polish-fix-1.md`, decision 3).
   Revive when it fails again: keep the step's detail and screenshot, and check whether its sampler stopped before
   the fade began. From `effort:f2ce52d6-4889-4be7-8258-39348ddd83bf`, closed 2026-11-19.
+- **Scenario flakes seen once, cause unknown** (2026-11-27 housekeeping) — each passed on rerun and has no
+  named mechanism; revive one when it fails again, keeping the step's detail and screenshot:
+  `motion-final` step 8 (new shot stuck at opacity 0, run b5cac5d9); `brainstorm-mode` 2j-2k3 (answer box absent
+  right after Skip) and `brainstorm-run-landed` step 1 right after `rendered-bs-run` (seeded final overwritten);
+  `surface-headers` "files compare at 1000px" Fetch button (2 of 5 on fa37c5d83); `brief-act` step 3 empty toast
+  (run 91a9cb98 t-2); `diff-states` steps 11/13/14 in t-4's worker runs (Final passed them); `agent-rail` teardown
+  EBUSY on `verify-agent-rail-*/repo` (holder transient, not reproduced 11-23). From the chunks closed in
+  efforts c8108182, 55f429c3, f11e5ebd, 79b6e384, 11e5d0cd and 40b4d563.
 - **Session target in `openTarget`** (2026-09-17) — revive when opening a session from a Usage session
   page is wanted.
 - **Builder check end to end, with a real reviewer** (2026-10-22) — revive when the reviewer's prompt
