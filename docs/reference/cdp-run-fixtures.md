@@ -49,8 +49,9 @@ Add the scenario to `SCENARIOS`, or `verify.mjs` and a plan's Final never run it
   no wshrpc command does (`object.GetObject`, `object.UpdateObject`). `UpdateObject` refuses a call without a
   `uicontext`.
 - **`seedFinalShots(h, ctx, state)`** is the pattern for putting a stored DAG into a state the engine has not
-  reached: read the DAG, write it, read it back, and retry a bounded number of times, since the watchdog ticks a
-  running DAG and a tick that read it first lands over the write. It then bumps a meta key with `setmeta`:
+  reached: read the DAG, write it, read it back, and retry a bounded number of times. `UpdateObject` of a DAG waits
+  for the DAG mutation lock, so a write never lands under a tick; the retry is for a tick right after it, since the
+  watchdog ticks a running DAG. It then bumps a meta key with `setmeta`:
   `UpdateObject` publishes nothing, and a meta write sends the whole stored DAG to the page.
 - **`teardownFixtureRun(h, ctx, name, restore?)`** cancels the run, deletes its worker blocks and the channel,
   reloads onto the live roster and removes the temp dir. It attempts every step even when one fails. Pass

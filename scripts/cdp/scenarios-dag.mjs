@@ -2105,7 +2105,7 @@ async function dagPeekCardsAndKeys(h, ctx, rec) {
             shots: [{ name: DAG_PEEK_SHOT, files: [`${DAG_PEEK_SHOT}.png`] }],
             shotsmanifest: false,
         };
-        // the blocked dag's watchdog tick can land over the seed after seedDag read it back, so seed until it shows
+        // the blocked dag's watchdog tick after seedDag read the seed back may still move it, so seed until it shows
         for (let i = 0; i < DAG_PEEK_SEED_TRIES; i++) {
             await seedDag(h, ctx, (dag) => ({ ...dag, final }), (dag) => JSON.stringify([dag?.final?.state ?? null, dag?.final?.shots?.length ?? 0]));
             await dagPeekOpen(h, DAG_PEEK_FINAL_SEL, "final");

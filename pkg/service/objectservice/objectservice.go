@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wavetermdev/waveterm/pkg/orchestrate"
 	"github.com/wavetermdev/waveterm/pkg/tsgen/tsgenmeta"
 	"github.com/wavetermdev/waveterm/pkg/waveobj"
 	"github.com/wavetermdev/waveterm/pkg/wstore"
@@ -55,13 +56,29 @@ func (svc *ObjectService) UpdateObject_Meta() tsgenmeta.MethodMeta {
 }
 
 func (svc *ObjectService) UpdateObject(uiContext waveobj.UIContext, waveObj waveobj.WaveObj, returnUpdates bool) (waveobj.UpdatesRtnType, error) {
-	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
-	defer cancelFn()
-	ctx = waveobj.ContextWithUpdates(ctx)
 	if waveObj == nil {
 		return nil, fmt.Errorf("update wavobj is nil")
 	}
 	oref := waveobj.ORefFromWaveObj(waveObj)
+	if oref.OType != waveobj.OType_Dag {
+		return updateObject(oref, waveObj, returnUpdates)
+	}
+	// an engine tick replaces the whole dag with the snapshot it loaded under this lock, so a write outside it that
+	// lands between that load and that write is reverted
+	var rtn waveobj.UpdatesRtnType
+	err := orchestrate.WithDagMutation(oref.OID, func() error {
+		var err error
+		rtn, err = updateObject(oref, waveObj, returnUpdates)
+		return err
+	})
+	return rtn, err
+}
+
+// the timeout starts here, not before a wait on the dag lock: a tick can hold it for tens of seconds
+func updateObject(oref *waveobj.ORef, waveObj waveobj.WaveObj, returnUpdates bool) (waveobj.UpdatesRtnType, error) {
+	ctx, cancelFn := context.WithTimeout(context.Background(), DefaultTimeout)
+	defer cancelFn()
+	ctx = waveobj.ContextWithUpdates(ctx)
 	found, err := wstore.DBExistsORef(ctx, *oref)
 	if err != nil {
 		return nil, fmt.Errorf("error getting object: %w", err)

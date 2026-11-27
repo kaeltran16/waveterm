@@ -11,6 +11,7 @@ import {
     BUILD_SLOTS,
     EXIT_UNVERIFIED,
     acquireBuildSlot,
+    acquireTreeLock,
     buildLockPath,
     closeMainWindow,
     finalManifest,
@@ -332,8 +333,15 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
         return held;
     }
 
+    // each in its own tree, as the engine's stages are: one tree runs one stage at a time
     async function runTwo(logFile) {
-        const stages = await Promise.all(["out-a", "out-b"].map((name) => run(fakeDevEnv(name, logFile, 1500), [], dir)));
+        const stages = await Promise.all(
+            ["out-a", "out-b"].map((name) => {
+                const tree = join(dir, `tree-${name}`);
+                mkdirSync(tree);
+                return run(fakeDevEnv(name, logFile, 1500), [], tree);
+            })
+        );
         for (const r of stages) {
             expect(r.code).toBe(EXIT_UNVERIFIED);
             expect(r.last).toMatch(/^dev app exited with code 0 before answering on :\d+$/);
@@ -393,6 +401,22 @@ setTimeout(() => fs.appendFileSync(${JSON.stringify(logFile)}, "end\\n"), ${hold
             expect(existsSync(join(dir, "dev.log"))).toBe(false);
         } finally {
             await Promise.all(held.map(close));
+        }
+    }, 30_000);
+
+    // its scenarios write the tree's cockpit fixture and cdp-shots: a second stage there deleted the first's fixture
+    it("is unverified while another stage runs in the same tree, and starts no dev app", async () => {
+        const base = makeBase();
+        const tree = join(dir, "tree");
+        mkdirSync(tree);
+        const held = await acquireTreeLock(base, tree);
+        try {
+            const r = await run(fakeDevEnv("out", join(dir, "dev.log"), 0), [], tree);
+            expect(r.code).toBe(EXIT_UNVERIFIED);
+            expect(r.last).toBe(`another final-verify is running in ${tree}; run one at a time per tree`);
+            expect(existsSync(join(dir, "dev.log"))).toBe(false);
+        } finally {
+            await close(held);
         }
     }, 30_000);
 

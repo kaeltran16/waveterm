@@ -296,13 +296,17 @@ describe("parseTestOutput final-verify", () => {
         ]);
     });
 
-    it("keeps every line of a multi-line step detail that formatResults prints", () => {
+    it.each([
+        ["a multi-line", "expected a card\nfound a plain block"],
+        // formatResults prints the blank line as its indent alone
+        ["a blank line inside a", "expected a card\n\nfound a plain block"],
+    ])("keeps every line of %s step detail that formatResults prints", (_, detail) => {
         const printed = formatResults([
             {
                 name: "final-stage",
                 steps: [
                     { step: "1. the pane opens", ok: true },
-                    { step: "2. the row", ok: false, detail: "expected a card\nfound a plain block" },
+                    { step: "2. the row", ok: false, detail },
                 ],
             },
         ]);
@@ -312,7 +316,7 @@ describe("parseTestOutput final-verify", () => {
             pass: 1,
             fail: 1,
             skip: 0,
-            failures: [{ pkg: "final-stage", test: "2. the row", message: "expected a card\nfound a plain block" }],
+            failures: [{ pkg: "final-stage", test: "2. the row", message: detail }],
         });
     });
 
