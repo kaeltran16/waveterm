@@ -94,7 +94,8 @@ function useRunEventsOf(ctx: TranscriptContext): RunEvent[] {
 async function fetchBriefRun(runId: string): Promise<BriefRun> {
     const run = await WOS.reloadWaveObject<Run>(WOS.makeORef("run", runId));
     if (run == null) throw new Error(`run ${runId} not found`);
-    const dag = run.dagoref ? await WOS.reloadWaveObject<TaskGroup>(run.dagoref) : null;
+    // dagoref holds the dag's bare id, not an oref
+    const dag = run.dagoref ? await WOS.reloadWaveObject<TaskGroup>(WOS.makeORef("dag", run.dagoref)) : null;
     return {
         goal: run.goal,
         planSkill: run.planskill,
