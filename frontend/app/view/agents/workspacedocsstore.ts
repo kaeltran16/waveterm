@@ -86,21 +86,18 @@ export async function besideTabFor(agent: AgentVM, file: { path: string; line: n
 
 // openBeside's guard, decided at the click so the caller knows whether to fall back; the tab opens once the list is
 // read, and openBeside's second check drops it if the user has left the agent meanwhile
+// the agent comes from the caller: a finished row's is never in the roster
 export function openFileBeside(
     model: AgentsViewModel,
-    agentId: string,
+    agent: AgentVM,
     file: { path: string; line: number | null },
     event?: { ctrlKey: boolean }
 ): boolean {
-    if (event?.ctrlKey || globalStore.get(model.surfaceAtom) !== "agent" || !rendersNow(model, agentId)) {
-        return false;
-    }
-    const agent = globalStore.get(model.agentsAtom).find((a) => a.id === agentId);
-    if (agent == null) {
+    if (event?.ctrlKey || globalStore.get(model.surfaceAtom) !== "agent" || !rendersNow(model, agent.id)) {
         return false;
     }
     fireAndForget(async () => {
-        openBeside(model, agentId, await besideTabFor(agent, file));
+        openBeside(model, agent.id, await besideTabFor(agent, file));
     });
     return true;
 }

@@ -65,6 +65,9 @@ import { workspaceRing } from "./scenarios-workspace-ring.mjs";
 import { workspaceRun } from "./scenarios-workspace-run.mjs";
 import { workspaceRunActivity } from "./scenarios-workspace-run-activity.mjs";
 import { workspaceRunGraph } from "./scenarios-workspace-run-graph.mjs";
+import { workspaceFinishedTask } from "./scenarios-workspace-finished-task.mjs";
+import { workspaceFinishedFinal } from "./scenarios-workspace-finished-final.mjs";
+import { workspaceFinishedChanges } from "./scenarios-workspace-finished-changes.mjs";
 import { workspaceChanges } from "./scenarios-workspace-changes.mjs";
 import { workspaceFile } from "./scenarios-workspace-file.mjs";
 import { workspaceDocs } from "./scenarios-workspace-docs.mjs";
@@ -400,6 +403,9 @@ export const SCENARIOS = [
     workspaceRun,
     workspaceRunActivity,
     workspaceRunGraph,
+    workspaceFinishedTask,
+    workspaceFinishedFinal,
+    workspaceFinishedChanges,
     workspaceChanges,
     workspaceFile,
     workspaceDocs,

@@ -21,7 +21,9 @@ import {
 } from "./brainstormmodel";
 import { sendBrainstorm } from "./brainstormsend";
 import type { BrainstormState } from "./brainstormstore";
+import { isFinalStageId } from "./finalstage";
 import { isPiPickerCommand, PI_HARNESS } from "./picommands";
+import { isEndedWorkerId } from "./runlineage";
 import { runtimeMeta } from "./runtimemeta";
 
 export type ViewMode = "terminal" | "rendered";
@@ -233,6 +235,13 @@ function rendersHarness(agent: AgentVM): boolean {
 
 export function canRender(agent: AgentVM, opts: { ended: boolean; stage: boolean }): boolean {
     return rendersHarness(agent) && agent.blockId != null && agent.kind !== "terminal" && !opts.ended && !opts.stage;
+}
+
+// whether the agent's center reads as a transcript with the workspace pane beside it, never the details rail: the
+// Rendered view, or a row whose session ended (a done worker, an ended plan reviewer or verifier) or the Final stage's
+// own row, whatever the view. rendered: the agent shows the Rendered view (canRender and its effective view)
+export function transcriptLook(agentId: string, rendered: boolean): boolean {
+    return rendered || isEndedWorkerId(agentId) || isFinalStageId(agentId);
 }
 
 // commands that open a full-screen picker in Claude's TUI; /model with an alias switches without one

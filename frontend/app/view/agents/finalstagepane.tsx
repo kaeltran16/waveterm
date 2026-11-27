@@ -37,7 +37,6 @@ import {
 } from "./finalstage";
 import {
     EndFinalStage,
-    FinalShotsLink,
     FinalUnverified,
     RerunFinalStage,
     StepMemory,
@@ -323,7 +322,8 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
     return (
         <div data-final-pane className="flex min-h-0 flex-1 flex-col bg-background">
             {/* not clipped: the end form opens under its button */}
-            {/* wraps rather than truncate: the headline's end is the outcome ("failed at Final") */}
+            {/* wraps rather than truncate: the headline's end is the outcome ("failed at Final"). Its basis keeps it from
+                shrinking under its words beside the buttons in a narrow center; short of it, it takes its own line */}
             <div className="flex flex-none flex-wrap items-center gap-x-[10px] gap-y-[6px] border-b border-border px-[22px] py-[12px]">
                 <span
                     aria-hidden
@@ -333,7 +333,7 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
                     )}
                 />
                 <span className="flex-none text-[13px] font-semibold text-foreground">{stageLabel("verifier")}</span>
-                <span data-final-headline className="min-w-0 flex-1 font-mono text-[10.5px] text-ink-mid">
+                <span data-final-headline className="min-w-0 flex-[1_1_12rem] font-mono text-[10.5px] text-ink-mid">
                     {view.headline}
                 </span>
                 <EndFinalStage group={run.dag} channelId={run.channelId} runId={run.runId} />
@@ -398,9 +398,6 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
                             </motion.span>
                         </MotionConfig>
                     ) : null}
-                    <div className="mt-2 flex flex-col">
-                        <FinalShotsLink group={run.dag} />
-                    </div>
                 </div>
             </div>
         </div>

@@ -2835,6 +2835,7 @@ declare global {
         name: string;
         files: string[];
         steps?: FinalShotStep[];
+        filesteps?: {[key: string]: number};
     };
 
     // waveobj.FinalShotStep
@@ -2852,6 +2853,7 @@ declare global {
         commit?: string;
         outdir?: string;
         detail?: string;
+        verdicttext?: string;
         killed?: boolean;
         unverified?: string[];
         verifierrunid?: string;

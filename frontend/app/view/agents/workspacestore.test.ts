@@ -8,7 +8,7 @@ import type { AgentsViewModel, SurfaceKey } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { finalStageId } from "./finalstage";
 import { pickerFlipAtom, viewModeAtom } from "./renderedmode";
-import { endedWorkerId } from "./runlineage";
+import { endedWorkerId, type Lineage } from "./runlineage";
 import { focusSubagentAtom } from "./subagentsstore";
 import { EMPTY_WORKSPACE, type WorkspaceTab } from "./workspacemodel";
 import {
@@ -18,6 +18,7 @@ import {
     openWorkspaceTab,
     pushWorkspaceTab,
     rendersNow,
+    seedFinishedRow,
     setWorkspaceCollapsed,
     toggleWorkspaceCollapsed,
     workspaceAtom,
@@ -155,12 +156,13 @@ describe("rendersNow", () => {
         expect(rendersNow(model, flipped)).toBe(false);
     });
 
-    it("is false for an ended worker and the final stage", () => {
+    it("is true for an ended worker and the final stage, which the roster never holds, in either view", () => {
         const ended = endedWorkerId(freshId("run"), "t1");
         const stage = finalStageId(freshId("run"));
-        const model = fakeModel([claude(ended), claude(stage)]);
-        expect(rendersNow(model, ended)).toBe(false);
-        expect(rendersNow(model, stage)).toBe(false);
+        globalStore.set(viewModeAtom(stage), "terminal");
+        const model = fakeModel([]);
+        expect(rendersNow(model, ended)).toBe(true);
+        expect(rendersNow(model, stage)).toBe(true);
     });
 
     it("is false while the agent's subagent interior is open, and only that agent's", () => {
@@ -237,5 +239,52 @@ describe("pushWorkspaceTab", () => {
         openWorkspaceTab(id, CHANGES);
         pushWorkspaceTab(id, { kind: "docs", selected: "C:\r\plan.md" });
         expect(globalStore.get(workspaceAtom(id)).tabs[0]).toEqual({ kind: "docs", selected: "C:\r\plan.md" });
+    });
+});
+
+describe("seedFinishedRow", () => {
+    // a run with one done task, t-4, whose worker's row is the ended id; placed: whether the lineage has it yet
+    const workerRow = (placed = true) => {
+        const runId = freshId("run");
+        const id = endedWorkerId(runId, "t-4");
+        const lineage = {
+            roles: placed ? { [id]: { kind: "worker", leadRunId: runId, taskId: "t-4" } } : {},
+            runs: {},
+        } as unknown as Lineage;
+        return { id, lineage, taskKey: `task:${runId}:t-4` };
+    };
+
+    it("opens the row's first tab active with Changes behind it, unseen", () => {
+        const { id, lineage, taskKey } = workerRow();
+        seedFinishedRow(id, lineage);
+        const ws = globalStore.get(workspaceAtom(id));
+        expect(ws.tabs.map((t) => t.kind)).toEqual(["task", "changes"]);
+        expect(ws.active).toBe(taskKey);
+        expect(ws.unseen).toEqual(["changes"]);
+    });
+
+    it("seeds only once: after both tabs close, focusing the row again leaves no pane", () => {
+        const { id, lineage, taskKey } = workerRow();
+        seedFinishedRow(id, lineage);
+        closeWorkspaceTab(id, taskKey);
+        closeWorkspaceTab(id, "changes");
+        seedFinishedRow(id, lineage);
+        expect(globalStore.get(workspaceAtom(id))).toBe(EMPTY_WORKSPACE);
+    });
+
+    it("seeds only into an empty workspace", () => {
+        const { id, lineage } = workerRow();
+        openWorkspaceTab(id, RUN);
+        seedFinishedRow(id, lineage);
+        expect(globalStore.get(workspaceAtom(id)).tabs).toEqual([RUN]);
+    });
+
+    it("waits for a lineage that places the row, then seeds", () => {
+        const { id, lineage } = workerRow(false);
+        seedFinishedRow(id, lineage);
+        expect(globalStore.get(workspaceAtom(id))).toBe(EMPTY_WORKSPACE);
+        const placed = { ...lineage, roles: { [id]: { kind: "worker", leadRunId: "r", taskId: "t-4" } } } as Lineage;
+        seedFinishedRow(id, placed);
+        expect(globalStore.get(workspaceAtom(id)).tabs.map((t) => t.kind)).toEqual(["task", "changes"]);
     });
 });

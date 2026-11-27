@@ -36,20 +36,22 @@ export function formatResults(scenarioResults) {
     return lines.join("\n");
 }
 
-// the paths of shots (attach.mjs's { path }) that sit under root, relative to it with forward slashes. A scenario that
-// writes a fixture png elsewhere must not list it as one of its screenshots
+// the shots (attach.mjs's { path, step? }) that sit under root, as { file, step? }: the path relative to root with
+// forward slashes, and the step the scenario tagged it with. A scenario that writes a fixture png elsewhere must not
+// list it as one of its screenshots
 export function shotsUnder(shots, root) {
     const files = [];
     for (const s of shots) {
         const rel = relative(resolve(root), resolve(s.path));
         if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
-        files.push(rel.split(sep).join("/"));
+        files.push({ file: rel.split(sep).join("/"), ...(s.step != null ? { step: s.step } : {}) });
     }
     return files;
 }
 
-// the shots.json manifest the engine reads from ARC_FINAL_OUT: one entry per scenario, its shots in the order taken
-// and its steps in the order asserted. shotsByScenario maps a scenario name to png paths relative to cdp-shots/
+// the shots.json manifest the engine reads from ARC_FINAL_OUT: one entry per scenario, its shots in the order taken,
+// its steps in the order asserted, and the step each tagged shot was taken in. shotsByScenario maps a scenario name
+// to shotsUnder's entries, relative to cdp-shots/
 export function shotsManifest(results, shotsByScenario) {
     return results.map((s) => {
         const steps = s.steps.map((st) => ({
@@ -58,7 +60,10 @@ export function shotsManifest(results, shotsByScenario) {
             ...(st.detail ? { detail: st.detail } : {}),
         }));
         if (s.error) steps.push({ step: "the scenario threw", state: "fail", detail: s.error });
-        return { name: s.name, files: shotsByScenario[s.name] ?? [], steps };
+        const shots = shotsByScenario[s.name] ?? [];
+        const tagged = shots.filter((f) => f.step != null);
+        const filesteps = Object.fromEntries(tagged.map((f) => [f.file, f.step]));
+        return { name: s.name, files: shots.map((f) => f.file), ...(tagged.length > 0 ? { filesteps } : {}), steps };
     });
 }
 

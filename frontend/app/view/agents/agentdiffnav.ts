@@ -7,6 +7,7 @@
 // on its first file instead of the one that was clicked.
 
 import { globalStore } from "@/app/store/jotaiStore";
+import * as WOS from "@/app/store/wos";
 import { RpcApi } from "@/app/store/wshclientapi";
 import { TabRpcClient } from "@/app/store/wshrpcutil";
 import { landOn } from "@/app/view/jarvis/returnsurface";
@@ -14,8 +15,10 @@ import { fireAndForget } from "@/util/util";
 import type { AgentsViewModel } from "./agents";
 import { defaultRangeFor, scopeKey, type DiffOrigin, type DiffScope } from "./diffscope";
 import { requestFileLink } from "./filesstore";
+import { finalStageRunId, isFinalStageId } from "./finalstage";
 import { HISTORY_RPC_TIMEOUT_MS } from "./historyquery";
-import { leadRunAtom } from "./runlineagestore";
+import { endedRowRunId, endedVerifierId, endedWorkerId } from "./runlineage";
+import { leadRunAtom, runDigestsAtom } from "./runlineagestore";
 import { runTree } from "./runmodel";
 
 // runtime is the AgentVM's `agent` field; it decides whether the scope opens on the agent's edits
@@ -63,24 +66,24 @@ export function landedRunTip(
     return endCommit ?? "";
 }
 
-// A land commit that no longer resolves (gc'd, shallow clone) falls back rather than failing the diff.
-async function landCommitParents(cwd: string, landCommit: string | undefined): Promise<string[] | undefined> {
-    if (!landCommit) {
+// A commit that no longer resolves (gc'd, shallow clone) falls back rather than failing the diff.
+async function commitParents(cwd: string, commit: string | undefined): Promise<string[] | undefined> {
+    if (!commit) {
         return undefined;
     }
     try {
         const h = await RpcApi.GitHistoryCommand(
             TabRpcClient,
-            { cwd, ref: landCommit, limit: 1 },
+            { cwd, ref: commit, limit: 1 },
             { timeout: HISTORY_RPC_TIMEOUT_MS }
         );
         if (h.failure) {
-            console.warn("reading the parents of land commit", landCommit, h.failure);
+            console.warn("reading the parents of commit", commit, h.failure);
             return undefined;
         }
         return h.commits?.[0]?.parents;
     } catch (e) {
-        console.warn("reading the parents of land commit", landCommit, e);
+        console.warn("reading the parents of commit", commit, e);
         return undefined;
     }
 }
@@ -94,7 +97,7 @@ export async function runChangesRange(run: Run): Promise<{ cwd: string; base: st
         return { cwd: runTree(run), base, end: "" };
     }
     const root = (await checkoutRoot(run.projectpath)) ?? runTree(run);
-    const parents = await landCommitParents(root, run.land.commit);
+    const parents = await commitParents(root, run.land.commit);
     return { cwd: root, base, end: landedRunTip(run.land.commit, parents, run.endcommit) };
 }
 
@@ -103,12 +106,140 @@ export async function openRunDiff(model: AgentsViewModel, run: Run, file?: strin
     openDiff(model, runDiffScope(run.id, cwd, run.basecommit, end), file);
 }
 
-// an agent's changes in the Diff surface: a lead's are its run's, which its workers made; any other agent's its own
+// a done worker's merge: the commit its work landed as, its own sealed files, and the other tasks that commit landed
+export interface MergeFacts {
+    commit: string;
+    own: string[];
+    also: { id: string; label: string }[];
+}
+
+// Where a finished row's changes are read. range: base..end at cwd, a done worker's merge commit or the commit the
+// run's Final verified. sealed: the merge commit is gone or was never recorded, so only the files the worker's run
+// sealed are known. run: Final has no commit yet, so the lead's run is read as its lead reads it.
+export type FinishedRange =
+    | {
+          kind: "range";
+          runId: string;
+          cwd: string;
+          base: string;
+          end: string;
+          merge?: MergeFacts;
+          verified?: { commit: string; round: number };
+      }
+    | { kind: "sealed"; merge: MergeFacts; files: EvidenceFile[] }
+    | { kind: "run"; run: Run };
+
+// a load that fails reads as missing, so the row falls back to the read any agent gets
+async function loadObject<T extends WaveObj>(otype: string, oid: string | undefined): Promise<T | undefined> {
+    if (!oid) {
+        return undefined;
+    }
+    try {
+        return (await WOS.loadAndPinWaveObject<T>(WOS.makeORef(otype, oid))) ?? undefined;
+    } catch (e) {
+        console.warn("loading", otype, oid, "for a finished row's changes", e);
+        return undefined;
+    }
+}
+
+// The commit a task's work merged as. A lane lands as one squash, which the engine records on its tip's run only
+// (pkg/orchestrate persistMergedTask), so a merged task reads its lane tip's, the last task not skipped.
+function mergeCommitOf(
+    task: TaskNode,
+    byId: Map<string, TaskNode>,
+    lanes: string[][] | undefined,
+    children: Map<string, Run>
+): string {
+    const own = children.get(task.runid ?? "")?.endcommit ?? "";
+    const lane = lanes?.find((l) => l.includes(task.id)) ?? [];
+    const tip = lane
+        .map((id) => byId.get(id))
+        .filter((t) => t != null && t.state !== "skipped")
+        .at(-1);
+    if (!task.merged || tip == null || !tip.merged) {
+        return own;
+    }
+    return children.get(tip.runid ?? "")?.endcommit || own;
+}
+
+async function mergeRange(runId: string, root: string, dag: TaskGroup, task: TaskNode): Promise<FinishedRange> {
+    const tasks = dag.tasks ?? [];
+    const loaded = await Promise.all(tasks.map((t) => loadObject<Run>("run", t.runid)));
+    const children = new Map(loaded.filter((r) => r != null).map((r) => [r.id, r]));
+    const byId = new Map(tasks.map((t) => [t.id, t]));
+    const lanes = globalStore.get(runDigestsAtom)[runId]?.lanes;
+    const commit = mergeCommitOf(task, byId, lanes, children);
+    const files = children.get(task.runid ?? "")?.evidence?.files ?? [];
+    const own = files.map((f) => f.path);
+    const parents = await commitParents(root, commit);
+    if (!parents?.[0]) {
+        return { kind: "sealed", merge: { commit, own, also: [] }, files };
+    }
+    const also = tasks
+        .filter((t) => t.id !== task.id && mergeCommitOf(t, byId, lanes, children) === commit)
+        .map((t) => ({ id: t.id, label: t.label ?? "" }));
+    return { kind: "range", runId, cwd: root, base: parents[0], end: commit, merge: { commit, own, also } };
+}
+
+// finishedRowRange is how a done worker's row, the Final stage's row and an ended verifier read their changes, all
+// at the lead run's checkout root; undefined for any other id, which reads as any agent does
+export async function finishedRowRange(id: string): Promise<FinishedRange | undefined> {
+    const runId = endedRowRunId(id) ?? finalStageRunId(id);
+    if (!runId) {
+        return undefined;
+    }
+    const run = await loadObject<Run>("run", runId);
+    const dag = await loadObject<TaskGroup>("dag", run?.dagoref);
+    if (run == null || dag == null) {
+        return undefined;
+    }
+    const finalRow = isFinalStageId(id) || id.startsWith(endedVerifierId(runId, ""));
+    const task = finalRow ? undefined : dag.tasks?.find((t) => endedWorkerId(runId, t.id) === id);
+    if (!finalRow && task == null) {
+        return undefined;
+    }
+    const commit = dag.final?.commit;
+    if (finalRow && !commit) {
+        return { kind: "run", run };
+    }
+    const root = (await checkoutRoot(run.projectpath)) ?? runTree(run);
+    if (task != null) {
+        return mergeRange(runId, root, dag, task);
+    }
+    const verified = { commit, round: dag.final.round };
+    return { kind: "range", runId, cwd: root, base: run.basecommit ?? "", end: commit, verified };
+}
+
+async function openFinishedRowDiff(
+    model: AgentsViewModel,
+    agent: { id: string; name: string; agent?: string },
+    file?: string
+): Promise<void> {
+    const range = await finishedRowRange(agent.id);
+    if (range?.kind === "run") {
+        return openRunDiff(model, range.run, file);
+    }
+    if (range?.kind === "range") {
+        openDiff(model, runDiffScope(range.runId, range.cwd, range.base, range.end), file);
+        return;
+    }
+    // a sealed list has no range to open; any other row is a plain agent
+    if (range == null) {
+        openDiff(model, agentDiffScope(agent.id, agent.name, agent.agent), file);
+    }
+}
+
+// an agent's changes in the Diff surface: a lead's are its run's, which its workers made; a finished row's the range
+// its Changes tab lists; any other agent's its own
 export function openAgentDiff(
     model: AgentsViewModel,
     agent: { id: string; name: string; agent?: string; runId?: string },
     file?: string
 ): void {
+    if (endedRowRunId(agent.id) ?? finalStageRunId(agent.id)) {
+        fireAndForget(() => openFinishedRowDiff(model, agent, file));
+        return;
+    }
     const lead = agent.runId ? globalStore.get(leadRunAtom(agent.runId)) : undefined;
     if (lead) {
         fireAndForget(() => openRunDiff(model, lead.run, file));

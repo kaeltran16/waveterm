@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
+import type { Lineage } from "./runlineage";
 import {
     activateTab,
     addTab,
     boardPaneWidth,
     closeTab,
     EMPTY_WORKSPACE,
+    finishedRowTabs,
     iconOnlyTabs,
     openTab,
     paneShape,
@@ -42,6 +44,12 @@ describe("tabKey", () => {
         expect(tabKey(changes)).toBe("changes");
         expect(tabKey({ kind: "brainstorm" })).toBe("brainstorm");
         expect(tabKey({ kind: "canvas" })).toBe("canvas");
+    });
+
+    it("keys one Task tab per run's task and one Final tab per run, whatever its round", () => {
+        expect(tabKey({ kind: "task", runId: "r1", taskId: "t-4" })).toBe("task:r1:t-4");
+        expect(tabKey({ kind: "final", runId: "r1", round: null })).toBe("final:r1");
+        expect(tabKey({ kind: "final", runId: "r1", round: 2, session: "v1" })).toBe("final:r1");
     });
 
     it("keys one Docs tab per agent and one Initiative tab per effort", () => {
@@ -268,6 +276,11 @@ describe("tabLabel", () => {
         expect(tabLabel(initiative("e1"), "Stats and dedupe")).toBe("Initiative · Stats and dedupe");
         expect(tabLabel(initiative("e1"), undefined)).toBe("Initiative");
     });
+
+    it("names a Task tab by its task id and the Final tab plainly", () => {
+        expect(tabLabel({ kind: "task", runId: "r1", taskId: "t-4" }, undefined)).toBe("Task · t-4");
+        expect(tabLabel({ kind: "final", runId: "r1", round: 2 }, undefined)).toBe("Final");
+    });
 });
 
 describe("tabWaiting and waitingOnYou", () => {
@@ -280,24 +293,32 @@ describe("tabWaiting and waitingOnYou", () => {
 
     it("counts a Run tab's user-owned asks, not the lead's", () => {
         const runAsks = asks(ask("r1", "user"), ask("r1", "lead"), ask("r1", "user"), ask("r2", "user"));
-        expect(tabWaiting(run("r1"), { runAsks, brainstormAsking: false })).toBe(2);
-        expect(tabWaiting(run("r3"), { runAsks, brainstormAsking: false })).toBe(0);
+        expect(tabWaiting(run("r1"), { runAsks, brainstormAsking: false, failedFinals: [] })).toBe(2);
+        expect(tabWaiting(run("r3"), { runAsks, brainstormAsking: false, failedFinals: [] })).toBe(0);
     });
 
     it("counts one for an asking Brainstorm tab and nothing for the other kinds", () => {
-        const input = { runAsks: {}, brainstormAsking: true };
+        const input = { runAsks: {}, brainstormAsking: true, failedFinals: [] };
         expect(tabWaiting({ kind: "brainstorm" }, input)).toBe(1);
-        expect(tabWaiting({ kind: "brainstorm" }, { ...input, brainstormAsking: false })).toBe(0);
+        expect(tabWaiting({ kind: "brainstorm" }, { ...input, brainstormAsking: false, failedFinals: [] })).toBe(0);
         expect(tabWaiting(changes, input)).toBe(0);
         expect(tabWaiting(file("a.go", 1), input)).toBe(0);
         expect(tabWaiting({ kind: "canvas" }, input)).toBe(0);
     });
 
+    it("marks a Final tab while its run's current round failed and the run holds an ask of yours", () => {
+        const final: WorkspaceTab = { kind: "final", runId: "r1", round: null };
+        const input = { runAsks: asks(ask("r1", "user")), brainstormAsking: false, failedFinals: ["r1"] };
+        expect(tabWaiting(final, input)).toBe(1);
+        expect(tabWaiting(final, { ...input, failedFinals: [] })).toBe(0);
+        expect(tabWaiting(final, { ...input, runAsks: asks(ask("r1", "lead")) })).toBe(0);
+    });
+
     it("sums what waits on you across the open tabs", () => {
         const runAsks = asks(ask("r1", "user"), ask("r2", "user"), ask("r2", "user"), ask("r9", "user"));
         const tabs = [run("r1"), run("r2"), changes, { kind: "brainstorm" } as WorkspaceTab];
-        expect(waitingOnYou(tabs, { runAsks, brainstormAsking: true })).toBe(4);
-        expect(waitingOnYou([], { runAsks, brainstormAsking: true })).toBe(0);
+        expect(waitingOnYou(tabs, { runAsks, brainstormAsking: true, failedFinals: [] })).toBe(4);
+        expect(waitingOnYou([], { runAsks, brainstormAsking: true, failedFinals: [] })).toBe(0);
     });
 });
 
@@ -391,5 +412,48 @@ describe("the board tab", () => {
         const s = openTab(withTabs(board("b1"), changes), board("b1"));
         expect(s.tabs.map(tabKey)).toEqual(["board:b1", "changes"]);
         expect(s.active).toBe("board:b1");
+    });
+});
+
+describe("finishedRowTabs", () => {
+    const lineage = {
+        roles: {
+            "ended:r1:t-4": { kind: "worker", leadRunId: "r1", taskId: "t-4" },
+            "ended:r1:verifier:v2": { kind: "stage", leadRunId: "r1", stageRole: "verifier" },
+            "ended:r1:review:rv1": { kind: "stage", leadRunId: "r1", stageRole: "plan-reviewer" },
+            "final:r1": { kind: "stage", leadRunId: "r1", stageRole: "verifier" },
+        },
+        runs: {
+            r1: {
+                runId: "r1",
+                channelId: "c1",
+                title: "stats",
+                project: "linkshelf",
+                dag: { final: { state: "passed", round: 2, verifierrunid: "v2" } },
+            },
+        },
+    } as unknown as Lineage;
+
+    it.each<[string, string, WorkspaceTab[]]>([
+        [
+            "a done worker: its Task tab, then Changes",
+            "ended:r1:t-4",
+            [{ kind: "task", runId: "r1", taskId: "t-4" }, changes],
+        ],
+        [
+            "the Final stage row: the current round's Final tab, then Changes",
+            "final:r1",
+            [{ kind: "final", runId: "r1", round: null }, changes],
+        ],
+        [
+            "an ended verifier: the Final tab on its round, marked as its session, then Changes",
+            "ended:r1:verifier:v2",
+            [{ kind: "final", runId: "r1", round: 2, session: "v2" }, changes],
+        ],
+        ["an ended plan reviewer: nothing", "ended:r1:review:rv1", []],
+        ["a live agent: nothing", "tab-1", []],
+        ["an ended id the lineage has not placed yet: nothing", "ended:r9:t-1", []],
+    ])("%s", (_what, id, want) => {
+        expect(finishedRowTabs(id, lineage)).toEqual(want);
     });
 });

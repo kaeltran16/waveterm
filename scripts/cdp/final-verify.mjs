@@ -392,9 +392,16 @@ async function waitForCdp(port, dev, bootMs) {
 }
 
 // verify.mjs's manifest lists files relative to cdp-shots/; the engine reads them relative to ARC_FINAL_OUT, where
-// the copied dir keeps its name
+// the copied dir keeps its name. A file's step is keyed by its path, so the keys move with it
 export function finalManifest(manifest) {
-    return manifest.map((entry) => ({ ...entry, files: entry.files.map((f) => `${SHOTS_DIR}/${f}`) }));
+    const under = (f) => `${SHOTS_DIR}/${f}`;
+    return manifest.map((entry) => ({
+        ...entry,
+        files: entry.files.map(under),
+        ...(entry.filesteps
+            ? { filesteps: Object.fromEntries(Object.entries(entry.filesteps).map(([f, step]) => [under(f), step])) }
+            : {}),
+    }));
 }
 
 // writes nothing when verify.mjs never wrote its manifest: the engine then lists the pngs itself. A manifest that

@@ -91,10 +91,11 @@ describe("shotsManifest", () => {
                 { step: "e", ok: true },
             ],
         };
-        expect(shotsManifest([scenario], { runs: ["runs.png", "runs-open.png"] })).toEqual([
+        expect(shotsManifest([scenario], { runs: [{ file: "runs.png" }, { file: "runs-open.png", step: 1 }] })).toEqual([
             {
                 name: "runs",
                 files: ["runs.png", "runs-open.png"],
+                filesteps: { "runs-open.png": 1 },
                 steps: [
                     { step: "a", state: "pass", detail: "d" },
                     { step: "b", state: "fail", detail: "boom" },
@@ -121,7 +122,7 @@ describe("shotsManifest", () => {
     });
 
     it("gives a scenario with no shots an empty file list", () => {
-        expect(shotsManifest([pass], { other: ["other.png"] })).toEqual([
+        expect(shotsManifest([pass], { other: [{ file: "other.png" }] })).toEqual([
             { name: "s1", files: [], steps: [{ step: "a", state: "pass", detail: "d" }] },
         ]);
     });
@@ -134,7 +135,12 @@ describe("shotsUnder", () => {
             { path: "cdp-shots/nested/a.png" },
             { path: join(resolve("cdp-shots"), "abs.png") },
         ];
-        expect(shotsUnder(shots, "cdp-shots")).toEqual(["b.png", "nested/a.png", "abs.png"]);
+        expect(shotsUnder(shots, "cdp-shots")).toEqual([{ file: "b.png" }, { file: "nested/a.png" }, { file: "abs.png" }]);
+    });
+
+    it("keeps the step a shot was tagged with", () => {
+        const shots = [{ path: "cdp-shots/a.png", step: 0 }, { path: "cdp-shots/b.png" }, { path: "cdp-shots/c.png", step: 2 }];
+        expect(shotsUnder(shots, "cdp-shots")).toEqual([{ file: "a.png", step: 0 }, { file: "b.png" }, { file: "c.png", step: 2 }]);
     });
 
     it("drops a png a scenario wrote outside the dir", () => {
@@ -145,6 +151,6 @@ describe("shotsUnder", () => {
             { path: "cdp-shots-old/x.png" },
             { path: resolve("elsewhere", "y.png") },
         ];
-        expect(shotsUnder(shots, "cdp-shots")).toEqual(["kept.png"]);
+        expect(shotsUnder(shots, "cdp-shots")).toEqual([{ file: "kept.png" }]);
     });
 });

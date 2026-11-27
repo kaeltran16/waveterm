@@ -748,6 +748,7 @@ type FinalStage struct {
 	Commit        string   `json:"commit,omitempty"`        // the tree HEAD it verified
 	OutDir        string   `json:"outdir,omitempty"`        // ARC_FINAL_OUT
 	Detail        string   `json:"detail,omitempty"`        // the failure's output tail or defects, whole
+	VerdictText   string   `json:"verdicttext,omitempty"`   // the verifier's verdict text, whole: a pass's summary or a fail's defects
 	Killed        bool     `json:"killed,omitempty"`        // the failed step was killed from outside: it judged nothing, so a rerun, not a fix round, is next
 	Unverified    []string `json:"unverified,omitempty"`    // what could not be verified, and why
 	VerifierRunID string   `json:"verifierrunid,omitempty"` // the verifier session's child run
@@ -782,6 +783,9 @@ type FinalShot struct {
 	Name  string          `json:"name"`
 	Files []string        `json:"files"` // relative to FinalStage.OutDir, forward slashes
 	Steps []FinalShotStep `json:"steps,omitempty"`
+	// FileSteps is the step (0-based, into Steps) each file was taken in, keyed by its path in Files; a file the
+	// scenario did not tag has none
+	FileSteps map[string]int `json:"filesteps,omitempty"`
 }
 
 // FinalShotStep is one step of a FinalShot's scenario.

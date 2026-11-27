@@ -79,18 +79,19 @@ export function FinalShotsViewer({
     onClose,
 }: {
     group: TaskGroup;
-    initial: { round: number; scenario?: string };
+    // file: the screenshot of that scenario to open on, as a step's thumbnail names it
+    initial: { round: number; scenario?: string; file?: string };
     onClose: () => void;
 }): JSX.Element {
     const rounds = useMemo(() => shotRounds(group), [group]);
     const [roundNo, setRoundNo] = useState(initial.round);
     const round = rounds.find((r) => r.round === roundNo) ?? rounds[rounds.length - 1];
     // dir is the way the last screenshot move went (+1 next, -1 previous), for the step slide
-    const [sel, setSel] = useState(() => ({
-        s: Math.max(0, round?.scenarios.findIndex((x) => x.name === initial.scenario) ?? 0),
-        k: 0,
-        dir: 1,
-    }));
+    const [sel, setSel] = useState(() => {
+        const s = Math.max(0, round?.scenarios.findIndex((x) => x.name === initial.scenario) ?? 0);
+        const k = Math.max(0, round?.scenarios[s]?.files.indexOf(initial.file) ?? 0);
+        return { s, k, dir: 1 };
+    });
     const [zoom, setZoom] = useState(false);
     // null: the drawer follows the scenario (open where a step failed) until the human toggles it
     const [stepsToggle, setStepsToggle] = useState<boolean | null>(null);

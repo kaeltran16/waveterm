@@ -3,7 +3,8 @@
 //
 // The Agent (Focus) surface: AgentTree | center [| AgentDetailsRail]. The rail is toggleable
 // (railVisibleAtom, default off, `d` key) so the surface is normally 2 panes, 3 with the rail open. In the
-// Rendered view the workspace pane takes the rail's place, and only while the agent has tabs open in it.
+// Rendered view, and on a finished row (transcriptLook), the workspace pane takes the rail's place, and only while
+// the agent has tabs open in it.
 // The center is the focused agent's live Claude Code terminal (CockpitFocusPane) — the real TUI,
 // not a narrated transcript; an AgentHeader bar sits above it for identity + the rail toggle. With no
 // explicit focus it defaults to the tree's first agent (handoff dc.html:1790
@@ -45,14 +46,14 @@ import { finalRowFocusId } from "./finalstage";
 import { FinalStagePane } from "./finalstagepane";
 import { rosterSeededAtom } from "./liveagents";
 import { terminalFullscreenAtom } from "./railstore";
-import { canRender, effectiveViewMode, pickerFlipAtom, viewModeAtom } from "./renderedmode";
+import { canRender, effectiveViewMode, pickerFlipAtom, transcriptLook, viewModeAtom } from "./renderedmode";
 import { RenderedView, useUnflipOnPrompt } from "./renderedview";
 import { isEndedWorkerId } from "./runlineage";
 import { focusSubagentAtom } from "./subagentsstore";
 import { SubagentView } from "./subagentview";
 import { paneShape } from "./workspacemodel";
 import { WorkspacePane } from "./workspacepane";
-import { workspaceAtom } from "./workspacestore";
+import { seedFinishedRow, workspaceAtom } from "./workspacestore";
 
 export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: string }) {
     const focusId = useAtomValue(model.focusIdAtom);
@@ -94,12 +95,14 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
         viewMode === "rendered" &&
         canRender(agent, { ended: isEndedWorkerId(agent.id), stage: stage != null && agent.id === stage.agent.id });
     const inRendered = rendersUnder && !showSub;
+    // the workspace pane in the rail's place: Rendered, or a finished row whatever the view
+    const paneSide = agent != null && transcriptLook(agent.id, rendersUnder) && !showSub;
     // in Terminal a brainstorm or canvas takes over the center, hiding the terminal and the rail; Rendered keeps the
     // transcript and shows it as a workspace tab
     const centerPane = rendersUnder ? null : shown;
     const paneMode = centerPane != null;
     const ws = useAtomValue(workspaceAtom(agent?.id ?? ""));
-    const shape = inRendered ? paneShape(ws) : "none";
+    const shape = paneSide ? paneShape(ws) : "none";
     const [rowRef, , rowRect] = useDimensionsWithCallbackRef<HTMLDivElement>();
     const centerRef = useRef<HTMLDivElement>(null);
     useColumnGlide(centerRef, shape !== "none");
@@ -111,6 +114,14 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             globalStore.set(model.focusIdAtom, agent.id);
         }
     }, [agent?.id, focusId, model]);
+
+    // a finished row's first focus this session opens its tabs, once its lineage places it
+    const lineage = useAtomValue(model.lineageAtom);
+    useEffect(() => {
+        if (agent != null) {
+            seedFinishedRow(agent.id, lineage);
+        }
+    }, [agent?.id, lineage]);
 
     // the stage's row becomes its verifier's session once that is in the roster, and the focus goes with the row
     const stageFocusId = stage ? finalRowFocusId(stage.run, agents) : undefined;
@@ -324,7 +335,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                         ) : null}
                     </AnimatePresence>
                 </div>
-                {!fullscreen && !paneMode && !inRendered && agent.kind !== "terminal" ? (
+                {!fullscreen && !paneMode && !paneSide && agent.kind !== "terminal" ? (
                     <AgentDetailsRail model={model} agent={agent} />
                 ) : null}
                 <CanvasWindow model={model} />

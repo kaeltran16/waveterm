@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Where a board lives (decisions 11, 12): a board tied to an agent opens in that agent's workspace while the agent
-// renders, and on the Boards surface otherwise (terminal view, ended, a runtime with no Rendered view, no agent, or a
+// renders, and on the Boards surface otherwise (terminal view, a runtime with no Rendered view, no agent, or a
 // gone one). The drawer's toast for an agent's request shows unless you are looking at that agent's workspace.
 
 import type { SurfaceKey } from "../agents/agents";

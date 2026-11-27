@@ -66,11 +66,13 @@ export const TRANSCRIPT_COLUMN = `${COLUMN} flex min-h-full flex-col [&_.agent-m
 
 // a reply's file link opens beside the transcript: a doc the agent wrote in the Docs tab, any other file in a File tab
 // landed on the cited line. openFileBeside declines only off the Agent surface or outside Rendered, where this view is
-// not on screen to be clicked
-function useReplyFileLink(model: AgentsViewModel, agent: AgentVM) {
+// not on screen to be clicked. The click reads the agent as it is then, so a roster update does not redraw every link
+export function useReplyFileLink(model: AgentsViewModel, agent: AgentVM) {
+    const agentRef = useRef(agent);
+    agentRef.current = agent;
     return useCallback(
         (link: ReplyFileLink) => {
-            openFileBeside(model, agent.id, { path: link.path, line: link.line });
+            openFileBeside(model, agentRef.current, { path: link.path, line: link.line });
         },
         [model, agent.id]
     );

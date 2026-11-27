@@ -142,9 +142,10 @@ func heldFinalVerdict(dagID string, f *waveobj.FinalStage, take bool) (finalVerd
 	return v, ok && v.round == f.Round && v.runID == f.VerifierRunID
 }
 
-// applyFinalVerdict writes a verdict onto the stage: a fail's defects become its Detail whole, since the lead
-// writes its fix plan from them, and a pass's caveat an unverified reason.
+// applyFinalVerdict writes a verdict onto the stage: its text whole, for the Final tab; a fail's defects become its
+// Detail whole too, since the lead writes its fix plan from them, and a pass's caveat an unverified reason.
 func applyFinalVerdict(f *waveobj.FinalStage, v finalVerdict) {
+	f.VerdictText = v.text
 	if v.verdict == ReviewVerdict_Fail {
 		f.Detail = v.text
 	} else if v.unverified != "" {

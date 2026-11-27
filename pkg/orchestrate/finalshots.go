@@ -79,6 +79,7 @@ func readShotsManifest(dagID, outDir string) ([]waveobj.FinalShot, error) {
 			}
 		}
 		files := make([]string, 0, len(shots[i].Files))
+		var fileSteps map[string]int
 		for _, f := range shots[i].Files {
 			rel, ok := shotPathInside(f)
 			if !ok {
@@ -86,8 +87,14 @@ func readShotsManifest(dagID, outDir string) ([]waveobj.FinalShot, error) {
 				continue
 			}
 			files = append(files, rel)
+			if step, tagged := shots[i].FileSteps[f]; tagged && step >= 0 && step < len(shots[i].Steps) {
+				if fileSteps == nil {
+					fileSteps = map[string]int{}
+				}
+				fileSteps[rel] = step
+			}
 		}
-		shots[i].Files = files
+		shots[i].Files, shots[i].FileSteps = files, fileSteps
 	}
 	return shots, nil
 }

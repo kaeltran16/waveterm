@@ -122,6 +122,7 @@ export function changesGroupsFor(
     return changesGroups(rail?.changes?.files ?? [], own?.files ?? null, {
         truncated: own?.truncated ?? false,
         ignoreWs: own?.ignoreWs ?? false,
+        own: rail?.merge?.own,
     });
 }
 

@@ -53,7 +53,7 @@ var pngsListing = []waveobj.FinalShot{
 }
 
 var sampleShots = []waveobj.FinalShot{
-	{Name: "board", Files: []string{"cdp-shots/board-1.png", "cdp-shots/board-2.png"}, Steps: []waveobj.FinalShotStep{
+	{Name: "board", Files: []string{"cdp-shots/board-1.png", "cdp-shots/board-2.png"}, FileSteps: map[string]int{"cdp-shots/board-2.png": 1}, Steps: []waveobj.FinalShotStep{
 		{Step: "open the board", State: "pass"},
 		{Step: "filter by failed", State: "fail", Detail: "the count is missing"},
 		{Step: "close", State: "skip"},
@@ -128,6 +128,36 @@ func TestReadFinalShotsDropsEscapingPaths(t *testing.T) {
 	}
 	if !manifest || !reflect.DeepEqual(shots, want) {
 		t.Fatalf("paths outside the out dir are dropped and a scenario left with none keeps its steps, got manifest=%v %+v", manifest, shots)
+	}
+}
+
+// a file's step is kept under its cleaned path; one naming a dropped file or a step the scenario has not is dropped
+func TestReadFinalShotsKeepsOnlyUsableFileSteps(t *testing.T) {
+	dir := t.TempDir()
+	steps := []waveobj.FinalShotStep{{Step: "open", State: "pass"}, {Step: "filter", State: "fail"}}
+	writeShotsManifest(t, dir, []waveobj.FinalShot{{
+		Name:  "board",
+		Files: []string{"cdp-shots/./open.png", "cdp-shots/filter.png", "cdp-shots/close.png", "../x.png"},
+		FileSteps: map[string]int{
+			"cdp-shots/./open.png":  0,
+			"cdp-shots/filter.png":  1,
+			"cdp-shots/close.png":   2,
+			"cdp-shots/missing.png": 0,
+			"../x.png":              1,
+		},
+		Steps: steps,
+	}})
+
+	shots, manifest := readFinalShots("dag-s", dir)
+
+	want := []waveobj.FinalShot{{
+		Name:      "board",
+		Files:     []string{"cdp-shots/open.png", "cdp-shots/filter.png", "cdp-shots/close.png"},
+		FileSteps: map[string]int{"cdp-shots/open.png": 0, "cdp-shots/filter.png": 1},
+		Steps:     steps,
+	}}
+	if !manifest || !reflect.DeepEqual(shots, want) {
+		t.Fatalf("want only the steps of kept files, under their cleaned paths, got manifest=%v %+v", manifest, shots)
 	}
 }
 
