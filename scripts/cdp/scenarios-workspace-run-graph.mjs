@@ -38,12 +38,24 @@ const OPEN_DAG = `${RUN_TAB}?.querySelector("[data-workspace-run-open-dag]")`;
 
 const LANE_ORDER = ["t-1", "t-3", "t-4", "t-7", "t-8", "t-2", "t-5", "t-6"];
 const MAIN_FLIGHT = ["t-3", "t-6", "t-2", "t-4", "t-5"];
-// the Graph board's short words for the Main fixture, merged none
-const MAIN_WORDS = { "t-1": "", "t-3": "asked the lead", "t-4": "working", "t-7": "waits", "t-8": "waits", "t-2": "working", "t-5": "working", "t-6": "failed" };
+// the Graph board's short words for the Main fixture
+const MAIN_WORDS = { "t-1": "merged", "t-3": "asked the lead", "t-4": "working", "t-7": "waits", "t-8": "waits", "t-2": "working", "t-5": "working", "t-6": "failed" };
 const MAIN_NAMES = {
     "t-1": "internal/stats counters",
     "t-3": "internal/dedupe groups",
     "t-7": "go test and go vet",
+};
+// the Lanes board's row text: a timed word, what a waiting task waits on, or the bare word
+const timed = (id) => (w) => w?.startsWith(`${MAIN_WORDS[id]} · `);
+const LANE_WORDS = {
+    "t-1": (w) => w === "merged",
+    "t-3": timed("t-3"),
+    "t-4": timed("t-4"),
+    "t-7": (w) => w === "waits on t-3, t-4",
+    "t-8": (w) => w === "waits",
+    "t-2": timed("t-2"),
+    "t-5": timed("t-5"),
+    "t-6": (w) => timed("t-6")(w) && w.endsWith(" ago"),
 };
 const DONE_SHOTS_WORD = "passed · 6 scenarios";
 const T3_SHA = "9b8c7d6";
@@ -176,6 +188,7 @@ const readGraph = (h) =>
             modePick: g.querySelector('[data-graph-mode-pick][aria-selected="true"]')?.dataset.graphModePick ?? null,
             rows: all("[data-graph-row]").map((r) => r.dataset.graphRow),
             words: Object.fromEntries(all("[data-graph-row]").map((r) => [r.dataset.graphRow, word(r)])),
+            hints: all("[data-graph-focus-hint]").map((x) => [x.closest("[data-graph-row]")?.dataset.graphRow ?? null, flat(x)]),
             names: Object.fromEntries(all("[data-graph-row]").map((r) => [r.dataset.graphRow, flat(r.querySelector("span:nth-child(2)") ?? r.children[1])])),
             lit: all('[data-graph-row][data-lit="1"]').map((r) => r.dataset.graphRow),
             dim: all('[data-graph-row][data-lit="0"]').map((r) => r.dataset.graphRow),
@@ -275,7 +288,8 @@ export const workspaceRunGraph = {
                 g.modePick === "lanes" &&
                 g.planReview === "passed" &&
                 same(g.rows, LANE_ORDER) &&
-                same(g.words, MAIN_WORDS) &&
+                same(Object.keys(g.words).sort(), Object.keys(LANE_WORDS).sort()) &&
+                Object.entries(LANE_WORDS).every(([id, ok]) => ok(g.words[id])) &&
                 names &&
                 g.laneCount === 3 &&
                 g.edges === 5 &&
@@ -299,6 +313,17 @@ export const workspaceRunGraph = {
                 g.dim.length === 5 &&
                 after.dim.length === 0;
             return [ok, { lit: g.lit, litEdges: g.litEdges, dim: g.dim, dimAfter: after.dim }];
+        });
+
+        await step("hovering t-4 shows Focus → on its row and on no other (Lanes board)", async () => {
+            const hovered = await hover(h, ROW("t-4"));
+            const g = await readGraph(h);
+            await h.shot(SHOT(3, "hover-focus-hint"));
+            await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 });
+            await polishNap(200);
+            const after = await readGraph(h);
+            const ok = hovered && same(g?.hints, [["t-4", "Focus →"]]) && after?.hints.length === 0;
+            return [ok, { hints: g?.hints, after: after?.hints }];
         });
 
         await step("clicking t-7 opens Focus on it: t-3 and t-4 above, Final verification below", async () => {
@@ -487,7 +512,7 @@ export const workspaceRunGraph = {
                 g?.mode === "lanes" &&
                 g.rows.length === 8 &&
                 Object.values(g.dots).every((d) => d === "merged") &&
-                Object.values(g.words).every((w) => w === "") &&
+                Object.values(g.words).every((w) => w === "merged") &&
                 g.final === DONE_SHOTS_WORD &&
                 g.chips.length === 0 &&
                 openDag;

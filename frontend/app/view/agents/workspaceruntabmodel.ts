@@ -246,12 +246,21 @@ export interface TaskRowView {
     dels?: number;
 }
 
+// a not-started task's deps that are neither merged nor done; runlineage's unmetDeps counts only done, so a merged
+// task still verifying would read as unmet there
+export function unmetTaskDeps(task: TaskNode, byId: Map<string, TaskNode>): string[] {
+    if (!NOT_STARTED.has(task.state)) {
+        return [];
+    }
+    return (task.deps ?? []).filter((d) => !byId.get(d)?.merged && byId.get(d)?.state !== "done");
+}
+
 function taskState(task: TaskNode, byId: Map<string, TaskNode>, digest: DagStatusDigest | undefined, now: number) {
     if (task.merged && task.state !== "verifying") {
         return "";
     }
     if (NOT_STARTED.has(task.state)) {
-        const waits = (task.deps ?? []).filter((d) => !byId.get(d)?.merged && byId.get(d)?.state !== "done");
+        const waits = unmetTaskDeps(task, byId);
         return waits.length > 0 ? `waits on ${waits.join(", ")}` : "queued";
     }
     const ask = workerAsk(digest, task.id);
@@ -268,20 +277,23 @@ function taskState(task: TaskNode, byId: Map<string, TaskNode>, digest: DagStatu
     return taskStateLabel(task, now) ?? (task.state === "running" ? "" : task.state);
 }
 
-// how long the task ran: the digest's figure once it has one, else the clock since its worker spawned; a task not
-// started has no time
+// how long the task ran: the digest's figure once it has one, else the clock since its worker spawned; undefined
+// before it spawned
+export function taskRunMs(task: TaskNode, digest: DagStatusDigest | undefined, now: number): number | undefined {
+    const runMs = digest?.durations?.tasks?.find((d) => d.taskid === task.id)?.runms;
+    if (runMs) {
+        return runMs;
+    }
+    return task.spawnedts ? Math.max(0, now - task.spawnedts) : undefined;
+}
+
+// a task not started has no time
 function taskTime(task: TaskNode, digest: DagStatusDigest | undefined, now: number): string {
     if (NOT_STARTED.has(task.state)) {
         return "";
     }
-    const runMs = digest?.durations?.tasks?.find((d) => d.taskid === task.id)?.runms;
-    if (runMs) {
-        return formatElapsed(runMs);
-    }
-    if (task.spawnedts) {
-        return formatElapsed(Math.max(0, now - task.spawnedts));
-    }
-    return NO_TIME;
+    const ms = taskRunMs(task, digest, now);
+    return ms == null ? NO_TIME : formatElapsed(ms);
 }
 
 // taskRows is the Tasks view: one row per task in plan order, with the tab's own dots

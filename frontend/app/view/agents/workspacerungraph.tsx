@@ -23,6 +23,7 @@ import {
     gutterPath,
     laneLayout,
     LANES,
+    laneWord,
     moveTo,
     stepDir,
     toFocus,
@@ -58,7 +59,7 @@ type SetGraph = (next: RunGraphState) => void;
 export function GraphView({ model, agent, tab, run, events }: RunViewProps) {
     const now = useAtomValue(model.nowAtom);
     const dag = run.dag;
-    const nodes = useMemo(() => graphNodes(dag, run.digest), [dag, run.digest]);
+    const nodes = useMemo(() => graphNodes(dag, run.digest, events, now), [dag, run.digest, events, now]);
     const layout = useMemo(() => laneLayout(nodes), [nodes]);
     const g = tab.graph ?? LANES;
     // moment 10's side, read from the step just taken, whoever took it (a click here, Esc, a Report link)
@@ -375,8 +376,13 @@ function LaneRow({
                 {node.name}
             </span>
             <span data-graph-word className={cn("relative flex-none text-[12px]", WORD_TONE[node.dot])}>
-                {node.word}
+                {laneWord(node)}
             </span>
+            {hovered ? (
+                <span data-graph-focus-hint className="relative flex-none text-[12px] text-muted">
+                    Focus →
+                </span>
+            ) : null}
         </button>
     );
 }

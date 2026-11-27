@@ -5,9 +5,11 @@
 // shows one task's own deps and dependents; In flight picks the tasks worth a jump. The tab's graph state (mode, the
 // one selection, the Focus back trail) moves only through the transitions below, which the view and Esc share.
 
+import { formatElapsed } from "@/app/view/orchestrate/dagdigest";
 import { workerAsk } from "./runlineage";
+import { detailOf } from "./runtimeline";
 import { tabKey, type RunGraphState, type WorkspaceState } from "./workspacemodel";
-import { taskDots, type RowDot } from "./workspaceruntabmodel";
+import { taskDots, taskRunMs, unmetTaskDeps, type RowDot } from "./workspaceruntabmodel";
 
 export type GraphTask = { id: string; deps?: string[] };
 
@@ -169,22 +171,61 @@ export interface GraphNode {
     name: string;
     deps: string[];
     dot: RowDot;
-    // the canvas's short word: none for merged, the dot says it
+    // the canvas's short word
     word: string;
+    // "4m" working or asked, "1m ago" failed; "" merged, waiting, or with nothing to time from
+    time: string;
+    // a waiting task's deps neither merged nor done
+    waitsOn: string[];
 }
 
 const SHORT_WORD: Record<RowDot, string> = {
-    merged: "",
+    merged: "merged",
     working: "working",
     asked: "asked the lead",
     failed: "failed",
     waits: "waits",
 };
 
-// graphNodes is every task in plan order with its dot and short word; a question with the user says so
-export function graphNodes(dag: TaskGroup | undefined, digest: DagStatusDigest | undefined): GraphNode[] {
+const FAILURE_EVENTS = new Set(["task-failed", "task-verify-failed", "task-review-failed", "task-merge-failed"]);
+
+function lastFailureTs(events: RunEvent[], taskId: string): number | undefined {
+    const ts = events
+        .filter((e) => FAILURE_EVENTS.has(e.kind) && detailOf<{ taskid?: string }>(e)?.taskid === taskId)
+        .map((e) => e.ts);
+    return ts.length > 0 ? Math.max(...ts) : undefined;
+}
+
+function nodeTime(task: TaskNode, dot: RowDot, digest: DagStatusDigest | undefined, events: RunEvent[], now: number) {
+    const since = (ts: number) => formatElapsed(Math.max(0, now - ts));
+    const ran = () => {
+        const ms = taskRunMs(task, digest, now);
+        return ms == null ? "" : formatElapsed(ms);
+    };
+    if (dot === "working") {
+        return ran();
+    }
+    if (dot === "asked") {
+        return task.askts ? since(task.askts) : ran();
+    }
+    if (dot === "failed") {
+        const at = lastFailureTs(events, task.id);
+        return at == null ? "" : `${since(at)} ago`;
+    }
+    return "";
+}
+
+// graphNodes is every task in plan order with its dot, short word and time; a question with the user says so
+export function graphNodes(
+    dag: TaskGroup | undefined,
+    digest: DagStatusDigest | undefined,
+    events: RunEvent[],
+    now: number
+): GraphNode[] {
+    const tasks = dag?.tasks ?? [];
     const dots = taskDots(dag, digest);
-    return (dag?.tasks ?? []).map((t) => {
+    const byId = new Map(tasks.map((t) => [t.id, t] as const));
+    return tasks.map((t) => {
         const dot = dots[t.id];
         const yours = dot === "asked" && workerAsk(digest, t.id)?.owner === "you";
         return {
@@ -193,8 +234,18 @@ export function graphNodes(dag: TaskGroup | undefined, digest: DagStatusDigest |
             deps: t.deps ?? [],
             dot,
             word: yours ? "asking you" : SHORT_WORD[dot],
+            time: nodeTime(t, dot, digest, events, now),
+            waitsOn: dot === "waits" ? unmetTaskDeps(t, byId) : [],
         };
     });
+}
+
+// a Lanes row's text: what a waiting task waits on, else its word and time
+export function laneWord(node: GraphNode): string {
+    if (node.dot === "waits" && node.waitsOn.length > 0) {
+        return `waits on ${node.waitsOn.join(", ")}`;
+    }
+    return node.time ? `${node.word} · ${node.time}` : node.word;
 }
 
 // a task's dot is its In flight kind: asked, failed and working are the ones worth a jump

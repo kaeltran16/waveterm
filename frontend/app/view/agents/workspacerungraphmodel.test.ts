@@ -22,11 +22,13 @@ import {
     IN_FLIGHT_MAX,
     inFlight,
     laneLayout,
+    laneWord,
     moveTo,
     reduceDeps,
     stepDir,
     toFocus,
     toLanes,
+    type GraphNode,
     type LaneLayout,
 } from "./workspacerungraphmodel";
 
@@ -445,28 +447,44 @@ const node = (id: string, state: string, extra: Partial<TaskNode> = {}): TaskNod
     state,
     ...extra,
 });
+const NOW = Date.UTC(2026, 10, 27, 14, 0, 0);
+const MIN = 60_000;
 const MAIN_DAG = {
     oid: "dag-1",
     tasks: [
-        node("t-1", "done", { merged: true }),
-        node("t-2", "verifying", { merged: true }),
-        node("t-3", "running", { deps: ["t-1"] }),
-        node("t-4", "running", { deps: ["t-1"] }),
-        node("t-5", "reviewing"),
-        node("t-6", "failed"),
+        node("t-1", "done", { merged: true, spawnedts: NOW - 20 * MIN }),
+        node("t-2", "verifying", { merged: true, spawnedts: NOW - 20 * MIN }),
+        node("t-3", "running", { deps: ["t-1"], spawnedts: NOW - 6 * MIN, askts: NOW - 3 * MIN }),
+        node("t-4", "running", { deps: ["t-1"], spawnedts: NOW - 4 * MIN }),
+        node("t-5", "reviewing", { spawnedts: NOW - 15 * MIN }),
+        node("t-6", "failed", { spawnedts: NOW - 15 * MIN }),
         node("t-7", "pending", { deps: ["t-3", "t-4"] }),
         node("t-8", "ready", { deps: ["t-1"] }),
     ],
 } as TaskGroup;
-const digestOf = (rows: Partial<DagTaskDigest>[]) =>
-    ({ tasks: rows.map((r) => ({ waitreason: "", mergestate: "", cleanupstate: "", ...r })) }) as DagStatusDigest;
-const MAIN_DIGEST = digestOf([{ taskid: "t-3", waitreason: "lead-ask" }]);
+const digestOf = (rows: Partial<DagTaskDigest>[], runms: Record<string, number> = {}) =>
+    ({
+        tasks: rows.map((r) => ({ waitreason: "", mergestate: "", cleanupstate: "", ...r })),
+        durations: { elapsedms: 0, tasks: Object.entries(runms).map(([taskid, ms]) => ({ taskid, runms: ms })) },
+    }) as DagStatusDigest;
+const MAIN_DIGEST = digestOf([{ taskid: "t-3", waitreason: "lead-ask" }], { "t-2": 9 * MIN });
+const ev = (kind: string, taskid: string, ts: number) =>
+    ({ id: `${kind}-${taskid}-${ts}`, kind, ts, detail: JSON.stringify({ taskid }) }) as RunEvent;
+// t-6 failed its verify 10m ago and again 90s ago; another task's later failure is not t-6's
+const MAIN_EVENTS = [
+    ev("task-verify-failed", "t-6", NOW - 10 * MIN),
+    ev("task-failed", "t-6", NOW - 90_000),
+    ev("task-failed", "t-5", NOW - 5_000),
+];
+const mainNodes = (digest = MAIN_DIGEST, dag = MAIN_DAG, events = MAIN_EVENTS) => graphNodes(dag, digest, events, NOW);
+const field = <K extends keyof GraphNode>(nodes: GraphNode[], k: K) =>
+    Object.fromEntries(nodes.map((n) => [n.id, n[k]]));
 
 describe("graphNodes", () => {
-    it("gives each task the canvas's short word: none merged, working, asked the lead, failed, waits", () => {
-        const words = Object.fromEntries(graphNodes(MAIN_DAG, MAIN_DIGEST).map((n) => [n.id, n.word]));
+    it("gives each task the canvas's short word: merged, working, asked the lead, failed, waits", () => {
+        const words = field(mainNodes(), "word");
         expect(words).toEqual({
-            "t-1": "",
+            "t-1": "merged",
             "t-2": "working",
             "t-3": "asked the lead",
             "t-4": "working",
@@ -478,25 +496,84 @@ describe("graphNodes", () => {
     });
 
     it("says asking you for a question that is the user's", () => {
-        const n = graphNodes(MAIN_DAG, digestOf([{ taskid: "t-3", waitreason: "ask" }])).find((x) => x.id === "t-3");
-        expect(n).toMatchObject({ dot: "asked", word: "asking you" });
+        const n = mainNodes(digestOf([{ taskid: "t-3", waitreason: "ask" }])).find((x) => x.id === "t-3");
+        expect(n).toMatchObject({ dot: "asked", word: "asking you", time: "3m" });
     });
 
     it("keeps plan order, the full name and the deps", () => {
-        const nodes = graphNodes(MAIN_DAG, MAIN_DIGEST);
+        const nodes = mainNodes();
         expect(nodes.map((n) => n.id)).toEqual(ids(8));
         expect(nodes[6]).toMatchObject({ name: "task t-7", deps: ["t-3", "t-4"], dot: "waits" });
+    });
+
+    it("times working by the digest's run time else since spawn, asked since its ask, failed since its latest failure; merged and waits have none", () => {
+        expect(field(mainNodes(), "time")).toEqual({
+            "t-1": "",
+            "t-2": "9m",
+            "t-3": "3m",
+            "t-4": "4m",
+            "t-5": "15m",
+            "t-6": "1m ago",
+            "t-7": "",
+            "t-8": "",
+        });
+    });
+
+    it("times an ask with no askts by the task's time, and a failure with no event not at all", () => {
+        const dag = {
+            ...MAIN_DAG,
+            tasks: MAIN_DAG.tasks.map((t) => (t.id === "t-3" ? { ...t, askts: undefined } : t)),
+        };
+        const time = field(mainNodes(MAIN_DIGEST, dag, []), "time");
+        expect([time["t-3"], time["t-6"]]).toEqual(["6m", ""]);
+    });
+
+    it("lists what a waiting task waits on: deps neither merged nor done", () => {
+        const dag = {
+            ...MAIN_DAG,
+            tasks: [...MAIN_DAG.tasks, node("t-9", "pending", { deps: ["t-2", "t-5", "t-10"] }), node("t-10", "done")],
+        };
+        const waitsOn = field(mainNodes(MAIN_DIGEST, dag), "waitsOn");
+        expect([waitsOn["t-7"], waitsOn["t-8"], waitsOn["t-9"], waitsOn["t-4"]]).toEqual([
+            ["t-3", "t-4"],
+            [],
+            ["t-5"],
+            [],
+        ]);
+    });
+});
+
+describe("laneWord", () => {
+    const n = (dot: GraphNode["dot"], word: string, time = "", waitsOn: string[] = []): GraphNode => ({
+        id: "t-1",
+        name: "x",
+        deps: [],
+        dot,
+        word,
+        time,
+        waitsOn,
+    });
+
+    it.each([
+        ["waits on its unmet deps", n("waits", "waits", "", ["t-3", "t-4"]), "waits on t-3, t-4"],
+        ["waits with none unmet", n("waits", "waits"), "waits"],
+        ["merged, no time", n("merged", "merged"), "merged"],
+        ["working with its time", n("working", "working", "4m"), "working · 4m"],
+        ["failed with its time ago", n("failed", "failed", "1m ago"), "failed · 1m ago"],
+        ["failed with no time", n("failed", "failed"), "failed"],
+    ])("%s", (_, node, want) => {
+        expect(laneWord(node)).toBe(want);
     });
 });
 
 describe("flightIds", () => {
     it("is the Main board's In flight: t-3, t-6, t-2, t-4, t-5", () => {
-        expect(flightIds(graphNodes(MAIN_DAG, MAIN_DIGEST))).toEqual(["t-3", "t-6", "t-2", "t-4", "t-5"]);
+        expect(flightIds(mainNodes())).toEqual(["t-3", "t-6", "t-2", "t-4", "t-5"]);
     });
 
     it("is empty once every task merged", () => {
         const done = { ...MAIN_DAG, tasks: MAIN_DAG.tasks.map((t) => ({ ...t, state: "done", merged: true })) };
-        expect(flightIds(graphNodes(done, undefined))).toEqual([]);
+        expect(flightIds(graphNodes(done, undefined, [], NOW))).toEqual([]);
     });
 });
 
