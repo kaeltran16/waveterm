@@ -141,6 +141,16 @@ func TestFinalVerdicts(t *testing.T) {
 			if _, err := os.Stat(tree); err != nil {
 				t.Fatalf("the run keeps its landing tree, stat err %v", err)
 			}
+			if g.Final.VerdictText != c.text {
+				t.Fatalf("the stage keeps the verdict's text whole, got %q", g.Final.VerdictText)
+			}
+
+			if _, err := AppendRound(f.ctx, f.dagID, "docs/fix.md", fixPlanTasks(t), ""); err != nil {
+				t.Fatal(err)
+			}
+			if past := f.dag(t).PastFinals; len(past) != 1 || past[0].VerdictText != c.text {
+				t.Fatalf("the past round keeps its verdict's text, got %+v", past)
+			}
 		})
 	}
 }

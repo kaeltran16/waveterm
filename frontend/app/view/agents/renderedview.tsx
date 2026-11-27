@@ -66,11 +66,13 @@ export const TRANSCRIPT_COLUMN = `${COLUMN} flex min-h-full flex-col [&_.agent-m
 
 // a reply's file link opens beside the transcript: a doc the agent wrote in the Docs tab, any other file in a File tab
 // landed on the cited line. openFileBeside declines only off the Agent surface or outside Rendered, where this view is
-// not on screen to be clicked
-function useReplyFileLink(model: AgentsViewModel, agent: AgentVM) {
+// not on screen to be clicked. The click reads the agent as it is then, so a roster update does not redraw every link
+export function useReplyFileLink(model: AgentsViewModel, agent: AgentVM) {
+    const agentRef = useRef(agent);
+    agentRef.current = agent;
     return useCallback(
         (link: ReplyFileLink) => {
-            openFileBeside(model, agent.id, { path: link.path, line: link.line });
+            openFileBeside(model, agentRef.current, { path: link.path, line: link.line });
         },
         [model, agent.id]
     );
@@ -405,11 +407,15 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                 <PinnedPromptBar prompt={pin.prompt} agent={agent} onJump={pin.jump} />
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
-            <PermissionBand
-                agentId={agent.id}
-                blockId={agent.blockId}
-                onLastChoice={() => composerRef.current?.focus()}
-            />
+            <div className="shrink-0 px-6">
+                <div className={COLUMN}>
+                    <PermissionBand
+                        agentId={agent.id}
+                        blockId={agent.blockId}
+                        onLastChoice={() => composerRef.current?.focus()}
+                    />
+                </div>
+            </div>
             <div data-rendered-composer className="shrink-0 px-6 pb-4 pt-3">
                 <div className={COLUMN}>
                     <RenderedComposer

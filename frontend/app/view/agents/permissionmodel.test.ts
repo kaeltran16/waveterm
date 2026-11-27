@@ -46,8 +46,9 @@ describe("permissionTitle", () => {
         expect(permissionTitle(perm("NotebookEdit", { notebook_path: "n.ipynb" }))).toBe("Allow an edit to n.ipynb?");
     });
 
-    it("has fixed titles for Bash and plan approval, and names any other tool", () => {
+    it("has fixed titles for the shell tools and plan approval, and names any other tool", () => {
         expect(permissionTitle(perm("Bash", { command: "ls" }))).toBe("Allow this command?");
+        expect(permissionTitle(perm("PowerShell", { command: "ls" }))).toBe("Allow this command?");
         expect(permissionTitle(perm("ExitPlanMode", { plan: "# p" }))).toBe("Approve this plan?");
         expect(permissionTitle(perm("WebFetch", { url: "https://x" }))).toBe("Allow WebFetch?");
     });
@@ -108,11 +109,13 @@ describe("permissionPreview", () => {
         });
     });
 
-    it("gives Bash its command and plan approval its markdown", () => {
-        expect(permissionPreview(perm("Bash", { command: "go test ./..." }))).toEqual({
-            kind: "command",
-            text: "go test ./...",
-        });
+    it("gives the shell tools their command and plan approval its markdown", () => {
+        for (const tool of ["Bash", "PowerShell"]) {
+            expect(permissionPreview(perm(tool, { command: "go test ./..." }))).toEqual({
+                kind: "command",
+                text: "go test ./...",
+            });
+        }
         expect(permissionPreview(perm("ExitPlanMode", { plan: "# Plan\n- a" }))).toEqual({
             kind: "markdown",
             text: "# Plan\n- a",
@@ -123,12 +126,11 @@ describe("permissionPreview", () => {
         expect(permissionPreview(perm("Edit", "{not json"))).toEqual({ kind: "json", text: "{not json" });
     });
 
-    it("shows an unknown tool, or a known one missing its fields, as indented JSON", () => {
-        expect(permissionPreview(perm("WebFetch", { url: "https://x" }))).toEqual({
-            kind: "json",
-            text: '{\n  "url": "https://x"\n}',
-        });
-        expect(permissionPreview(perm("Bash", { description: "d" })).kind).toBe("json");
+    it("shows any other tool, or a known one missing its fields, as its step row's call and indented arguments", () => {
+        const fetch = permissionPreview(perm("WebFetch", { url: "https://x" }));
+        expect(fetch).toMatchObject({ kind: "tool", call: { kind: "action", target: "https://x", pending: true } });
+        expect(fetch.kind === "tool" && fetch.args).toBe('{\n  "url": "https://x"\n}');
+        expect(permissionPreview(perm("Bash", { description: "d" })).kind).toBe("tool");
     });
 });
 

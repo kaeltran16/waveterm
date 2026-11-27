@@ -175,23 +175,6 @@ export async function launchAgentOrToast(model: AgentsViewModel, opts: LaunchAge
     }
 }
 
-// Attach = resume a detached background agent inside a fresh Wave terminal block. `claude --resume
-// <sessionId>` is the primitive (there is no `claude attach`); task is empty so resume reattaches
-// without replaying a prompt. Once it boots, the hook reporter registers it and the session-id dedup
-// collapses the background-lane entry into the now-live agent.
-export async function attachBackgroundAgent(
-    model: AgentsViewModel,
-    bg: { sessionId: string; cwd: string; project: string }
-): Promise<void> {
-    await launchAgent(model, {
-        runtime: "claude",
-        startupCommand: `claude --resume ${bg.sessionId}`,
-        task: "",
-        projectPath: bg.cwd,
-        projectName: bg.project || "background",
-    });
-}
-
 // launchPiTab launches a Pi tab at the focused agent's cwd (fallback: first registered project),
 // mirroring the new-agent modal's launch shape. No resolvable cwd -> open the modal instead.
 export async function launchPiTab(model: AgentsViewModel): Promise<void> {

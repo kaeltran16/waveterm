@@ -342,10 +342,20 @@ const briefOf = (run, dag) => ({
     tasks: dag.tasks.map((t) => ({ id: t.id, label: t.label, state: t.state })),
 });
 
-// the page-only run, written before anything reads it; a later version replaces an earlier one in the object cache
-export const seedRun = (h, now, { version = 1, finished = false } = {}) => {
-    const run = runObj(now, version, finished);
-    const dag = dagObj(now, version, finished);
+// the page-only run, written before anything reads it; a later version replaces an earlier one in the object cache.
+// layer(seed, { now, version }) lets a scenario change what is written: it gets { run, dag, children, digest, usage,
+// events (oldest first), extra (more objects to put) } and returns it, changed
+export const seedRun = (h, now, { version = 1, finished = false, layer } = {}) => {
+    const base = {
+        run: runObj(now, version, finished),
+        dag: dagObj(now, version, finished),
+        children: TASKS.map((t) => childRunObj(t, now - (finished ? T0_DONE : T0_LIVE), version)),
+        digest: digestOf(now, version, finished),
+        usage: usageOf(finished),
+        events: eventsOf(now, finished),
+        extra: [],
+    };
+    const { run, dag, children, digest, usage, events, extra } = layer ? layer(base, { now, version }) : base;
     return agentPage(
         h,
         `const L = await mod("app/view/agents/runlineagestore.ts");
@@ -354,15 +364,15 @@ export const seedRun = (h, now, { version = 1, finished = false } = {}) => {
         const U = await mod("app/view/agents/runtokenstore.ts");
         const D = await mod("app/view/agents/wshdata.ts");
         const put = (obj) => WOS.updateWaveObject({ updatetype: "update", otype: obj.otype, oid: obj.oid, obj });
-        for (const child of ${JSON.stringify(TASKS.map((t) => childRunObj(t, now - (finished ? T0_DONE : T0_LIVE), version)))}) put(child);
+        for (const child of ${JSON.stringify([...children, ...extra])}) put(child);
         put(${JSON.stringify(dag)});
         put(${JSON.stringify(run)});
         D.seedWshData({ ${JSON.stringify(`arc-run:${RUN_ID}`)}: ${JSON.stringify(briefOf(run, dag))} });
         // the router opens a dag on its owner run's sheet, which it finds through the channel
         put(${JSON.stringify({ otype: "channel", oid: CHANNEL, version, name: TITLE, createdts: now })});
-        globalStore.set(L.runDigestsAtom, (prev) => ({ ...prev, ${JSON.stringify(RUN_ID)}: ${JSON.stringify(digestOf(now, version, finished))} }));
-        globalStore.set(U.runUsageAtom, (prev) => ({ ...prev, ${JSON.stringify(RUN_ID)}: { rows: ${JSON.stringify(usageOf(finished))}, sealed: true } }));
-        E.seedRunEvents(${JSON.stringify(RUN_ID)}, ${JSON.stringify(eventsOf(now, finished).reverse())});
+        globalStore.set(L.runDigestsAtom, (prev) => ({ ...prev, ${JSON.stringify(RUN_ID)}: ${JSON.stringify(digest)} }));
+        globalStore.set(U.runUsageAtom, (prev) => ({ ...prev, ${JSON.stringify(RUN_ID)}: { rows: ${JSON.stringify(usage)}, sealed: true } }));
+        E.seedRunEvents(${JSON.stringify(RUN_ID)}, ${JSON.stringify([...events].reverse())});
         globalStore.set(C.childAsksAtom, (prev) => ({ ...prev, ${JSON.stringify(RUN_ID)}: ${JSON.stringify(finished ? [] : [askOf(now)])} }));
         return true;`
     );
@@ -416,9 +426,10 @@ const openFolds = (h) =>
 
 // the lead, its transcript and the seeded run, up to the run card's link drawn; opts.finished seeds the Done board.
 // A throw past the first line still returns ctx, so teardown removes whatever was already made.
-export async function arrange(h, name, { finished = false } = {}) {
+export async function arrange(h, name, { finished = false, layer } = {}) {
     const tag = Date.now().toString(36);
-    const ctx = { name, tabIds: [], cleanups: [], version: 1, dir: mkdtempSync(join(tmpdir(), `verify-${name}-`)) };
+    // rows: the finished rows the scenario focused (focusRow), whose tabs and seeding teardown undoes
+    const ctx = { name, tabIds: [], cleanups: [], rows: [], version: 1, layer, dir: mkdtempSync(join(tmpdir(), `verify-${name}-`)) };
     try {
         ctx.prevWidth = await h.ev(`localStorage.getItem(${JSON.stringify(WIDTH_KEY)})`);
         await h.cdp("Emulation.setDeviceMetricsOverride", VIEWPORT);
@@ -434,7 +445,7 @@ export async function arrange(h, name, { finished = false } = {}) {
         const lead = await makeTab(h, ctx, { label: `${name}-${tag}`, blockMeta: { view: "term", controller: null } });
         ctx.leadId = lead.tabId;
         await h.ev(`localStorage.removeItem(${JSON.stringify(WIDTH_KEY)})`);
-        await seedRun(h, now, { version: ctx.version, finished });
+        await seedRun(h, now, { version: ctx.version, finished, layer });
         ctx.seeded = true;
         await pinDefaultView(h, "rendered");
         await setRoster(h, [
@@ -476,11 +487,65 @@ export async function arrange(h, name, { finished = false } = {}) {
     return ctx;
 }
 
-// reseeds the run at a newer version, so the cache takes it over the one already there
+// reseeds the run at a newer version, so the cache takes it over the one already there, with arrange's layer
 export async function reseed(h, ctx, { finished = false, now = Date.now() } = {}) {
     ctx.version += 1;
     ctx.now = now;
-    await seedRun(h, now, { version: ctx.version, finished });
+    await seedRun(h, now, { version: ctx.version, finished, layer: ctx.layer });
+}
+
+// --- finished rows on the Done board: a done task's worker, the Final stage, an ended verifier or plan reviewer ---
+
+export const endedRowId = (rest) => `ended:${RUN_ID}:${rest}`;
+export const FINAL_ROW_ID = `final:${RUN_ID}`;
+export const RAIL = `document.querySelector('aside[aria-label="Agent details"]')`;
+export const RAIL_VISIBLE_KEY = "agent.rail.visible";
+
+// the transcript an ended row reads, by its child run's id, so no lookup asks the server about this page-only run
+export const seedTranscriptPath = (h, runId, path) =>
+    page(
+        h,
+        `const L = await mod("app/view/agents/runlineagestore.ts");
+        globalStore.set(L.runTranscriptPathsAtom, (prev) => ({ ...prev, ${JSON.stringify(runId)}: ${JSON.stringify(path)} }));
+        return true;`
+    );
+
+// focuses a finished row as a tree click does; teardown closes the tabs of every row focused and forgets its seeding
+export async function focusRow(h, ctx, id) {
+    if (!ctx.rows.includes(id)) ctx.rows.push(id);
+    await focusAgent(h, id);
+    await polishNap(SETTLE_MS);
+}
+
+// the focused row as drawn: the rail and the rail setting, the pane, its tabs, and what the center and the tab show
+export const readRow = (h) =>
+    page(
+        h,
+        `const tabs = [...document.querySelectorAll("[data-workspace-tab]")];
+        return {
+            rail: ${RAIL} != null,
+            railSetting: localStorage.getItem(${JSON.stringify(RAIL_VISIBLE_KEY)}),
+            pane: ${PANE}?.dataset.workspacePane ?? null,
+            tabs: tabs.map((t) => t.dataset.workspaceTab),
+            labels: tabs.map((t) => t.querySelector('[role="tab"]')?.getAttribute("aria-label") ?? null),
+            active: tabs.find((t) => t.querySelector('[role="tab"][aria-selected="true"]'))?.dataset.workspaceTab ?? null,
+            unseen: tabs.filter((t) => t.querySelector("[data-workspace-tab-unseen]")).map((t) => t.dataset.workspaceTab),
+            ended: document.querySelector("[data-agent-center] [data-ended-to-run]") != null,
+            finalPane: document.querySelector("[data-final-pane]") != null,
+            task: document.querySelector("[data-workspace-task]")?.dataset.workspaceTask ?? null,
+            final: document.querySelector("[data-workspace-final]")?.dataset.workspaceFinal ?? null,
+            // the list, or its empty state while the row has no read of its own
+            changes: document.querySelector("[data-workspace-changes], [data-workspace-changes-empty]") != null,
+        };`
+    );
+
+// reads the row until ok holds or the wait runs out, and returns the last read either way
+export async function rowUntil(h, ok, ms = WAIT_MS) {
+    for (let waited = 0; ; waited += 250) {
+        const s = await readRow(h).catch(() => null);
+        if ((s != null && ok(s)) || waited >= ms) return s;
+        await polishNap(250);
+    }
 }
 
 // a plain click on the run card's link opens the Run tab beside; true once it is drawn
@@ -523,16 +588,22 @@ export async function pickView(h, view) {
     return readHead(h);
 }
 
-// a scenario's step recorder: one throwing step is one FAIL, not the end of the run
-export function stepper() {
+// a scenario's step recorder: one throwing step is one FAIL, not the end of the run. Given h, a shot taken inside a
+// step is tagged with that step (attach.mjs), so the Final tab can name it and outline it when the step fails
+export function stepper(h) {
     const steps = [];
     const rec = (step, ok, detail) => steps.push({ step, ok, detail: typeof detail === "string" ? detail : JSON.stringify(detail) });
     const step = async (name, fn) => {
+        const shot = h?.shot;
+        // the step is recorded once fn returns, so its index is the count so far
+        if (shot) h.shot = (path, opts) => shot(path, { step: steps.length, ...opts });
         try {
             const [ok, detail] = await fn();
             rec(name, ok, detail);
         } catch (err) {
             rec(name, false, `threw: ${err?.message ?? err}`);
+        } finally {
+            if (shot) h.shot = shot;
         }
     };
     return { steps, rec, step };
@@ -549,9 +620,19 @@ export async function teardown(h, ctx, name) {
     for (const [i, cleanup] of (ctx.cleanups ?? []).entries()) {
         await step(`cleanup ${i + 1}`, () => cleanup(h));
     }
-    if (ctx.leadId) {
-        await step("close the workspace tabs", () =>
-            page(h, `for (const t of [...ws(${JSON.stringify(ctx.leadId)}).tabs]) W.closeWorkspaceTab(${JSON.stringify(ctx.leadId)}, t.kind === "run" ? "run:" + t.runId : t.kind); return true;`)
+    const owners = [ctx.leadId, ...(ctx.rows ?? [])].filter(Boolean);
+    if (owners.length > 0) {
+        await step("close the workspace tabs and forget the rows' seeding", () =>
+            page(
+                h,
+                `const M = await mod("app/view/agents/workspacemodel.ts");
+                // off the rows first, so a focused row's first-focus seeding does not open its tabs again
+                if (${JSON.stringify(ctx.leadId ?? null)} != null) globalStore.set(agentsModel().focusIdAtom, ${JSON.stringify(ctx.leadId ?? null)});
+                await nap(100);
+                for (const id of ${JSON.stringify(owners)}) for (const t of [...ws(id).tabs]) W.closeWorkspaceTab(id, M.tabKey(t));
+                W.forgetFinishedRows(${JSON.stringify(ctx.rows ?? [])});
+                return true;`
+            )
         );
     }
     if (ctx.seeded) {

@@ -14,10 +14,10 @@ import { atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { readAgentChanges, type AgentChanges } from "./agentchanges";
 import { resolveCwd } from "./agentcwdresolve";
-import { runChangesRange } from "./agentdiffnav";
+import { finishedRowRange, runChangesRange, type FinishedRange, type MergeFacts } from "./agentdiffnav";
 import { linkedWorktree } from "./agentrailmodel";
 import { ensureSessionStart } from "./agentsessionstore";
-import { parseGitChanges, type GitChanges } from "./gitstatus";
+import { parseGitChanges, type GitChange, type GitChanges } from "./gitstatus";
 import { leadRunAtom } from "./runlineagestore";
 
 export interface RailGitState {
@@ -36,6 +36,11 @@ export interface RailGitState {
     // set when the list is a lead's run's changes, which its workers made: ref is the run's base
     run?: boolean;
     end?: string;
+    // a done worker's list: the merge commit its work landed as (ref..end), its own sealed files and the merge's
+    // other tasks; gone when that commit does not resolve or was never recorded, and the list is then the sealed files
+    merge?: MergeFacts & { gone: boolean };
+    // a Final stage row's list: the run's changes up to the commit that Final round verified
+    verified?: { commit: string; round: number };
     // why the git read failed; changes is then null and isRepo false
     failure?: string;
 }
@@ -72,6 +77,22 @@ async function readRunChanges(run: Run): Promise<{ cwd: string; read: () => Prom
     return { cwd, read };
 }
 
+function readRange(r: Extract<FinishedRange, { kind: "range" }>): { cwd: string; read: () => Promise<AgentChanges> } {
+    const read = async () => {
+        const ch = await RpcApi.GitChangesCommand(TabRpcClient, { cwd: r.cwd, ref: r.base, end: r.end });
+        return { ch, edits: false, end: r.end, cwd: r.cwd };
+    };
+    return { cwd: r.cwd, read };
+}
+
+// the files a done worker's run sealed, with their counts: no diff can be read without its merge commit
+function sealedState(r: Extract<FinishedRange, { kind: "sealed" }>): RailGitState {
+    const files = r.files.map((f) => ({ path: f.path, status: f.stat || "M", adds: f.add, dels: f.del }));
+    const sum = (n: (f: GitChange) => number) => files.reduce((s, f) => s + n(f), 0);
+    const changes = { files, adds: sum((f) => f.adds), dels: sum((f) => f.dels) };
+    return { ...EMPTY, isRepo: true, changes, merge: { ...r.merge, gone: true } };
+}
+
 async function readOwnChanges(agent: {
     transcriptPath?: string;
     blockId?: string;
@@ -83,9 +104,10 @@ async function readOwnChanges(agent: {
 }
 
 // silent keeps the shown state until the new read lands, so a reload for the same agent never blanks the list. A
-// lead's list is its run's changes, which its workers made, rather than the lead's own edits.
+// lead's list is its run's changes, which its workers made, rather than the lead's own edits; a finished row's is
+// what its merge commit or the run's Final verified (finishedRowRange).
 export async function loadRailForAgent(
-    agent: { transcriptPath?: string; blockId?: string; agent?: string; runId?: string },
+    agent: { id?: string; transcriptPath?: string; blockId?: string; agent?: string; runId?: string },
     opts?: { silent?: boolean }
 ): Promise<void> {
     const seq = ++loadSeq;
@@ -94,7 +116,21 @@ export async function loadRailForAgent(
     }
 
     const lead = agent.runId ? globalStore.get(leadRunAtom(agent.runId)) : undefined;
-    const { cwd, read } = lead ? await readRunChanges(lead.run) : await readOwnChanges(agent);
+    const finished = !lead && agent.id ? await finishedRowRange(agent.id) : undefined;
+    if (seq !== loadSeq) {
+        return;
+    }
+    if (finished?.kind === "sealed") {
+        globalStore.set(railStateAtom, sealedState(finished));
+        return;
+    }
+    const runRead = lead?.run ?? (finished?.kind === "run" ? finished.run : undefined);
+    const range = finished?.kind === "range" ? finished : undefined;
+    const { cwd, read } = range
+        ? readRange(range)
+        : runRead
+          ? await readRunChanges(runRead)
+          : await readOwnChanges(agent);
     if (seq !== loadSeq) {
         return;
     }
@@ -123,8 +159,10 @@ export async function loadRailForAgent(
             ref: ch.ref ?? "",
             head: ch.head ?? "",
             edits,
-            run: lead != null,
+            run: runRead != null || range?.verified != null,
             end,
+            ...(range?.merge ? { merge: { ...range.merge, gone: false } } : {}),
+            ...(range?.verified ? { verified: range.verified } : {}),
         });
     } catch (e) {
         if (seq === loadSeq) {

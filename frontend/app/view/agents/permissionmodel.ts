@@ -4,14 +4,17 @@
 // What the permission band shows for a pending request: its title, a preview of what the tool would do, and the text
 // of the "allowed" timeline row once answered. Pure; the choice labels come from the server (agentask.PermissionChoices).
 
-import type { AgentEntry, EditFile } from "./agentsviewmodel";
+import type { AgentActionEntry, AgentEntry, EditFile } from "./agentsviewmodel";
 import { buildEditDiff } from "./tooldetail";
 import type { LayoutItem } from "./transcriptlayout";
+import { SHELL_TOOLS, toolCallEntry } from "./transcriptprojection";
 
 export type PermissionPreview =
     | { kind: "diff"; files: EditFile[] }
     | { kind: "command"; text: string }
     | { kind: "markdown"; text: string }
+    // any other tool: the call as its step row will draw it, and its arguments
+    | { kind: "tool"; call: AgentActionEntry | undefined; args: string }
     | { kind: "json"; text: string };
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
@@ -61,7 +64,7 @@ export function permissionTitle(p: AgentPermissionData, cwd?: string): string {
     if (EDIT_TOOLS.has(p.toolname)) {
         return `Allow an edit to ${editPath(parseInput(p), cwd) ?? "a file"}?`;
     }
-    if (p.toolname === "Bash") {
+    if (SHELL_TOOLS.has(p.toolname)) {
         return "Allow this command?";
     }
     if (p.toolname === PLAN_TOOL) {
@@ -100,12 +103,12 @@ export function permissionPreview(p: AgentPermissionData, cwd?: string): Permiss
         if (files != null) {
             return { kind: "diff", files };
         }
-    } else if (p.toolname === "Bash" && str(input.command) != null) {
+    } else if (SHELL_TOOLS.has(p.toolname) && str(input.command) != null) {
         return { kind: "command", text: input.command };
     } else if (p.toolname === PLAN_TOOL && str(input.plan) != null) {
         return { kind: "markdown", text: input.plan };
     }
-    return { kind: "json", text: JSON.stringify(input, null, 2) };
+    return { kind: "tool", call: toolCallEntry(p.toolname, input), args: JSON.stringify(input, null, 2) };
 }
 
 function subject(p: AgentPermissionData, cwd?: string): string {
@@ -113,7 +116,7 @@ function subject(p: AgentPermissionData, cwd?: string): string {
     if (EDIT_TOOLS.has(p.toolname)) {
         return editPath(input, cwd) ?? p.toolname;
     }
-    if (p.toolname === "Bash") {
+    if (SHELL_TOOLS.has(p.toolname)) {
         return str(input?.command) ?? p.toolname;
     }
     return p.toolname === PLAN_TOOL ? PLAN_SUBJECT : p.toolname;

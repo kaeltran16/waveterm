@@ -8,6 +8,7 @@ import { fileTotals } from "./agentrailmodel";
 import type { DiffLine, EditFile } from "./agentsviewmodel";
 import type { GitChange } from "./gitstatus";
 import type { RailGitState } from "./railstore";
+import { SHORT_SHA } from "./runscards";
 
 export type ChangesView = "loading" | "failed" | "norepo" | "clean" | "files";
 
@@ -39,11 +40,13 @@ export interface ChangesFile {
     body: ChangesBody;
     hunks: ChangesHunk[];
 }
-// dir is the parent directory path without a trailing slash; "" is the repo root
+// dir is the parent directory path without a trailing slash; "" is the repo root. also marks a done worker's merge
+// files that are not its own, listed after its own
 export interface ChangesGroup {
     dir: string;
     count: string;
     files: ChangesFile[];
+    also?: boolean;
 }
 
 const HUNK_HEAD = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/;
@@ -113,11 +116,11 @@ const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 const patchOrder = (path: string, status: string | undefined) => `${status === "?" ? 1 : 0}:${path}`;
 
 // root files first, then one group per parent directory by path, files by name; patch is null while the first read
-// is pending
+// is pending. With own (a done worker's sealed files), its own files are grouped first and the rest after, as also.
 export function changesGroups(
     files: GitChange[],
     patch: EditFile[] | null,
-    o: { truncated: boolean; ignoreWs: boolean }
+    o: { truncated: boolean; ignoreWs: boolean; own?: string[] }
 ): ChangesGroup[] {
     const entries = new Map((patch ?? []).map((e) => [e.path, e]));
     // the cap cuts at a whole file, so a file with no entry is past the cut only when it would follow the last entry;
@@ -127,22 +130,32 @@ export function changesGroups(
         .map((e) => patchOrder(e.path, statuses.get(e.path)))
         .reduce((a, b) => (b > a ? b : a), "");
     const pastCut = (c: GitChange) => o.truncated && patchOrder(c.path, c.status) > last;
-    const dirs = new Map<string, ChangesFile[]>();
-    for (const change of files) {
-        const dir = change.path.includes("/") ? change.path.slice(0, change.path.lastIndexOf("/")) : "";
-        const list = dirs.get(dir) ?? [];
-        list.push(
-            changesFile(change, entries.get(change.path), patch, { pastCut: pastCut(change), ignoreWs: o.ignoreWs })
-        );
-        dirs.set(dir, list);
+    const group = (list: GitChange[]): ChangesGroup[] => {
+        const dirs = new Map<string, ChangesFile[]>();
+        for (const change of list) {
+            const dir = change.path.includes("/") ? change.path.slice(0, change.path.lastIndexOf("/")) : "";
+            const inDir = dirs.get(dir) ?? [];
+            inDir.push(
+                changesFile(change, entries.get(change.path), patch, { pastCut: pastCut(change), ignoreWs: o.ignoreWs })
+            );
+            dirs.set(dir, inDir);
+        }
+        return [...dirs.entries()]
+            .sort(([a], [b]) => byText(a, b))
+            .map(([dir, inDir]) => ({
+                dir,
+                count: fileTotals(inDir.map((f) => f.change)).count,
+                files: inDir.sort((a, b) => byText(a.name, b.name)),
+            }));
+    };
+    if (o.own == null) {
+        return group(files);
     }
-    return [...dirs.entries()]
-        .sort(([a], [b]) => byText(a, b))
-        .map(([dir, list]) => ({
-            dir,
-            count: fileTotals(list.map((f) => f.change)).count,
-            files: list.sort((a, b) => byText(a.name, b.name)),
-        }));
+    const own = new Set(o.own);
+    return [
+        ...group(files.filter((f) => own.has(f.path))),
+        ...group(files.filter((f) => !own.has(f.path))).map((g) => ({ ...g, also: true })),
+    ];
 }
 
 // a file absent from open is closed. stepOpened is the file a step opened, which the next step into another file
@@ -222,8 +235,55 @@ export function stepHunk(at: number, total: number, dir: "next" | "previous"): n
     return at <= 1 ? total : at - 1;
 }
 
-// "N files +A −D · <branch>, <scope>": the scope is the base the list was read against
+// the line under a finished row's summary: the commit its list was read from, set apart as commit, and why a sealed
+// list has no diffs. taskId is the done worker's task; order is the plan's task ids, which the merge's tasks follow
+export function finishedNote(
+    rail: RailGitState,
+    taskId: string,
+    order: string[]
+): { before: string; commit?: string; after: string } | undefined {
+    if (rail.verified != null) {
+        const { commit, round } = rail.verified;
+        return {
+            before: "The run's changes at ",
+            commit: commit.slice(0, SHORT_SHA),
+            after: `, the commit round ${round} verified.`,
+        };
+    }
+    const merge = rail.merge;
+    if (merge == null) {
+        return undefined;
+    }
+    const commit = merge.commit.slice(0, SHORT_SHA);
+    if (merge.gone) {
+        return commit
+            ? {
+                  before: "The merge commit ",
+                  commit,
+                  after: ` is no longer in the repository, so these are the files ${taskId}'s run recorded, without their diffs.`,
+              }
+            : {
+                  before: `${taskId}'s run recorded no merge commit, so these are the files it recorded, without their diffs.`,
+                  after: "",
+              };
+    }
+    if (merge.also.length === 0) {
+        return { before: "From merge commit ", commit, after: "." };
+    }
+    const landed = order.filter((id) => id === taskId || merge.also.some((a) => a.id === id));
+    return {
+        before: "From merge commit ",
+        commit,
+        after: `, which landed ${landed.join(" → ")} together. ${taskId}'s own files first.`,
+    };
+}
+
+// "N files +A −D · <branch>, <scope>": the scope is the base the list was read against. A finished row's list names
+// its commit in the line under it (finishedNote), and the checkout's branch is not where it came from, so it has none.
 export function changesLine(rail: RailGitState): { count: string; adds: number; dels: number; where: string } {
+    if (rail.merge != null || rail.verified != null) {
+        return { ...fileTotals(rail.changes?.files ?? []), where: "" };
+    }
     const scope = rail.run
         ? "run's changes"
         : rail.edits

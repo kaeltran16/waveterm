@@ -9,9 +9,8 @@ import { atom, type Atom, type PrimitiveAtom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { AgentsViewModel } from "./agents";
 import { applyArrivals, type Arrival } from "./autoopenmodel";
-import { isFinalStageId } from "./finalstage";
-import { canRender, effectiveViewMode, pickerFlipAtom, viewModeAtom } from "./renderedmode";
-import { isEndedWorkerId } from "./runlineage";
+import { canRender, effectiveViewMode, pickerFlipAtom, transcriptLook, viewModeAtom } from "./renderedmode";
+import type { Lineage } from "./runlineage";
 import { focusSubagentAtom } from "./subagentsstore";
 import {
     activateTab,
@@ -19,6 +18,7 @@ import {
     closeTab,
     DEFAULT_PANE_PX,
     EMPTY_WORKSPACE,
+    finishedRowTabs,
     openTab,
     setCollapsed,
     setExpanded,
@@ -120,15 +120,44 @@ export function setWorkspaceExpanded(agentId: string, expanded: boolean): void {
     apply(agentId, (s) => setExpanded(s, expanded));
 }
 
-// whether the agent's center shows the Rendered view: what canRender accepts, in its effective view, with no
-// subagent interior open over it
+// whether the agent's center has the workspace pane beside it (transcriptLook): a roster agent that canRender accepts,
+// in its effective Rendered view, or a finished row, which the roster never holds; never with a subagent interior
+// open over it
 export function rendersNow(model: AgentsViewModel, agentId: string): boolean {
-    const agent = globalStore.get(model.agentsAtom).find((a) => a.id === agentId);
-    if (agent == null || globalStore.get(focusSubagentAtom)?.parentId === agentId) {
+    if (globalStore.get(focusSubagentAtom)?.parentId === agentId) {
         return false;
     }
+    const agent = globalStore.get(model.agentsAtom).find((a) => a.id === agentId);
     const view = effectiveViewMode(globalStore.get(viewModeAtom(agentId)), globalStore.get(pickerFlipAtom(agentId)));
-    return view === "rendered" && canRender(agent, { ended: isEndedWorkerId(agentId), stage: isFinalStageId(agentId) });
+    const rendered = agent != null && view === "rendered" && canRender(agent, { ended: false, stage: false });
+    return transcriptLook(agentId, rendered);
+}
+
+// the finished rows whose pane was seeded this session: a closed tab stays closed, so the app never forgets one
+const seededRows = new Set<string>();
+
+// a finished row's first focus opens its tabs (finishedRowTabs) into an empty workspace, the first one active and
+// Changes behind it unseen. A row the lineage has not placed yet is tried again on a later call
+export function seedFinishedRow(agentId: string, lineage: Lineage): void {
+    if (seededRows.has(agentId)) {
+        return;
+    }
+    const [first, ...rest] = finishedRowTabs(agentId, lineage);
+    if (first == null) {
+        return;
+    }
+    seededRows.add(agentId);
+    if (globalStore.get(stateAtom(agentId)).tabs.length > 0) {
+        return;
+    }
+    apply(agentId, (s) => rest.reduce(addTab, openTab(s, first)));
+}
+
+// for the CDP scenarios, which focus the same fixture rows again in one page
+export function forgetFinishedRows(agentIds: string[]): void {
+    for (const id of agentIds) {
+        seededRows.delete(id);
+    }
 }
 
 // opens the tab beside the transcript when the agent shows Rendered on the Agent surface and Ctrl is not held;

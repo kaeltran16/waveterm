@@ -1,8 +1,8 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 //
-// The details rail's section for a Final verification row, the stage's own and its verifier's session alike:
-// the round and its time, each step, the stage's facts, the screenshots, and a line per earlier round.
+// The details rail's section for a live verifier's session: the round and its time, each step, the stage's facts,
+// the screenshots, and a line per earlier round. Its facts are also the Final tab's Verified section.
 
 import * as WOS from "@/app/store/wos";
 import { reviewerRouteOf } from "@/app/view/orchestrate/taskroute";
@@ -44,12 +44,27 @@ function Fact({
     );
 }
 
+// a round's facts: the commit it verified, the tree it ran in, and the route its reviewers ran on. The Final tab
+// draws them for any round, so the stage is passed in rather than read from the dag
+export function FinalFacts({ run, stage }: { run: RunInfo; stage: FinalStage | undefined }) {
+    const owner = useAtomValue(WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", run.runId)));
+    const reviewers = run.dag && owner ? reviewerRouteOf(run.dag, owner).route : undefined;
+    return (
+        <div data-final-facts className="flex flex-col">
+            <Fact label="Commit" title={stage?.commit || undefined}>
+                {stage?.commit ? stage.commit.slice(0, SHORT_COMMIT) : NONE}
+            </Fact>
+            <Fact label="Tree" title={stage?.tree || undefined} clipStart={!!stage?.tree}>
+                {stage?.tree || NONE}
+            </Fact>
+            <Fact label="Reviewers">{reviewers ? `${reviewers.runtime} · ${shortModel(reviewers.model)}` : NONE}</Fact>
+        </div>
+    );
+}
+
 export function FinalStageRail({ model, run }: { model: AgentsViewModel; run: RunInfo }) {
     const now = useAtomValue(model.nowAtom);
     const view = useFinalStageView(run.dag, run.runId, run.channelId, now);
-    const owner = useAtomValue(WOS.getWaveObjectAtom<Run>(WOS.makeORef("run", run.runId)));
-    const stage = run.dag?.final;
-    const reviewers = run.dag && owner ? reviewerRouteOf(run.dag, owner).route : undefined;
     return (
         <div data-final-rail className="flex flex-col gap-[6px]">
             <div className="flex items-baseline justify-between gap-[8px]">
@@ -60,17 +75,7 @@ export function FinalStageRail({ model, run }: { model: AgentsViewModel; run: Ru
                 </span>
             </div>
             <FinalStepList steps={view.steps} />
-            <div className="flex flex-col">
-                <Fact label="Commit" title={stage?.commit || undefined}>
-                    {stage?.commit ? stage.commit.slice(0, SHORT_COMMIT) : NONE}
-                </Fact>
-                <Fact label="Tree" title={stage?.tree || undefined} clipStart={!!stage?.tree}>
-                    {stage?.tree || NONE}
-                </Fact>
-                <Fact label="Reviewers">
-                    {reviewers ? `${reviewers.runtime} · ${shortModel(reviewers.model)}` : NONE}
-                </Fact>
-            </div>
+            <FinalFacts run={run} stage={run.dag?.final} />
             <FinalShotsLink group={run.dag} />
             {/* the earlier rounds alone: what this round came to is the pane's, or the verifier's own terminal */}
             {run.dag ? <FinalPastRounds past={view.past} group={run.dag} /> : null}

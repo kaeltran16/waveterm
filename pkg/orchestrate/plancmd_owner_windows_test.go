@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wavetermdev/waveterm/pkg/util/jobobject"
+	"golang.org/x/sys/windows"
 )
 
 func ownerLive(o jobobject.Owner) bool {
@@ -56,7 +57,7 @@ func TestPlanCommandPriorityByCommand(t *testing.T) {
 		cmd, want string
 	}{
 		{PlanCmd_Verify, "BelowNormal"},
-		{PlanCmd_Final, "Normal"},
+		{PlanCmd_Final, childClass(t)},
 	} {
 		t.Run(tc.cmd, func(t *testing.T) {
 			ctx := withRunCmdOwner(context.Background(), "run-1", tc.cmd, "")
@@ -69,6 +70,22 @@ func TestPlanCommandPriorityByCommand(t *testing.T) {
 			}
 		})
 	}
+}
+
+// childClass is the priority class a plain child of the test process starts at: Windows passes a parent's class
+// on only when it is idle or below normal, so a test run under a lowered Verify still knows what Final's child gets
+func childClass(t *testing.T) string {
+	class, err := windows.GetPriorityClass(windows.CurrentProcess())
+	if err != nil {
+		t.Fatalf("reading the test's priority class: %v", err)
+	}
+	switch class {
+	case windows.IDLE_PRIORITY_CLASS:
+		return "Idle"
+	case windows.BELOW_NORMAL_PRIORITY_CLASS:
+		return "BelowNormal"
+	}
+	return "Normal"
 }
 
 // a detached tree's Setup must not show as the command the tree is for: a bisect tree's Setup is not its Verify

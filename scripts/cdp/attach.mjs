@@ -178,12 +178,15 @@ export async function openPage(target, shots) {
         // raw CDP passthrough: Runtime.evaluate covers most driving, but Emulation (deterministic shot
         // size) and Input.dispatchKeyEvent (real key events, not synthetic DOM ones) have no wrapper.
         cdp: (method, params) => client.send(method, params),
-        async shot(outPath) {
+        // step: the 0-based index, into the steps the scenario's assert returns, of the step this shot shows. Opt-in:
+        // the harness never sees a scenario's steps until assert returns, and scenarios differ on whether a shot comes
+        // before or after its step is recorded, so only the scenario can say
+        async shot(outPath, { step } = {}) {
             const { data } = await client.send("Page.captureScreenshot", { format: "png" });
             mkdirSync(dirname(outPath), { recursive: true });
             writeFileSync(outPath, Buffer.from(data, "base64"));
             const png = basename(outPath);
-            shots.push({ name: png.replace(/\.png$/, ""), png, path: outPath });
+            shots.push({ name: png.replace(/\.png$/, ""), png, path: outPath, ...(step != null ? { step } : {}) });
         },
         close: () => client.close(),
     };

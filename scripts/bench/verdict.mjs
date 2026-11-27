@@ -27,8 +27,8 @@ export function pooledScore(files) {
     return total ? killed / total : null;
 }
 
-// a run that never reached Final has no rounds to add
-const rework = (r) => r.reviewFails + r.verifyFails + Math.max(0, (r.finalRounds ?? 1) - 1);
+// a Final round counts only when it failed: an optional round after a pass is not rework
+const rework = (r) => r.reviewFails + r.verifyFails + r.finalFails;
 
 // input: { blind: {pick: {winner}}, rows: {arm: [runRow]}, mutation: {arm: [mutation json]} }
 export function decide({ blind, rows, mutation }) {

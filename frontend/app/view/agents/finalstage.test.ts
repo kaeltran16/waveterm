@@ -1,6 +1,7 @@
 // Copyright 2026, Command Line Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+import { emptyRoundText } from "@/app/view/jarvis/finalshotsmodel";
 import { describe, expect, it } from "vitest";
 import {
     finalDetailAbove,
@@ -14,9 +15,13 @@ import {
     finalStepExit,
     finalStepOpens,
     finalStepOpensByDefault,
+    finalTabView,
     isFinalStageId,
     KEPT_NOTE,
+    NO_VERDICT_TEXT,
     outputTail,
+    VERIFIER_FAILED_BEFORE,
+    VERIFIER_NOT_RUN,
     type FinalKept,
     type FinalStageView,
 } from "./finalstage";
@@ -962,5 +967,179 @@ describe("the pane's step decisions", () => {
         const events = [ev("tree", S), ev("check", S), ev("verify", S), ev("final", S, false)];
         const timedOut = finalStageView(dag(final), events, NOW);
         expect(finalStepExit(timedOut, step(timedOut, "final"))).toBe("failed");
+    });
+});
+
+describe("finalTabView", () => {
+    const VERIFY_FAIL =
+        "Verify `node scripts/verify.mjs ./pkg/x` failed on the merged result (exit 1):\n--- FAIL: TestStats";
+    const round1: FinalStage = { state: "failed", round: 1, commit: "7d01c3e5a1", detail: VERIFY_FAIL };
+    const round2: FinalStage = {
+        state: "passed",
+        round: 2,
+        commit: "4c1e9a2f6b",
+        verifierrunid: "ver-2",
+        startedts: NOW - 474 * S,
+        verdicttext: "Read the diff against the plan. No findings.",
+    };
+    const events = [
+        ev("tree", S, true, 1, NOW - 40 * 60 * S),
+        ev("check", S, true, 1, NOW - 39 * 60 * S),
+        ev("verify", S, false, 1, NOW - 38 * 60 * S),
+        ev("tree", 22 * S, true, 2, NOW - 740 * S),
+        ev("check", 18 * S, true, 2, NOW - 720 * S),
+        ev("verify", 182 * S, true, 2, NOW - 540 * S),
+        ev("final", 64 * S, true, 2, NOW - 476 * S),
+    ];
+    const twoRounds = (over: Partial<TaskGroup> = {}) => dag(round2, { status: "done", pastfinals: [round1], ...over });
+    const input = { round: null, verifierRun: { completedts: NOW, model: "claude-opus-5-5" } };
+
+    it("shows the current round by default, offers every round, and shows a picked one", () => {
+        const current = finalTabView(twoRounds(), events, NOW, input);
+        expect(current.rounds).toEqual([1, 2]);
+        expect(current.round).toBe(2);
+        expect(current.current).toBe(true);
+        const picked = finalTabView(twoRounds(), events, NOW, { ...input, round: 1 });
+        expect(picked.round).toBe(1);
+        expect(picked.current).toBe(false);
+        expect(finalTabView(dag(round2), events, NOW, input).rounds).toEqual([2]);
+    });
+
+    it("names the round's state with its tone, and gives no view for a dag with no final stage", () => {
+        const passed = finalTabView(twoRounds(), events, NOW, input);
+        expect([passed.state, passed.tone]).toEqual(["Passed", "pass"]);
+        const failed = finalTabView(twoRounds(), events, NOW, { ...input, round: 1 });
+        expect([failed.state, failed.tone]).toEqual(["Failed at Verify", "fail"]);
+        expect(finalTabView(dag(undefined), [], NOW, input)).toBeNull();
+    });
+
+    it("reads the meta as round N of M, the round's time and its start, M only when the dag stamps it", () => {
+        const parts = finalTabView(twoRounds({ maxfinalrounds: 3 }), events, NOW, input).meta.split(" · ");
+        expect(parts.slice(0, 2)).toEqual(["round 2 of 3", "12m 40s"]);
+        expect(parts).toHaveLength(3);
+        expect(finalTabView(twoRounds(), events, NOW, input).meta.startsWith("round 2 · 12m 40s · ")).toBe(true);
+        // a round that ended early is timed by the steps it ran
+        const failed = finalTabView(twoRounds(), events, NOW, { ...input, round: 1 }).meta.split(" · ");
+        expect(failed.slice(0, 2)).toEqual(["round 1", "3s"]);
+    });
+
+    it("leads a failed round with why it failed, then screenshots, verifier and verified, its meta naming the commit", () => {
+        const v = finalTabView(twoRounds(), events, NOW, { ...input, round: 1 });
+        expect(v.order).toEqual(["why", "shots", "verifier", "verified", "changes"]);
+        expect(v.why).toEqual({ detail: VERIFY_FAIL, note: "" });
+        expect(v.meta.endsWith(" · commit 7d01c3e")).toBe(true);
+        const passed = finalTabView(twoRounds(), events, NOW, input);
+        expect(passed.order).toEqual(["verified", "verifier", "shots", "changes"]);
+        expect(passed.why).toBeNull();
+    });
+
+    it("adds the lead's line under why the current round failed", () => {
+        const failedNow = dag({ ...round1, round: 2 }, { pastfinals: [{ ...round2, round: 1 }] });
+        const lead = { asking: true };
+        expect(finalTabView(failedNow, [], NOW, { ...input, lead }).why.note).toBe(finalFailedNote(lead));
+        expect(finalTabView(failedNow, [], NOW, { ...input, lead: undefined }).why.note).toBe(
+            finalFailedNote(undefined)
+        );
+    });
+
+    it("leads with the verifier's own round, marked this session, in the tab its ended session opened", () => {
+        const own = finalTabView(twoRounds(), events, NOW, { ...input, round: 2, session: "ver-2" });
+        expect(own.order).toEqual(["verifier", "verified", "shots", "changes"]);
+        expect(own.verifier.session).toBe(true);
+        const other = finalTabView(twoRounds(), events, NOW, { ...input, round: 1, session: "ver-2" });
+        expect(other.verifier.session).toBe(false);
+        expect(other.order[0]).toBe("why");
+    });
+
+    it.each([
+        [
+            "a step before it failed",
+            () => finalTabView(twoRounds(), events, NOW, { ...input, round: 1 }),
+            VERIFIER_FAILED_BEFORE,
+        ],
+        [
+            "a human ended the stage with no step failed",
+            () =>
+                finalTabView(
+                    dag({ state: "failed", round: 1, detail: HUMAN }),
+                    [ev("tree", S), ev("check", S)],
+                    NOW,
+                    input
+                ),
+            VERIFIER_NOT_RUN,
+        ],
+    ])("says why the verifier did not run when %s", (_, view, want) => {
+        const v = view();
+        expect(v.verifier.ran).toBe(false);
+        expect(v.verifier.meta).toBe("");
+        expect(v.verifier.text).toBe(want);
+    });
+
+    it("gives the verifier's model, its time and the round's unverified count", () => {
+        const v = finalTabView(dag({ ...round2, unverified: ["a", "b"] }, { status: "done" }), events, NOW, input);
+        expect(v.verifier.ran).toBe(true);
+        expect(v.verifier.meta).toBe("opus-5-5 · 7m 54s · 2 unverified");
+        const none = finalTabView(twoRounds(), events, NOW, input);
+        expect(none.verifier.meta.endsWith(" · nothing unverified")).toBe(true);
+    });
+
+    it.each([
+        ["the verdict text", { verdicttext: "kept" }, "kept"],
+        ["a failed round's detail, for rounds recorded before it", { state: "failed", detail: "defects" }, "defects"],
+        ["the end review's text, for a round it settled", { endreview: { state: "passed", text: "review" } }, "review"],
+        ["that none was recorded", {}, NO_VERDICT_TEXT],
+    ])("reads a verifier that ran by %s", (_, over: Partial<FinalStage>, want) => {
+        const stage = { state: "passed", round: 1, verifierrunid: "ver-1", startedts: NOW - S, ...over } as FinalStage;
+        const v = finalTabView(dag(stage, { check: "", verify: "", finalcmd: "" }), [], NOW, input);
+        expect(v.verifier.ran).toBe(true);
+        expect(v.verifier.text).toBe(want);
+    });
+
+    it("groups the screenshots by scenario, failed first, one frame per file named by its tagged step", () => {
+        const shots: FinalShot[] = [
+            { name: "stats", files: ["cdp-shots/stats-1.png"], steps: [{ step: "stats output", state: "pass" }] },
+            {
+                name: "list",
+                files: ["cdp-shots/list-1.png", "cdp-shots/list-2.png", "cdp-shots/extra.png"],
+                filesteps: { "cdp-shots/list-1.png": 0, "cdp-shots/list-2.png": 1 },
+                steps: [
+                    { step: "list loads", state: "pass" },
+                    { step: "duplicates grouped", state: "fail" },
+                    { step: "tag filter", state: "pass" },
+                    { step: "paging", state: "skip" },
+                ],
+            },
+        ];
+        const v = finalTabView(dag({ ...round2, shots, shotsmanifest: true }), events, NOW, input);
+        expect(v.shots.map((s) => [s.name, s.failed, s.ran, s.passed])).toEqual([
+            ["list", 1, 3, 2],
+            ["stats", 0, 1, 1],
+        ]);
+        expect(v.shots[0].frames).toEqual([
+            { file: "cdp-shots/list-1.png", step: 0, label: "1. list loads", failed: false },
+            { file: "cdp-shots/list-2.png", step: 1, label: "2. duplicates grouped", failed: true },
+            { file: "cdp-shots/extra.png", label: "extra", failed: false },
+        ]);
+        expect(v.emptyShots).toBe("");
+    });
+
+    it("keeps a step's own number rather than adding one", () => {
+        const shot: FinalShot = {
+            name: "final-stage",
+            files: ["b5.png", "two.png"],
+            filesteps: { "b5.png": 0, "two.png": 1 },
+            steps: [
+                { step: "B5. failed at Final", state: "fail" },
+                { step: "2b. the peek names the record", state: "pass" },
+            ],
+        };
+        const v = finalTabView(dag({ ...round2, shots: [shot], shotsmanifest: true }), events, NOW, input);
+        expect(v.shots[0].frames.map((f) => f.label)).toEqual(["B5. failed at Final", "2b. the peek names the record"]);
+    });
+
+    it("says why a round has no screenshots", () => {
+        const v = finalTabView(twoRounds(), events, NOW, { ...input, round: 1 });
+        expect(v.shots).toEqual([]);
+        expect(v.emptyShots).toBe(emptyRoundText(round1));
     });
 });

@@ -12,6 +12,7 @@ import {
     endedReviewerOf,
     endedReviewerVM,
     endedRoles,
+    endedRowRunId,
     endedVerifierId,
     endedVerifierOf,
     endedVerifierVM,
@@ -277,6 +278,15 @@ describe("ended workers", () => {
         expect(endedRoles(runs)).toEqual({ [id]: { kind: "worker", leadRunId: "r1", taskId: "t-1" } });
         expect(isEndedWorkerId(id)).toBe(true);
         expect(isEndedWorkerId("5c1e9a4e-tab")).toBe(false);
+    });
+
+    it("names the lead run of any ended row, and of nothing else", () => {
+        expect(endedRowRunId(endedWorkerId("r1", "t-1"))).toBe("r1");
+        expect(endedRowRunId(endedVerifierId("r1", "v9"))).toBe("r1");
+        expect(endedRowRunId(endedReviewerId("r1", "p2"))).toBe("r1");
+        expect(endedRowRunId(finalStageId("r1"))).toBeUndefined();
+        expect(endedRowRunId("5c1e9a4e-tab")).toBeUndefined();
+        expect(endedRowRunId("ended:r1")).toBeUndefined();
     });
 
     it("reads a done task's worker from the child run it last ran", () => {

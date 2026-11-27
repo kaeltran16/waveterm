@@ -253,6 +253,16 @@ export function isEndedWorkerId(id: string): boolean {
     return id.startsWith(ENDED_WORKER_PREFIX);
 }
 
+// endedRowRunId is the lead run an ended row's id names: every ended id is ended:<run>:<rest>
+export function endedRowRunId(id: string): string | undefined {
+    if (!isEndedWorkerId(id)) {
+        return undefined;
+    }
+    const rest = id.slice(ENDED_WORKER_PREFIX.length);
+    const at = rest.indexOf(":");
+    return at > 0 ? rest.slice(0, at) : undefined;
+}
+
 // workerEnded reports a task whose worker has finished for good: the task is done, or its work merged and is
 // being verified, which reaps the worker's tab with its tree.
 export function workerEnded(task: TaskNode): boolean {

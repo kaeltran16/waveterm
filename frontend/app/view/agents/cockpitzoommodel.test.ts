@@ -143,6 +143,7 @@ describe("tabNeeds", () => {
     const input = (asks: number) => ({
         runAsks: { r: Array.from({ length: asks }, () => ({ owner: "user" })) },
         brainstormAsking: false,
+        failedFinals: [],
     });
     it.each<[string, RunWait | null, number, number]>([
         ["a wait the conductor holds counts nothing, though the run has asks", wait({}), 2, 0],

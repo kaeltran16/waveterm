@@ -85,7 +85,9 @@ slice, in dependency order (blockers first):
 
 **What to build:** the end-to-end behaviour this task makes work, from its user's perspective (a person, or
 the code that calls it), not a layer-by-layer implementation list. Name the design decisions the spec leaves
-to this task, with the one it takes.
+to this task, with the one it takes. A decision fills what the spec leaves open; it never narrows,
+approximates or postpones what the spec settled. When a settled requirement costs more than it looks worth,
+the task builds it anyway, or you ask the user before planning around it.
 
 **Interfaces:** the exact names, signatures, wire fields or table columns another task relies on. Only when
 another task uses them.
@@ -108,6 +110,9 @@ prose cannot pin as precisely (a state machine, a schema, a type shape), trimmed
 Before you hand the plan over, read the spec again beside it and fix what you find inline:
 
 1. **Coverage:** every requirement in the spec has a task whose acceptance criteria would fail without it.
+   **Fidelity:** no decision in the header or a task weakens one: shown on a subset of the cases, checked
+   lazily instead of when it happens, folded or dropped input, a check moved off the server. Each one found
+   is built as the spec says, or asked.
 2. **Criteria:** every criterion is checkable by a test; "works correctly", "handles edge cases" and "TBD"
    decide nothing. Every UI task names its scenario step.
 3. **Interfaces:** a name or signature used in one task matches the task that defines it.
