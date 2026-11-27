@@ -1727,20 +1727,34 @@ async function setupMemoryAssert(h, ctx) {
             throw new Error(`nothing to click at ${sel}`);
         }
     };
-    const rowSel = (key) => `[data-memory-row=${q(key)}]`;
-    const lineSel = (key) => `[data-memory-line=${q(key)}]`;
-    // a row's or line's head: its title, then its sub-line
-    const sub = (sel) =>
-        h.ev(`(document.querySelector(${q(sel)})?.firstElementChild?.children[1]?.lastElementChild?.textContent ?? "").trim()`);
-    const isOpen = (sel) => h.ev(`document.querySelector(${q(sel)})?.hasAttribute("data-open") ?? null`);
-    const openRow = async (key) => {
-        if (!(await isOpen(rowSel(key)))) await click(`${rowSel(key)} > div`);
-        return waitFor(`document.querySelector(${q(rowSel(key))})?.hasAttribute("data-open") === true`);
+    // the list's rows and lines; the detail pane shows the selected one, its actions in its header
+    const LIST = "nav[data-memory-list]";
+    const D = "main[data-memory-detail]";
+    const rowSel = (key) => `${LIST} [data-memory-row=${q(key)}]`;
+    const lineSel = (key) => `${LIST} [data-memory-line=${q(key)}]`;
+    const inD = (sel) => `${D} ${sel}`;
+    const sub = (sel) => text(`${sel} [data-memory-sub]`);
+    // a box's text without its buttons' labels
+    const ownText = (sel) =>
+        h.ev(`(() => {
+            const el = document.querySelector(${q(sel)});
+            if (!el) return "";
+            const c = el.cloneNode(true);
+            c.querySelectorAll("button").forEach((b) => b.remove());
+            return c.textContent.replace(/\\s+/g, " ").trim();
+        })()`);
+    const shown = () => h.ev(`document.querySelector(${q(D)})?.getAttribute("data-memory-detail") ?? null`);
+    const current = () =>
+        h.ev(`[...document.querySelectorAll(${q(`${LIST} [aria-current="true"]`)})].map((e) => e.getAttribute("data-memory-row") ?? e.getAttribute("data-memory-line"))`);
+    const select = async (sel, key) => {
+        await click(sel);
+        return waitFor(`document.querySelector(${q(D)})?.getAttribute("data-memory-detail") === ${q(key)}`);
     };
-    const reveal = (sel) => h.ev(`document.querySelector(${q(sel)})?.scrollIntoView({ block: "center" })`);
+    const selectRow = (key) => select(rowSel(key), key);
+    const selectLine = (key) => select(lineSel(key), key);
     const toolbar = () =>
         h.ev(`(document.getElementById("setup-tab-memory")?.closest("[data-surface-toolbar]")?.lastElementChild?.textContent ?? "").trim()`);
-    const keysIn = (attr) => h.ev(`[...document.querySelectorAll("[${attr}]")].map((e) => e.getAttribute(${q(attr)}))`);
+    const keysIn = (attr) => h.ev(`[...document.querySelectorAll(${q(`${LIST} [${attr}]`)})].map((e) => e.getAttribute(${q(attr)}))`);
     const rowProject = (key) => key.split("/")[1];
     const lineProject = (key) => key.split("/")[0];
     const monthDay = (ts) => new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -1748,10 +1762,16 @@ async function setupMemoryAssert(h, ctx) {
         h.ev(
             `document.dispatchEvent(new KeyboardEvent("keydown", { key: ${q(key)}, code: ${q(key.length === 1 ? `Key${key.toUpperCase()}` : key)}, bubbles: true }))`
         );
-    const focused = () =>
+    const selected = () =>
         lookEval(h, `const { globalStore } = await mod("app/store/jotaiStore.ts");
-            const { memoryFocusAtom } = await mod("app/view/agents/memorystore.ts");
-            return globalStore.get(memoryFocusAtom);`);
+            const { memorySelectedAtom } = await mod("app/view/agents/memorystore.ts");
+            return globalStore.get(memorySelectedAtom);`);
+    // a did line's changes still applied, from the backend's own list
+    const appliedIn = async (project, batchId) => {
+        const p = (await h.rpc("listmemoryhygiene", null)).projects.find((x) => x.project === project);
+        const b = p?.batches?.find((x) => x.id === batchId);
+        return (b?.changeids ?? []).filter((id) => p.changes.find((c) => c.id === id)?.status === "applied").length;
+    };
     // name -> sha256 ("dir" for a folder) of each entry in the dirs, and of each file given
     const snapshot = (dirs, files = []) => {
         const out = {};
@@ -1809,119 +1829,168 @@ async function setupMemoryAssert(h, ctx) {
     const stay = () => fx().states[P.splitA].memories - total;
     const openSub = () => `${total} come over: ${splitA.moves.length} move, ${splitA.copies.length} copy · ${stay()} stay in ${repo}’s`;
     const settingsA = () => fx().splitA.settings.op.settingspath;
-    // a split row's Apply, with the row opened first; resolves once its stop or its did line shows
+    // a split's Apply from the detail header, with the row selected first; resolves once its stop or its did line shows
     const applySplit = async (until) => {
-        await openRow(splitKey(P.splitA));
-        await click(`${rowSel(splitKey(P.splitA))} [data-memory-apply]`);
+        await selectRow(splitKey(P.splitA));
+        await click(inD("[data-memory-apply]"));
         return waitFor(until, MEMORY_APPLY_WAIT_MS);
     };
-    const stopSel = (kind) => `${rowSel(splitKey(P.splitA))} [data-memory-stop=${q(kind)}]`;
+    const stopSel = (kind) => inD(`[data-memory-stop=${q(kind)}]`);
+    // a stop box holds its text only; Undo the N and Check now sit in the detail header
+    const stopRead = async (kind) => ({
+        text: await text(stopSel(kind)),
+        inBox: await count(`${stopSel(kind)} button`),
+        undo: await text(inD('[data-memory-undo="split"]')),
+        check: await text(inD("[data-memory-check]")),
+    });
 
     await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
     if (!(await openTab())) throw new Error("the Memory tab did not list");
 
     await run(
-        "1. memory-page (FlowAuto): rows in board order, the toolbar count, this week's did lines, the split opened with four memories",
+        "1. memory-page (FlowAuto): list rows in board order with 20px icon boxes and <chip> · <sub> subs, the toolbar count, this week's did lines, the split selected with every item, Keep sharing and Apply and switch over",
         "page",
         async () => {
             const rows = await keysIn("data-memory-row");
             const failed = rows.filter((k) => k.startsWith("failed/")).length;
             const wantToolbar = `${rows.length} waiting for you${failed > 0 ? ` · ${failed} check${failed === 1 ? "" : "s"} failed` : ""}`;
-            const opened = await openRow(splitKey(P.splitA));
+            const key = splitKey(P.splitA);
+            const selectedOk = await selectRow(key);
+            const chips = { split: "Own memory", cleanup: "Clear", doc: "Move to CLAUDE.md", failed: "Check failed" };
+            const fixtureRows = rows.filter((k) => MEMORY_FIXTURE_NAMES.includes(rowProject(k)));
+            const fixtureLines = (await keysIn("data-memory-line")).filter((k) => MEMORY_FIXTURE_NAMES.includes(lineProject(k)));
+            const badSubs = [];
+            for (const k of fixtureRows) {
+                const s = await sub(rowSel(k));
+                if (!s.startsWith(`${chips[k.split("/")[0]]} · `)) badSubs.push({ k, s });
+            }
+            for (const k of fixtureLines) {
+                const s = await sub(lineSel(k));
+                if (!s.startsWith("Applied · ")) badSubs.push({ k, s });
+            }
+            const items = (sel) => h.ev(`[...document.querySelectorAll(${q(sel)})].map((e) => e.getAttribute("data-memory-item"))`);
             const got = {
-                rows: rows.filter((k) => MEMORY_FIXTURE_NAMES.includes(rowProject(k))),
+                rows: fixtureRows,
                 toolbar: await toolbar(),
-                head: await text("[data-memory-waiting] > span"),
-                lines: (await keysIn("data-memory-line")).filter((k) => MEMORY_FIXTURE_NAMES.includes(lineProject(k))),
-                opened,
-                sub: await sub(rowSel(splitKey(P.splitA))),
-                items: await count(`${rowSel(splitKey(P.splitA))} [data-memory-item]`),
-                showAll: await text(`${rowSel(splitKey(P.splitA))} [data-memory-showall]`),
-                keep: await text(`${rowSel(splitKey(P.splitA))} [data-memory-keep]`),
-                apply: await text(`${rowSel(splitKey(P.splitA))} [data-memory-apply]`),
+                head: await text("[data-memory-waiting] > :first-child"),
+                lines: fixtureLines,
+                // every list row and line holds a 20px box with its icon
+                noIcon: await h.ev(`[...document.querySelectorAll(${q(`${LIST} [data-memory-row], ${LIST} [data-memory-line]`)})]
+                    .filter((b) => ![...b.querySelectorAll("*")].some((e) => {
+                        const r = e.getBoundingClientRect();
+                        return Math.round(r.width) === 20 && Math.round(r.height) === 20 && !!e.querySelector("svg");
+                    }))
+                    .map((b) => b.getAttribute("data-memory-row") ?? b.getAttribute("data-memory-line"))`),
+                badSubs,
+                selectedOk,
+                current: await current(),
+                listSub: await sub(rowSel(key)),
+                title: await text(inD("[data-memory-title]")),
+                sub: await text(inD("[data-memory-sub]")),
+                groups: await texts(inD("[data-memory-split] [data-memory-group]")),
+                items: await items(inD("[data-memory-split] [data-memory-item]")),
+                leaveOuts: await count(inD("[data-memory-split] [data-memory-item] [data-memory-leaveout]")),
+                showAll: await count("[data-memory-showall], [data-memory-below]"),
+                keep: await text(inD("[data-memory-keep]")),
+                apply: await text(inD("[data-memory-apply]")),
+                intro: await h.ev(has(inD("[data-memory-intro]"))),
             };
+            const wantItems = [...splitA.moves, ...splitA.copies].map((c) => c.id).sort();
             return {
                 ok:
                     q(got.rows) === q(boardRows()) &&
                     got.toolbar === wantToolbar &&
                     got.head === `Waiting for you · ${rows.length}` &&
                     q(got.lines) === q(boardLines()) &&
-                    opened &&
+                    got.noIcon.length === 0 &&
+                    got.badSubs.length === 0 &&
+                    selectedOk &&
+                    q(got.current) === q([key]) &&
+                    got.listSub === `Own memory · ${openSub()}` &&
+                    got.title === `Give ${P.splitA} its own memory` &&
                     got.sub === openSub() &&
-                    got.items === 4 &&
-                    got.showAll === `Show all ${total}` &&
+                    got.groups.length === 2 &&
+                    got.groups[0].startsWith(`Move here · ${splitA.moves.length}`) &&
+                    got.groups[1].startsWith(`Copy here · ${splitA.copies.length}`) &&
+                    q([...got.items].sort()) === q(wantItems) &&
+                    got.leaveOuts === total &&
+                    got.showAll === 0 &&
                     got.keep === "Keep sharing" &&
-                    got.apply === "Apply and switch over",
+                    got.apply === "Apply and switch over" &&
+                    got.intro,
                 detail: JSON.stringify(got),
             };
         }
     );
 
     await run(
-        "2. split-all-left-out (AutoAll): Show all, Leave out one and the row reads 1 left out with the counts following; Bring back restores them",
+        "2. split-all-left-out (AutoAll): every item in the box; Leave out one and it reads muted Left out with Bring back, the counts following; Bring back restores them",
         "split-all-left-out",
         async () => {
-            const row = rowSel(splitKey(P.splitA));
-            const item = `${row} [data-memory-item=${q(splitA.moves[0].id)}]`;
-            await openRow(splitKey(P.splitA));
-            await click(`${row} [data-memory-showall]`);
-            const all = await waitFor(`document.querySelectorAll(${q(`${row} [data-memory-item]`)}).length === ${total}`);
-            // "N more below" against the items wholly under the scroll box, read from geometry here
-            const belowNow = () =>
+            const key = splitKey(P.splitA);
+            const moved = splitA.moves[0];
+            const item = inD(`[data-memory-split] [data-memory-item=${q(moved.id)}]`);
+            await selectRow(key);
+            const all = await count(inD("[data-memory-split] [data-memory-item]"));
+            // the color of the item's title, found by its text
+            const titleColor = () =>
                 h.ev(`(() => {
-                    const box = document.querySelector(${q(`${row} [data-memory-all]`)});
-                    if (!box) return null;
-                    const bottom = box.getBoundingClientRect().bottom;
-                    const n = [...box.querySelectorAll("[data-memory-item]")].filter((el) => el.getBoundingClientRect().top >= bottom).length;
-                    return { n, text: (document.querySelector(${q(`${row} [data-memory-below]`)})?.textContent ?? "").trim() };
+                    const el = [...(document.querySelector(${q(item)})?.querySelectorAll("*") ?? [])].find((e) => e.textContent.trim() === ${q(moved.title)});
+                    return el ? getComputedStyle(el).color : null;
                 })()`);
-            const before = await belowNow();
-            await h.ev(`(() => { const box = document.querySelector(${q(`${row} [data-memory-all]`)}); box.scrollTop = box.scrollHeight / 2; })()`);
-            await waitFor(`(() => {
-                const box = document.querySelector(${q(`${row} [data-memory-all]`)});
-                const bottom = box.getBoundingClientRect().bottom;
-                const n = [...box.querySelectorAll("[data-memory-item]")].filter((el) => el.getBoundingClientRect().top >= bottom).length;
-                return (document.querySelector(${q(`${row} [data-memory-below]`)})?.textContent ?? "").trim() === n + " more below";
-            })()`);
-            const scrolled = await belowNow();
-            await h.ev(`document.querySelector(${q(`${row} [data-memory-all]`)}).scrollTop = 0`);
-            const below = { before, scrolled };
-            const belowOk =
-                before?.n > 0 &&
-                before.text === `${before.n} more below` &&
-                scrolled?.n < before.n &&
-                scrolled.text === (scrolled.n > 0 ? `${scrolled.n} more below` : "");
+            const colorBefore = await titleColor();
             await click(`${item} [data-memory-leaveout]`);
             const leftSub = `${total - 1} come over · 1 left out · ${stay() + 1} stay in ${repo}’s`;
-            const left = await waitFor(`(document.querySelector(${q(row)})?.firstElementChild?.children[1]?.lastElementChild?.textContent ?? "").trim() === ${q(leftSub)}`);
-            const leftOut = { sub: await sub(row), item: await text(item), button: await text(`${item} [data-memory-leaveout]`) };
+            const left = await waitFor(`(document.querySelector(${q(inD("[data-memory-sub]"))})?.textContent ?? "").trim() === ${q(leftSub)}`);
+            const leftOut = {
+                sub: await text(inD("[data-memory-sub]")),
+                listSub: await sub(rowSel(key)),
+                item: await ownText(item),
+                button: await text(`${item} [data-memory-leaveout]`),
+                color: await titleColor(),
+                items: await count(inD("[data-memory-split] [data-memory-item]")),
+            };
             await h.shot("cdp-shots/setup-memory-split-left-out.png");
             await click(`${item} [data-memory-leaveout]`);
-            const back = await waitFor(`(document.querySelector(${q(row)})?.firstElementChild?.children[1]?.lastElementChild?.textContent ?? "").trim() === ${q(openSub())}`);
-            const got = { all, below, left, leftOut, back, restored: await sub(row), button: await text(`${item} [data-memory-leaveout]`) };
+            const back = await waitFor(`(document.querySelector(${q(inD("[data-memory-sub]"))})?.textContent ?? "").trim() === ${q(openSub())}`);
+            const got = {
+                all,
+                colorBefore,
+                left,
+                leftOut,
+                back,
+                listSub: await sub(rowSel(key)),
+                button: await text(`${item} [data-memory-leaveout]`),
+                color: await titleColor(),
+            };
             return {
                 ok:
-                    all &&
-                    belowOk &&
+                    all === total &&
                     left &&
-                    leftOut.item.startsWith("Left out") &&
+                    leftOut.listSub === `Own memory · ${leftSub}` &&
+                    leftOut.item.includes("Left out") &&
                     leftOut.button === "Bring back" &&
+                    colorBefore != null &&
+                    leftOut.color !== colorBefore &&
+                    leftOut.items === total &&
                     back &&
-                    got.button === "Leave out",
+                    got.listSub === `Own memory · ${openSub()}` &&
+                    got.button === "Leave out" &&
+                    got.color === colorBefore,
                 detail: JSON.stringify(got),
             };
         }
     );
 
     // the observer goes in before Apply is clicked, so the progress line is seen however briefly it shows. A frame
-    // sampler goes in with it: the did section must never sit under a waiting row while rows move (the leaving row,
-    // lifted out by popLayout, travels into its did line by design and is not counted)
+    // sampler goes in with it: the did section must never sit under a waiting list row while rows move (the leaving
+    // row, lifted out by popLayout, travels into its did line by design and is not counted)
     await run(
-        "3. split-applying (AutoApplying): while Apply runs the row shows Bringing over N of M through counts in between, seen by a MutationObserver installed before the click, and no waiting row overlaps Arc did this week in any frame",
+        "3. split-applying (AutoApplying): while Apply runs the detail shows Bringing over N of M through counts in between, seen by a MutationObserver installed before the click, and no waiting list row overlaps Arc did this week in any frame",
         "split-applying",
         async () => {
             ctx.splitBefore = snapshot([fx().paths.shared, fx().paths.ownA], [settingsA()]);
-            await openRow(splitKey(P.splitA));
+            await selectRow(splitKey(P.splitA));
             const clicked = await h.ev(`(() => {
                 const log = (window.__memoryProgress = []);
                 const read = () => {
@@ -1939,10 +2008,15 @@ async function setupMemoryAssert(h, ctx) {
                 const sample = () => {
                     if (frames.stop) return;
                     frames.n++;
-                    const did = document.querySelector("[data-memory-did]")?.getBoundingClientRect();
+                    const did = document.querySelector(${q(`${LIST} [data-memory-did]`)})?.getBoundingClientRect();
                     if (did) {
-                        for (const el of document.querySelectorAll("[data-memory-row]")) {
-                            if (getComputedStyle(el).position === "absolute") continue;
+                        for (const el of document.querySelectorAll(${q(`${LIST} [data-memory-row]`)})) {
+                            // popLayout lifts the leaving row, or the motion wrapper around it, out of the flow
+                            let lifted = false;
+                            for (let a = el; a && !a.matches("[data-memory-waiting]"); a = a.parentElement) {
+                                if (getComputedStyle(a).position === "absolute") lifted = true;
+                            }
+                            if (lifted) continue;
                             const r = el.getBoundingClientRect();
                             if (r.bottom > did.top + 0.5 && r.top < did.bottom - 0.5 && frames.overlaps.length < 5) {
                                 frames.overlaps.push({ frame: frames.n, row: el.getAttribute("data-memory-row"), rowBottom: r.bottom, didTop: did.top });
@@ -1952,7 +2026,7 @@ async function setupMemoryAssert(h, ctx) {
                     requestAnimationFrame(sample);
                 };
                 requestAnimationFrame(sample);
-                const b = document.querySelector(${q(`${rowSel(splitKey(P.splitA))} [data-memory-apply]`)});
+                const b = document.querySelector(${q(inD("[data-memory-apply]"))});
                 if (!b) return false;
                 b.click();
                 return true;
@@ -1973,34 +2047,51 @@ async function setupMemoryAssert(h, ctx) {
     );
 
     await run(
-        "4. split-applied (AutoApplied): the applied split leaves the waiting list for a did line with See memories and Undo; Undo restores the files and the row returns",
+        "4. split-applied (AutoApplied): the applied split leaves the waiting list for a did line and the detail follows it there, with Undo all N and no See toggle; Undo all restores the files, the row returns and the detail shows it again",
         "split-applied",
         async () => {
+            const key = splitKey(P.splitA);
             const lineKey = (await keysIn("data-memory-line")).find((k) => k.startsWith(`${P.splitA}/`));
             if (lineKey == null) return { ok: false, detail: "no did line for the split: step 3 did not apply it" };
             const line = lineSel(lineKey);
-            await reveal(line);
+            const n = await appliedIn(P.splitA, lineKey.slice(P.splitA.length + 1));
+            const textRe = `Own memory since (today|yesterday) at \\d\\d:\\d\\d · ${total} came over · switched over`;
             const applied = {
-                row: await h.ev(has(rowSel(splitKey(P.splitA)))),
-                text: await sub(line),
-                see: await text(`${line} [data-memory-see]`),
-                undo: await text(`${line} [data-memory-undo="line"]`),
+                row: await h.ev(has(rowSel(key))),
+                shown: await shown(),
+                current: await current(),
+                listSub: await sub(line),
+                sub: await text(inD("[data-memory-sub]")),
+                see: await count("[data-memory-see]"),
+                undoAll: await text(inD('[data-memory-undo="all"]')),
+                n,
                 switched: existsSync(settingsA()) && readFileSync(settingsA(), "utf8").includes("autoMemoryDirectory"),
             };
             await h.shot("cdp-shots/setup-memory-split-applied-line.png");
-            await click(`${line} [data-memory-undo="line"]`);
-            const back = await waitFor(`${has(rowSel(splitKey(P.splitA)))} && !${has(line)}`, MEMORY_APPLY_WAIT_MS);
+            await click(inD('[data-memory-undo="all"]'));
+            const back = await waitFor(`${has(rowSel(key))} && !${has(line)}`, MEMORY_APPLY_WAIT_MS);
             const diff = snapDiff(ctx.splitBefore ?? {}, snapshot([fx().paths.shared, fx().paths.ownA], [settingsA()]));
-            await reveal(rowSel(splitKey(P.splitA)));
-            const got = { applied, back, sub: await sub(rowSel(splitKey(P.splitA))), changedFiles: diff, error: await text("[data-memory-error]") };
+            const got = {
+                applied,
+                back,
+                shown: await shown(),
+                sub: await text(inD("[data-memory-sub]")),
+                changedFiles: diff,
+                error: await text("[data-memory-error]"),
+            };
             return {
                 ok:
                     applied.row === false &&
-                    new RegExp(`^Own memory since (today|yesterday) at \\d\\d:\\d\\d · ${total} came over · switched over$`).test(applied.text) &&
-                    applied.see === "See memories" &&
-                    applied.undo === "Undo" &&
+                    applied.shown === lineKey &&
+                    q(applied.current) === q([lineKey]) &&
+                    new RegExp(`^Applied · ${textRe}$`).test(applied.listSub) &&
+                    new RegExp(`^${textRe}$`).test(applied.sub) &&
+                    applied.see === 0 &&
+                    n > 0 &&
+                    applied.undoAll === `Undo all ${n}` &&
                     applied.switched &&
                     back &&
+                    got.shown === key &&
                     got.sub === openSub() &&
                     ctx.splitBefore != null &&
                     diff.length === 0 &&
@@ -2023,15 +2114,15 @@ async function setupMemoryAssert(h, ctx) {
             const want =
                 `${here} of ${total} already here. 1 memory changed on disk after the ${monthDay(fx().states[P.splitA].checkedat)} check, ` +
                 `so Arc left it in ${repo}’s memory and has not switched over. Check again to sort it; Apply then brings it over and switches.`;
-            const got = {
-                stopped,
-                text: await text(`${stopSel("changed")} > span`),
-                undo: await text(`${stopSel("changed")} [data-memory-undo="split"]`),
-                check: await text(`${stopSel("changed")} [data-memory-check]`),
-                settings: existsSync(settingsA()),
-            };
+            const got = { stopped, ...(await stopRead("changed")), settings: existsSync(settingsA()) };
             return {
-                ok: stopped && got.text === want && got.undo === `Undo the ${here}` && got.check === "Check now" && got.settings === false,
+                ok:
+                    stopped &&
+                    got.text === want &&
+                    got.inBox === 0 &&
+                    got.undo === `Undo the ${here}` &&
+                    got.check === "Check now" &&
+                    got.settings === false,
                 detail: JSON.stringify(got),
             };
         }
@@ -2047,15 +2138,15 @@ async function setupMemoryAssert(h, ctx) {
             const want =
                 `${total} of ${total} already here, not switched over. 1 memory was written to ${repo}’s memory after the check and has no ` +
                 `sort yet; switching now would leave it out of ${P.splitA}’s sessions. Check again, then Apply switches over.`;
-            const got = {
-                stopped,
-                text: await text(`${stopSel("newer")} > span`),
-                undo: await text(`${stopSel("newer")} [data-memory-undo="split"]`),
-                check: await text(`${stopSel("newer")} [data-memory-check]`),
-                settings: existsSync(settingsA()),
-            };
+            const got = { stopped, ...(await stopRead("newer")), settings: existsSync(settingsA()) };
             return {
-                ok: stopped && got.text === want && got.undo === `Undo the ${total}` && got.check === "Check now" && got.settings === false,
+                ok:
+                    stopped &&
+                    got.text === want &&
+                    got.inBox === 0 &&
+                    got.undo === `Undo the ${total}` &&
+                    got.check === "Check now" &&
+                    got.settings === false,
                 detail: JSON.stringify(got),
             };
         }
@@ -2073,10 +2164,10 @@ async function setupMemoryAssert(h, ctx) {
             const stopped = await applySplit(has(stopSel("failed")));
             const got = {
                 stopped,
-                text: await text(`${stopSel("failed")} > span`),
-                retry: await text(`${stopSel("failed")} [data-memory-apply]`),
-                undo: await text(`${stopSel("failed")} [data-memory-undo="split"]`),
-                tag: await h.ev(`(document.querySelector(${q(`${rowSel(splitKey(P.splitA))} > div`)})?.children[2]?.textContent ?? "").trim()`),
+                ...(await stopRead("failed")),
+                retry: await text(inD("[data-memory-apply]")),
+                tag: await text(inD("[data-memory-tag]")),
+                listTag: await text(`${rowSel(splitKey(P.splitA))} [data-memory-tag]`),
                 settings: existsSync(settingsA()),
             };
             return {
@@ -2084,9 +2175,11 @@ async function setupMemoryAssert(h, ctx) {
                     stopped &&
                     got.text.startsWith(`Stopped at ${failAt + 1} of ${total}. “${blocked.title}” did not move: `) &&
                     got.text.endsWith(`. ${P.splitA} is not switched over; the ${failAt} already here stay.`) &&
+                    got.inBox === 0 &&
                     got.retry === "Try again" &&
                     got.undo === `Undo the ${failAt}` &&
                     got.tag === `${failAt} of ${total} here` &&
+                    got.listTag === got.tag &&
                     got.settings === false,
                 detail: JSON.stringify(got),
             };
@@ -2094,61 +2187,24 @@ async function setupMemoryAssert(h, ctx) {
     );
 
     await run(
-        "8. undo-refused (AutoUndoRefused): Undo on the split a cleanup took from shows the refusal with Undo the cleanup, and no file changes; the next line never covers the box in any frame and settles at an opened line's gap",
+        "8. undo-refused (AutoUndoRefused): Undo all on the split a cleanup took from shows the refusal in the detail, settled inside the pane, with Undo the cleanup, and no file changes",
         "undo-refused",
         async () => {
             await reset();
             const key = `${P.splitC}/${fx().batches.splitC}`;
-            const line = lineSel(key);
             const watched = () => snapshot([fx().paths.shared, fx().paths.ownC], [fx().paths.settingsC]);
             const before = watched();
-            await reveal(line);
-            // every frame from the click until the refusal settles: the next line never covers the box's drawn
-            // part (the pane clips it while it grows). no gap is asked per frame: the reveal's height includes the
-            // padding under the box, so the gap passes near 0 as the box's bottom edge is drawn. the settled gap is
-            // checked below
-            const clicked = await h.ev(`(() => {
-                const f = (window.__memoryRefusalFrames = { n: 0, bad: [], stop: false });
-                const sample = () => {
-                    if (f.stop) return;
-                    f.n++;
-                    const box = document.querySelector(${q(`${line} [data-memory-undo-refused]`)});
-                    const lines = [...document.querySelectorAll("[data-memory-line]")];
-                    const next = lines[lines.findIndex((e) => e.matches(${q(line)})) + 1];
-                    if (box && next) {
-                        const b = box.getBoundingClientRect();
-                        const pane = box.parentElement.parentElement.getBoundingClientRect();
-                        const top = next.getBoundingClientRect().top;
-                        const covered = top < Math.min(b.bottom, pane.bottom) - 0.5;
-                        if (covered && f.bad.length < 5) f.bad.push({ frame: f.n, boxBottom: b.bottom, paneBottom: pane.bottom, nextTop: top });
-                    }
-                    requestAnimationFrame(sample);
-                };
-                requestAnimationFrame(sample);
-                const u = document.querySelector(${q(`${line} [data-memory-undo="line"]`)});
-                if (!u) return false;
-                u.click();
-                return true;
+            const selectedOk = await selectLine(key);
+            await click(inD('[data-memory-undo="all"]'));
+            const refused = inD("[data-memory-undo-refused]");
+            const shownOk = await waitFor(has(refused));
+            await polishNap(1000);
+            // the settled box lies wholly inside the detail pane
+            const inside = await h.ev(`(() => {
+                const box = document.querySelector(${q(refused)})?.getBoundingClientRect();
+                const pane = document.querySelector(${q(D)})?.getBoundingClientRect();
+                return !!box && !!pane && box.height > 0 && box.top >= pane.top - 0.5 && box.bottom <= pane.bottom + 0.5 && box.left >= pane.left - 0.5 && box.right <= pane.right + 0.5;
             })()`);
-            const shown = await waitFor(has(`${line} [data-memory-undo-refused]`));
-            await polishNap(1000);
-            const frames = await h.ev(`(() => { const f = window.__memoryRefusalFrames; f.stop = true; return { n: f.n, bad: f.bad }; })()`);
-            // the gap under a body to the next line, settled: the refusal's, then an opened digest's
-            const gapUnder = (elExpr) =>
-                h.ev(`(() => {
-                    const el = ${elExpr};
-                    const lines = [...document.querySelectorAll("[data-memory-line]")];
-                    const next = lines[lines.findIndex((e) => e.contains(el)) + 1];
-                    return el && next ? next.getBoundingClientRect().top - el.getBoundingClientRect().bottom : null;
-                })()`);
-            const refusalGap = await gapUnder(`document.querySelector(${q(`${line} [data-memory-undo-refused]`)})`);
-            const first = lineSel(boardLines()[0]);
-            await click(`${first} [data-memory-see]`);
-            await polishNap(1000);
-            // the digest's last row holds its Undo all
-            const digestGap = await gapUnder(`document.querySelector(${q(`${first} [data-memory-undo="all"]`)})?.parentElement`);
-            await click(`${first} [data-memory-see]`);
-            await polishNap(1000);
             const cleanupAt = fx().states[P.former].batches.find((b) => b.id === fx().batches.formerCleanup).at;
             const want =
                 `Can’t undo yet. Clearing ${repo}’s memory on ${monthDay(cleanupAt)} removed 1 memory this split brought over; ` +
@@ -2158,24 +2214,19 @@ async function setupMemoryAssert(h, ctx) {
                 .rpc("undomemorybatch", { project: P.splitC, batchid: fx().batches.splitC, changeid: "" })
                 .then(() => "undone", (e) => String(e?.message ?? e));
             const got = {
-                clicked,
-                shown,
-                frames,
-                refusalGap,
-                digestGap,
-                text: await text(`${line} [data-memory-undo-refused] > span`),
-                undoCleanup: await text(`${line} [data-memory-undo="cleanup"]`),
+                selectedOk,
+                shownOk,
+                inside,
+                text: await ownText(refused),
+                undoCleanup: await text(inD('[data-memory-undo="cleanup"]')),
                 backend,
                 changedFiles: snapDiff(before, watched()),
             };
             return {
                 ok:
-                    clicked &&
-                    shown &&
-                    frames.n > 0 &&
-                    frames.bad.length === 0 &&
-                    refusalGap > 0 &&
-                    Math.abs(refusalGap - digestGap) < 0.5 &&
+                    selectedOk &&
+                    shownOk &&
+                    inside &&
                     got.text === want &&
                     got.undoCleanup === "Undo the cleanup" &&
                     backend.includes(`can't undo the split of ${P.splitC}`) &&
@@ -2186,25 +2237,23 @@ async function setupMemoryAssert(h, ctx) {
     );
 
     await run(
-        "9. cleanup-open (AutoCleanup): the cleanup opened with its list, Leave out on each, Keep them and Clear N",
+        "9. cleanup-open (AutoCleanup): the cleanup selected with its list, Leave out on each, Keep them and Clear N in the header",
         "cleanup-open",
         async () => {
             await reset();
             const key = `cleanup/${P.former}`;
-            const row = rowSel(key);
-            const opened = await openRow(key);
-            await reveal(row);
+            const opened = await selectRow(key);
             const open = fx().states[P.former].changes.filter((c) => c.kind === "remove-shared" && c.status === "open");
             const switchedAt = fx().states[P.former].switchedat;
             const got = {
                 opened,
-                title: await text(`${row} > div > span:nth-of-type(2) > span:first-child`),
-                sub: await sub(row),
-                body: await text(`${row} p`),
-                items: await count(`${row} [data-memory-item]`),
-                leaveOut: await count(`${row} [data-memory-item] [data-memory-leaveout]`),
-                keep: await text(`${row} [data-memory-keep]`),
-                apply: await text(`${row} [data-memory-apply]`),
+                title: await text(inD("[data-memory-title]")),
+                sub: await text(inD("[data-memory-sub]")),
+                body: await text(inD("[data-memory-body]")),
+                items: await count(inD("[data-memory-item]")),
+                leaveOut: await count(inD("[data-memory-item] [data-memory-leaveout]")),
+                keep: await text(inD("[data-memory-keep]")),
+                apply: await text(inD("[data-memory-apply]")),
             };
             return {
                 ok:
@@ -2222,23 +2271,26 @@ async function setupMemoryAssert(h, ctx) {
         }
     );
 
-    await run("10. doc-open: a doc move opened with its diff, Keep and Move to CLAUDE.md", "doc-open", async () => {
+    await run("10. doc-open: a doc move selected with its evidence, two diffs, Keep and Move to CLAUDE.md", "doc-open", async () => {
         const doc = fx().docs[0];
         const key = `doc/${P.former}/${doc.id}`;
-        const row = rowSel(key);
-        const opened = await openRow(key);
-        await reveal(row);
+        const opened = await selectRow(key);
         const got = {
             opened,
-            title: await text(`${row} > div > span:nth-of-type(2) > span:first-child`),
-            diffs: await texts(`${row} [data-memory-diff]`),
-            keep: await text(`${row} [data-memory-keep]`),
-            apply: await text(`${row} [data-memory-apply]`),
+            current: await current(),
+            title: await text(inD("[data-memory-title]")),
+            evidence: await count(inD("[data-memory-evidence]")),
+            diffs: await texts(inD("[data-memory-diff]")),
+            keep: await text(inD("[data-memory-keep]")),
+            apply: await text(inD("[data-memory-apply]")),
         };
         return {
             ok:
                 opened &&
+                q(got.current) === q([key]) &&
                 got.title === doc.title &&
+                got.evidence > 0 &&
+                got.evidence === doc.evidence.length &&
                 got.diffs.length === 2 &&
                 got.diffs[0].includes(doc.op.docpassage) &&
                 got.keep === "Keep" &&
@@ -2248,49 +2300,52 @@ async function setupMemoryAssert(h, ctx) {
     });
 
     await run(
-        "11. digest-open (AutoDigest): See changes opens per-change Undo, the index line and Undo all N; one change's Undo takes it out of the counts",
+        "11. digest-open (AutoDigest): a selected did line shows per-change Undo, the index line and Undo all N in the header, with no See toggle; one change's Undo takes it out of the counts",
         "digest-open",
         async () => {
             const key = `${P.own}/${fx().batches.ownRoutine}`;
             const line = lineSel(key);
             const routine = fx().states[P.own].batches.find((b) => b.id === fx().batches.ownRoutine);
             const n = routine.changeids.length;
-            await reveal(line);
-            await click(`${line} [data-memory-see]`);
-            const opened = await waitFor(`document.querySelector(${q(line)})?.hasAttribute("data-open") === true`);
+            const opened = await selectLine(key);
             const ix = (s) => `${s.lines} lines, ${(s.bytes / 1000).toFixed(1)} KB`;
             const before = {
                 opened,
-                text: await sub(line),
-                hide: await text(`${line} [data-memory-see]`),
-                items: await count(`${line} [data-memory-item]`),
-                undos: await count(`${line} [data-memory-undo="change"]`),
-                index: await h.ev(`(document.querySelector(${q(`${line} [data-memory-undo="all"]`)})?.parentElement?.firstElementChild?.textContent ?? "").trim()`),
-                undoAll: await text(`${line} [data-memory-undo="all"]`),
+                listText: await sub(line),
+                text: await text(inD("[data-memory-sub]")),
+                see: await count("[data-memory-see]"),
+                items: await count(inD("[data-memory-item]")),
+                undos: await count(inD('[data-memory-undo="change"]')),
+                index: await text(inD("[data-memory-index]")),
+                undoAll: await text(inD('[data-memory-undo="all"]')),
             };
             await h.shot("cdp-shots/setup-memory-digest-opened.png");
             const trim = fx().trims[0];
-            await click(`${line} [data-memory-item=${q(trim.change.id)}] [data-memory-undo="change"]`);
-            const undone = await waitFor(`(document.querySelector(${q(`${line} [data-memory-undo="all"]`)})?.textContent ?? "").trim() === ${q(`Undo all ${n - 1}`)}`);
+            await click(inD(`[data-memory-item=${q(trim.change.id)}] [data-memory-undo="change"]`));
+            const undone = await waitFor(`(document.querySelector(${q(inD('[data-memory-undo="all"]'))})?.textContent ?? "").trim() === ${q(`Undo all ${n - 1}`)}`);
             const after = {
                 undone,
-                text: await sub(line),
-                items: await count(`${line} [data-memory-item]`),
+                listText: await sub(line),
+                text: await text(inD("[data-memory-sub]")),
+                items: await count(inD("[data-memory-item]")),
                 restored: readFileSync(trim.path, "utf8") === trim.pre,
                 error: await text("[data-memory-error]"),
             };
             const when = "(today|yesterday) at \\d\\d:\\d\\d";
+            const textRe = (m, trims) => `${m} changes ${when} · ${trims} trims, 1 delete · 1 trim skipped: changed after the check`;
             return {
                 ok:
                     opened &&
-                    new RegExp(`^${n} changes ${when} · 3 trims, 1 delete · 1 trim skipped: changed after the check$`).test(before.text) &&
-                    before.hide === "Hide changes" &&
+                    new RegExp(`^${textRe(n, 3)}$`).test(before.text) &&
+                    new RegExp(`^Applied · ${textRe(n, 3)}$`).test(before.listText) &&
+                    before.see === 0 &&
                     before.items === n &&
                     before.undos === n &&
                     before.index === `${P.own}’s MEMORY.md: ${ix(routine.indexafter)} after these, from ${ix(routine.indexbefore)}` &&
                     before.undoAll === `Undo all ${n}` &&
                     undone &&
-                    new RegExp(`^${n - 1} changes ${when} · 2 trims, 1 delete · 1 trim skipped: changed after the check$`).test(after.text) &&
+                    new RegExp(`^${textRe(n - 1, 2)}$`).test(after.text) &&
+                    new RegExp(`^Applied · ${textRe(n - 1, 2)}$`).test(after.listText) &&
                     after.items === n - 1 &&
                     after.restored &&
                     after.error === "",
@@ -2299,7 +2354,7 @@ async function setupMemoryAssert(h, ctx) {
         }
     );
 
-    await run("12. empty (AutoEmpty): with nothing waiting, Nothing waits for you and the next check's day", "empty", async () => {
+    await run("12. empty (AutoEmpty): with nothing waiting, the list reads Nothing waits for you and the next check's day, and the detail shows the first did line", "empty", async () => {
         await reset((built) => settleMemoryStates(built.states));
         const others = (await keysIn("data-memory-row")).filter((k) => !MEMORY_FIXTURE_NAMES.includes(rowProject(k)));
         if (others.length > 0) {
@@ -2308,41 +2363,49 @@ async function setupMemoryAssert(h, ctx) {
         const listed = (await h.rpc("listmemoryhygiene", null)).projects;
         const next = Math.min(...listed.map((p) => p.nextcheckat).filter((t) => t > 0));
         const day = new Date(next).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+        const lines = await keysIn("data-memory-line");
         const got = {
-            empty: await text("[data-memory-empty]"),
+            empty: await text(`${LIST} [data-memory-empty]`),
             waiting: await h.ev(has("[data-memory-waiting]")),
+            did: await h.ev(has(`${LIST} [data-memory-did]`)),
             toolbar: await toolbar(),
-            lines: (await keysIn("data-memory-line")).filter((k) => MEMORY_FIXTURE_NAMES.includes(lineProject(k))).length,
+            lines: lines.filter((k) => MEMORY_FIXTURE_NAMES.includes(lineProject(k))).length,
+            first: lines[0] ?? null,
+            shown: await shown(),
+            current: await current(),
+            intro: await h.ev(has(inD("[data-memory-intro]"))),
         };
         return {
             ok:
                 got.empty === `Nothing waits for you. The next check runs ${day}.` &&
                 got.waiting === false &&
+                got.did &&
                 got.toolbar === "Nothing waits for you" &&
-                got.lines > 0,
+                got.lines > 0 &&
+                got.shown === got.first &&
+                q(got.current) === q([got.first]) &&
+                got.intro,
             detail: JSON.stringify(got),
         };
     });
 
-    await run("13. keys: j and k move focus through the rows, Enter opens the focused row and Esc closes it", "keys", async () => {
+    await run("13. keys: j, j, k move the selection through the list and the detail follows each", "keys", async () => {
         await reset();
-        await h.ev(`document.activeElement?.blur?.()`);
         const rows = await keysIn("data-memory-row");
+        if (rows.length < 3) return { ok: false, detail: `three rows needed, got ${q(rows)}` };
+        // a stored start, so the steps don't hang on where an unset selection steps from
+        const start = await selectRow(rows[0]);
+        await h.ev(`document.activeElement?.blur?.()`);
         const trail = [];
         for (const k of ["j", "j", "k"]) {
             await press(k);
             await polishNap(150);
-            trail.push(await focused());
+            trail.push({ selected: await selected(), shown: await shown(), current: (await current())[0] ?? null });
         }
-        await press("Enter");
-        const opened = await waitFor(`document.querySelector(${q(rowSel(rows[0]))})?.hasAttribute("data-open") === true`, 5000);
-        await h.shot("cdp-shots/setup-memory-keys-opened.png");
-        await press("Escape");
-        const closed = await waitFor(`!document.querySelector("[data-memory-row][data-open], [data-memory-line][data-open]")`, 5000);
-        const got = { rows: rows.slice(0, 2), trail, opened, closed };
+        const want = [rows[1], rows[2], rows[1]].map((k) => ({ selected: k, shown: k, current: k }));
         return {
-            ok: rows.length >= 2 && q(trail) === q([rows[0], rows[1], rows[0]]) && opened && closed,
-            detail: JSON.stringify(got),
+            ok: start && q(trail) === q(want),
+            detail: JSON.stringify({ rows: rows.slice(0, 3), start, trail }),
         };
     });
 

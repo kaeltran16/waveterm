@@ -23,7 +23,6 @@ import {
 import { diffScopeAtom } from "@/app/view/agents/diffscopeatom";
 import { historyFiltersAtom } from "@/app/view/agents/githistorystore";
 import { NO_FILTERS } from "@/app/view/agents/historyquery";
-import { memoryOpenAtom } from "@/app/view/agents/memorystore";
 import { pickerFlipAtom, viewModeAtom } from "@/app/view/agents/renderedmode";
 import { renamingRowAtom } from "@/app/view/agents/rowrenameatom";
 import { focusSubagentAtom } from "@/app/view/agents/subagentsstore";
@@ -369,16 +368,13 @@ describe("keybinding conflict invariant", () => {
         ).not.toThrow();
     });
 
-    // j, k and the arrows also move a list-nav cursor, which the Setup surface never sets; Escape closes an
-    // opened row only while one is
-    it.each([null, "split/mp"])("global + list-nav + memory-tab bindings do not conflict, opened: %s", (open) => {
+    // j, k and the arrows also move a list-nav cursor, which the Setup surface never sets
+    it("global + list-nav + memory-tab bindings do not conflict", () => {
         const model = { ...stubModel(), surfaceAtom: {}, paletteOpenAtom: {}, newAgentOpenAtom: {} };
         globalStore.set(listNavAtom, null);
-        globalStore.set(memoryOpenAtom, open);
         expect(() =>
             assertNoConflicts([...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildMemoryBindings()])
         ).not.toThrow();
-        globalStore.set(memoryOpenAtom, null);
     });
 
     it("Escape stays unambiguous on the Diff surface with filters active", () => {

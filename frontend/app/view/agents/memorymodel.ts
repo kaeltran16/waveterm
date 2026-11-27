@@ -152,8 +152,6 @@ export const ROUTINE_KINDS: readonly string[] = ["trim", "delete", "merge", "add
 // the check interval: each check's line lasts until the next check's
 export const DID_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-const SPOT_CHECK = 4;
-
 export type RowKind = "split" | "cleanup" | "doc" | "failed";
 
 export interface WaitingRow {
@@ -348,18 +346,6 @@ export function keepIds(p: MemHygieneProject, row: WaitingRow): string[] {
     }
 }
 
-// a few of each kind to look over before applying, left-out ones aside
-export function spotCheck(p: MemHygieneProject): MemChange[] {
-    const coming = sharedMoves(p).filter((c) => c.status !== "kept");
-    const moves = coming.filter((c) => c.kind === "move-here");
-    const copies = coming.filter((c) => c.kind === "copy-here");
-    const half = SPOT_CHECK / 2;
-    return [...moves.slice(0, half), ...copies.slice(0, half), ...moves.slice(half), ...copies.slice(half)].slice(
-        0,
-        SPOT_CHECK
-    );
-}
-
 export interface SplitListGroup {
     label: string;
     count: number; // memories, left-out ones included
@@ -377,13 +363,6 @@ export function splitList(p: MemHygieneProject): SplitListGroup[] {
             return { label, count: memCount(changes), changes };
         })
         .filter((g) => g.changes.length > 0);
-}
-
-export function splitItemChip(c: MemChange): string {
-    if (c.status === "kept") {
-        return "Left out";
-    }
-    return c.kind === "copy-here" ? "Copy" : "Move";
 }
 
 export type SplitStateKind = "open" | "applying" | "partial" | "changed" | "newer" | "failed";
@@ -547,7 +526,6 @@ export interface DidLine {
     text: string;
     applied: MemChange[]; // the batch's changes still applied, in apply order
     refusal: string; // why Undo is refused; "" = it isn't
-    see: "memories" | "changes"; // what See … opens: a split or cleanup moved memories
 }
 
 const KIND_NOUN: Record<string, [string, string]> = {
@@ -655,7 +633,6 @@ export function didLines(projects: MemHygieneProject[], now: number): DidLine[] 
                 text: didText(p, b, applied, now),
                 applied,
                 refusal: refusalText(p, b),
-                see: b.kind === "split" || b.kind === "cleanup" ? "memories" : "changes",
             });
         }
     }
@@ -683,16 +660,48 @@ export function digest(line: DidLine): Digest {
     };
 }
 
-// j and k walk the waiting rows, then the did lines, in the order the page draws them
-export function focusOrder(projects: MemHygieneProject[], now: number): string[] {
+// j and k walk the waiting rows, then the did lines, in the order the list draws them
+export function selectionOrder(projects: MemHygieneProject[], now: number): string[] {
     return [...waitingRows(projects).map((r) => r.key), ...didLines(projects, now).map((l) => l.key)];
 }
 
 // the key delta places from current, stopping at either end; from nothing, or from a key gone, the first
-export function stepFocus(order: string[], current: string | null, delta: number): string | null {
+export function stepSelection(order: string[], current: string | null, delta: number): string | null {
     if (order.length === 0) {
         return null;
     }
     const i = order.indexOf(current ?? "");
     return order[i < 0 ? 0 : Math.max(0, Math.min(order.length - 1, i + delta))];
+}
+
+// a waiting row and the did line its apply leaves are one thing changing sections: the list row morphs between
+// them (moment 17) and the detail follows it
+export function rowMorphKey(row: WaitingRow): string {
+    return row.kind === "doc" ? `doc:${row.changeId}` : `${row.kind}:${row.project}`;
+}
+
+export function lineMorphKey(line: DidLine): string {
+    return line.batch.kind === "doc" ? `doc:${line.batch.changeids?.[0] ?? ""}` : `${line.batch.kind}:${line.project}`;
+}
+
+const ROW_KINDS: readonly string[] = ["split", "cleanup", "doc", "failed"];
+
+// a rowKey's morph key, for a row no longer listed; null for a did-line key
+function rowKeyMorph(key: string): string | null {
+    const [kind, ...rest] = key.split("/");
+    if (!ROW_KINDS.includes(kind) || rest.length === 0) {
+        return null;
+    }
+    return kind === "doc" ? `doc:${rest[rest.length - 1]}` : `${kind}:${rest.join("/")}`;
+}
+
+// what the detail shows: the stored key while listed; an applied row's did line; else the first in list order
+export function resolveSelection(projects: MemHygieneProject[], now: number, stored: string | null): string | null {
+    const order = selectionOrder(projects, now);
+    if (stored != null && order.includes(stored)) {
+        return stored;
+    }
+    const morph = stored == null ? null : rowKeyMorph(stored);
+    const line = morph == null ? undefined : didLines(projects, now).find((l) => lineMorphKey(l) === morph);
+    return line?.key ?? order[0] ?? null;
 }

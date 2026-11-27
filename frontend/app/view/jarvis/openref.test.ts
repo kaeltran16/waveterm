@@ -44,7 +44,7 @@ import type { AgentVM } from "../agents/agentsviewmodel";
 import { attachBrainstorm, detachBrainstorm, getBrainstorm, setBrainstormMode } from "../agents/brainstormstore";
 import { attachCanvas, detachCanvas, getCanvas, setCanvasMode, setMark } from "../agents/canvasstore";
 import { activeChannelIdAtom } from "../agents/channelsstore";
-import { memoryFocusAtom, memoryOpenAtom } from "../agents/memorystore";
+import { memorySelectedAtom } from "../agents/memorystore";
 import { viewModeAtom } from "../agents/renderedmode";
 import { setupTabAtom } from "../agents/setupstore";
 import { closeWorkspaceTab, workspaceAtom } from "../agents/workspacestore";
@@ -110,8 +110,7 @@ beforeEach(() => {
     globalStore.set(peekItemAtom, null);
     globalStore.set(petPeekOpenAtom, false);
     globalStore.set(setupTabAtom, "instructions");
-    globalStore.set(memoryOpenAtom, null);
-    globalStore.set(memoryFocusAtom, null);
+    globalStore.set(memorySelectedAtom, null);
 });
 
 describe("run and channel landings", () => {
@@ -457,30 +456,26 @@ describe("memory hygiene landing", () => {
         projects: names.map((project) => ({ project, changes: [], lasterror: project === "quiet" ? "" : "boom" })),
     });
 
-    it("writes the Memory tab and opens the project's first waiting row before it switches to Setup", async () => {
+    it("writes the Memory tab and selects the project's first waiting row before it switches to Setup", async () => {
         const model = makeModel();
         rpc.ListMemoryHygieneCommand.mockResolvedValue(projects("other", "a:b"));
-        globalStore.set(memoryOpenAtom, "failed/other");
+        globalStore.set(memorySelectedAtom, "failed/other");
         let atSwitch: unknown = null;
         const unsub = globalStore.sub(model.surfaceAtom, () => {
-            atSwitch = {
-                tab: globalStore.get(setupTabAtom),
-                open: globalStore.get(memoryOpenAtom),
-                focus: globalStore.get(memoryFocusAtom),
-            };
+            atSwitch = { tab: globalStore.get(setupTabAtom), selected: globalStore.get(memorySelectedAtom) };
         });
         expect(await openAddress(model, "memhygiene:a:b")).toEqual({ ok: true });
         unsub();
-        expect(atSwitch).toEqual({ tab: "memory", open: "failed/a:b", focus: "failed/a:b" });
+        expect(atSwitch).toEqual({ tab: "memory", selected: "failed/a:b" });
         expect(globalStore.get(model.surfaceAtom)).toBe("setup");
     });
 
-    it("lands on the tab with nothing opened for a project with nothing waiting", async () => {
+    it("lands on the tab with nothing selected for a project with nothing waiting", async () => {
         const model = makeModel();
         rpc.ListMemoryHygieneCommand.mockResolvedValue(projects("other", "quiet"));
-        globalStore.set(memoryOpenAtom, "failed/other");
+        globalStore.set(memorySelectedAtom, "failed/other");
         expect(await openAddress(model, "memhygiene:quiet")).toEqual({ ok: true });
-        expect(globalStore.get(memoryOpenAtom)).toBeNull();
+        expect(globalStore.get(memorySelectedAtom)).toBeNull();
         expect(globalStore.get(model.surfaceAtom)).toBe("setup");
     });
 
@@ -494,7 +489,7 @@ describe("memory hygiene landing", () => {
         });
         expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
         expect(globalStore.get(setupTabAtom)).toBe("instructions");
-        expect(globalStore.get(memoryOpenAtom)).toBeNull();
+        expect(globalStore.get(memorySelectedAtom)).toBeNull();
     });
 
     it("says the list failed rather than that the project is missing", async () => {
