@@ -101,8 +101,8 @@ describe("arcBuild", () => {
 });
 
 describe("loadPicks", () => {
-    it("loads the three pinned picks", () => {
-        expect(loadPicks(PICKS_FILE).map((p) => p.id)).toEqual(["resource", "pwa", "rendered"]);
+    it("loads the pinned picks", () => {
+        expect(loadPicks(PICKS_FILE).map((p) => p.id)).toEqual(["resource", "pwa", "rendered", "workspace"]);
     });
 });
 

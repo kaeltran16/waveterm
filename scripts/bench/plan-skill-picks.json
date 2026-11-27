@@ -22,5 +22,13 @@
         "specCommit": "23f9fc2e238c5f4f03fd47024b7007b6496159de",
         "specPath": "docs/superpowers/specs/2026-11-10-rendered-view-better-design.md",
         "prototype": ".superpowers/design/rendered-view-better/project/NowLine.dc.html"
+    },
+    {
+        "id": "workspace",
+        "originalRun": "acdc6432",
+        "base": "d5e0234c02f9a74e1de0fd2d730313d27a989370",
+        "specCommit": "f148bdb99dc0950e16094e4dab4525acd95363d3",
+        "specPath": "docs/superpowers/specs/2026-11-20-workspace-surfaces-design.md",
+        "prototype": ".superpowers/design/workspace-surfaces/project/Main.dc.html"
     }
 ]
