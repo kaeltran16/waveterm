@@ -318,12 +318,15 @@ async function liveRunAgentSteps(h, ctx) {
     const branch = `wave/${A.runId.slice(0, 8)}`;
     rec("L7. a landed task's ended worker names the run's landing branch, not main (F15)", ended === true && banner.line.includes(`landed on ${branch}`), { ended, ...banner, branch });
 
-    // F26 and F20: the Final stage's rail Tree keeps its end; its pane fits at 1000x700
-    const stage = await liveFocus(h, `final:${C.runId}`, `!!document.querySelector("[data-final-pane]") && !!document.querySelector("[data-final-rail]")`);
-    const tree26 = await lookEval(h, `
-        const fact = [...document.querySelectorAll("[data-final-rail] span[title]")].find((s) => /-final$/.test(s.title));
-        return fact ? { dir: fact.getAttribute("dir"), text: flat(fact) } : { missing: true };`);
-    rec("L8. the Final rail's Tree path clips its start, keeping its -final end (F26)", stage === true && tree26.dir === "rtl" && /-final$/.test(tree26.text ?? ""), { stage, ...tree26 });
+    // F20: the Final stage's own row has the workspace pane's Final tab, not the rail; its pane fits at 1000x700
+    const stage = await liveFocus(h, `final:${C.runId}`, `!!document.querySelector("[data-final-pane]") && !!document.querySelector("[data-workspace-final]")`);
+    const side = await lookEval(h, `return { rail: ${LIVE_RAIL} != null, finalTab: document.querySelector("[data-workspace-final]") != null };`);
+    rec("L8. the Final stage's row shows the workspace pane with its Final tab and no details rail", stage === true && side.finalTab && !side.rail, { stage, ...side });
+    // the workspace pane collapsed to its strip, so the read is of the stage pane's own fit, not of the room left
+    await lookEval(h, `
+        const W = await mod("app/view/agents/workspacestore.ts");
+        W.setWorkspaceCollapsed(${JSON.stringify(`final:${C.runId}`)}, true);
+        return true;`);
     await h.cdp("Emulation.setDeviceMetricsOverride", LIVE_NARROW);
     await polishNap(800);
     const pane = await lookEval(h, `

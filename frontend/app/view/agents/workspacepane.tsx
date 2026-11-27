@@ -19,10 +19,12 @@ import {
     Flag,
     LayoutDashboard,
     Lightbulb,
+    ListChecks,
     Maximize2,
     Minimize2,
     PanelRight,
     Shapes,
+    ShieldCheck,
     Workflow,
     X,
     type LucideIcon,
@@ -46,6 +48,7 @@ import { WorkspaceCanvasTab } from "./workspacecanvastab";
 import { ChangesTab } from "./workspacechangestab";
 import { DocsTab } from "./workspacedocstab";
 import { FileTab } from "./workspacefiletab";
+import { FinalTab } from "./workspacefinaltab";
 import { InitiativeTab } from "./workspaceinitiativetab";
 import {
     boardPaneWidth,
@@ -71,6 +74,7 @@ import {
     workspaceBoardWidthAtom,
     workspaceWidthAtom,
 } from "./workspacestore";
+import { TaskTab } from "./workspacetasktab";
 
 const TAB_ICON: Record<WorkspaceTab["kind"], LucideIcon> = {
     run: Workflow,
@@ -81,6 +85,8 @@ const TAB_ICON: Record<WorkspaceTab["kind"], LucideIcon> = {
     brainstorm: Lightbulb,
     canvas: LayoutDashboard,
     board: Shapes,
+    task: ListChecks,
+    final: ShieldCheck,
 };
 
 const MIDDLE_BUTTON = 1;
@@ -521,6 +527,10 @@ function TabBody({ model, agent, ws }: { model: AgentsViewModel; agent: AgentVM;
                 <BrainstormPane model={model} agent={agent} inTab />
             ) : tab.kind === "board" ? (
                 <WorkspaceBoardTab model={model} agent={agent} tab={tab} expanded={ws.expanded} />
+            ) : tab.kind === "task" ? (
+                <TaskTab model={model} agent={agent} tab={tab} />
+            ) : tab.kind === "final" ? (
+                <FinalTab model={model} agent={agent} tab={tab} />
             ) : (
                 <WorkspaceCanvasTab model={model} agent={agent} />
             )}

@@ -9,7 +9,8 @@ import { finalStageScenario } from "./scenarios-final.mjs";
 import { FINAL_SHOTS_UICTX, FST_DETAIL, fstShow, polishNap, polishWaitFor, seedFinalShots, waveService } from "./scenarios-shared.mjs";
 
 const PANE = `document.querySelector("[data-final-pane]")`;
-const RAIL = `document.querySelector('aside[aria-label="Agent details"] [data-final-rail]')`;
+// the stage's own row has the workspace pane's Final tab beside its pane, never the details rail
+const FINAL_TAB = `document.querySelector("[data-workspace-final]")`;
 const ROW = `document.querySelector("[data-agent-tree] [data-final-row]")`;
 const VIEWER = `document.querySelector("[data-final-shots-viewer]")`;
 const KEPT_MARK = "motion-final kept check output";
@@ -130,20 +131,20 @@ const REFUSAL = `${PANE}?.querySelector("[data-final-rerun]")?.parentElement?.qu
 // the step container StepSwap mounts inside the viewer's stage
 const SHOT_STEP = `(n) => (n.parentElement?.matches("[data-final-shots-stage]") ? n : null)`;
 
-// the stage's row focused, with its pane and rail; re-checked after a beat, since the arrange's own focus on the
+// the stage's row focused, with its pane and Final tab; re-checked after a beat, since the arrange's own focus on the
 // lead can land after this click and take the pane away
 async function focusStageRow(h) {
     for (let i = 0; i < 3; i++) {
-        if (await h.ev(`!!${PANE} && !!${RAIL}`)) {
+        if (await h.ev(`!!${PANE} && !!${FINAL_TAB}`)) {
             await polishNap(SETTLE_MS);
-            if (await h.ev(`!!${PANE} && !!${RAIL}`)) return true;
+            if (await h.ev(`!!${PANE} && !!${FINAL_TAB}`)) return true;
         }
         if ((await h.activeSurfaceLabel()) !== "Agent") await h.goto("agent");
         if (!(await polishWaitFor(h, `!!${ROW}`, WAIT_MS))) return false;
         await click(h, ROW);
-        await polishWaitFor(h, `!!${PANE} && !!${RAIL}`, WAIT_MS);
+        await polishWaitFor(h, `!!${PANE} && !!${FINAL_TAB}`, WAIT_MS);
     }
-    return h.ev(`!!${PANE} && !!${RAIL}`);
+    return h.ev(`!!${PANE} && !!${FINAL_TAB}`);
 }
 
 export const motionFinal = {
@@ -162,7 +163,7 @@ export const motionFinal = {
         });
         if (ctx.arrangeError != null) return steps;
 
-        // --- the pane and the rail ---
+        // --- the pane ---
         await fstShow(h, ctx, "tree");
         const focused = await focusStageRow(h);
 
@@ -205,39 +206,20 @@ export const motionFinal = {
         );
         await h.shot("cdp-shots/motion-final-1-check.png");
 
-        // round 1's line in the rail opens its failure detail; the list around it follows its height
+        // round 1's line under the pane's steps opens its failure detail
         await fstShow(h, ctx, "reviewing");
         await focusStageRow(h);
-        const pastLine = `${RAIL}?.querySelector('[data-final-past-round="1"]')`;
+        const pastLine = `${PANE}?.querySelector('[data-final-past-round="1"]')`;
         await polishWaitFor(h, `!!${pastLine}`, WAIT_MS);
-        await arm(h, "past", `(n) => (n.querySelector?.("[data-final-past-round-detail]") ? n : null)`);
-        const grow = await h.ev(`(async () => {
-            const line = ${pastLine};
-            if (!line) return null;
-            const list = line.parentElement.parentElement;
-            const box = list.parentElement.parentElement;
-            line.click();
-            const trace = [];
-            // the box's height and clip, against the list's, every 100ms
-            for (let i = 0; i < 12; i++) {
-                await new Promise((r) => setTimeout(r, 100));
-                trace.push([Math.round(box.getBoundingClientRect().height), getComputedStyle(box).overflow, list.offsetHeight]);
-            }
-            const mid = { box: trace[0][0], clip: trace[0][1], list: trace[0][2] };
-            return { mid, settled: { box: box.getBoundingClientRect().height, list: list.offsetHeight }, trace };
-        })()`);
+        await arm(h, "past", `(n) => (n.querySelector?.(":scope > [data-final-past-round-detail]") && n.closest("[data-final-pane]") ? n : null)`);
+        await click(h, pastLine);
         const past = await collect(h, "past");
         await h.shot("cdp-shots/motion-final-2-past-open.png");
         const pastExit = await exitOf(h, pastLine, `${pastLine}?.parentElement?.querySelector("[data-final-past-round-detail]")?.parentElement`);
         rec(
-            "3. a past round's detail reveals from opacity 0, the list's height trails it clipped and then matches it, and closing fades it out attached",
-            fadedIn(past) &&
-                grow != null &&
-                grow.mid.box < grow.mid.list - 1 &&
-                grow.mid.clip === "hidden" &&
-                Math.abs(grow.settled.box - grow.settled.list) <= 1 &&
-                leftOnScreen(pastExit),
-            { past, grow, pastExit }
+            "3. a past round's detail reveals from opacity 0 and no height, and closing fades it out attached",
+            fadedIn(past) && past.first.height === 0 && past.settled?.height > 0 && leftOnScreen(pastExit),
+            { past, pastExit }
         );
 
         // the stage fails on its own: the note fades in, without a nudge
@@ -249,7 +231,7 @@ export const motionFinal = {
         rec("4. a failure nobody asked for fades its note in, with no nudge", fadedIn(note) && note.moved === 0, note);
 
         // a step that ended opens its kept output: the pane's row reveals its body in place and collapses it on a
-        // second click, the rail reveals it beneath its row
+        // second click
         const keptDir = join(ctx.out, "1-steps");
         mkdirSync(keptDir, { recursive: true });
         writeFileSync(join(keptDir, "check.txt"), `${KEPT_MARK}\n`);
@@ -260,28 +242,19 @@ export const motionFinal = {
         await click(h, paneHead("check"));
         const paneBody = await collect(h, "paneBody");
         const paneText = await h.ev(`(${paneBodyPane("check")}?.textContent ?? "").includes(${JSON.stringify(KEPT_MARK)})`);
+        await h.shot("cdp-shots/motion-final-3-kept.png");
         const paneExit = await exitOf(h, paneHead("check"), paneBodyPane("check"));
         const paneCollapsed = paneExit != null && paneBody.settled != null && paneExit.mid.height < paneBody.settled.height;
-        await arm(h, "railOut", `(n) => (n.querySelector?.('[data-final-step-output="check"]') ? n : null)`);
-        const railCheck = `${RAIL}?.querySelector('[data-final-step="check"]')`;
-        await click(h, railCheck);
-        const railOut = await collect(h, "railOut");
-        const railText = await h.ev(`(${RAIL}?.textContent ?? "").includes(${JSON.stringify(KEPT_MARK)})`);
-        await h.shot("cdp-shots/motion-final-3-kept.png");
-        const railExit = await exitOf(h, railCheck, `${RAIL}?.querySelector('[data-final-step-output="check"]')?.parentElement`);
         rec(
-            "5. a kept output reveals in the pane's row from no height and collapses on close, and reveals under the rail's row, closing fading it out attached",
+            "5. a kept output reveals in the pane's row from no height and collapses on close",
             paneClosed &&
                 fadedIn(paneBody) &&
                 paneBody.first.height === 0 &&
                 paneBody.settled.height > 0 &&
                 paneText &&
                 leftOnScreen(paneExit) &&
-                paneCollapsed &&
-                fadedIn(railOut) &&
-                railText &&
-                leftOnScreen(railExit),
-            { paneClosed, paneBody, paneText, paneExit, railOut, railText, railExit }
+                paneCollapsed,
+            { paneClosed, paneBody, paneText, paneExit }
         );
 
         // the human reruns the failed stage and it fails again: this time the note nudges. Round 2, because the

@@ -20,6 +20,7 @@ import {
     shouldUnflip,
     shouldUnflipAtBoundary,
     toggleViewMode,
+    transcriptLook,
     viewModeAtom,
 } from "./renderedmode";
 
@@ -62,6 +63,19 @@ describe("canRender", () => {
             expect(canRender(agent({ agent: rt }), { ended: true, stage: false })).toBe(false);
             expect(canRender(agent({ agent: rt }), { ended: false, stage: true })).toBe(false);
         }
+    });
+});
+
+describe("transcriptLook", () => {
+    it.each([
+        ["a Rendered live agent", "tab-1", true, true],
+        ["a live agent in its terminal", "tab-1", false, false],
+        ["a done task's worker", "ended:r1:t-4", false, true],
+        ["an ended plan reviewer", "ended:r1:review:rv1", false, true],
+        ["an ended verifier", "ended:r1:verifier:v1", false, true],
+        ["the Final stage row", "final:r1", false, true],
+    ])("%s: %s", (_what, id, rendered, want) => {
+        expect(transcriptLook(id, rendered)).toBe(want);
     });
 });
 

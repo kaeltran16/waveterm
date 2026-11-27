@@ -15,7 +15,6 @@ import { openAgentDiff } from "./agentdiffnav";
 import {
     checkoutFacts,
     contextLevel,
-    fileTotals,
     lastTurnInterrupted,
     railAction,
     toolChips,
@@ -24,7 +23,7 @@ import {
 import type { AgentsViewModel } from "./agents";
 import { recentActions, summarizeActions, type AgentVM } from "./agentsviewmodel";
 import { cardCwdByIdAtom, sharedCheckoutCount } from "./cardgitstore";
-import { finalRowFocusId, isFinalStageId } from "./finalstage";
+import { finalRowFocusId } from "./finalstage";
 import { FinalStageRail } from "./finalstagerail";
 import { capFiles, lineCountsShown, statusColor } from "./gitstatus";
 import { leadLandFacts } from "./leadland";
@@ -161,28 +160,6 @@ export function FilesSummary({ chip }: { chip: FilesChip }) {
                     <span className="text-diff-removed">−{chip.lines.dels}</span>
                 </span>
             ) : null}
-        </>
-    );
-}
-
-// SealedFiles lists what a done task's run recorded it changed. The worktree is gone, so there is no diff to open.
-function SealedFiles({ files }: { files: EvidenceFile[] }) {
-    if (files.length === 0) {
-        return <div className="text-[11.5px] text-muted">No changes</div>;
-    }
-    const changes = files.map((f) => ({ path: f.path, status: f.stat, adds: f.add, dels: f.del }));
-    const { shown } = capFiles(changes, RailFilesCap);
-    const { count, adds, dels } = fileTotals(changes);
-    return (
-        <>
-            <div className="flex flex-col gap-[7px]">
-                {shown.map((f) => (
-                    <FileRow key={f.path} status={f.status} path={f.path} adds={f.adds} dels={f.dels} />
-                ))}
-            </div>
-            <div className="mt-[8px] font-mono text-[10.5px] text-muted">
-                <FilesSummary chip={{ count, lines: { adds, dels } }} />
-            </div>
         </>
     );
 }
@@ -480,9 +457,7 @@ function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: Ag
                               <div className="mb-[11px]">
                                   <SectionLabel>Files touched</SectionLabel>
                               </div>
-                              {ended ? (
-                                  <SealedFiles files={ended.files} />
-                              ) : landed ? (
+                              {landed ? (
                                   <div data-rail-landed className="flex flex-col gap-[7px]">
                                       <div className="text-[11.5px] text-muted">{landed.files}</div>
                                       {landed.commits.map((c) => (
@@ -551,8 +526,7 @@ function AgentDetailsPanel({ model, agent }: { model: AgentsViewModel; agent: Ag
 
     return (
         <RailPanelBody
-            // the stage's own id is no session, so its rail is the stage alone
-            sections={isFinalStageId(agent.id) ? finalSection : sections}
+            sections={sections}
             footer={
                 action ? (
                     <div className="flex items-center gap-[10px]">

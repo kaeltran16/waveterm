@@ -52,7 +52,14 @@ import { HeaderControls } from "./headercontrols";
 import { useCheckoutFacts, useRailGit } from "./railgit";
 import { railVisibleAtom, terminalFullscreenAtom } from "./railstore";
 import { remoteStatusAtom, toggleHandToPhone } from "./remotestore";
-import { canRender, effectiveViewMode, pickerFlipAtom, toggleViewMode, viewModeAtom } from "./renderedmode";
+import {
+    canRender,
+    effectiveViewMode,
+    pickerFlipAtom,
+    toggleViewMode,
+    transcriptLook,
+    viewModeAtom,
+} from "./renderedmode";
 import { useRoleAsks } from "./roleasks";
 import { agentProject, isEndedWorkerId, leadAgentOf, leadDisplayName } from "./runlineage";
 import { RuntimeMark } from "./runtimemark";
@@ -350,8 +357,8 @@ export function AgentHeader({ model, agent }: { model: AgentsViewModel; agent: A
                 click: () => globalStore.set(terminalFullscreenAtom, !fullscreen),
             });
         }
-        // Rendered has no details rail to show
-        if (!rendered) {
+        // Rendered and a finished row have the workspace pane, not the details rail
+        if (!transcriptLook(agent.id, rendered)) {
             items.push({
                 label: railVisible ? "Hide details" : "Show details",
                 icon: <PanelRight size={15} />,

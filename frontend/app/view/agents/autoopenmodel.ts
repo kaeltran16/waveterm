@@ -117,7 +117,12 @@ export function dismissed(memory: AutoOpenMemory, tab: WorkspaceTab): AutoOpenMe
 }
 
 function autoOpenKind(tab: WorkspaceTab): AutoOpenKind | null {
-    return tab.kind === "file" || tab.kind === "board" || tab.kind === "docs" || tab.kind === "initiative"
+    return tab.kind === "file" ||
+        tab.kind === "board" ||
+        tab.kind === "docs" ||
+        tab.kind === "initiative" ||
+        tab.kind === "task" ||
+        tab.kind === "final"
         ? null
         : tab.kind;
 }

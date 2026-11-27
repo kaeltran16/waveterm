@@ -727,6 +727,8 @@ const FST_WAIT_MS = 8000;
 // a watchdog tick starts the stage (every 30s), then the Tree step and Verify's second publish
 const FST_ENGINE_WAIT_MS = 90_000;
 
+// round 1's line under the pane's steps, as pastOf reads it: the round and its outcome
+const FST_PANE_PAST = [{ round: "1", text: "failed at Final" }];
 const FST_SUB_SECOND_MS = 211;
 const FST_SUB_SECOND_TIME = "<1s";
 const FST_ENDED_BANNER = "Session ended · read-only transcript";
@@ -910,8 +912,8 @@ const FST_LEAD_ROW = `(() => {
     );
     return name ? name.closest(".cursor-pointer") : null;
 })()`;
-// the Agent surface: the tree's row and slot, the stage's pane, and in the details rail the lead's block or the
-// stage's own section
+// the Agent surface: the tree's row and slot, the stage's pane, the workspace pane and its Final tab (the stage's own
+// row has no rail), and in the details rail the lead's block or a live verifier's stage section
 const FST_AGENT = `(() => {
     ${FST_LIB}
     const tree = ${FST_TREE};
@@ -955,6 +957,9 @@ const FST_AGENT = `(() => {
               })()
             : null,
         railSteps: rail?.querySelectorAll("[data-final-step]").length ?? 0,
+        rail: rail != null,
+        workspace: document.querySelector('aside[aria-label="Workspace"]')?.dataset.workspacePane ?? null,
+        finalTab: document.querySelector("[data-workspace-final]") != null,
         stage: stage ? { text: flat(stage), steps: stepsOf(stage), past: pastOf(stage), shots: shotsOf(stage) } : null,
         status: status ? flat(status.parentElement) : null,
         viewer: document.querySelector("[data-final-shots-viewer]") != null,
@@ -1217,11 +1222,11 @@ export const finalStageScenario = {
         let wait = await fstShow(h, ctx, "tree");
         a = await fstAgent(h, (s) => s.rows.length === 1 && s.rows[0].sub.startsWith("Tree"), wait);
         await clickRow();
-        a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane != null && s.stage != null);
+        a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane != null && s.finalTab);
         await shot("b2-tree-pane");
         d = await fstDag(h, ctx, (s) => s.node.meta.startsWith("round 1 · Tree"), wait);
         rec(
-            "B2. preparing the tree: Tree · <time> · step 1 of 5, the step list with Tree running, no output box, and End final stage",
+            "B2. preparing the tree: Tree · <time> · step 1 of 5, the step list with Tree running, no output box, and End final stage; the row has the workspace pane with its Final tab, no details rail",
             () =>
                 a.rows.length === 1 &&
                 a.rows[0].title === "Final verification" &&
@@ -1231,13 +1236,15 @@ export const finalStageScenario = {
                 fstSame(fstStates(a.pane.steps), ["running", ...fstRepeat("waiting", 4)]) &&
                 a.pane.output == null &&
                 a.pane.end &&
-                fstSame(fstStates(a.stage.steps), ["running", ...fstRepeat("waiting", 4)]) &&
+                !a.rail &&
+                a.workspace === "open" &&
+                a.finalTab &&
                 /^round 1 · Tree · \d+s$/.test(d.node.meta) &&
                 fstSame(d.node.strip, ["running", ...fstRepeat("waiting", 4)]) &&
                 d.peek.output == null &&
                 d.peek.steps[0].command === "prepares the tree the stage runs in" &&
                 d.peek.steps[1].command === FST_CHECK,
-            { row: a?.rows, slot: a?.slot, pane: a?.pane, node: d?.node, peek: d?.peek?.steps }
+            { row: a?.rows, slot: a?.slot, pane: a?.pane, rail: a?.rail, workspace: a?.workspace, finalTab: a?.finalTab, node: d?.node, peek: d?.peek?.steps }
         );
         await shot("b2-tree-dag");
 
@@ -1272,7 +1279,6 @@ export const finalStageScenario = {
         await shot("b3b-memory-dag");
         if ((await h.activeSurfaceLabel()) !== SURFACE_LABEL.agent) await h.goto("agent");
         const heldPane = await fstUntil(h, memoryOf(FST_PANE), (t) => t === FST_MEMORY_TEXT, { nudge: holdNudge });
-        const heldRail = await fstUntil(h, memoryOf(`${FST_RAIL}?.querySelector("[data-final-rail]")`), (t) => t === FST_MEMORY_TEXT);
         // in the pane's row the hold takes the command's place, in warning
         const heldLook = await h.ev(`(() => {
             const row = ${FST_PANE}?.querySelector('[data-final-step="check"]');
@@ -1283,14 +1289,13 @@ export const finalStageScenario = {
         })()`);
         await shot("b3b-memory-pane");
         rec(
-            "B3b. a running Check held at the memory gate reads waiting for memory · 2.1 GB free, 3.5 GB needed on its step in the DAG peek card, the pane and the rail; in the pane's row it reads in warning where the command reads",
+            "B3b. a running Check held at the memory gate reads waiting for memory · 2.1 GB free, 3.5 GB needed on its step in the DAG peek card and the pane; in the pane's row it reads in warning where the command reads",
             () =>
                 heldPeek === FST_MEMORY_TEXT &&
                 heldPane === FST_MEMORY_TEXT &&
-                heldRail === FST_MEMORY_TEXT &&
                 heldLook.warning &&
                 !heldLook.command,
-            { heldPeek, heldPane, heldRail, heldLook }
+            { heldPeek, heldPane, heldLook }
         );
 
         wait = await fstShowEndReview(h, ctx, "reviewing");
@@ -1339,11 +1344,11 @@ export const finalStageScenario = {
                 /^verifier reviewing · 4m \d\ds$/.test(a.rows[0].sub) &&
                 fstSame(fstStates(a.pane.steps), [...fstRepeat("passed", 4), "running"]) &&
                 a.pane.output == null &&
-                fstSame(a.stage.past, [{ round: "1", text: "round 1 · failed at Final" }]) &&
+                fstSame(a.pane.past, FST_PANE_PAST) &&
                 /^round 2 · verifier · 4m \d\ds$/.test(d.node.meta) &&
                 fstSame(d.node.strip, [...fstRepeat("passed", 4), "running"]) &&
                 d.peek.open === false,
-            { row: a?.rows, pane: a?.pane?.steps, past: a?.stage?.past, node: d?.node, open: d?.peek?.open }
+            { row: a?.rows, pane: a?.pane?.steps, past: a?.pane?.past, node: d?.node, open: d?.peek?.open }
         );
         await shot("b4-reviewing-dag");
 
@@ -1433,10 +1438,7 @@ export const finalStageScenario = {
         await h.goto("agent");
         const keptRead = `(() => {
             ${FST_LIB}
-            return {
-                check: paneStepsOf(${FST_PANE}).find((s) => s.key === "check") ?? null,
-                rail: flat(${FST_RAIL}?.querySelector("[data-final-rail]")),
-            };
+            return { check: paneStepsOf(${FST_PANE}).find((s) => s.key === "check") ?? null };
         })()`;
         await finalShotsClick(h, paneHead("check"));
         const keptCheck = await fstUntil(h, keptRead, (s) => (s.check?.body?.output ?? "").includes(FST_KEPT_MARK));
@@ -1444,9 +1446,6 @@ export const finalStageScenario = {
         await finalShotsClick(h, paneHead("check"));
         // the body leaves through its pane's exit, so it is waited out
         const keptClosed = await fstUntil(h, keptRead, (s) => s.check?.expanded === "false" && s.check.body == null);
-        await finalShotsClick(h, `${FST_RAIL}?.querySelector('[data-final-rail] [data-final-step="check"]')`);
-        const keptRail = await fstUntil(h, keptRead, (s) => s.rail.includes(FST_KEPT_MARK));
-        await shot("b5b-kept-rail");
         await fstDag(h, ctx, (s) => s.node.meta === "round 1 · failed at Final", wait);
         const dagCell = `${FST_DAG_PEEK}?.querySelector('[data-final-step="check"]')`;
         const dagRead = `(() => ({
@@ -1469,14 +1468,13 @@ export const finalStageScenario = {
         });
         await shot("b5b-kept-empty");
         rec(
-            "B5b. a step that ended opens the output it kept: Check's in place in the pane as a Bash panel that a second click closes, in the rail and in the DAG peek card (under its row, the outcome still shown); an empty kept output reads the step printed nothing",
+            "B5b. a step that ended opens the output it kept: Check's in place in the pane as a Bash panel that a second click closes, and in the DAG peek card (under its row, the outcome still shown); an empty kept output reads the step printed nothing",
             () =>
                 keptCheck.check.expanded === "true" &&
                 keptCheck.check.body.panel &&
                 keptCheck.check.body.card == null &&
                 keptCheck.check.body.command?.endsWith(fstFlat(FST_CHECK)) &&
                 keptClosed.check.body == null &&
-                keptRail.rail.includes(FST_KEPT_MARK) &&
                 fstSame(keptDag.expanded, ["check"]) &&
                 keptDag.text.includes(fstFlat(FST_DETAIL)) &&
                 keptDagClosed.text.includes(fstFlat(FST_DETAIL)) &&
@@ -1487,7 +1485,6 @@ export const finalStageScenario = {
             {
                 keptCheck: keptCheck?.check,
                 keptClosed: keptClosed?.check,
-                keptRail,
                 keptDag,
                 keptDagClosed,
                 keptEmpty: keptEmpty?.check,
@@ -1598,11 +1595,11 @@ export const finalStageScenario = {
                 a.rows[0].sub === "round 2 after 3 fix tasks" &&
                 a.rows[0].tone === "wait" &&
                 fstSame(fstStates(a.pane.steps), fstRepeat("waiting", 5)) &&
-                fstSame(a.stage.past, [{ round: "1", text: "round 1 · failed at Final" }]) &&
+                fstSame(a.pane.past, FST_PANE_PAST) &&
                 d.node.meta === "round 2 waits on t-1, t-2, t-3" &&
                 fstSame(d.node.strip, fstRepeat("waiting", 5)) &&
                 fstSame(d.peek.past, [{ round: "1", text: "round 1 · failed at Final" }]),
-            { row: a?.rows, pane: a?.pane, past: a?.stage?.past, node: d?.node, peek: d?.peek }
+            { row: a?.rows, pane: a?.pane, past: a?.pane?.past, node: d?.node, peek: d?.peek }
         );
         await shot("b6-fixing-dag");
 
@@ -1800,15 +1797,15 @@ export const finalStageScenario = {
                 return {
                     pane: ${FST_PANE} != null,
                     ended: (wrap?.textContent ?? "").includes(${JSON.stringify(FST_ENDED_BANNER)}),
-                    text: (wrap?.textContent ?? "").includes("Verifier"),
+                    finalTab: document.querySelector("[data-workspace-final]") != null,
                 };
             })()`,
             (s) => !s.pane && s.ended
         );
         await shot("b10c-verifier-transcript");
         rec(
-            "P11. the Verifier step of a passed stage is a button, and a click opens the verifier's ended transcript in place of the pane",
-            () => clickable === true && opened.pane === false && opened.ended === true && opened.text === true,
+            "P11. the Verifier step of a passed stage is a button, and a click opens the verifier's ended transcript in place of the pane, with its Final tab beside it",
+            () => clickable === true && opened.pane === false && opened.ended === true && opened.finalTab === true,
             { clickable, opened }
         );
 
@@ -1884,12 +1881,13 @@ export const finalStageScenario = {
 
         await h.goto("agent");
         await finalShotsClick(h, `${FST_TREE}?.querySelector("[data-final-row]")`);
-        a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane.output != null && s.stage != null);
+        a = await fstUntil(h, FST_AGENT, (s) => s.rows[0].selected && s.pane.output != null && s.finalTab);
         rec(
-            "A4. clicking the tree's row focuses it: the pipeline, Verify running with the spinner and opened on its live tail and the tail's note, no card, the stage's facts and step list once, and End final stage",
+            "A4. clicking the tree's row focuses it: the pipeline, Verify running with the spinner and opened on its live tail and the tail's note, no card, and End final stage; the workspace pane with its Final tab beside it, no details rail",
             () =>
                 a.rows[0].selected &&
-                a.railSteps === a.stage.steps.length &&
+                !a.rail &&
+                a.finalTab &&
                 fstSame(fstStates(a.pane.steps), ["passed", "running", "waiting", "waiting"]) &&
                 a.pane.steps[1].mark === "Running" &&
                 a.pane.steps[1].expanded === "true" &&
@@ -1897,11 +1895,8 @@ export const finalStageScenario = {
                 a.pane.steps[1].body.text.endsWith("output tail · the engine publishes it every 10s") &&
                 a.pane.steps[1].body.card == null &&
                 a.pane.output.includes(`${FST_MARK} 3`) &&
-                a.pane.end &&
-                fstSame(fstStates(a.stage.steps), ["passed", "running", "waiting", "waiting"]) &&
-                ["Commit", "Tree", "Reviewers"].every((fact) => a.stage.text.includes(fact)) &&
-                !a.stage.text.includes("Round"),
-            { rows: a?.rows, pane: a?.pane, stage: a?.stage, railSteps: a?.railSteps }
+                a.pane.end,
+            { rows: a?.rows, pane: a?.pane, rail: a?.rail, finalTab: a?.finalTab }
         );
         await shot("a4-pane");
 

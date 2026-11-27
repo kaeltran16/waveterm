@@ -6,6 +6,8 @@
 // set of transitions.
 
 import { ASK_OWNER_USER } from "./childaskmodel";
+import { finalStageRunId } from "./finalstage";
+import { endedVerifierOf, isEndedWorkerId, type Lineage } from "./runlineage";
 
 export type RunView = "tasks" | "activity" | "graph";
 
@@ -22,7 +24,12 @@ export type WorkspaceTab =
     | { kind: "initiative"; effortId: string; open?: number | null }
     | { kind: "brainstorm" }
     | { kind: "canvas" }
-    | { kind: "board"; channelId: string; boardId: string };
+    | { kind: "board"; channelId: string; boardId: string }
+    // a finished task, read from its lead's run
+    | { kind: "task"; runId: string; taskId: string }
+    // the run's Final verification. round: the one shown, null for the dag's current round; session: the ended
+    // verifier's run id whose row opened it, which marks its round as that session's
+    | { kind: "final"; runId: string; round: number | null; session?: string };
 
 // unseen: the keys of tabs that joined behind the active one and have not been shown since
 export type WorkspaceState = {
@@ -61,6 +68,10 @@ export function tabKey(tab: WorkspaceTab): string {
             return `board:${tab.boardId}`;
         case "initiative":
             return `initiative:${tab.effortId}`;
+        case "task":
+            return `task:${tab.runId}:${tab.taskId}`;
+        case "final":
+            return `final:${tab.runId}`;
         default:
             return tab.kind;
     }
@@ -189,7 +200,35 @@ export function tabLabel(tab: WorkspaceTab, name: string | undefined): string {
             return name ? `Canvas · ${name}` : "Canvas";
         case "board":
             return name ? `Board · ${name}` : "Board";
+        case "task":
+            return `Task · ${tab.taskId}`;
+        case "final":
+            return "Final";
     }
+}
+
+const CHANGES_TAB: WorkspaceTab = { kind: "changes", selected: null };
+
+// the tabs a finished row's pane opens with, the first one shown: a done worker's task, the Final stage's current
+// round, an ended verifier's own round. An ended plan reviewer has none, nor does a row the lineage has not placed
+export function finishedRowTabs(id: string, lineage: Lineage): WorkspaceTab[] {
+    const stageRunId = finalStageRunId(id);
+    if (stageRunId != null) {
+        return [{ kind: "final", runId: stageRunId, round: null }, CHANGES_TAB];
+    }
+    const role = isEndedWorkerId(id) ? lineage.roles[id] : undefined;
+    if (role?.kind === "worker") {
+        return [{ kind: "task", runId: role.leadRunId, taskId: role.taskId }, CHANGES_TAB];
+    }
+    const run = role?.kind === "stage" ? lineage.runs[role.leadRunId] : undefined;
+    const verifierRunId = run ? endedVerifierOf(run, id) : undefined;
+    if (run == null || verifierRunId == null) {
+        return [];
+    }
+    return [
+        { kind: "final", runId: run.runId, round: run.dag?.final?.round ?? null, session: verifierRunId },
+        CHANGES_TAB,
+    ];
 }
 
 export const TAB_GAP_PX = 2;

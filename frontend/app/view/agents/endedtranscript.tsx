@@ -12,9 +12,9 @@ import type { AgentsViewModel } from "./agents";
 import type { AgentVM } from "./agentsviewmodel";
 import { startTranscriptStream, stopTranscriptStream } from "./livetranscript";
 import { entriesAtomFor } from "./livetranscriptatoms";
+import { FileLinkContext } from "./markdownmessage";
 import { NarrationTimeline } from "./narrationtimeline";
-import { railVisibleAtom } from "./railstore";
-import { TRANSCRIPT_COLUMN } from "./renderedview";
+import { TRANSCRIPT_COLUMN, useReplyFileLink } from "./renderedview";
 import { leadAgentOf } from "./runlineage";
 import { loadRunTranscriptPath, runTranscriptPathsAtom } from "./runlineagestore";
 import { endedLine } from "./runrail";
@@ -29,6 +29,8 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
     const entries = useAtomValue(entriesAtomFor(agent.id));
     const { scrollRef, onScroll, atBottom, jumpToBottom } = useStickToBottom(entries);
     const ctx = useTranscriptContext(model, agent);
+    // a cited file opens beside the transcript, in the workspace pane these rows have in place of the rail
+    const openFileLink = useReplyFileLink(model, agent);
     const role = lineage.roles[agent.id];
     // a done task's worker, or a plan reviewer the engine stopped after its verdict
     const leadRunId = role?.kind === "worker" || role?.kind === "stage" ? role.leadRunId : undefined;
@@ -37,13 +39,11 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
     const childRunId = agent.runId;
     const channelId = run?.channelId;
     const lead = leadRunId ? leadAgentOf(lineage, agents, leadRunId) : undefined;
-    // back to the run: its lead, with the rail open on the run's lanes
+    // back to the run: its lead, leaving the rail as the user set it
     const toRun = () => {
-        if (lead == null) {
-            return;
+        if (lead != null) {
+            globalStore.set(model.focusIdAtom, lead.id);
         }
-        globalStore.set(model.focusIdAtom, lead.id);
-        globalStore.set(railVisibleAtom, true);
     };
 
     useEffect(() => {
@@ -71,6 +71,7 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
                 {lead ? (
                     <button
                         type="button"
+                        data-ended-to-run
                         onClick={toRun}
                         className="flex-none cursor-pointer rounded-[6px] px-[6px] py-[2px] font-semibold text-accent-soft hover:bg-surface-hover"
                     >
@@ -82,7 +83,9 @@ export function EndedTranscript({ model, agent }: { model: AgentsViewModel; agen
                 <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto px-[22px] py-[12px]">
                     <div className={TRANSCRIPT_COLUMN}>
                         {entries.length > 0 ? (
-                            <NarrationTimeline entries={entries} active={false} ctx={ctx} />
+                            <FileLinkContext.Provider value={openFileLink}>
+                                <NarrationTimeline entries={entries} active={false} ctx={ctx} />
+                            </FileLinkContext.Provider>
                         ) : missing ? (
                             <div className="flex flex-1 items-center justify-center text-[12px] text-muted">
                                 No transcript found for this session.
