@@ -27,7 +27,12 @@ export type Unsupported = { kind: "unsupported"; message: string };
 
 // what a citation knows beyond its address: the source type, and the sub-object to land on within it. A
 // reveal from an agent's terminal also knows which agent asked, and where it was standing.
-export type AddressHint = { sourceType?: string; anchor?: string; caller?: { blockId: string; cwd: string } };
+export type AddressHint = {
+    sourceType?: string;
+    anchor?: string;
+    // show: the user asked to see the caller's canvas or brainstorm, so the reveal takes them to it
+    caller?: { blockId: string; cwd: string; show?: boolean };
+};
 
 export const CANNOT_OPEN = "This item can't be opened";
 export const CANNOT_LOCATE_RECORD = "This citation can't locate its record";

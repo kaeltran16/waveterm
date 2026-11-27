@@ -138,11 +138,11 @@ export async function waitUntilIdle(deps: IdleDeps): Promise<boolean> {
 }
 
 // the busy wait keeps a reveal from moving the view under the user's hands. An agent's canvas or brainstorm
-// reveal moves nothing, it only attaches it to that agent, so it lands at once; without a caller it jumps to the
-// agent that has it and waits like any other move.
-export function revealWaitsForUser(address: string, callerBlockId: string | undefined): boolean {
+// reveal moves nothing, it only attaches it to that agent, so it lands at once; without a caller, or with show, it
+// jumps to the agent and waits like any other move.
+export function revealWaitsForUser(address: string, callerBlockId: string | undefined, show?: boolean): boolean {
     const kind = parseAddress(address).kind;
-    return !(callerBlockId && (kind === "canvas" || kind === "brainstorm"));
+    return !(callerBlockId && !show && (kind === "canvas" || kind === "brainstorm"));
 }
 
 // An agent's canvas or brainstorm reveal says so in a toast once. Arc's own hook reveals on every write, and a

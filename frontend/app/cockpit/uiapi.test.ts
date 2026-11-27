@@ -188,6 +188,9 @@ describe("revealWaitsForUser", () => {
         expect(revealWaitsForUser("brainstorm:consumer-lag-alerts", undefined)).toBe(true);
         expect(revealWaitsForUser("run:abc", "b1")).toBe(true);
         expect(revealWaitsForUser("surface:files", "b1")).toBe(true);
+        // show takes the user to the caller's canvas or brainstorm
+        expect(revealWaitsForUser("canvas:dag-activity-rail", "b1", true)).toBe(true);
+        expect(revealWaitsForUser("brainstorm:consumer-lag-alerts", "b1", true)).toBe(true);
     });
 });
 

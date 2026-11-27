@@ -19,6 +19,7 @@ import (
 const uiRpcTimeoutMs = 15000
 
 var uiRevealAnchor string
+var uiRevealShow bool
 
 var uiCmd = &cobra.Command{
 	Use:   "ui",
@@ -59,6 +60,7 @@ var uiDoCmd = &cobra.Command{
 
 func init() {
 	uiRevealCmd.Flags().StringVar(&uiRevealAnchor, "anchor", "", "sub-object to land on (a record's section)")
+	uiRevealCmd.Flags().BoolVar(&uiRevealShow, "show", false, "a canvas or brainstorm you reveal also takes the user to it (only when they asked to see it)")
 	uiCmd.AddCommand(uiStateCmd, uiActionsCmd, uiRevealCmd, uiDoCmd)
 	rootCmd.AddCommand(uiCmd)
 }
@@ -118,6 +120,7 @@ func uiRevealRun(cmd *cobra.Command, args []string) error {
 		Anchor:        uiRevealAnchor,
 		CallerBlockId: os.Getenv("WAVETERM_BLOCKID"),
 		CallerCwd:     cwd,
+		Show:          uiRevealShow,
 	}, uiOpts())
 	if err != nil {
 		return uiErr(err)

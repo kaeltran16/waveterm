@@ -41,7 +41,7 @@ import { globalStore } from "@/app/store/jotaiStore";
 import { atom, type PrimitiveAtom } from "jotai";
 import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
-import { attachBrainstorm, detachBrainstorm, getBrainstorm } from "../agents/brainstormstore";
+import { attachBrainstorm, detachBrainstorm, getBrainstorm, setBrainstormMode } from "../agents/brainstormstore";
 import { attachCanvas, detachCanvas, getCanvas, setCanvasMode, setMark } from "../agents/canvasstore";
 import { activeChannelIdAtom } from "../agents/channelsstore";
 import { memoryFocusAtom, memoryOpenAtom } from "../agents/memorystore";
@@ -653,6 +653,18 @@ describe("canvas landing", () => {
         expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
     });
 
+    it("with show, attaches the caller's canvas and takes the user to it in canvas mode", async () => {
+        const model = makeModel(["a1", "a2"]);
+        globalStore.set(model.focusIdAtom, "a2");
+        rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
+        expect(await openAddress(model, "canvas:t", { caller: { ...caller, show: true } }, noReport)).toEqual({
+            ok: true,
+        });
+        expect(getCanvas("a1")?.mode).toBe("canvas");
+        expect(globalStore.get(model.focusIdAtom)).toBe("a1");
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
+    });
+
     it("leaves a canvas the user is already looking at in canvas mode", async () => {
         const model = makeModel(["a1"]);
         rpc.FileInfoCommand.mockResolvedValue({ path: "x" });
@@ -821,6 +833,21 @@ describe("brainstorm landing", () => {
             oref: "tab:a1",
             meta: { "session:brainstorm": PATH },
         });
+    });
+
+    it("with show, takes the user to the caller's brainstorm even when it was already attached", async () => {
+        const model = makeModel(["a1", "a2"]);
+        globalStore.set(model.focusIdAtom, "a2");
+        rpc.FileInfoCommand.mockResolvedValue({ path: PATH });
+        rpc.SetMetaCommand.mockResolvedValue(undefined);
+        await openAddress(model, "brainstorm:lag", { caller }, noReport);
+        setBrainstormMode("a1", "terminal", 1);
+        expect(await openAddress(model, "brainstorm:lag", { caller: { ...caller, show: true } }, noReport)).toEqual({
+            ok: true,
+        });
+        expect(getBrainstorm("a1")?.mode).toBe("brainstorm");
+        expect(globalStore.get(model.focusIdAtom)).toBe("a1");
+        expect(globalStore.get(model.surfaceAtom)).toBe("agent");
     });
 
     it("reads the brainstorm file on each reveal instead of waiting for the next poll", async () => {

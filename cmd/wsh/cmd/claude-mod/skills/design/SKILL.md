@@ -40,10 +40,12 @@ line and draw. Never re-ask what an answer or the chat settled.
 1. Write every artboard and `canvas.json` for the change in ONE message, with the Write tool.
 2. Inside Arc (`wsh` is on PATH), run `wsh ui reveal canvas:<topic>` from your terminal. Arc
    serves the folder itself and attaches the canvas to you on the Agent surface without switching
-   the user to it; they open it when ready, mark it, and send the marks back to you as one line.
-   Start no server. If the command fails or `wsh` is missing, serve the folder yourself, on
-   `127.0.0.1`, never `localhost` (on Windows it can resolve to a different listener). Probe from
-   port 8766 up:
+   the user to it; they open it from your tab's Canvas toggle when ready, mark it, and send the
+   marks back to you as one line. When the user asks to see it ("show me"), run
+   `wsh ui reveal --show canvas:<topic>` instead, which takes them to it. Say the canvas is on
+   their screen only after a `--show` reveal; otherwise say where to open it. Start no server.
+   If the command fails or `wsh` is missing, serve the folder yourself, on `127.0.0.1`, never
+   `localhost` (on Windows it can resolve to a different listener). Probe from port 8766 up:
    `curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:<port>/<topic>/project/Main.dc.html`.
    - `200`: already served; use this port.
    - `000` (nothing listening): run
@@ -59,9 +61,10 @@ line and draw. Never re-ask what an answer or the chat settled.
    your pick and one line on why. End your turn.
 4. On feedback, read the files you will change, edit them in place, and go back to step 2. Small
    requested changes stay small.
-   - When the user picks an option, keep the other boards and add a row that develops the pick: its
-     states and hard cases (empty, the largest real data, a narrow window) and, where it helps, a
-     clickable prototype.
+   - When the user picks an option, delete the boards they passed over (their files and
+     `canvas.json` entries) and name them in one line, so the canvas shows only the pick. Then add
+     a row that develops it: its states and hard cases (empty, the largest real data, a narrow
+     window) and, where it helps, a clickable prototype.
    - On a vague rejection ("boring", "generic", "not it"), say in one line which axis the redraw
      changes: content, layout, treatment or density. Unsure which, ask that one question, with
      those axes as its options.

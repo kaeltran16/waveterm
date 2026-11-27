@@ -573,8 +573,9 @@ function selectAgent(model: AgentsViewModel, tabId: string): OpenResult {
 // A reveal names its caller: the canvas is that agent's, in its cwd. The agent reveals on every revision, so its
 // reveal only attaches: the user may be anywhere, and moving them there each time pulls them off their work. The
 // trail toast and the header's Canvas toggle say it is there. A palette or citation open has no caller, so it is
-// the user asking to see it: it lands on whichever agent already has the topic open, in canvas mode.
-type CanvasLanding = { owner: string } | { agentId: string; dir: string; cwd: string };
+// the user asking to see it: it lands on whichever agent already has the topic open, in canvas mode. A caller's
+// reveal with show is the user asking through the agent: it attaches, then lands the same way.
+type CanvasLanding = { owner: string } | { agentId: string; dir: string; cwd: string; show: boolean };
 
 async function loadCanvas(
     model: AgentsViewModel,
@@ -605,7 +606,7 @@ async function loadCanvas(
     if (info == null || info.notfound) {
         return unavailable(`No canvas at ${project}`);
     }
-    return loaded({ agentId: agent.id, dir, cwd: caller.cwd });
+    return loaded({ agentId: agent.id, dir, cwd: caller.cwd, show: caller.show === true });
 }
 
 function selectCanvas(model: AgentsViewModel, target: CanvasTarget, landing: CanvasLanding): OpenResult {
@@ -619,13 +620,17 @@ function selectCanvas(model: AgentsViewModel, target: CanvasTarget, landing: Can
         return OK;
     }
     attachCanvas(landing.agentId, { topic, dir: landing.dir, projectDir: landing.cwd, board }, Date.now());
+    if (landing.show) {
+        showPane(model, landing.agentId, "canvas", true, Date.now());
+        jumpToAgent(model, landing.agentId);
+    }
     return OK;
 }
 
 // A brainstorm lands as a canvas does: an agent's reveal only attaches, and an open with no caller lands on the
 // agent that has the topic, in brainstorm mode. The attach is also written to the tab's meta, which is what
 // re-attaches it after a restart.
-type BrainstormLanding = { owner: string } | { agentId: string; cwd: string; path: string };
+type BrainstormLanding = { owner: string } | { agentId: string; cwd: string; path: string; show: boolean };
 
 async function loadBrainstorm(
     model: AgentsViewModel,
@@ -655,7 +660,7 @@ async function loadBrainstorm(
     if (info == null || info.notfound) {
         return unavailable(`No brainstorm at ${path}`);
     }
-    return loaded({ agentId: agent.id, cwd: caller.cwd, path });
+    return loaded({ agentId: agent.id, cwd: caller.cwd, path, show: caller.show === true });
 }
 
 async function selectBrainstorm(
@@ -673,8 +678,11 @@ async function selectBrainstorm(
     const before = getBrainstorm(landing.agentId);
     const now = Date.now();
     attachBrainstorm(landing.agentId, { topic: target.topic, cwd: landing.cwd }, now);
-    if (getBrainstorm(landing.agentId) !== before) {
+    if (landing.show || getBrainstorm(landing.agentId) !== before) {
         showPane(model, landing.agentId, "brainstorm", true, now);
+    }
+    if (landing.show) {
+        jumpToAgent(model, landing.agentId);
     }
     pollBrainstormNow(model, landing.agentId);
     // the attach stands without the meta: it only costs the re-attach after a restart

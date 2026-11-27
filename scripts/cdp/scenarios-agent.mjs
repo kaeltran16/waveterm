@@ -1323,6 +1323,31 @@ export const canvasSwap = {
         const again = await polishWaitFor(h, `!!${CANVAS_PANE}`, 2000);
         rec(`7. ${delivered ? "c" : "the Canvas button"} brings the canvas back`, again, `pane=${again}`);
 
+        // show is the user asking through the agent: from another surface, with the terminal up, it lands on the canvas
+        await clickCanvasSwap(h, "Terminal");
+        await h.goto("cockpit");
+        let showError = null;
+        try {
+            await h.rpc(
+                "uireveal",
+                { address: `canvas:${CANVAS_TOPIC}`, callerblockid: ctx.blockId, callercwd: ctx.cwd, show: true },
+                UI_ROUTE
+            );
+        } catch (e) {
+            showError = String(e?.message ?? e);
+        }
+        const shown = await polishWaitFor(h, `!!${CANVAS_PANE}`, 3000);
+        const ui = await h.rpc("uistate", null, UI_ROUTE);
+        rec(
+            "7b. uireveal --show takes the user from another surface to the terminal's canvas",
+            showError == null &&
+                shown &&
+                ui?.surface === "agent" &&
+                (ui?.selection ?? []).includes(`agent:${ctx.tabId}`),
+            `pane=${shown} surface=${ui?.surface} selection=${JSON.stringify(ui?.selection)} error=${showError}`
+        );
+        await h.shot("cdp-shots/canvas-swap-show.png");
+
         rmSync(join(ctx.cwd, ".superpowers", "design", CANVAS_TOPIC), { recursive: true, force: true });
         const removed = await polishWaitFor(
             h,

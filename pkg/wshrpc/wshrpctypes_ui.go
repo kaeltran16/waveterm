@@ -34,6 +34,8 @@ type CommandUiRevealData struct {
 	Anchor        string `json:"anchor,omitempty"`
 	CallerBlockId string `json:"callerblockid,omitempty"`
 	CallerCwd     string `json:"callercwd,omitempty"` // the wsh caller's working dir; a canvas address resolves against it
+	// a caller's canvas or brainstorm reveal only attaches; Show also takes the user to it, for when they asked to see it
+	Show bool `json:"show,omitempty"`
 }
 
 type CommandUiInvokeData struct {

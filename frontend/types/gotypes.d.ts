@@ -2278,6 +2278,7 @@ declare global {
         anchor?: string;
         callerblockid?: string;
         callercwd?: string;
+        show?: boolean;
     };
 
     // wshrpc.CommandUndoMemoryBatchData

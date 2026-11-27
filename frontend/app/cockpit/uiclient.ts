@@ -64,7 +64,7 @@ class CockpitUiClient extends WshClient {
     }
 
     async handle_uireveal(rh: RpcResponseHelper, data: CommandUiRevealData): Promise<string> {
-        if (revealWaitsForUser(data.address, data.callerblockid)) {
+        if (revealWaitsForUser(data.address, data.callerblockid, data.show)) {
             await this.waitForUser();
         }
         const surfaceTarget = parseSurfaceAddress(data.address);
@@ -77,7 +77,9 @@ class CockpitUiClient extends WshClient {
             return "";
         }
         // an empty cwd (Getwd failed) still names the caller, so a canvas reveal says where to run it from
-        const caller = data.callerblockid ? { blockId: data.callerblockid, cwd: data.callercwd ?? "" } : undefined;
+        const caller = data.callerblockid
+            ? { blockId: data.callerblockid, cwd: data.callercwd ?? "", show: data.show }
+            : undefined;
         // read before the landing attaches it
         const leavesTrail = revealLeavesTrail(data.address, this.attachedTopics(data.callerblockid));
         const result = await openAddress(
