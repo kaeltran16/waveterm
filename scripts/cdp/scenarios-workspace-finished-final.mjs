@@ -3,9 +3,13 @@
 // 2026-11-27-finished-row-workspace.md, boards Final, Final-Failed and Verifier). The run is the shared fixture's
 // Done board (workspace-run-fixture.mjs), layered here with two Final rounds (round 1 failed at Verify, round 2 passed
 // with its verifier's run and verdict) and a plan reviewer that gave its verdict; the Final-Failed board reseeds it
-// with round 1 failed at Final and a question to you.
+// with round 1 failed at Final and a question to you. The run points at a temp git repo whose second commit is the
+// one round 2 verified, so the Final tab's Changes line has a real range to count, as workspace-finished-changes reads.
 
-import { polishNap, polishWaitFor } from "./scenarios-shared.mjs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { git, polishNap, polishWaitFor } from "./scenarios-shared.mjs";
 import {
     arrange,
     CHANNEL,
@@ -56,6 +60,46 @@ const scenarioShots = (name, steps, failAt = -1) => {
 };
 const LIST_STEPS = ["list loads", "duplicates grouped", "tag filter"];
 const STATS_STEPS = ["stats output", "empty shelf"];
+
+// the verified commit's change: README.md edited one line for another, two files added with this many lines
+const README_BASE = "# linkshelf\nbookmarks, kept\n";
+const README_FINAL = "# linkshelf\nbookmarks, kept and counted\n";
+const ADDED = [["cmd/linkshelf/stats.go", 9], ["internal/stats/counters.go", 12]];
+const CHANGES_COUNT = `${ADDED.length + 1} files`;
+const CHANGES_ADDS = `+${ADDED.reduce((n, [, add]) => n + add, 1)}`;
+const CHANGES_DELS = "−1";
+const lines = (n) => Array.from({ length: n }, (_, i) => `// line ${i + 1}`).join("\n") + "\n";
+
+// copied from workspace-finished-changes: a base commit, then the commit Final verified
+function makeRepo() {
+    const root = mkdtempSync(join(tmpdir(), `verify-${NAME}-repo-`));
+    const repo = join(root, "linkshelf");
+    mkdirSync(repo);
+    git(repo, "init", "-q", "--initial-branch=main");
+    writeFileSync(join(repo, "README.md"), README_BASE);
+    git(repo, "add", ".");
+    git(repo, "commit", "-q", "-m", "base");
+    const base = git(repo, "rev-parse", "HEAD").toString().trim();
+    writeFileSync(join(repo, "README.md"), README_FINAL);
+    for (const [path, n] of ADDED) {
+        mkdirSync(join(repo, dirname(path)), { recursive: true });
+        writeFileSync(join(repo, path), lines(n));
+    }
+    git(repo, "add", ".");
+    git(repo, "commit", "-q", "-m", "squash lane");
+    const verified = git(repo, "rev-parse", "HEAD").toString().trim();
+    return { root, repo, base, verified };
+}
+
+// the run at the repo from its base, and the current round's commit the one Final verified there
+const withRepo = (r, inner) => (seed, o) => {
+    const out = inner(seed, o);
+    return {
+        ...out,
+        run: { ...out.run, projectpath: r.repo, basecommit: r.base },
+        dag: { ...out.dag, final: { ...out.dag.final, commit: r.verified } },
+    };
+};
 
 // a round's final-step events, each step ending where the next starts: [step, seconds, ok]
 const stepEvents = (round, start, steps) => {
@@ -180,6 +224,11 @@ const readFinal = (h, rowId) =>
             why: flat(q('[data-final-tab-section="why"] [data-tool-error]')),
             lead: flat(q("[data-final-tab-lead]")),
             verifierRan: verifier?.dataset.finalTabVerifierRan ?? null,
+            changes: {
+                heading: flat(q('[data-final-tab-section="changes"] h3')),
+                line: flat(q("[data-final-tab-changes]")).replace(/\\s+/g, ""),
+                button: flat(q("[data-final-tab-open-changes]")),
+            },
             session: verifier?.dataset.finalTabSession === "true",
             verifierText: flat(verifier),
             verifierMeta: flat(q("[data-final-tab-verifier-meta]")),
@@ -207,7 +256,14 @@ export const workspaceFinishedFinal = {
     name: NAME,
     surface: "agent",
     async arrange(h) {
-        const ctx = await arrange(h, NAME, { finished: true, layer });
+        let r;
+        try {
+            r = makeRepo();
+        } catch (err) {
+            return { name: NAME, cleanups: [], rows: [], arrangeError: `making the temp repo: ${err?.message ?? err}` };
+        }
+        const ctx = await arrange(h, NAME, { finished: true, layer: withRepo(r, layer) });
+        ctx.cleanups.push(() => rmSync(r.root, { recursive: true, force: true }));
         if (ctx.arrangeError != null) return ctx;
         try {
             // neither session's transcript is looked up on the server, which has no page-only run
@@ -259,6 +315,18 @@ export const workspaceFinishedFinal = {
                 f.shots[0].label === `1. ${LIST_STEPS[0]}` &&
                 f.shots.every((x) => !x.failed);
             return [ok, f];
+        });
+
+        await step("board Final: once the row's read lands, Changes reads the verified range's file count with its adds and dels before Open changes", async () => {
+            const want = `${CHANGES_COUNT}${CHANGES_ADDS}${CHANGES_DELS}`.replace(/\s+/g, "");
+            const f = await finalUntil(h, FINAL_ROW_ID, (x) => x.changes.line !== "");
+            await h.shot(SHOT("2b", "final-changes"));
+            const ok =
+                same(f.sections.slice(-1), ["changes"]) &&
+                f.changes.heading === "Changes" &&
+                f.changes.line === want &&
+                f.changes.button === "Open changes";
+            return [ok, f.changes];
         });
 
         await step("board Final: Round 1 shows Why it failed first and a verifier that did not run, the pick kept on the tab", async () => {
@@ -361,6 +429,7 @@ export const workspaceFinishedFinal = {
                 passed != null &&
                 failed[0].border !== passed.border &&
                 f.verifierRan === "false" &&
+                f.verifierText.includes("Did not run: the stage stops at the first failed step.") &&
                 f.waiting;
             return [ok, f];
         });

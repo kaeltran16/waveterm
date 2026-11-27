@@ -714,7 +714,9 @@ export type FinalTabInput = {
 };
 
 export const NO_VERDICT_TEXT = "No verdict text was recorded for this round.";
-const VERIFIER_NOT_RUN = "Did not run: the stage ended before it.";
+// a stage stops at its first failed step; one that ended with none failed was ended or cancelled
+export const VERIFIER_FAILED_BEFORE = "Did not run: the stage stops at the first failed step.";
+export const VERIFIER_NOT_RUN = "Did not run: the stage ended before it.";
 const VERIFIER_TEXT: Partial<Record<FinalStepState, string>> = {
     waiting: "Waits for the steps before it.",
     running: "Reviewing the merged result.",
@@ -766,10 +768,12 @@ function verdictText(stage: FinalStage): string {
     );
 }
 
-function verifierOf(stage: FinalStage, step: FinalStep, input: FinalTabInput): FinalTabView["verifier"] {
+function verifierOf(stage: FinalStage, steps: FinalStep[], input: FinalTabInput): FinalTabView["verifier"] {
     const session = !!input.session && stage.verifierrunid === input.session;
+    const step = steps[steps.length - 1];
     if (step.state === "notrun") {
-        return { ran: false, text: VERIFIER_NOT_RUN, meta: "", session };
+        const text = steps.some((s) => s.state === "failed") ? VERIFIER_FAILED_BEFORE : VERIFIER_NOT_RUN;
+        return { ran: false, text, meta: "", session };
     }
     const ended = !RUNNING_STATES.has(stage.state) && step.state !== "waiting";
     const reasons = stage.unverified?.length ?? 0;
@@ -821,7 +825,7 @@ export function finalTabView(
         start ? fmtClock(start) : undefined,
         failed && stage.commit ? `commit ${stage.commit.slice(0, SHORT_COMMIT)}` : undefined,
     ]);
-    const verifier = verifierOf(stage, steps[steps.length - 1], input);
+    const verifier = verifierOf(stage, steps, input);
     const shots = tabShots(stage);
     return {
         rounds: stages.map((s) => s.round || 1),

@@ -26,10 +26,14 @@ import {
     type FinalTabView,
 } from "./finalstage";
 import { FinalFacts } from "./finalstagerail";
+import { lineCountsShown } from "./gitstatus";
+import { useRailGit } from "./railgit";
+import type { RailGitState } from "./railstore";
 import { useRunEvents } from "./runeventstore";
 import { leadAgentOf, verifierStepTarget, type RunInfo } from "./runlineage";
 import { FINAL_FILL } from "./runstrip";
-import { ToolPanel } from "./steprows";
+import { AddsDels, ToolPanel } from "./steprows";
+import { changesLine } from "./workspacechangesmodel";
 import { tabKey, type WorkspaceTab } from "./workspacemodel";
 import { openWorkspaceTab, updateWorkspaceTab } from "./workspacestore";
 
@@ -41,6 +45,7 @@ type FinalTabProps = {
 
 const NO_RUN: Atom<Run | undefined> = atom(undefined as Run | undefined);
 const H3 = "m-0 text-[12px] font-semibold text-ink-mid";
+const META = "font-mono text-[11px] text-muted";
 const LINK_BUTTON =
     "inline-flex flex-none cursor-pointer items-center gap-[5px] rounded-[6px] border border-edge-strong px-[9px] py-[3px] text-[12px] text-secondary hover:bg-surface-hover";
 
@@ -71,6 +76,8 @@ export function FinalTab({ model, agent, tab }: FinalTabProps) {
     const openTranscript =
         target != null && target !== agent.id ? () => globalStore.set(model.focusIdAtom, target) : undefined;
     const pickRound = (round: number) => updateWorkspaceTab(agent.id, tabKey(tab), { round });
+    // the Changes tab's read, held here too so the counts land while that tab is unseen; holding adds no read
+    const changes = landedChanges(useRailGit(agent), group?.final?.commit);
 
     return (
         <div data-workspace-final={tab.runId} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -119,6 +126,7 @@ export function FinalTab({ model, agent, tab }: FinalTabProps) {
                             view={view}
                             run={run}
                             leadAsking={lead?.state === "asking"}
+                            changes={changes}
                             onOpenTranscript={openTranscript}
                             onOpenChanges={() => openWorkspaceTab(agent.id, { kind: "changes", selected: null })}
                         />
@@ -130,6 +138,18 @@ export function FinalTab({ model, agent, tab }: FinalTabProps) {
         </div>
     );
 }
+
+// the rail's counts once its read for this row has landed: the range Final verified, else the lead's run before
+// Final has a commit. Another row's read, still shown while this row's starts, is left out
+function landedChanges(rail: RailGitState | null, finalCommit: string | undefined): ChangesCounts | null {
+    if (rail?.changes == null) {
+        return null;
+    }
+    const landed = finalCommit ? rail.verified?.commit === finalCommit : rail.run === true && rail.verified == null;
+    return landed ? { ...changesLine(rail), counted: lineCountsShown(rail.changes) } : null;
+}
+
+type ChangesCounts = ReturnType<typeof changesLine> & { counted: boolean };
 
 // the round switch; the active fill is one shared layoutId, so a pick moves it (moment 17). One round has no switch
 function RoundSwitch({ rounds, round, onPick }: { rounds: number[]; round: number; onPick: (n: number) => void }) {
@@ -175,6 +195,7 @@ function Section({
     view,
     run,
     leadAsking,
+    changes,
     onOpenTranscript,
     onOpenChanges,
 }: {
@@ -182,6 +203,7 @@ function Section({
     view: FinalTabView;
     run: RunInfo;
     leadAsking: boolean;
+    changes: ChangesCounts | null;
     onOpenTranscript?: () => void;
     onOpenChanges: () => void;
 }) {
@@ -215,8 +237,21 @@ function Section({
         case "changes":
             return (
                 <section data-final-tab-section="changes" className="flex items-center gap-[10px]">
-                    <h3 className={cn(H3, "flex-1")}>Changes</h3>
-                    <button type="button" data-final-tab-open-changes onClick={onOpenChanges} className={LINK_BUTTON}>
+                    <h3 className={H3}>Changes</h3>
+                    <span data-final-tab-changes className={cn(META, "flex flex-1 items-center gap-[6px]")}>
+                        {changes != null ? (
+                            <>
+                                {changes.count}
+                                {changes.counted ? <AddsDels adds={changes.adds} dels={changes.dels} compact /> : null}
+                            </>
+                        ) : null}
+                    </span>
+                    <button
+                        type="button"
+                        data-final-tab-open-changes
+                        onClick={onOpenChanges}
+                        className="inline-flex cursor-pointer items-center rounded-[6px] border border-edge-mid px-[9px] py-[3px] text-[12px] text-secondary hover:border-edge-strong"
+                    >
                         Open changes
                     </button>
                 </section>

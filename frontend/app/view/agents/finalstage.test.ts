@@ -20,6 +20,8 @@ import {
     KEPT_NOTE,
     NO_VERDICT_TEXT,
     outputTail,
+    VERIFIER_FAILED_BEFORE,
+    VERIFIER_NOT_RUN,
     type FinalKept,
     type FinalStageView,
 } from "./finalstage";
@@ -1049,10 +1051,28 @@ describe("finalTabView", () => {
         expect(other.order[0]).toBe("why");
     });
 
-    it("says the verifier did not run when the stage ended before it", () => {
-        const v = finalTabView(twoRounds(), events, NOW, { ...input, round: 1 });
+    it.each([
+        [
+            "a step before it failed",
+            () => finalTabView(twoRounds(), events, NOW, { ...input, round: 1 }),
+            VERIFIER_FAILED_BEFORE,
+        ],
+        [
+            "a human ended the stage with no step failed",
+            () =>
+                finalTabView(
+                    dag({ state: "failed", round: 1, detail: HUMAN }),
+                    [ev("tree", S), ev("check", S)],
+                    NOW,
+                    input
+                ),
+            VERIFIER_NOT_RUN,
+        ],
+    ])("says why the verifier did not run when %s", (_, view, want) => {
+        const v = view();
         expect(v.verifier.ran).toBe(false);
         expect(v.verifier.meta).toBe("");
+        expect(v.verifier.text).toBe(want);
     });
 
     it("gives the verifier's model, its time and the round's unverified count", () => {
