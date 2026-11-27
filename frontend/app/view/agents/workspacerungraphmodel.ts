@@ -162,6 +162,125 @@ export function focusView(tasks: GraphTask[], id: string, max = FOCUS_MAX): Focu
     return { centre: id, up, upMore, down, downMore, upStage: ups.length === 0, downStage: downs.length === 0 };
 }
 
+// a row's label at the board's left: what the centre waits on, what follows it; over a stage node, no count
+export function focusRowLabel(view: FocusView, side: "up" | "down"): string {
+    if (side === "up") {
+        return view.upStage ? "waits on" : `waits on ${view.up.length + view.upMore.length}`;
+    }
+    return view.downStage ? "then" : `then ${view.down.length + view.downMore.length}`;
+}
+
+export interface FocusBox {
+    // a task's id; "" for a stage
+    id: string;
+    side: "up" | "centre" | "down";
+    stage?: "plan-review" | "final";
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+export interface FocusLayout {
+    boxes: FocusBox[];
+    edges: { d: string; arrow: string }[];
+    // the last row's bottom
+    height: number;
+}
+
+// the run-graph-focus boards: rows from 20px down, 190 x 52 neighbours 30px apart, a centre up to 440px, 40px arrows
+// ending 4px short of their card. A row keeps LABEL_W clear on both sides, so its label never covers a card and the
+// row stays centred under the centre card.
+const FOCUS_TOP = 20;
+const NODE_W = 190;
+const NODE_H = 52;
+const NEIGHBOUR_GAP = 30;
+const CENTRE_MAX_W = 440;
+const ARROW_LEN = 40;
+const ARROW_GAP = 4;
+const ARROW_HEAD_W = 4.5;
+const ARROW_HEAD_H = 6;
+const EDGE_BEND = 24;
+const LABEL_W = 64;
+const MORE_W = 96;
+
+function placeRow(
+    ids: string[],
+    side: "up" | "down",
+    y: number,
+    more: boolean,
+    width: number,
+    stage?: FocusBox["stage"]
+): FocusBox[] {
+    const n = ids.length;
+    const extra = more ? MORE_W : 0;
+    const room = width - 2 * LABEL_W;
+    const w = Math.min(NODE_W, (room - (n - 1) * NEIGHBOUR_GAP - extra) / n);
+    const span = n * w + (n - 1) * NEIGHBOUR_GAP + extra;
+    return ids.map((id, i) => ({
+        id,
+        side,
+        stage,
+        x: width / 2 - span / 2 + i * (w + NEIGHBOUR_GAP),
+        y,
+        w,
+        h: NODE_H,
+    }));
+}
+
+// from a's bottom centre to just above b's top centre: straight when aligned, else the boards' s-curve
+function edgeOf(a: FocusBox, b: FocusBox): { d: string; arrow: string } {
+    const [x1, y1, x2, y2] = [a.x + a.w / 2, a.y + a.h, b.x + b.w / 2, b.y - ARROW_GAP];
+    const d =
+        Math.abs(x1 - x2) < 0.5
+            ? `M${x2} ${y1} V${y2}`
+            : `M${x1} ${y1} C${x1} ${y1 + EDGE_BEND}, ${x2} ${y2 - EDGE_BEND}, ${x2} ${y2}`;
+    const arrow = `M${x2 - ARROW_HEAD_W} ${y2 - ARROW_HEAD_H} L${x2} ${y2} L${x2 + ARROW_HEAD_W} ${y2 - ARROW_HEAD_H}`;
+    return { d, arrow };
+}
+
+// Focus's boxes top down: the up row, the centre at its measured height, the down row; a row with nothing in it (a
+// stage the run does not have) takes no space, and the board is as tall as its last row
+export function focusLayout(
+    view: FocusView,
+    { width, centreH, planReview, final }: { width: number; centreH: number; planReview: boolean; final: boolean }
+): FocusLayout {
+    const step = ARROW_LEN + ARROW_GAP;
+    const upIds = view.upStage ? (planReview ? [""] : []) : view.up;
+    const downIds = view.downStage ? (final ? [""] : []) : view.down;
+    const ups = placeRow(
+        upIds,
+        "up",
+        FOCUS_TOP,
+        view.upMore.length > 0,
+        width,
+        view.upStage ? "plan-review" : undefined
+    );
+    const centreW = Math.min(CENTRE_MAX_W, width);
+    const centre: FocusBox = {
+        id: view.centre,
+        side: "centre",
+        x: width / 2 - centreW / 2,
+        y: ups.length > 0 ? FOCUS_TOP + NODE_H + step : FOCUS_TOP,
+        w: centreW,
+        h: centreH,
+    };
+    const downY = centre.y + centreH + step;
+    const downs = placeRow(
+        downIds,
+        "down",
+        downY,
+        view.downMore.length > 0,
+        width,
+        view.downStage ? "final" : undefined
+    );
+    return {
+        boxes: [...ups, centre, ...downs],
+        edges: [...ups.map((u) => edgeOf(u, centre)), ...downs.map((d) => edgeOf(centre, d))],
+        height: downs.length > 0 ? downY + NODE_H : centre.y + centreH,
+    };
+}
+
 export function inFlight(planOrder: string[], kind: (id: string) => string): string[] {
     return IN_FLIGHT_ORDER.flatMap((k) => planOrder.filter((id) => kind(id) === k)).slice(0, IN_FLIGHT_MAX);
 }
@@ -240,12 +359,17 @@ export function graphNodes(
     });
 }
 
+// the word with its time, "working · 4m": the Focus centre's state
+export function timedWord(node: GraphNode): string {
+    return node.time ? `${node.word} · ${node.time}` : node.word;
+}
+
 // a Lanes row's text: what a waiting task waits on, else its word and time
 export function laneWord(node: GraphNode): string {
     if (node.dot === "waits" && node.waitsOn.length > 0) {
         return `waits on ${node.waitsOn.join(", ")}`;
     }
-    return node.time ? `${node.word} · ${node.time}` : node.word;
+    return timedWord(node);
 }
 
 // a task's dot is its In flight kind: asked, failed and working are the ones worth a jump

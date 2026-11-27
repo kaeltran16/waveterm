@@ -14,7 +14,9 @@ import {
     chainOf,
     dagFocusTask,
     flightIds,
+    focusLayout,
     focusOn,
+    focusRowLabel,
     focusView,
     graphEscapeKey,
     graphNodes,
@@ -28,6 +30,8 @@ import {
     stepDir,
     toFocus,
     toLanes,
+    type FocusLayout,
+    type FocusView,
     type GraphNode,
     type LaneLayout,
 } from "./workspacerungraphmodel";
@@ -436,6 +440,96 @@ describe("inFlight", () => {
 
     it("never lists merged or waiting tasks", () => {
         expect(inFlight(["a", "b"], (id) => (id === "a" ? "merged" : "waits"))).toEqual([]);
+    });
+});
+
+// the run-graph-focus boards' geometry: a 564px board, 190 x 52 neighbours, a 440px centre, 40px arrows
+describe("focusLayout", () => {
+    const view = (v: Partial<FocusView>): FocusView => ({
+        centre: "c",
+        up: [],
+        upMore: [],
+        down: [],
+        downMore: [],
+        upStage: false,
+        downStage: false,
+        ...v,
+    });
+    const stages = { planReview: true, final: true };
+    const at = (l: FocusLayout, id: string) => l.boxes.find((b) => b.id === id || b.stage === id);
+
+    it("lays Focus-Working out: t-1 above, the centre, t-7 below, straight edges, as tall as its last row", () => {
+        const l = focusLayout(view({ centre: "t-4", up: ["t-1"], down: ["t-7"] }), {
+            width: 564,
+            centreH: 144,
+            ...stages,
+        });
+        expect(at(l, "t-1")).toMatchObject({ side: "up", x: 187, y: 20, w: 190, h: 52 });
+        expect(at(l, "t-4")).toMatchObject({ side: "centre", x: 62, y: 116, w: 440, h: 144 });
+        expect(at(l, "t-7")).toMatchObject({ side: "down", x: 187, y: 304, w: 190, h: 52 });
+        expect(l.edges.map((e) => e.d)).toEqual(["M282 72 V112", "M282 260 V300"]);
+        expect(l.edges[0].arrow).toBe("M277.5 106 L282 112 L286.5 106");
+        expect(l.height).toBe(356);
+    });
+
+    it("lays Focus-Waits out: two above with curved edges, Final verification below a 40px arrow", () => {
+        const l = focusLayout(view({ centre: "t-7", up: ["t-3", "t-4"], downStage: true }), {
+            width: 564,
+            centreH: 100,
+            ...stages,
+        });
+        expect([at(l, "t-3")?.x, at(l, "t-4")?.x]).toEqual([77, 297]);
+        expect(l.edges[0].d).toBe("M172 72 C172 96, 282 88, 282 112");
+        expect(at(l, "final")).toMatchObject({ side: "down", x: 187, y: 260, w: 190, h: 52 });
+        expect(l.height).toBe(312);
+    });
+
+    it("gives a row with nothing in it no space", () => {
+        const lone = focusLayout(view({ upStage: true, downStage: true }), {
+            width: 564,
+            centreH: 100,
+            planReview: false,
+            final: false,
+        });
+        expect(lone.boxes.map((b) => b.side)).toEqual(["centre"]);
+        expect(at(lone, "c")?.y).toBe(20);
+        expect(lone.edges).toEqual([]);
+        expect(lone.height).toBe(120);
+        const root = focusLayout(view({ upStage: true, downStage: true }), { width: 564, centreH: 100, ...stages });
+        expect(root.boxes.map((b) => b.stage ?? b.side)).toEqual(["plan-review", "centre", "final"]);
+    });
+
+    it("narrows the centre to a narrow board", () => {
+        const l = focusLayout(view({}), { width: 400, centreH: 100, ...stages });
+        expect(at(l, "c")).toMatchObject({ x: 0, w: 400 });
+    });
+
+    it("keeps a full row clear of the row labels at the left, and of their mirror at the right", () => {
+        const l = focusLayout(view({ up: ["a", "b", "d"] }), { width: 564, centreH: 100, ...stages });
+        const ups = l.boxes.filter((b) => b.side === "up");
+        expect(ups[0].x).toBeGreaterThanOrEqual(64);
+        expect(ups[2].x + ups[2].w).toBeLessThanOrEqual(564 - 64);
+    });
+});
+
+describe("focusRowLabel", () => {
+    const v: FocusView = {
+        centre: "t-5",
+        up: ["t-1"],
+        upMore: [],
+        down: ["t-12", "t-16"],
+        downMore: ["t-20", "t-21"],
+        upStage: false,
+        downStage: false,
+    };
+
+    it.each<[string, FocusView, "up" | "down", string]>([
+        ["counts the tasks above", v, "up", "waits on 1"],
+        ["counts folded tasks below too", v, "down", "then 4"],
+        ["drops the count over Plan review", { ...v, up: [], upStage: true }, "up", "waits on"],
+        ["drops the count over Final verification", { ...v, down: [], downMore: [], downStage: true }, "down", "then"],
+    ])("%s", (_, view, side, want) => {
+        expect(focusRowLabel(view, side)).toBe(want);
     });
 });
 

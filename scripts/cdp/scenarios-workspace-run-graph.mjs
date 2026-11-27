@@ -15,6 +15,7 @@ import {
     page,
     pickView,
     PLAN,
+    QUESTION,
     reseed,
     RUN_ID,
     RUN_TAB,
@@ -204,10 +205,53 @@ const readGraph = (h) =>
             down: all('[data-graph-node][data-side="down"]').map((n) => n.dataset.graphNode),
             stageNodes: all("[data-graph-node-stage]").map((n) => n.dataset.graphNodeStage),
             more: Object.fromEntries(all("[data-graph-more]").map((m) => [m.dataset.graphMore, flat(m)])),
-            upCount: flat(g.querySelector("[data-graph-up-count]")),
-            downCount: flat(g.querySelector("[data-graph-down-count]")),
+            labels: Object.fromEntries(all("[data-graph-row-label]").map((l) => [l.dataset.graphRowLabel, flat(l)])),
+            nodeWords: Object.fromEntries(all("[data-graph-node-word]").map((w) => [w.closest("[data-graph-node]").dataset.graphNode, flat(w)])),
+            hint: flat(g.querySelector("[data-graph-hint]")),
         };`
     );
+
+// the Focus centre card as drawn, and the board's height against its lowest node's bottom
+const readFocus = (h) =>
+    page(
+        h,
+        `const g = ${GRAPH};
+        const c = g?.querySelector("[data-focus-card]");
+        const b = g?.querySelector("[data-graph-board]");
+        if (!c || !b) return null;
+        const top = b.getBoundingClientRect().top;
+        const lowest = Math.max(...[...b.querySelectorAll("[data-graph-node], [data-graph-node-stage]")].map((n) => n.getBoundingClientRect().bottom - top));
+        // a button's content height over one line of its own text: 1 when nothing wraps
+        const lines = (el) => {
+            const cs = getComputedStyle(el);
+            const content = el.getBoundingClientRect().height - ["paddingTop", "paddingBottom", "borderTopWidth", "borderBottomWidth"].reduce((n, k) => n + parseFloat(cs[k]), 0);
+            const text = [...el.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+            const r = document.createRange();
+            r.selectNodeContents(text);
+            return Math.round(content / r.getClientRects()[0].height);
+        };
+        const mid = (el) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; };
+        const agent = c.querySelector("[data-open-agent]");
+        const changes = c.querySelector("[data-open-changes]");
+        const diff = c.querySelector("[data-focus-diff]");
+        const actions = [agent, changes, diff].filter(Boolean);
+        return {
+            id: c.dataset.focusCard,
+            warning: c.className.includes("border-warning"),
+            state: flat(c.querySelector("[data-focus-state]")),
+            steps: [...c.querySelectorAll("[data-body-steps] [data-steps] > div")].map(flat),
+            question: flat(c.querySelector("[data-focus-question]")),
+            starts: flat(c.querySelector("[data-focus-starts]")),
+            diff: flat(diff),
+            openAgent: agent != null,
+            openChanges: changes != null,
+            buttonLines: [agent, changes].filter(Boolean).map(lines),
+            actionsSpread: actions.length ? Math.max(...actions.map(mid)) - Math.min(...actions.map(mid)) : 0,
+            height: b.getBoundingClientRect().height,
+            lowest,
+        };`
+    );
+const boardFits = (f) => f != null && Math.abs(f.height - f.lowest) <= 1 && f.height < 460;
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const settle = () => polishNap(SETTLE_MS);
@@ -326,9 +370,119 @@ export const workspaceRunGraph = {
             return [ok, { hints: g?.hints, after: after?.hints }];
         });
 
+        await step("Focus on t-4: working · <time>, its latest step, Open agent, no Open changes; t-1 above reads merged, t-7 below reads waits; labels waits on 1 / then 1 (Focus-Working board)", async () => {
+            const T4 = JSON.stringify(childRunId("t-4"));
+            const worker = writeTranscript(ctx.dir, `${NAME}-t4-worker`, [
+                userText("Add linkshelf stats over internal/stats."),
+                toolUse("toolu_t4_1", "Read", { file_path: "internal/stats/counters.go" }),
+                toolResult("toolu_t4_1", "package stats"),
+                toolUse("toolu_t4_2", "Bash", { command: "go build ./...", description: "build" }),
+            ]);
+            // only t-4's run has a transcript; a cached lookup is dropped, so the card asks again
+            await page(
+                h,
+                `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                const L = await mod("app/view/agents/runlineagestore.ts");
+                RpcApi.RunTranscriptPathCommand = async (_client, data) => (data.runid === ${T4} ? ${JSON.stringify(worker)} : "");
+                globalStore.set(L.runTranscriptPathsAtom, (prev) => { const next = { ...prev }; delete next[${T4}]; return next; });
+                return true;`
+            );
+            // put back once read, so no later step's transcript lookup meets the stub
+            const unstub = (hh) =>
+                page(
+                    hh,
+                    `const { RpcApi } = await mod("app/store/wshclientapi.ts");
+                    const L = await mod("app/view/agents/runlineagestore.ts");
+                    delete RpcApi.RunTranscriptPathCommand;
+                    globalStore.set(L.runTranscriptPathsAtom, (prev) => { const next = { ...prev }; delete next[${T4}]; return next; });
+                    return true;`
+                );
+            ctx.cleanups.push(unstub);
+            await clickSettled(h, CHIP("t-4"));
+            const drawn = await polishWaitFor(h, `${GRAPH}?.querySelectorAll("[data-focus-card] [data-body-steps] [data-steps] > div").length === 1`, WAIT_MS);
+            await settle();
+            const g = await readGraph(h);
+            const f = await readFocus(h);
+            await h.shot(SHOT(3, "focus-working-t4"));
+            await unstub(h);
+            const ok =
+                drawn &&
+                g?.focus === "t-4" &&
+                f?.id === "t-4" &&
+                /^working · \d+m$/.test(f.state) &&
+                f.steps.length === 1 &&
+                f.steps[0].includes("go build") &&
+                f.openAgent &&
+                !f.openChanges &&
+                f.diff === "" &&
+                same(g.up, ["t-1"]) &&
+                same(g.down, ["t-7"]) &&
+                g.nodeWords["t-1"] === "merged" &&
+                g.nodeWords["t-7"] === "waits" &&
+                same(g.labels, { up: "waits on 1", down: "then 1" }) &&
+                g.hint === "click a task to move to it · Esc for Lanes" &&
+                boardFits(f);
+            return [ok, { drawn, focus: g?.focus, up: g?.up, down: g?.down, nodeWords: g?.nodeWords, labels: g?.labels, hint: g?.hint, card: f }];
+        });
+
+        await step("Focus on t-5: Open changes and its diff stat on one line with Open agent, no button wrapping (each action button's height is one line) (Focus-Working board, feedback 001)", async () => {
+            await clickSettled(h, CHIP("t-5"));
+            const f = await readFocus(h);
+            await h.shot(SHOT(3, "focus-diff-t5"));
+            const ok =
+                f?.id === "t-5" &&
+                f.openAgent &&
+                f.openChanges &&
+                f.diff === "2 files+210−31" &&
+                same(f.buttonLines, [1, 1]) &&
+                f.actionsSpread < 2 &&
+                boardFits(f);
+            return [ok, f];
+        });
+
+        await step("Focus on t-3: warning border, asked the lead · <time>, the fixture's question, Open agent (Focus-Asked board)", async () => {
+            await clickSettled(h, CHIP("t-3"));
+            const f = await readFocus(h);
+            await h.shot(SHOT(3, "focus-asked-t3"));
+            const ok =
+                f?.id === "t-3" &&
+                f.warning &&
+                /^asked the lead · \d+m$/.test(f.state) &&
+                f.question === QUESTION &&
+                f.openAgent &&
+                !f.openChanges &&
+                boardFits(f);
+            return [ok, f];
+        });
+
+        await step("Focus on t-7 from t-4 (back ← t-4): t-3 and t-4 above with their words, Starts once t-3 and t-4 merge., no actions, Final verification below labelled then (Focus-Waits board)", async () => {
+            await clickSettled(h, CHIP("t-4"));
+            await clickSettled(h, NODE("t-7"));
+            const g = await readGraph(h);
+            const f = await readFocus(h);
+            await h.shot(SHOT(3, "focus-waits-t7"));
+            // back to Lanes with no selection, as the steps below begin
+            await setGraph(h, LEAD, { mode: "lanes", focus: null, trail: [] });
+            await settle();
+            const ok =
+                g?.focus === "t-7" &&
+                g.back === "← t-4" &&
+                same(g.up, ["t-3", "t-4"]) &&
+                g.nodeWords["t-3"] === "asked the lead" &&
+                g.nodeWords["t-4"] === "working" &&
+                f?.state === "waits" &&
+                f.starts === "Starts once t-3 and t-4 merge." &&
+                !f.openAgent &&
+                same(g.stageNodes, ["final"]) &&
+                same(g.labels, { up: "waits on 2", down: "then" }) &&
+                boardFits(f);
+            return [ok, { focus: g?.focus, back: g?.back, up: g?.up, nodeWords: g?.nodeWords, stages: g?.stageNodes, labels: g?.labels, card: f }];
+        });
+
         await step("clicking t-7 opens Focus on it: t-3 and t-4 above, Final verification below", async () => {
             const clicked = await clickSettled(h, ROW("t-7"));
             const g = await readGraph(h);
+            const fit = await readFocus(h);
             await h.shot(SHOT(4, "focus-t7"));
             const ok =
                 clicked &&
@@ -337,10 +491,11 @@ export const workspaceRunGraph = {
                 same(g.up, ["t-3", "t-4"]) &&
                 same(g.down, []) &&
                 same(g.stageNodes, ["final"]) &&
-                g.upCount === "waits on 2" &&
-                g.downCount.startsWith("waited on by 0") &&
-                g.back === "";
-            return [ok, g && { mode: g.mode, focus: g.focus, up: g.up, down: g.down, stages: g.stageNodes, upCount: g.upCount, downCount: g.downCount }];
+                g.labels.up === "waits on 2" &&
+                g.labels.down === "then" &&
+                g.back === "" &&
+                boardFits(fit);
+            return [ok, g && { mode: g.mode, focus: g.focus, up: g.up, down: g.down, stages: g.stageNodes, labels: g.labels, board: fit && [fit.height, fit.lowest] }];
         });
 
         await step("clicking t-3 moves there, back returns to t-7", async () => {
@@ -422,6 +577,7 @@ export const workspaceRunGraph = {
             // t-5 waits on nothing and has 4 dependents: t-12, t-16, t-20, t-21
             await clickSettled(h, ROW("t-5"));
             const f = await readGraph(h);
+            const fit = await readFocus(h);
             await h.shot(SHOT(10, "focus-39-more"));
             const ok =
                 g?.rows.length === 39 &&
@@ -429,8 +585,9 @@ export const workspaceRunGraph = {
                 f?.focus === "t-5" &&
                 same(f.down, ["t-12", "t-16"]) &&
                 f.more.down === "+2 more" &&
-                f.downCount.startsWith("waited on by 4");
-            return [ok, { rows: g?.rows.length, lanes: g?.laneCount, focus: f?.focus, down: f?.down, more: f?.more, downCount: f?.downCount }];
+                f.labels.down === "then 4" &&
+                boardFits(fit);
+            return [ok, { rows: g?.rows.length, lanes: g?.laneCount, focus: f?.focus, down: f?.down, more: f?.more, labels: f?.labels, board: fit && [fit.height, fit.lowest] }];
         });
 
         await step("with the Run tab open on Tasks, a wsh jarvis complete card's Report link for t-3 switches the tab to Graph in Focus on t-3", async () => {
