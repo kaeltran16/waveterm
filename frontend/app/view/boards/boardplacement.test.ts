@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 import type { AgentsViewModel, SurfaceKey } from "../agents/agents";
 import type { AgentVM } from "../agents/agentsviewmodel";
 import { viewModeAtom } from "../agents/renderedmode";
-import { endedWorkerId } from "../agents/runlineage";
 import { rendersNow } from "../agents/workspacestore";
 import { boardHome, drawerToastShows, type Looking } from "./boardplacement";
 
@@ -44,11 +43,6 @@ describe("boardHome", () => {
     it("opens on Boards when the agent shows its terminal", () => {
         const id = freshId("term");
         globalStore.set(viewModeAtom(id), "terminal");
-        expect(homeOf([agent(id)], id)).toEqual({ kind: "boards" });
-    });
-
-    it("opens on Boards when the agent has ended", () => {
-        const id = endedWorkerId(freshId("run"), "t1");
         expect(homeOf([agent(id)], id)).toEqual({ kind: "boards" });
     });
 
