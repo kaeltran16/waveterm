@@ -17,8 +17,9 @@ import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useEffect, useMemo } from "react";
 import type { AgentsViewModel } from "./agents";
 import { displayAgeMs, formatAgeShort, projectOf, type AgentVM } from "./agentsviewmodel";
-import { lastLine, lastTurnEntries, type CockpitSession, type SessionState } from "./cockpitsessionmodel";
+import { lastLine, lastTurnEntries, type CockpitSession } from "./cockpitsessionmodel";
 import { cockpitViewAtomFor, cockpitZoomAtom, runWaitAtom } from "./cockpitsessionstore";
+import { StateChip, THUMB_ROWS } from "./cockpitthumbnail";
 import { zoomTabs, type ZoomTabs } from "./cockpitzoommodel";
 import { entriesAtomFor } from "./livetranscriptatoms";
 import { canRender } from "./renderedmode";
@@ -27,30 +28,6 @@ import { isEndedWorkerId } from "./runlineage";
 import { paneShape, tabKey } from "./workspacemodel";
 import { WorkspacePane } from "./workspacepane";
 import { activateWorkspaceTab, pushWorkspaceTab, updateWorkspaceTab, workspaceAtom } from "./workspacestore";
-
-// the filmstrip's line reads the thumbnail's cut
-const THUMB_ROWS = 8;
-
-const STATE_LABEL: Record<SessionState, string> = {
-    asks: "Asks you",
-    turn: "Your turn",
-    watching: "Watching",
-    working: "Working",
-};
-
-// Asks you and Your turn take the waiting color; Watching's hollow dot says it is idle with something running
-const CHIP_TONE: Record<SessionState, string> = {
-    asks: "border-asking bg-asking text-on-warning",
-    turn: "border-warning/45 bg-askingbg text-asking",
-    watching: "border-edge-mid bg-surface-raised text-ink-mid",
-    working: "border-transparent bg-success/10 text-success",
-};
-const CHIP_DOT: Record<SessionState, string> = {
-    asks: "border-on-warning bg-on-warning",
-    turn: "border-asking bg-asking",
-    watching: "border-ink-mid bg-transparent",
-    working: "border-success bg-success",
-};
 
 const KBD = "rounded-[4px] border border-edge-strong px-[5px] font-mono text-[10.5px] text-ink-mid";
 
@@ -138,7 +115,10 @@ function ZoomHeader({
     const agent = session.agent;
     const project = projectOf(agent);
     return (
-        <div className="flex h-[50px] flex-none items-center gap-[10px] border-b border-border px-[18px]">
+        <div
+            data-cockpit-zoom-state={session.state}
+            className="flex h-[50px] flex-none items-center gap-[10px] border-b border-border px-[18px]"
+        >
             <button
                 type="button"
                 data-cockpit-zoom-back
@@ -159,25 +139,6 @@ function ZoomHeader({
                 <span className={KBD}>Enter</span> opens it on the Agent surface
             </span>
         </div>
-    );
-}
-
-// the chip recolors in place when the state moves (moment 12's cross-fade, as a color transition)
-function StateChip({ state, small }: { state: SessionState; small?: boolean }) {
-    return (
-        <span
-            data-cockpit-zoom-state={state}
-            className={cn(
-                "inline-flex flex-none items-center gap-[5px] rounded-[5px] border font-semibold transition-colors motion-reduce:transition-none",
-                small ? "h-[17px] px-[5px] text-[10.5px]" : "h-[20px] px-[7px] text-[11.5px]",
-                CHIP_TONE[state]
-            )}
-        >
-            {small ? null : (
-                <span className={cn("box-border h-[6px] w-[6px] rounded-full border-[1.5px]", CHIP_DOT[state])} />
-            )}
-            {STATE_LABEL[state]}
-        </span>
     );
 }
 
@@ -242,6 +203,8 @@ function FilmItem({ session, current }: { session: CockpitSession; current: bool
             data-cockpit-film={id}
             data-current={current || undefined}
             aria-current={current || undefined}
+            // a hop leaves focus where it was, so Enter still opens the session rather than pressing this button
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => globalStore.set(cockpitZoomAtom, id)}
             className={cn(
                 "relative flex min-w-0 max-w-[280px] flex-1 basis-0 cursor-pointer flex-col gap-[4px] rounded-[8px] border px-[10px] py-[7px] text-left",

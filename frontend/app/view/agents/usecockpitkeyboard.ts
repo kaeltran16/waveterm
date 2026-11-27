@@ -3,7 +3,8 @@
 //
 // The Cockpit grid's own keys: the arrows walk the cursor along the path (thumbnails, the Idle line, the strip),
 // Space zooms a thumbnail or an Idle name and opens a strip line's run, d dismisses a thumbnail, Enter opens a
-// session on the Agent surface. Cockpit-local, handled here rather than by the global keybinding registry.
+// session on the Agent surface. Cockpit-local, handled here rather than by the global keybinding registry. While a
+// session is zoomed every key here stands down: the zoom's own bindings (bindings.ts' cockpit:zoom-*) hold them.
 
 import { tabbedControlOwns } from "@/app/store/keybindings/dispatcher";
 import { type KeyboardEvent, type MutableRefObject } from "react";
@@ -12,6 +13,7 @@ import { dismissedCursor, stepCursor, type ArrowKey, type GridPath, type GridTra
 export type CockpitKeyDeps = {
     path: GridPath;
     cursorId: string | undefined;
+    zoomed: boolean;
     setCursorId: (id: string | undefined) => void;
     trailRef: MutableRefObject<GridTrail>;
     zoom: (agentId: string) => void;
@@ -25,8 +27,11 @@ export type CockpitKeyDeps = {
 const ARROWS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 
 export function useCockpitKeyboard(deps: CockpitKeyDeps): (e: KeyboardEvent) => void {
-    const { path, cursorId, setCursorId, trailRef, zoom, zoomIdle, dismiss, openStrip, openAgent } = deps;
+    const { path, cursorId, zoomed, setCursorId, trailRef, zoom, zoomIdle, dismiss, openStrip, openAgent } = deps;
     return (e: KeyboardEvent) => {
+        if (zoomed) {
+            return;
+        }
         const t = e.target as HTMLElement;
         if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) {
             return;

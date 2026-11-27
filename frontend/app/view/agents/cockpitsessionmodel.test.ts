@@ -20,6 +20,8 @@ import type { SubagentVM } from "./session-models/sessionviewmodel";
 import type { ShellTask } from "./shelltasks";
 
 const MIN = 60_000;
+// one second, in the escalation walk's minutes
+const SEC = 1 / 60;
 // a fixed local noon, so "since local midnight" has room on both sides
 const NOW = new Date(2026, 10, 27, 12, 0, 0).getTime();
 const MIDNIGHT = new Date(2026, 10, 27, 0, 0, 0).getTime();
@@ -218,12 +220,33 @@ describe("escalation", () => {
             { owner: "you", why: "turn" },
         ],
         [
-            "conductor gone",
+            "conductor gone for less than the grace stays pending",
             [
                 [0, live("working")],
                 [1, { kind: "gone" }],
+                [1 + SEC * 5, { kind: "gone" }],
+            ],
+            null,
+        ],
+        [
+            "conductor gone past the grace is yours",
+            [
+                [0, live("working")],
+                [1, { kind: "gone" }],
+                [1 + SEC * 11, { kind: "gone" }],
             ],
             { owner: "you", why: "exit" },
+        ],
+        [
+            "conductor gone, then live, then gone restarts the grace",
+            [
+                [0, live("working")],
+                [1, { kind: "gone" }],
+                [1 + SEC * 8, live("working")],
+                [1 + SEC * 12, { kind: "gone" }],
+                [1 + SEC * 20, { kind: "gone" }],
+            ],
+            null,
         ],
         ["never had one", [[0, { kind: "none" }]], { owner: "you", why: "none" }],
         ["before the runs store loads", [[0, { kind: "unknown", checkedAt: null }]], null],

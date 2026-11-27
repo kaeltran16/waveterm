@@ -82,18 +82,20 @@ export function SelectionRing({ className }: { className?: string }) {
     );
 }
 
-export function StateChip({ state }: { state: SessionState }) {
+// a session's state; small drops the dot (the zoom's filmstrip)
+export function StateChip({ state, small }: { state: SessionState; small?: boolean }) {
     const face = STATE_FACE[state];
     return (
         <CrossFade swapKey={state} className="shrink-0">
             <span
-                data-thumb-chip={state}
+                data-state-chip={state}
                 className={cn(
-                    "inline-flex h-5 items-center gap-[5px] rounded-[5px] border px-[7px] text-[11.5px] font-semibold",
+                    "inline-flex items-center gap-[5px] rounded-[5px] border font-semibold",
+                    small ? "h-[17px] px-[5px] text-[10.5px]" : "h-5 px-[7px] text-[11.5px]",
                     face.chip
                 )}
             >
-                <span className={cn("h-1.5 w-1.5 rounded-full", face.dot)} />
+                {small ? null : <span className={cn("h-1.5 w-1.5 rounded-full", face.dot)} />}
                 {face.label}
             </span>
         </CrossFade>

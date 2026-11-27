@@ -12,10 +12,11 @@ import { useCockpitKeyboard, type CockpitKeyDeps } from "./usecockpitkeyboard";
 
 const PATH: GridPath = { grid: ["a", "b", "c"], idle: ["i1"], strip: ["strip:r1"], columns: 3 };
 
-function handler(cursorId: string) {
+function handler(cursorId: string, zoomed = false) {
     const deps = {
         path: PATH,
         cursorId,
+        zoomed,
         setCursorId: vi.fn(),
         trailRef: { current: {} },
         zoom: vi.fn(),
@@ -49,14 +50,18 @@ describe("the Cockpit grid's keys", () => {
         expect(e.preventDefault).toHaveBeenCalled();
     });
 
-    it.each<[string, string, string]>([
-        ["d on an Idle name", "i1", "d"],
-        ["d on a strip line", "strip:r1", "d"],
-        ["Enter on a strip line", "strip:r1", "Enter"],
-    ])("%s does nothing", (_, cursor, key) => {
-        const { deps, onKey } = handler(cursor);
+    it.each<[string, string, string, boolean]>([
+        ["d on an Idle name", "i1", "d", false],
+        ["d on a strip line", "strip:r1", "d", false],
+        ["Enter on a strip line", "strip:r1", "Enter", false],
+        // the zoomed view's own keys hold these, and a d its pane did not take must not dismiss the session
+        ["d while a session is zoomed", "b", "d", true],
+        ["Space while a session is zoomed", "b", " ", true],
+        ["an arrow while a session is zoomed", "b", "ArrowRight", true],
+    ])("%s does nothing", (_, cursor, key, zoomed) => {
+        const { deps, onKey } = handler(cursor, zoomed);
         onKey(press(key));
-        for (const fn of [deps.zoom, deps.zoomIdle, deps.dismiss, deps.openStrip, deps.openAgent]) {
+        for (const fn of [deps.zoom, deps.zoomIdle, deps.dismiss, deps.openStrip, deps.openAgent, deps.setCursorId]) {
             expect(fn).not.toHaveBeenCalled();
         }
     });

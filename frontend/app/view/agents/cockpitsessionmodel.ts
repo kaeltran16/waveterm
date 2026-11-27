@@ -48,6 +48,10 @@ export const WAIT_TIMER_MS = WAIT_TIMER_MIN * 60_000;
 
 const MINUTE_MS = 60_000;
 
+// how long a conductor must read gone, without a live read between, before its wait is yours: one poll tick, so a
+// conductor whose status has not arrived yet at app start is not taken for exited
+export const CONDUCTOR_GONE_GRACE_MS = 10_000;
+
 export function isCockpitSession(agent: AgentVM, hasLineageRole: boolean): boolean {
     return (agent.kind ?? "agent") === "agent" && !agent.runId && !hasLineageRole && !agent.parentTabId;
 }
@@ -209,6 +213,8 @@ export interface WaitTrack {
     why: WaitWhy | null;
     state: SessionState | null;
     conductorName: string | null;
+    // when the conductor started reading gone, unbroken since; null while it reads anything else
+    goneSince: number | null;
 }
 
 // null while pending: the wait is neither the conductor's nor yours yet
@@ -229,7 +235,9 @@ export function waitVerdict(
         case "none":
             return yours("none");
         case "gone":
-            return yours("exit");
+            return track.goneSince != null && track.lastTs - track.goneSince >= CONDUCTOR_GONE_GRACE_MS
+                ? yours("exit")
+                : null;
     }
     if (onYou(read.state)) {
         return yours("turn");
@@ -246,11 +254,21 @@ export function waitVerdict(
 export function stepWait(prev: WaitTrack | undefined, read: ConductorRead, now: number): WaitTrack {
     const t: WaitTrack = prev
         ? { ...prev }
-        : { openedAt: now, watchedMs: 0, lastTs: now, yours: false, why: null, state: null, conductorName: null };
+        : {
+              openedAt: now,
+              watchedMs: 0,
+              lastTs: now,
+              yours: false,
+              why: null,
+              state: null,
+              conductorName: null,
+              goneSince: null,
+          };
     if (prev?.state === "watching") {
         t.watchedMs += Math.max(0, now - prev.lastTs);
     }
     t.lastTs = now;
+    t.goneSince = read.kind === "gone" ? (prev?.goneSince ?? now) : null;
     t.state = read.kind === "live" ? read.state : null;
     if (read.kind === "live") {
         t.conductorName = read.name;
