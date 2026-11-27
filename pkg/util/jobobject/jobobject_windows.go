@@ -261,6 +261,11 @@ func LowerPriority(blockId string) error {
 	return nil
 }
 
+// LowerJobPriority puts every process in job, and every one it starts later, at below-normal priority.
+func LowerJobPriority(job uintptr) error {
+	return setBelowNormal(windows.Handle(job))
+}
+
 func setBelowNormal(job windows.Handle) error {
 	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
 	size := uint32(unsafe.Sizeof(info))

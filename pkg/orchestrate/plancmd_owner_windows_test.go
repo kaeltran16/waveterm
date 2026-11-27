@@ -7,6 +7,7 @@ package orchestrate
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,6 +46,28 @@ func TestPlanCommandRegistersRunOwner(t *testing.T) {
 	}
 	if ownerLive(want) {
 		t.Fatalf("owner %+v is still registered after the command returned", want)
+	}
+}
+
+func TestPlanCommandPriorityByCommand(t *testing.T) {
+	// the class a child of the command reads for itself, so it proves the job's limit reaches later processes
+	const probe = `powershell -NoProfile -Command '(Get-Process -Id $PID).PriorityClass'`
+	for _, tc := range []struct {
+		cmd, want string
+	}{
+		{PlanCmd_Verify, "BelowNormal"},
+		{PlanCmd_Final, "Normal"},
+	} {
+		t.Run(tc.cmd, func(t *testing.T) {
+			ctx := withRunCmdOwner(context.Background(), "run-1", tc.cmd, "")
+			out, err := execPlanCommandEnv(ctx, t.TempDir(), probe, nil, time.Minute, nil)
+			if err != nil {
+				t.Fatalf("probe failed: %v\n%s", err, out)
+			}
+			if got := strings.TrimSpace(out); got != tc.want {
+				t.Fatalf("%s child ran at %q, want %q", tc.cmd, got, tc.want)
+			}
+		})
 	}
 }
 

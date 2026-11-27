@@ -8,6 +8,7 @@ package orchestrate
 import (
 	"context"
 	"errors"
+	"log"
 	"os/exec"
 	"sync/atomic"
 
@@ -55,6 +56,11 @@ func runShellCmd(c *exec.Cmd, owner jobobject.Owner) error {
 		job.Store(uint64(j))
 		if owner.Kind != "" {
 			jobobject.Register(j, c.Process.Pid, owner)
+		}
+		if yieldsCPU(owner) {
+			if perr := jobobject.LowerJobPriority(j); perr != nil {
+				log.Printf("lowering priority of %s for run %s: %v", owner.Cmd, owner.Id, perr)
+			}
 		}
 	}
 	err := c.Wait()

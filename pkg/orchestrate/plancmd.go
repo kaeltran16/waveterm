@@ -193,6 +193,12 @@ func withRunCmdOwner(ctx context.Context, runID, cmd, task string) context.Conte
 	return jobobject.WithOwner(ctx, jobobject.Owner{Kind: jobobject.OwnerKind_RunCmd, Id: runID, Cmd: cmd, Task: task})
 }
 
+// yieldsCPU reports whether a plan command runs at below-normal priority, as workers do, so runs in flight leave
+// the app responsive. Final stays normal: its scenarios read UI timing in a dev app and flake when starved.
+func yieldsCPU(owner jobobject.Owner) bool {
+	return owner.Kind == jobobject.OwnerKind_RunCmd && owner.Cmd != PlanCmd_Final
+}
+
 // runPlanCommand runs a plan command through a POSIX shell in dir, with env added to its environment, and
 // returns the tail of its output, on a pass as well as a failure. A var so engine tests can script Setup and
 // Verify without running anything; a stub calls progress itself to script mid-run output.
