@@ -292,24 +292,37 @@ func TestBoardForwardReplyAfterRestart(t *testing.T) {
 	}
 }
 
-// the 11-27 loss: the agent's own turn-end event never moved the forward, so any later agent's event must
-func TestBoardForwardReplyOnAnotherAgentsStatus(t *testing.T) {
+// 11-27: a pending forward made every agent's status event read the whole roster, every run with it, starving the store
+func TestBoardForwardIgnoresAnUnrelatedAgentsStatus(t *testing.T) {
 	f := newForwardFixture(t, baseds.AgentState_Idle)
 	other := f.addAgent("claude")
 	turn := f.forwardedTurn(f.boardAgent(f.agent))
 	forwardBoardTurn(f.board, turn.ID)
 	f.write("user", f.typedNow()[0].text, time.Second)
 	f.write("agent", "one store caches the other", 2*time.Second)
+	var reads []string
+	loadAgentRosterFacts = func(context.Context) (*agentRosterFacts, error) {
+		reads = append(reads, "roster")
+		return f.facts, nil
+	}
+	loadAgentTabFacts = func(_ context.Context, tabId string) (*agentTabFacts, error) {
+		reads = append(reads, tabId)
+		return nil, nil
+	}
 
-	oref := waveobj.MakeORef(waveobj.OType_Block, other.BlockId).String()
-	publishEvent(f.ctx, wps.WaveEvent{
-		Event:  wps.Event_AgentStatus,
-		Scopes: []string{oref},
-		Data:   baseds.AgentStatusData{ORef: oref, State: baseds.AgentState_Working, Agent: "claude", Ts: time.Now().UnixMilli()},
-	})
+	for _, oref := range []waveobj.ORef{waveobj.MakeORef(waveobj.OType_Block, other.BlockId), waveobj.MakeORef(waveobj.OType_Tab, other.Tab.OID)} {
+		publishEvent(f.ctx, wps.WaveEvent{
+			Event:  wps.Event_AgentStatus,
+			Scopes: []string{oref.String()},
+			Data:   baseds.AgentStatusData{ORef: oref.String(), State: baseds.AgentState_Working, Agent: "claude", Ts: time.Now().UnixMilli()},
+		})
+	}
 
-	if fw := f.turn(turn.ID).Forward; fw.State != "replied" || fw.Reply != "one store caches the other" {
-		t.Errorf("forward: %+v", fw)
+	if len(reads) != 0 {
+		t.Errorf("an unrelated agent's events read %v", reads)
+	}
+	if got := f.forwardState(turn.ID); got != "sent" {
+		t.Errorf("the forward is %s", got)
 	}
 }
 
