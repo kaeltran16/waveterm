@@ -43,7 +43,7 @@ import { openBeside } from "./workspacestore";
 // a dot changing state morphs its colour (moment 17)
 const DOT_MORPH = { transitionDuration: `${MOTION.durMacro}s`, transitionTimingFunction: easeFluidCss };
 
-const STATE_TEXT: Record<RowDot, string> = {
+export const STATE_TEXT: Record<RowDot, string> = {
     merged: "text-muted",
     working: "text-accent",
     asked: "text-warning",
@@ -53,11 +53,11 @@ const STATE_TEXT: Record<RowDot, string> = {
 
 const META = "font-mono text-[11px] text-muted";
 const ACTION =
-    "inline-flex cursor-pointer items-center gap-[5px] rounded-[6px] border border-edge-mid px-[9px] py-[3px] text-[12px] text-secondary hover:border-edge-strong";
+    "inline-flex cursor-pointer items-center gap-[5px] whitespace-nowrap rounded-[6px] border border-edge-mid px-[9px] py-[3px] text-[12px] text-secondary hover:border-edge-strong";
 
 // each task's worker run, by task id; a task not dispatched yet has none. One atom over the dag's run ids, so the
 // hook count stays fixed as tasks dispatch.
-function useChildRuns(dag: TaskGroup | undefined): Record<string, Run | undefined> {
+export function useChildRuns(dag: TaskGroup | undefined): Record<string, Run | undefined> {
     const key = JSON.stringify((dag?.tasks ?? []).filter((t) => t.runid).map((t) => [t.id, t.runid]));
     const runsAtom = useMemo(() => {
         const pairs: [string, string][] = JSON.parse(key);
@@ -126,7 +126,9 @@ export function TasksView({ model, agent, run, asks, events }: RunViewProps) {
                             body={body}
                             ask={ask ? <RowAsk run={run} ask={ask} events={events} now={now} /> : null}
                             steps={
-                                task.state === "running" && task.runid ? <LatestSteps run={run} task={task} /> : null
+                                task.state === "running" && task.runid ? (
+                                    <LatestSteps run={run} task={task} n={LATEST_STEPS} prefix={TASKS_STREAM} />
+                                ) : null
                             }
                             actions={
                                 <TaskActions
@@ -387,15 +389,16 @@ function RowAsk({ run, ask, events, now }: { run: RunInfo; ask: DagAskItem; even
 }
 
 const LATEST_STEPS = 3;
+const TASKS_STREAM = "runtab-steps";
 const NO_CTX = {};
 
-// a running task's worker, its last steps, through a stream the tab owns under its own id, so closing the row never
-// stops the worker's stream in another view. The body unmounts on close, which stops it.
-function LatestSteps({ run, task }: { run: RunInfo; task: TaskNode }) {
-    const id = `runtab-steps:${run.runId}:${task.id}`;
+// a running task's worker, its last n steps, through a stream the caller owns under its own id prefix, so closing a
+// row or swapping views never stops the worker's stream in another view. Unmounting stops it.
+export function LatestSteps({ run, task, n, prefix }: { run: RunInfo; task: TaskNode; n: number; prefix: string }) {
+    const id = `${prefix}:${run.runId}:${task.id}`;
     const path = useAtomValue(runTranscriptPathsAtom)[task.runid];
     const entries = useAtomValue(entriesAtomFor(id));
-    const steps = useMemo(() => latestSteps(entries, LATEST_STEPS), [entries]);
+    const steps = useMemo(() => latestSteps(entries, n), [entries, n]);
     const runtime = task.runspec?.runtime;
     useEffect(() => {
         loadRunTranscriptPath(run.channelId, task.runid);
@@ -445,23 +448,26 @@ function RanStep({ ran }: { ran: NonNullable<TaskBodyView["ran"]> }) {
     );
 }
 
-function TaskActions({
+// trailing, when given, sits right-aligned after a spacer
+export function TaskActions({
     task,
     changes,
     onOpenAgent,
     onOpenChanges,
+    trailing,
 }: {
     task: TaskNode;
     changes: string | null;
     onOpenAgent: () => void;
     onOpenChanges: (selected: string) => void;
+    trailing?: ReactNode;
 }) {
     // a task not dispatched has no agent to open
     if (!task.runid) {
         return null;
     }
     return (
-        <div className="flex gap-[6px]">
+        <div className="flex items-center gap-[6px]">
             <button
                 type="button"
                 data-open-agent
@@ -475,6 +481,12 @@ function TaskActions({
                 <button type="button" data-open-changes onClick={() => onOpenChanges(changes)} className={ACTION}>
                     Open changes
                 </button>
+            ) : null}
+            {trailing != null ? (
+                <>
+                    <span className="flex-1" />
+                    {trailing}
+                </>
             ) : null}
         </div>
     );
