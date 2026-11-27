@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backgroundAgentToVM, dedupBackgroundAgents, type AgentVM } from "./agentsviewmodel";
+import { backgroundAgentToVM } from "./agentsviewmodel";
 
 const NOW = 1_000_000;
 
@@ -26,24 +26,5 @@ describe("backgroundAgentToVM", () => {
     it("maps busy/working -> working", () => {
         expect(backgroundAgentToVM(bg("s3", "busy"), "p", NOW).state).toBe("working");
         expect(backgroundAgentToVM(bg("s4", "working"), "p", NOW).state).toBe("working");
-    });
-});
-
-describe("dedupBackgroundAgents", () => {
-    it("drops a background agent already tracked live (by transcript session id)", () => {
-        const live: AgentVM[] = [
-            { id: "tab1", name: "live", task: "", state: "working", transcriptPath: "/x/projects/p/s1.jsonl" },
-        ];
-        const background = [
-            backgroundAgentToVM(bg("s1", "blocked"), "p", NOW), // dup of live
-            backgroundAgentToVM(bg("s2", "working"), "p", NOW), // keep
-        ];
-        const out = dedupBackgroundAgents(background, live);
-        expect(out.map((a) => a.id)).toEqual(["s2"]);
-    });
-    it("keeps all when nothing matches", () => {
-        const live: AgentVM[] = [{ id: "t", name: "l", task: "", state: "idle", transcriptPath: "/x/p/other.jsonl" }];
-        const background = [backgroundAgentToVM(bg("s9", "idle"), "p", NOW)];
-        expect(dedupBackgroundAgents(background, live)).toHaveLength(1);
     });
 });

@@ -27,7 +27,6 @@ import {
     isNearBottom,
     isQuiet,
     isRecentlyIdle,
-    latestMessageText,
     liveWindowAgents,
     mergeOrder,
     mergePendingLaunches,
@@ -35,7 +34,6 @@ import {
     nextAskAfterAnswer,
     nextAskId,
     nextUnansweredQuestion,
-    partitionBackgrounded,
     pendingToVM,
     providerPlanUsage,
     recentActions,
@@ -44,7 +42,6 @@ import {
     streamableTranscriptAgents,
     stuckAfterScroll,
     summarizeActions,
-    taskProgress,
     toggleSelection,
     usageLevel,
     withAsk,
@@ -54,7 +51,6 @@ import {
     type AgentAskQuestion,
     type AgentEntry,
     type AgentVM,
-    type CardTask,
     type LiveAgentInput,
     type PendingLaunch,
 } from "./agentsviewmodel";
@@ -801,29 +797,6 @@ describe("providerPlanUsage (no dedup)", () => {
     });
 });
 
-describe("latestMessageText", () => {
-    it("returns the last message-kind entry's text", () => {
-        const entries: AgentEntry[] = [
-            { kind: "message", text: "first" },
-            { kind: "action", verb: "read", target: "a.ts" },
-            { kind: "message", text: "second" },
-        ];
-        expect(latestMessageText(entries)).toBe("second");
-    });
-    it("ignores trailing actions and user turns", () => {
-        const entries: AgentEntry[] = [
-            { kind: "message", text: "hello" },
-            { kind: "user", text: "do x" },
-            { kind: "action", verb: "ran", target: "go test" },
-        ];
-        expect(latestMessageText(entries)).toBe("hello");
-    });
-    it("is undefined when there are no messages", () => {
-        expect(latestMessageText([{ kind: "action", verb: "read", target: "a" }])).toBeUndefined();
-        expect(latestMessageText([])).toBeUndefined();
-    });
-});
-
 describe("recentActions", () => {
     const entries: AgentEntry[] = [
         { kind: "action", verb: "read", target: "a" },
@@ -927,21 +900,6 @@ describe("summarizeActions", () => {
     });
 });
 
-describe("partitionBackgrounded", () => {
-    it("splits working agents by the backgrounded id set, preserving order", () => {
-        const working = [mk("a", "working"), mk("b", "working"), mk("c", "working")];
-        const out = partitionBackgrounded(working, new Set(["b"]));
-        expect(out.active.map((x) => x.id)).toEqual(["a", "c"]);
-        expect(out.backgrounded.map((x) => x.id)).toEqual(["b"]);
-    });
-    it("returns all active when the set is empty", () => {
-        const working = [mk("a", "working"), mk("b", "working")];
-        const out = partitionBackgrounded(working, new Set());
-        expect(out.active.map((x) => x.id)).toEqual(["a", "b"]);
-        expect(out.backgrounded).toEqual([]);
-    });
-});
-
 describe("toggleSelection", () => {
     it("single-select replaces the prior choice for that question", () => {
         const out = toggleSelection({ 0: new Set([1]) }, 0, 2, false);
@@ -961,24 +919,6 @@ describe("toggleSelection", () => {
     it("keeps selections for other questions intact", () => {
         const out = toggleSelection({ 0: new Set([1]), 1: new Set([3]) }, 0, 2, false);
         expect([...out[1]]).toEqual([3]);
-    });
-});
-
-describe("taskProgress", () => {
-    it("taskProgress computes done/total/pct", () => {
-        expect(taskProgress([])).toEqual({ done: 0, total: 0, pct: 0 });
-        const all: CardTask[] = [
-            { text: "a", done: true },
-            { text: "b", done: true },
-        ];
-        expect(taskProgress(all)).toEqual({ done: 2, total: 2, pct: 100 });
-        const some: CardTask[] = [
-            { text: "a", done: true },
-            { text: "b", done: false },
-            { text: "c", done: false },
-            { text: "d", done: false },
-        ];
-        expect(taskProgress(some)).toEqual({ done: 1, total: 4, pct: 25 });
     });
 });
 

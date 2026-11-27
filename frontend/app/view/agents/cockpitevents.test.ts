@@ -7,16 +7,12 @@ import {
     agentTransitions,
     fillAskedText,
     finishes,
-    groupRailEvents,
     leadAskEvents,
-    markRailRead,
     mergeRailEvents,
     nextSnap,
-    NO_RAIL_SEEN,
     runRailEvents,
     scopeRailRows,
     splitUnread,
-    splitUnreadScoped,
     type RailEvent,
 } from "./cockpitevents";
 import type { Lineage, RunInfo } from "./runlineage";
@@ -351,33 +347,6 @@ describe("mergeRailEvents / splitUnread", () => {
     });
 });
 
-describe("groupRailEvents", () => {
-    const e = (key: string, group?: string) => ({
-        key,
-        who: group ? "auth-lead" : "w",
-        kind: "asked" as const,
-        text: "",
-        ts: 0,
-        group,
-    });
-    const list = [e("a", "R"), e("p"), e("b", "R"), e("c", "R")];
-    it("shows a run's newest event with a count of the rest, and plain agents' events as they are", () => {
-        const rows = groupRailEvents(list, {});
-        expect(rows.map((r) => r.key)).toEqual(["a", "p"]);
-        expect(rows[0].more).toBe("+2 more");
-        expect(rows[1].more).toBeUndefined();
-    });
-    it("lists every event of an opened run, the first offering to fold them again", () => {
-        const rows = groupRailEvents(list, { R: true });
-        expect(rows.map((r) => r.key)).toEqual(["a", "p", "b", "c"]);
-        expect(rows[0].more).toBe("show less");
-        expect(rows[2].more).toBeUndefined();
-    });
-    it("offers nothing for a run with a single event", () => {
-        expect(groupRailEvents([e("a", "R")], {})[0].more).toBeUndefined();
-    });
-});
-
 describe("fillAskedText", () => {
     const asked = (over: Partial<RailEvent> = {}): RailEvent => ({
         key: "x:asked:90",
@@ -442,13 +411,5 @@ describe("scopeRailRows", () => {
     });
     it("scopes a run's row by its lead's project", () => {
         expect(scopeRailRows(rows, agents, lineage, "payments").map((r) => r.key)).toEqual(["p", "run"]);
-    });
-
-    it("Mark all read in one project leaves the other projects' unread events unread", () => {
-        const timed = [ev("p", { focusId: "p1", ts: 30 }), ev("w", { focusId: "w1", ts: 10 })];
-        const seen = markRailRead(NO_RAIL_SEEN, "payments", 30);
-        expect(splitUnreadScoped(timed, seen, agents, lineage).fresh.map((r) => r.key)).toEqual(["w"]);
-        const all = markRailRead(seen, "all", 30);
-        expect(splitUnreadScoped(timed, all, agents, lineage).fresh).toEqual([]);
     });
 });

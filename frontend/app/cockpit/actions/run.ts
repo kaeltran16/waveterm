@@ -172,8 +172,7 @@ const RUN_ACTIONS: ThingAction<RunThing>[] = [
                     label: n === t.info?.dag?.parallelism ? `${n} at a time · now` : `${n} at a time`,
                 })),
         },
-        // straight to the RPC, not runCardAction: that parks a refusal on the lead card, which only grid runs
-        // show, while a rejection here is shown by the palette
+        // a rejection is shown by the palette
         run: (t, _deps, value) => setRunParallelism(t.info, clampParallelism(Number(value))),
     },
     {

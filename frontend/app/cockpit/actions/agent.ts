@@ -1,16 +1,10 @@
 import { globalStore } from "@/app/store/jotaiStore";
-import {
-    confirmCloseSession,
-    dismissAgent,
-    driveAgent,
-    NUDGE_INPUT,
-    toggleAgentBackground,
-} from "@/app/view/agents/agentactions";
+import { confirmCloseSession, driveAgent, NUDGE_INPUT } from "@/app/view/agents/agentactions";
 import { agentDiffScope, openDiff } from "@/app/view/agents/agentdiffnav";
 import { contextLevel, lastTurnInterrupted, offersContextReset, railAction } from "@/app/view/agents/agentrailmodel";
-import { muteMode } from "@/app/view/agents/agentrowmodel";
 import type { AgentVM } from "@/app/view/agents/agentsviewmodel";
 import { diffStatsByIdAtom } from "@/app/view/agents/cardgitstore";
+import { cockpitViewAtomFor, dismissSession } from "@/app/view/agents/cockpitsessionstore";
 import { liveEntriesByIdAtom } from "@/app/view/agents/livetranscriptatoms";
 import { isEndedWorkerId } from "@/app/view/agents/runlineage";
 import { isStandingBy } from "@/app/view/agents/shelltasks";
@@ -26,6 +20,7 @@ export interface AgentThing {
     agent: AgentVM;
     contextLevel: ContextLevel | null; // null until usage reports a context %, when the rail shows no context line
     hasDiff: boolean; // the card's Review changes button shows only when it has diff stats
+    onGrid: boolean; // a session with a thumbnail on the Cockpit grid, which Dismiss moves to the Idle line
 }
 
 // the rail's notion of a drivable agent: a terminal block, and not a finished worker's record
@@ -116,20 +111,13 @@ const actions: ThingAction<AgentThing>[] = [
         applies: offersReset,
         run: ({ agent }) => driveAgent(agent.blockId, "/clear\r"),
     },
-    // one mute control on the card, split in two here because a label cannot follow the agent's state
-    {
-        id: "agent:background",
-        label: "Move to background",
-        group: "steer",
-        applies: ({ agent }) => muteMode(agent.state) === "background",
-        run: ({ agent }, { model }) => toggleAgentBackground(model, agent.id),
-    },
+    // the grid's d key
     {
         id: "agent:dismiss",
         label: "Dismiss",
         group: "steer",
-        applies: ({ agent }) => muteMode(agent.state) === "dismiss",
-        run: ({ agent }, { model }) => dismissAgent(model, agent),
+        applies: (t) => t.onGrid,
+        run: ({ agent }) => dismissSession(agent.id),
     },
     {
         id: "agent:close",
@@ -147,6 +135,7 @@ export const AGENT_KIND: ThingKindDef<AgentThing> = {
     actions,
     entries: (get, model) => {
         const diffs = get(diffStatsByIdAtom) ?? {};
+        const onGrid = new Set(get(cockpitViewAtomFor(model)).sessions.map((s) => s.agent.id));
         return get(model.agentsAtom).map((a) => {
             const pct = a.usage?.contextpct;
             return {
@@ -156,6 +145,7 @@ export const AGENT_KIND: ThingKindDef<AgentThing> = {
                     agent: a,
                     contextLevel: pct != null ? contextLevel(pct, a.usage?.contextmax) : null,
                     hasDiff: diffs[a.id] != null,
+                    onGrid: onGrid.has(a.id),
                 },
             };
         });

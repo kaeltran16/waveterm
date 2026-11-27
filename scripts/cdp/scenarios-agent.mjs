@@ -38,7 +38,6 @@ import {
     skipStep,
     teardownFixtureRun,
     tooltipLookOk,
-    treeRailRoster,
     waitForDispatch,
     waveService,
 } from "./scenarios-shared.mjs";
@@ -1628,7 +1627,6 @@ const RESMON_MIB = 1024 * 1024;
 const RESMON_TOTAL_CPU = 60.6;
 const RESMON_TOTAL_MEM = 7945689498;
 const RESMON_FOOTER = `document.querySelector('[data-hints-footer]')`;
-const RESMON_COCKPIT_HINTS = `document.querySelector('[data-cockpit-hints]')`;
 const RESMON_POPOVER = `document.querySelector('[data-resmon-popover]')`;
 // the window where the footer's chips wrapped out of the bar (visual revisit F2)
 const RESMON_NARROW = { width: 1000, height: 700, deviceScaleFactor: 1, mobile: false };
@@ -1890,47 +1888,28 @@ async function resmonArrange(h) {
     return { ready, keyPath };
 }
 
-// The Cockpit draws its hints bar, and so its readout, only over a roster: an empty store shows the empty state
-// alone. The fixture roster is read once at boot, and the reload drops the pinned snapshot, so it is set again.
-async function resmonSeedRoster(h, ctx) {
-    if (existsSync(TREE_RAIL_FIXTURE)) return;
-    mkdirSync(new URL(".", TREE_RAIL_FIXTURE), { recursive: true });
-    writeFileSync(TREE_RAIL_FIXTURE, JSON.stringify(treeRailRoster(undefined, Date.now()), null, 2));
-    ctx.wroteFixture = true;
-    await h.ev("location.reload()");
-    await polishWaitFor(h, `!!document.querySelector("nav button") && !!window.__resmonFixture`, 30000);
-    await resmonSet(h, resmonFixture());
-}
-
-// after ?: the help button precedes the readout, and only the remote chip (absent unless its status shows it) and
-// the readouts' wrapper sit between them
+// on the Cockpit the footer carries the page's one readout, with the remote chip (absent unless its status shows it)
+// before it
 const RESMON_COCKPIT_ORDER = `(() => {
-    const bar = ${RESMON_COCKPIT_HINTS};
-    const r = ${resmonReadout(RESMON_COCKPIT_HINTS)};
-    const help = bar?.querySelector('[data-cockpit-help]');
+    const bar = ${RESMON_FOOTER};
+    const r = ${resmonReadout(RESMON_FOOTER)};
     const pill = bar?.querySelector('[data-remote-pill]');
     const follows = (a, b) => !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const between = r && help
-        ? [...bar.querySelectorAll('*')].filter((el) =>
-              follows(help, el) && follows(el, r) && !help.contains(el) && !el.contains(r) && !el.closest('[data-remote-pill]'))
-        : null;
     return {
         readout: !!r,
-        afterHelp: !!r && !!help && follows(help, r) && between.length === 0,
-        between: between?.map((el) => el.tagName + (el.textContent.trim() ? ':' + el.textContent.trim() : '')) ?? null,
+        readouts: document.querySelectorAll('[data-resmon-readout]').length,
         remote: !!pill,
-        chipBefore: !!pill && !!r && !!help && follows(help, pill) && follows(pill, r),
-        footer: !!${RESMON_FOOTER},
+        chipBefore: !!pill && !!r && follows(pill, r),
     };
 })()`;
 
 // clicks the cockpit readout, reads where the popover opened, then closes it
 async function resmonCockpitOpen(h, ctx) {
-    await h.ev(resmonClick(resmonReadout(RESMON_COCKPIT_HINTS)));
+    await h.ev(resmonClick(resmonReadout(RESMON_FOOTER)));
     await resmonNap(RESMON_REVEAL_MS);
     const above = await h.ev(`(() => {
         const p = ${RESMON_POPOVER};
-        const bar = ${RESMON_COCKPIT_HINTS};
+        const bar = ${RESMON_FOOTER};
         if (!p || !bar) return { open: !!p, bar: !!bar };
         return { open: true, bottom: p.getBoundingClientRect().bottom, barTop: bar.getBoundingClientRect().top };
     })()`);
@@ -1956,11 +1935,6 @@ const resmonSwapRemote = (h, status) =>
 async function resmonTeardown(h, ctx) {
     await h.ev(`window.__resmonFixture?.clear()`).catch(() => {});
     if (ctx?.remoteSwapped) await resmonSwapRemote(h, ctx.prevRemote ?? null);
-    if (ctx?.wroteFixture) {
-        rmSync(TREE_RAIL_FIXTURE, { force: true });
-        await h.ev("location.reload()");
-        await polishWaitFor(h, `!!document.querySelector("nav button")`, 30000);
-    }
     await h.goto("cockpit");
 }
 
@@ -2074,60 +2048,44 @@ export const resmonFooter = {
         rec("5. focus in a field: the chips dim to 0.6, the readout stays at 1",
             dim.chips === "0.6" && dim.readout === "1", JSON.stringify(dim));
 
-        if (!existsSync(TREE_RAIL_FIXTURE)) {
-            await h.goto("cockpit");
-            await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}`, 10000);
-            const bare = await h.ev(`(() => {
-                const bar = ${RESMON_COCKPIT_HINTS};
-                return {
-                    readout: !!${resmonReadout(RESMON_COCKPIT_HINTS)},
-                    help: [...(bar?.querySelectorAll('button') ?? [])].some((b) => b.textContent.trim() === '?'),
-                };
-            })()`);
-            await shot("5b-cockpit-empty");
-            rec("5b. Cockpit with no roster: the hints bar shows the readout alone, no triage hints or ?",
-                bare.readout && !bare.help, JSON.stringify(bare));
-        }
-
-        await resmonSeedRoster(h, ctx);
         await h.goto("cockpit");
-        await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}`, 10000);
+        await polishWaitFor(h, `!!${resmonReadout(RESMON_FOOTER)}`, 10000);
         const cockpit = await h.ev(RESMON_COCKPIT_ORDER);
         await shot("6-cockpit");
-        rec("6. Cockpit: the readout sits in the cockpit hints bar, after ?",
-            cockpit.readout && cockpit.afterHelp && !cockpit.footer, JSON.stringify(cockpit));
+        rec("6. Cockpit: the footer carries the page's one readout",
+            cockpit.readout && cockpit.readouts === 1, JSON.stringify(cockpit));
 
         await resmonBlur(h);
         await resmonKey(h, ctx, "g");
         const cockpitLeader = await h.ev(`(() => ({
             leader: [...(${RESMON_FOOTER}?.querySelectorAll('span') ?? [])].some((s) => s.textContent.trim() === 'g →'),
             readouts: document.querySelectorAll('[data-resmon-readout]').length,
-            inBar: !!${resmonReadout(RESMON_COCKPIT_HINTS)},
+            inBar: !!${resmonReadout(RESMON_FOOTER)},
         }))()`);
         await shot("6a-cockpit-leader");
-        rec("6a. Cockpit under the g leader: one readout, in the hints bar, and the footer's own yields",
+        rec("6a. Cockpit under the g leader: one readout, in the footer beside the continuations",
             cockpitLeader.leader && cockpitLeader.readouts === 1 && cockpitLeader.inBar, JSON.stringify(cockpitLeader));
         await resmonKey(h, ctx, "Escape");
 
         const above = await resmonCockpitOpen(h, ctx);
         await shot("6b-cockpit-open");
-        rec("6b. Cockpit: clicking that readout opens the popover above the hints bar",
+        rec("6b. Cockpit: clicking that readout opens the popover above the footer",
             above.open && above.bottom <= above.barTop, JSON.stringify(above));
 
         // 6 and 6b again with the remote chip beside the readout, set through the state the chip reads: remote
         // mode itself stays off, and teardown puts the prior status back
         ctx.prevRemote = await resmonSwapRemote(h, RESMON_REMOTE_OFF);
         ctx.remoteSwapped = true;
-        await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}?.querySelector('[data-remote-pill]')`, 5000);
+        await polishWaitFor(h, `!!${RESMON_FOOTER}?.querySelector('[data-remote-pill]')`, 5000);
         const withChip = await h.ev(RESMON_COCKPIT_ORDER);
         await shot("6c-cockpit-remote");
-        rec("6c. Cockpit with the remote chip shown: the readout sits in the cockpit hints bar, after ? and the chip",
-            withChip.remote && withChip.chipBefore && withChip.readout && withChip.afterHelp && !withChip.footer,
+        rec("6c. Cockpit with the remote chip shown: the footer's readout follows the chip",
+            withChip.remote && withChip.chipBefore && withChip.readout && withChip.readouts === 1,
             JSON.stringify(withChip));
 
         const aboveChip = await resmonCockpitOpen(h, ctx);
         await shot("6d-cockpit-remote-open");
-        rec("6d. Cockpit with the remote chip shown: clicking the readout opens the popover above the hints bar",
+        rec("6d. Cockpit with the remote chip shown: clicking the readout opens the popover above the footer",
             aboveChip.open && aboveChip.bottom <= aboveChip.barTop, JSON.stringify(aboveChip));
 
         await h.goto("agent");
@@ -2157,10 +2115,10 @@ export const resmonFooter = {
         const footerGone = await h.ev(`!!${RESMON_FOOTER} && !${resmonReadout(RESMON_FOOTER)}`);
         await shot("11a-unsupported-agent");
         await h.goto("cockpit");
-        await polishWaitFor(h, `!!${RESMON_COCKPIT_HINTS}`, 10000);
-        const barGone = await h.ev(`!!${RESMON_COCKPIT_HINTS} && !${resmonReadout(RESMON_COCKPIT_HINTS)}`);
+        await polishWaitFor(h, `!!${RESMON_FOOTER}`, 10000);
+        const barGone = await h.ev(`!!${RESMON_FOOTER} && !${resmonReadout(RESMON_FOOTER)}`);
         await shot("11b-unsupported-cockpit");
-        rec("11. supported: false: no readout in the footer or the cockpit hints bar",
+        rec("11. supported: false: no readout in the footer, on the Agent surface or the Cockpit",
             footerGone && barGone, `footer=${footerGone} cockpit=${barGone}`);
         return steps;
     },

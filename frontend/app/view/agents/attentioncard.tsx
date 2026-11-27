@@ -4,15 +4,15 @@
 // The 4b "attention" treatment (Wave-attention-4b.dc.html · TURN 4b, "solid callout banner"). A "needs
 // you" surface reads as a neutral card carrying one filled-amber banner strip — not a warm-washed card.
 // Amber lives only in the banner (bg-warning / text-on-warning, full contrast); the body sits on the
-// neutral lane surface with normal light text. Shared so every attention surface (cockpit grid card,
-// channel escalation, runs review gate, runs clarify/fork) reads identically. Tokens only — no raw hex.
+// neutral lane surface with normal light text. Shared so every attention surface (channel escalation,
+// runs review gate, runs clarify/fork) reads identically. Tokens only — no raw hex.
 
 import { REGION_LABEL } from "@/app/view/jarvis/briefstyle";
 import { cn } from "@/util/util";
 import type { ReactNode } from "react";
 
 // The amber banner strip: a leading glyph (◆ diamond, or a pulsing dot for a live ask), an uppercase
-// mono label, optional meta (elapsed), and an optional right-aligned slot (e.g. a BannerChip). Ink is
+// mono label, optional meta (elapsed), and an optional right-aligned slot. Ink is
 // on-warning throughout; dimmer meta uses on-warning at reduced opacity so we never introduce an
 // off-palette "dim amber ink".
 export function AttentionBanner({
@@ -42,15 +42,6 @@ export function AttentionBanner({
             <div className="min-w-[6px] flex-1" />
             {right}
         </div>
-    );
-}
-
-// A right-aligned chip that reads on the amber banner (e.g. "3/5 tasks"): dark ink on a faint dark tint.
-export function BannerChip({ children }: { children: ReactNode }) {
-    return (
-        <span className="shrink-0 rounded-[5px] border border-on-warning/20 bg-on-warning/10 px-1.5 py-px font-mono text-[10.5px] font-bold text-on-warning">
-            {children}
-        </span>
     );
 }
 

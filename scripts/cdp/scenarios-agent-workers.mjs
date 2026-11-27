@@ -101,29 +101,12 @@ async function publishIdle(h, ctx, blockId) {
 }
 
 const TREE_ROW = (id) => `document.querySelector('[data-agent-tree] [data-tree-agent="${id}"]')`;
-const CARD = (id) => `document.querySelector('[data-cockpit-surface] [data-agent-id="${id}"]')`;
 const branchMark = (scope) => `(${scope})?.querySelector('[title=${JSON.stringify(BRANCH_TITLE)}] svg.lucide-git-branch')`;
-// the branch mark and the commit tick a row or card shows
+// the branch mark and the commit tick a tree row shows
 const markOf = (scope) => `({
     branch: !!${branchMark(scope)},
     tick: !!(${scope})?.querySelector('[title="Done, latest work committed"]'),
 })`;
-
-const STOPPED_LINE = "Stopped, a message resumes it";
-// a card's stopped line, whether the fixture answer shows below it, and whether it reads waiting
-const stoppedCard = (scope) => `(() => {
-    const card = ${scope};
-    const line = card?.querySelector("[data-card-stopped]");
-    const answer = [...(card?.querySelectorAll("*") ?? [])].find(
-        (el) => el.children.length === 0 && el.textContent.includes(${JSON.stringify(ANSWER)})
-    );
-    return {
-        line: line?.textContent.trim() ?? null,
-        answer: answer != null,
-        lineAbove: !!(line && answer && line.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING),
-        waiting: (card?.textContent ?? "").includes("Waiting in its terminal"),
-    };
-})()`;
 
 const focusedView = `(() => {
     const pill = ${HEADER_PILL};
@@ -271,38 +254,12 @@ export default function (_kit) {
                 const treeMark = await polishWaitFor(h, `!!${branchMark(TREE_ROW(committed))}`, LOAD_WAIT_MS);
                 const inTree = await h.ev(markOf(TREE_ROW(committed)));
                 await h.shot(SHOT(3, "branch-tree"));
-                await h.goto("cockpit");
-                const cardMark = await polishWaitFor(h, `!!${branchMark(CARD(committed))}`, LOAD_WAIT_MS);
-                const onCard = await h.ev(markOf(CARD(committed)));
-                await h.shot(SHOT(4, "branch-card"));
-                await h.goto("agent");
                 rec(
-                    "5. a done worker that committed in a worktree shows the branch icon titled with its branch, not the tick, on its tree row and its card",
-                    treeMark && cardMark && [inTree, onCard].every((m) => m.branch && !m.tick),
-                    JSON.stringify({ inTree, onCard })
+                    "5. a done worker that committed in a worktree shows the branch icon titled with its branch, not the tick, on its tree row",
+                    treeMark && inTree.branch && !inTree.tick,
+                    JSON.stringify({ inTree })
                 );
 
-                await h.goto("cockpit");
-                const stoppedShown = await polishWaitFor(
-                    h,
-                    `(${stoppedCard(CARD(stopped))}).answer && (${stoppedCard(CARD(grand))}).line != null`,
-                    LOAD_WAIT_MS
-                );
-                const withTranscript = await h.ev(stoppedCard(CARD(stopped)));
-                const without = await h.ev(stoppedCard(CARD(grand)));
-                await h.shot(SHOT(6, "stopped-card"));
-                await h.goto("agent");
-                rec(
-                    `6. a stopped worker's card reads "${STOPPED_LINE}" above its transcript's last answer, and one with no transcript reads it too; neither reads waiting`,
-                    stoppedShown &&
-                        withTranscript.line === STOPPED_LINE &&
-                        withTranscript.answer &&
-                        withTranscript.lineAbove &&
-                        !withTranscript.waiting &&
-                        without.line === STOPPED_LINE &&
-                        !without.waiting,
-                    JSON.stringify({ withTranscript, without })
-                );
                 return steps;
             },
             // best-effort, so one failed step does not strand the rest

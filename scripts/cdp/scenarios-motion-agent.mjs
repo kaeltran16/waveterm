@@ -1,8 +1,8 @@
 // motion-agent: the motion sweep's moments on the Agent surface panes (docs/superpowers/plans/2026-11-10-motion-sweep.md,
 // Task 10). Each pane is mounted over the page with data each step changes (the run-sheet scenario's leaf approach):
-// the changes measured here (a save failing, a monitor event arriving, a run's lead ending, a rail group opening) are
+// the changes measured here (a save failing, a monitor event arriving, a run's lead ending) are
 // ones no fixture produces on demand, and the arrange scenarios' own checks run unchanged in agent-composer,
-// shell-tasks, cockpit-polish, sessions-list and agent-rendered. Every moment is read in-page in one evaluation, since
+// shell-tasks, sessions-list and agent-rendered. Every moment is read in-page in one evaluation, since
 // a CDP round trip per sample is slower than the fade it measures: an observer reads the opacity a node is added with
 // (motion-gaps), a frame sampler what moves while it moves (dag-motion). Steps 21-23 are the follow-ups' (spec
 // docs/superpowers/specs/2026-11-13-motion-sweep-follow-ups-design.md, section 6): a session detail's Show earlier
@@ -338,77 +338,6 @@ async function runDetailSteps(h, rec) {
     );
 }
 
-async function eventsRailSteps(h, rec) {
-    const r = await motionEval(h, `
-        unmountAll();
-        const model = await cockpitModel();
-        const { globalStore } = await mod("app/store/jotaiStore.ts");
-        const rail = await mod("app/view/agents/cockpiteventsrail.tsx");
-        window.__motionAgentRail = { events: globalStore.get(rail.agentEventsAtom), seen: globalStore.get(rail.railSeenAtom), filter: globalStore.get(model.projectFilterAtom) };
-        const t0 = Date.now();
-        const e = (key, ago, p = {}) => ({ key: "motion-" + key, who: "motion " + key, kind: "finished", text: "", ts: t0 - ago, ...p });
-        const base = [
-            e("e1", 9000),
-            e("g1", 8000, { kind: "landed", text: "Task landed · t-1", group: "motion-run" }),
-            e("g2", 7000, { kind: "landed", text: "Task landed · t-2", group: "motion-run" }),
-        ];
-        globalStore.set(model.projectFilterAtom, "all");
-        // nothing read, in All or any project
-        globalStore.set(rail.railSeenAtom, { all: 0, byProject: {} });
-        globalStore.set(rail.agentEventsAtom, base);
-        const host = await mount("app/view/agents/cockpiteventsrail.tsx", "CockpitEventsRail", { model, lineage: { roles: {}, runs: {} }, runEvents: {}, tags: {}, onSelect: () => {} }, { style: ${JSON.stringify(MOUNT_STYLE)} });
-        const row = (k) => host.querySelector('[data-rail-event="motion-' + k + '"]');
-        if (!row("e1") || !row("g2") || row("g1")) return { error: "unexpected rows at mount", text: flat(host) };
-        const countText = () => (flat(host).match(/New · (\\d+)/) ?? [])[1] ?? null;
-        const before = countText();
-
-        const rw = watchAdded((n) => (host.contains(n) && n.matches("[data-rail-event]") ? n : null));
-        const rolls = sampleFrames(() => host.querySelectorAll(".tabular-nums > span").length);
-        globalStore.set(rail.agentEventsAtom, [e("e3", 0), ...base]);
-        await nap(${SETTLE_MS});
-        rw.stop();
-        rolls.stop();
-        const arrived = { seen: rw.seen, settled: await settle(() => row("e3")), before, after: countText(), rolls: rolls.values };
-
-        const gw = watchAdded((n) => (host.contains(n) && n.firstElementChild?.matches('[data-rail-event="motion-g1"]') ? n : null));
-        button(host, /^\\+1 more$/)?.click();
-        await nap(${SETTLE_MS});
-        gw.stop();
-        const group = { first: gw.seen[0] ?? null, settled: await settle(() => row("g1")?.parentElement), shown: row("g1") != null, toggle: button(host, /^show less$/) != null };
-        return { arrived, group };
-    `);
-    rec(
-        "13. events rail: an event arriving while open enters as a card from opacity 0, and only that one",
-        r?.arrived != null && r.arrived.seen.length === 1 && r.arrived.seen[0] < MOUNTED_HIDDEN && r.arrived.settled >= SETTLED,
-        JSON.stringify(r?.arrived ?? r)
-    );
-    rec(
-        "14. events rail: the New count rolls from 3 to 4, the two values briefly both on screen",
-        r?.arrived != null && r.arrived.before === "3" && r.arrived.after === "4" && Math.max(...r.arrived.rolls) === 2 && r.arrived.rolls.at(-1) === 1,
-        JSON.stringify(r?.arrived ?? r)
-    );
-    rec(
-        "15. events rail: +1 more reveals the run's earlier event in place, growing from opacity 0",
-        revealed(r?.group) && r.group.shown && r.group.toggle,
-        JSON.stringify(r?.group ?? r)
-    );
-    await h.shot(`cdp-shots/${NAME}-rail.png`);
-}
-
-const restoreRail = (h) =>
-    lookEval(h, `
-        const saved = window.__motionAgentRail;
-        if (!saved) return true;
-        const { globalStore } = await mod("app/store/jotaiStore.ts");
-        const rail = await mod("app/view/agents/cockpiteventsrail.tsx");
-        const model = (await mod("app/store/wshrpcutil.ts")).DefaultRouter.routeMap.get("cockpit")?.model;
-        globalStore.set(rail.agentEventsAtom, saved.events);
-        globalStore.set(rail.railSeenAtom, saved.seen);
-        if (model) globalStore.set(model.projectFilterAtom, saved.filter);
-        delete window.__motionAgentRail;
-        return true;
-    `);
-
 // the plan read answers after a beat (so loading is on screen), and the write is refused
 const stubPlanRpc = (h) =>
     lookEval(h, `
@@ -706,7 +635,6 @@ export const motionAgent = {
         await phase("the tool card's moments", () => toolCardSteps(h, rec));
         await phase("the shell peek's moments", () => shellPeekSteps(h, rec));
         await phase("the run detail's moments", () => runDetailSteps(h, rec));
-        await phase("the events rail's moments", () => eventsRailSteps(h, rec));
         await phase("the plan preview's moments", () => planPreviewSteps(h, rec));
         await phase("the run launcher's moments", () => launcherSteps(h, rec));
         await phase("the session detail's moments", () => sessionDetailSteps(h, rec));
@@ -732,7 +660,6 @@ export const motionAgent = {
         });
         await step("restore the transcript reads", () => releaseRpc(h, "GetAgentTranscriptCommand"));
         await step("restore the sessions' view and find", () => restoreSessions(h));
-        await step("restore the rail's events", () => restoreRail(h));
         await step("restore the launcher's config", () => restoreLauncher(h));
     },
 };

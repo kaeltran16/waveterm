@@ -1,17 +1,16 @@
-// Shell and monitor task scenarios: an agent's background shell and monitor tasks on its card.
+// Shell and monitor task scenarios: an agent's background shell and monitor tasks in the Agent tree.
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { RAIL_VISIBLE_KEY, TREE_RAIL_FIXTURE, restoreLocalStorage, teardownFixtureRun } from "./scenarios-shared.mjs";
+import { APP_MOD, RAIL_VISIBLE_KEY, TREE_RAIL_FIXTURE, restoreLocalStorage, teardownFixtureRun } from "./scenarios-shared.mjs";
 import { closeTabs, makeTab, pinDefaultView, restoreDefaultView } from "./agent-page-fixtures.mjs";
 
 // --- shell-tasks: an idle agent with a background shell task still running reads standing by -----------
 // docs/superpowers/plans/2026-10-12-shell-task-standing-by.md. A plain fixture agent, idle past the 5-minute grace
 // window, whose transcript starts five Bash background tasks in the record shapes claude writes: four running (output
 // with lines, an empty output, an output path that does not exist, output redirected to a /tmp log) and one failed,
-// which is not listed: a task that ended is gone however it ended. Standing by is all that keeps its
-// card on the grid, so finishing the four running tasks parks it in the Idle section. A second agent, idle a minute,
-// holds one failed task and nothing running: its card is the plain Finished band with no chip. A third
+// which is not listed: a task that ended is gone however it ended. Finishing the four running tasks ends its standing
+// by. A second agent, idle a minute, holds one failed task and nothing running: its tree row has no chip. A third
 // agent starts working with no tasks: steps 7-9 start a task and turn it idle right behind it, as a Stop does.
 const SHELL_AGENT = { id: "fx-shell-tasks", name: "shell-tasks agent" };
 const SHELL_FAILED_AGENT = { id: "fx-shell-failed", name: "shell-failed agent" };
@@ -51,7 +50,6 @@ const SHELL_LIB = `
     const text = (el) => (el?.innerText ?? "").replace(/\\s+/g, " ").trim();
     // the band label is uppercased by CSS, which innerText reports
     const band = (el) => text(el).toLowerCase();
-    const card =(id) => document.querySelector('[data-cockpit-surface] [data-agent-id="' + id + '"]');
     const tree = () => document.querySelector("[data-agent-tree]");
     const treeRow = (name) => {
         const leaf = [...(tree()?.querySelectorAll("div") ?? [])].find(
@@ -63,7 +61,7 @@ const SHELL_LIB = `
     const taskRow = (id) => tree()?.querySelector('[data-shell-task="' + id + '"]') ?? null;
     const taskRowIds = () => [...(tree()?.querySelectorAll("[data-shell-task]") ?? [])].map((r) => r.getAttribute("data-shell-task"));
     const peek = () => document.querySelector("[data-shell-task-peek]");
-    // the first dot in a card header or a tree row is the agent's own
+    // the first dot in a tree row or the header is the agent's own
     const dot = (el) => {
         const d = el?.querySelector("span.rounded-full");
         return d ? { bg: d.style.backgroundColor, pulse: d.classList.contains("pulse-dot") } : null;
@@ -75,10 +73,11 @@ const SHELL_LIB = `
         dot: dot(header()),
         pill: text(header()?.querySelector("[data-agent-state-pill]")),
     });
-    const finishedRows = (name) =>
-        [...(document.querySelector('aside[aria-label="Events"]')?.querySelectorAll('[role="button"]') ?? [])]
-            .map(text)
-            .filter((t) => t.includes(name) && t.includes("finished"));
+    // the finish events the shell records for an agent (useRailTracking), which the project Overview lists
+    ${APP_MOD}
+    const { globalStore } = await mod("app/store/jotaiStore.ts");
+    const { agentEventsAtom } = await mod("app/view/agents/cockpiteventsrail.tsx");
+    const finishedRows = (name) => globalStore.get(agentEventsAtom).filter((e) => e.who === name && e.kind === "finished");
 `;
 
 // the file a redirect task's command writes to: /tmp in Git Bash is the user's temp dir, which wavesrv resolves
@@ -215,11 +214,12 @@ export const shellTasksScenario = {
             // the rail under test shows in the Terminal view; the Rendered view has the workspace pane in its place; pinned after the reload, which would drop the pin's saved value
             await pinDefaultView(h, "terminal");
             await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
-            await h.goto("cockpit");
+            await h.goto("agent");
             ctx.loaded = await h.ev(`(async () => {
                 ${SHELL_LIB}
-                const ok = await until(() => band(card(${JSON.stringify(SHELL_AGENT.id)})).includes("standing by"));
-                return { ok, card: text(card(${JSON.stringify(SHELL_AGENT.id)})).slice(0, 300) };
+                const name = ${JSON.stringify(SHELL_AGENT.name)};
+                const ok = await until(() => tasksChip(name) != null && dot(treeRow(name))?.bg === "var(--color-accent)");
+                return { ok, row: text(treeRow(name)).slice(0, 300) };
             })()`);
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
@@ -229,75 +229,22 @@ export const shellTasksScenario = {
     async assert(h, ctx) {
         const steps = [];
         const rec = (step, ok, detail) => steps.push({ step, ok, detail });
-        const main = JSON.stringify(SHELL_AGENT.id);
         const mainName = JSON.stringify(SHELL_AGENT.name);
         rec(
-            "0. the fixture agent idle past the grace window is on the grid, standing by",
+            "0. the fixture agent idle past the grace window is standing by in the Agent tree, with its shell tasks chip",
             ctx.arrangeError == null && ctx.loaded?.ok === true,
             ctx.arrangeError ?? JSON.stringify(ctx.loaded)
         );
         if (ctx.arrangeError != null) return steps;
 
         const centerOf = (expr) =>
-            h.ev(`(() => {
+            h.ev(`(async () => {
                 ${SHELL_LIB}
                 const el = ${expr};
                 if (!el) return null;
                 const r = el.getBoundingClientRect();
                 return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
             })()`);
-
-        // 1. Main: the card band, its still accent dot, and the chip's hover list
-        const band = await h.ev(`(() => {
-            ${SHELL_LIB}
-            const c = card(${main});
-            return {
-                text: text(c),
-                label: band(c),
-                dot: dot(c),
-                chip: text(c?.querySelector("[data-shell-tasks-chip]")),
-                finished: finishedRows(${mainName}),
-            };
-        })()`);
-        const chipAt = await centerOf(`card(${main})?.querySelector("[data-shell-tasks-chip]")`);
-        if (chipAt) await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: chipAt.x, y: chipAt.y });
-        const list = await h.ev(`(async () => {
-            ${SHELL_LIB}
-            const l = () => card(${main})?.querySelector("[data-shell-tasks-list]");
-            await until(() => l() != null, 20);
-            await new Promise((r) => setTimeout(r, 300));
-            return text(l());
-        })()`);
-        await h.shot("cdp-shots/shell-tasks-main.png");
-        await h.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", x: 5, y: 940 });
-        rec(
-            "1. Main: the card reads Standing by with 4 shell tasks running, its dot accent and still, the chip lists the four running and not the failed one, no finished event yet",
-            band.label.includes("standing by") &&
-                band.label.includes("4 shell tasks running") &&
-                !band.label.includes("finished") &&
-                band.dot?.bg === "var(--color-accent)" &&
-                band.dot?.pulse === false &&
-                band.chip === "4 shell tasks" &&
-                SHELL_RUNNING.every((t) => list.includes(t.description)) &&
-                !list.includes(SHELL_TASKS.find((t) => t.failed).description) &&
-                band.finished.length === 0,
-            JSON.stringify({ ...band, text: band.text.slice(0, 200), label: undefined, list })
-        );
-
-        const other = await h.ev(`(() => {
-            ${SHELL_LIB}
-            const c = card(${JSON.stringify(SHELL_FAILED_AGENT.id)});
-            return { text: text(c), label: band(c), dot: dot(c), chip: text(c?.querySelector("[data-shell-tasks-chip]")) };
-        })()`);
-        rec(
-            "1b. an idle agent with only a failed task shows the plain Finished band, a muted dot and no shell tasks chip",
-            other.label.includes("finished") &&
-                !other.label.includes("standing by") &&
-                other.dot?.bg === "var(--color-muted)" &&
-                other.dot?.pulse === false &&
-                other.chip === "",
-            JSON.stringify({ ...other, text: other.text.slice(0, 200), label: undefined })
-        );
 
         // 2. TreeCollapsed: the tree row folded, no task rows
         await h.goto("agent");
@@ -312,6 +259,7 @@ export const shellTasksScenario = {
             await until(() => headerDot().name, 20);
             return {
                 ok: true,
+                failedOnly: { row: treeRow(${JSON.stringify(SHELL_FAILED_AGENT.name)}) != null, chip: tasksChip(${JSON.stringify(SHELL_FAILED_AGENT.name)}) != null },
                 chip: text(chip),
                 expanded: chip.getAttribute("aria-expanded"),
                 rows: taskRowIds(),
@@ -329,6 +277,11 @@ export const shellTasksScenario = {
                 folded.dot?.bg === "var(--color-accent)" &&
                 folded.dot?.pulse === false,
             JSON.stringify(folded)
+        );
+        rec(
+            "2a. an idle agent with only a failed task has no shell tasks chip in the tree",
+            folded.failedOnly?.row === true && folded.failedOnly.chip === false,
+            JSON.stringify(folded.failedOnly ?? folded)
         );
         rec(
             "2b. the Agent surface header of the standing-by agent: an accent, still dot and a standing by pill",
@@ -478,7 +431,7 @@ export const shellTasksScenario = {
         await escape();
         const escaped = await peekGone();
         // Esc closes only the peek: agent:back would have left the Agent surface for Cockpit
-        const stayed = await h.ev(`(() => { ${SHELL_LIB} return tree()?.checkVisibility() === true; })()`);
+        const stayed = await h.ev(`(async () => { ${SHELL_LIB} return tree()?.checkVisibility() === true; })()`);
         await clickRow("bshlines");
         await peekState("bshlines");
         // the peek dismisses on pointerdown, so a real press: on the agent's own row, outside the peek and its task row
@@ -567,37 +520,24 @@ export const shellTasksScenario = {
             JSON.stringify(resume)
         );
 
-        // 6. Finish: the three running tasks end; standing by ends and the card parks in the Idle section
-        await h.goto("cockpit");
+        // 6. Finish: the running tasks end, which ends standing by and records one finish
         appendFileSync(
             ctx.transcript,
             SHELL_RUNNING.map((t) => JSON.stringify(shellTaskFinish(t, ctx.cwd, "completed", "completed (exit code 0)")) + "\n").join("")
         );
-        const parked = await h.ev(`(async () => {
+        const finished = await h.ev(`(async () => {
             ${SHELL_LIB}
             // the 5s poll is what reads the finish records of an idle agent
-            const left = await until(() => card(${main}) == null, 120);
-            const idleName = () =>
-                [...(document.querySelector("[data-cockpit-surface]")?.querySelectorAll("b") ?? [])].some((b) => text(b) === ${mainName});
-            if (!idleName()) {
-                const header = [...(document.querySelector("[data-cockpit-surface]")?.querySelectorAll("h2") ?? [])].find((e) => e.textContent.trim() === "Idle");
-                header?.click();
-            }
-            const listed = await until(idleName, 20);
+            const ended = await until(() => tasksChip(${mainName}) == null, 120);
             await until(() => finishedRows(${mainName}).length > 0, 20);
             await new Promise((r) => setTimeout(r, 800));
-            return { left, listed, finished: finishedRows(${mainName}) };
+            return { ended, finished: finishedRows(${mainName}).length };
         })()`);
-        await h.shot("cdp-shots/shell-tasks-finished.png");
         rec(
-            "6. Finish: the card leaves the grid for the Idle section, with exactly one finished event tagged idle",
-            parked.left === true &&
-                parked.listed === true &&
-                parked.finished.length === 1 &&
-                /\bidle\b/.test(parked.finished[0]),
-            JSON.stringify(parked)
+            "6. Finish: the shell tasks chip leaves the tree and exactly one finished event is recorded",
+            finished.ended === true && finished.finished === 1,
+            JSON.stringify(finished)
         );
-
 
         await h.goto("agent");
         const after = await h.ev(`(async () => {
@@ -634,7 +574,7 @@ export const shellTasksScenario = {
         );
 
         // 7. A Stop right behind a background start: the agent turns idle before the shell-task read lands, and
-        // the hold keeps the card and the rail from playing a finish in between. The observer sees every commit.
+        // the hold keeps a finish from being recorded in between
         const stop = JSON.stringify(SHELL_STOP_AGENT.id);
         const stopName = JSON.stringify(SHELL_STOP_AGENT.name);
         const startTask = (t) => {
@@ -643,60 +583,38 @@ export const shellTasksScenario = {
             appendFileSync(ctx.stopTranscript, recs.map((r) => JSON.stringify(r) + "\n").join(""));
         };
         const SETTLE = `'[class*="animate-[settle"]'`;
-        await h.goto("cockpit");
         startTask(SHELL_STOP_TASKS[0]);
         const stopped = await h.ev(`(async () => {
             ${SHELL_LIB}
             const fx = window.__cockpitRosterFixture;
             if (fx == null) return { ok: false, why: "no __cockpitRosterFixture seam" };
-            if (!(await until(() => card(${stop}) != null, 40))) return { ok: false, why: "no card for the working agent" };
-            const bands = new Set();
-            let settled = false;
-            const look = () => {
-                const c = card(${stop});
-                if (c == null) return;
-                const b = band(c);
-                bands.add(b.includes("standing by") ? "standing by" : b.includes("finished") ? "finished" : "other");
-                if (c.matches(${SETTLE}) || c.querySelector(${SETTLE})) settled = true;
-            };
-            const mo = new MutationObserver(look);
-            mo.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+            if (!(await until(() => treeRow(${stopName}) != null, 40))) return { ok: false, why: "no tree row for the working agent" };
             fx.patch(${stop}, { state: "idle", idleSince: Date.now() });
-            const standing = await until(() => band(card(${stop})).includes("standing by"), 40);
+            const standing = await until(() => dot(treeRow(${stopName}))?.bg === "var(--color-accent)", 40);
             await new Promise((r) => setTimeout(r, 1500));
-            mo.disconnect();
-            look();
-            return { ok: true, standing, bands: [...bands], settled, finished: finishedRows(${stopName}) };
+            return { ok: true, standing, finished: finishedRows(${stopName}).length };
         })()`);
-        await h.shot("cdp-shots/shell-tasks-stop-standing.png");
         rec(
-            "7. a Stop right behind a background start goes straight to standing by: no Finished band, no settle, no finished event",
-            stopped.ok === true &&
-                stopped.standing === true &&
-                !stopped.bands.includes("finished") &&
-                stopped.settled === false &&
-                stopped.finished.length === 0,
+            "7. a Stop right behind a background start goes straight to standing by and records no finished event",
+            stopped.ok === true && stopped.standing === true && stopped.finished === 0,
             JSON.stringify(stopped)
         );
 
-        // 8. Its task ends inside the idle grace window: the card stays on the grid and its band returns to Finished
+        // 8. Its task ends: standing by ends and the finish is recorded once
         appendFileSync(
             ctx.stopTranscript,
             JSON.stringify(shellTaskFinish(SHELL_STOP_TASKS[0], ctx.cwd, "completed", "completed (exit code 0)")) + "\n"
         );
         const regraced = await h.ev(`(async () => {
             ${SHELL_LIB}
-            const finishedBand = () => band(card(${stop})).includes("finished") && !band(card(${stop})).includes("standing by");
             // the 5s poll is what reads the finish record of an idle agent
-            const back = await until(finishedBand, 120);
-            await until(() => finishedRows(${stopName}).length > 0, 20);
+            const back = await until(() => finishedRows(${stopName}).length > 0, 120);
             await new Promise((r) => setTimeout(r, 800));
-            return { back, band: band(card(${stop})).slice(0, 200), finished: finishedRows(${stopName}) };
+            return { back, finished: finishedRows(${stopName}).length };
         })()`);
-        await h.shot("cdp-shots/shell-tasks-stop-finished.png");
         rec(
-            "8. the task ending inside the grace window returns the card's band to Finished, with exactly one finished event",
-            regraced.back === true && regraced.finished.length === 1,
+            "8. the task ending records exactly one finished event",
+            regraced.back === true && regraced.finished === 1,
             JSON.stringify(regraced)
         );
 
@@ -995,7 +913,7 @@ export const monitorTasksScenario = {
                 task,
                 activity: task,
                 state: "idle",
-                // past IDLE_GRACE_MS: only standing by keeps these cards on the grid
+                // past IDLE_GRACE_MS: only standing by keeps them from reading finished
                 idleSince: now - 8 * MIN,
                 agent: "claude",
                 model: "opus",
@@ -1024,13 +942,12 @@ export const monitorTasksScenario = {
                 }
             })()`);
             await h.cdp("Emulation.setDeviceMetricsOverride", { width: 1600, height: 950, deviceScaleFactor: 1, mobile: false });
-            await h.goto("cockpit");
+            await h.goto("agent");
             ctx.loaded = await h.ev(`(async () => {
                 ${SHELL_LIB}
-                const ok = await until(() =>
-                    ${JSON.stringify([MONITOR_AGENT.id, MONITOR_PERSIST_AGENT.id])}.every((id) => band(card(id)).includes("standing by"))
-                );
-                return { ok, card: text(card(${JSON.stringify(MONITOR_AGENT.id)})).slice(0, 300) };
+                const names = ${JSON.stringify([MONITOR_AGENT.name, MONITOR_PERSIST_AGENT.name])};
+                const ok = await until(() => names.every((n) => dot(treeRow(n))?.bg === "var(--color-accent)"));
+                return { ok, row: text(treeRow(names[0])).slice(0, 300) };
             })()`);
         } catch (e) {
             ctx.arrangeError = String(e?.message ?? e);
@@ -1044,14 +961,14 @@ export const monitorTasksScenario = {
         const persistName = JSON.stringify(MONITOR_PERSIST_AGENT.name);
         const liveIds = [MONITOR_SHELL.id, ...MONITOR_LIVE.map((m) => m.id)];
         rec(
-            "0. both fixture agents idle past the grace window are on the grid, standing by",
+            "0. both fixture agents idle past the grace window are standing by in the Agent tree",
             ctx.arrangeError == null && ctx.loaded?.ok === true,
             ctx.arrangeError ?? JSON.stringify(ctx.loaded)
         );
         if (ctx.arrangeError != null) return steps;
 
         const centerOf = (expr) =>
-            h.ev(`(() => {
+            h.ev(`(async () => {
                 ${SHELL_LIB}
                 ${MONITOR_LIB}
                 const el = ${expr};
@@ -1306,40 +1223,6 @@ export const monitorTasksScenario = {
         );
         await closePeek(MONITOR_SHELL.id);
 
-        // 8. Cockpit card: the band and chip count both kinds; the hover list marks each running or watching
-        await h.goto("cockpit");
-        const main = JSON.stringify(MONITOR_AGENT.id);
-        const cards = await h.ev(`(async () => {
-            ${SHELL_LIB}
-            await until(() => card(${main})?.querySelector("[data-shell-tasks-chip]") != null, 40);
-            return {
-                label: band(card(${main})),
-                chip: text(card(${main})?.querySelector("[data-shell-tasks-chip]")),
-                persistChip: text(card(${JSON.stringify(MONITOR_PERSIST_AGENT.id)})?.querySelector("[data-shell-tasks-chip]")),
-            };
-        })()`);
-        await hover(`card(${main})?.querySelector("[data-shell-tasks-chip]")`);
-        const list = await h.ev(`(async () => {
-            ${SHELL_LIB}
-            const l = () => card(${main})?.querySelector("[data-shell-tasks-list]");
-            await until(() => l() != null, 20);
-            await new Promise((r) => setTimeout(r, 300));
-            return text(l());
-        })()`);
-        await h.shot("cdp-shots/monitor-tasks-8.png");
-        await unhover();
-        const count = (word) => (list.match(new RegExp("\\b" + word + "\\b", "g")) ?? []).length;
-        rec(
-            "8. Cockpit card: the band reads 3 tasks running, the chip 3 tasks; its list holds the three live tasks, watching twice and running once, none of the ended monitors; the persistent agent's chip reads 1 monitor",
-            cards.label.includes("3 tasks running") &&
-                cards.chip === "3 tasks" &&
-                [MONITOR_SHELL, ...MONITOR_LIVE].every((t) => list.includes(t.description)) &&
-                count("watching") === 2 &&
-                count("running") === 1 &&
-                MONITOR_GONE.every((m) => !list.includes(m.description)) &&
-                cards.persistChip === "1 monitor",
-            JSON.stringify({ ...cards, list })
-        );
         return steps;
     },
     async teardown(h, ctx) {

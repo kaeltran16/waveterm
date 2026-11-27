@@ -115,7 +115,6 @@ import {
 import {
     attentionCrossChannel,
     attentionPopup,
-    cockpitNeedsYouCrossChannel,
     usageCharts,
     usageStates,
     usageWork,
@@ -161,7 +160,6 @@ import {
 } from "./scenarios-brief-peek.mjs";
 import {
     autonomousRuns,
-    leadCardMergeGate,
     runCost,
     runSheetDesigning,
     runSheetPolish,
@@ -192,7 +190,6 @@ import {
 import {
     cockpitEmptyState,
     cockpitKeysOnArrival,
-    cockpitPolish,
     contextMenu,
     motionGaps,
     notificationToasts,
@@ -213,13 +210,7 @@ import { codeChanged } from "./scenarios-code-changed.mjs";
 import { codeBlameDraft } from "./scenarios-code-blame-draft.mjs";
 import { codeDiffStates } from "./scenarios-code-diff-states.mjs";
 import { codeEditor } from "./scenarios-code-editor.mjs";
-import { cockpitAskKeys } from "./scenarios-cockpit-asks.mjs";
-import { cockpitCardLayout } from "./scenarios-cockpit-card.mjs";
-import { cockpitComposerSend } from "./scenarios-cockpit-composer.mjs";
 import { cockpitLaunchStays } from "./scenarios-cockpit-launch.mjs";
-import { cockpitOffgrid } from "./scenarios-cockpit-offgrid.mjs";
-import { cockpitRailHelp } from "./scenarios-cockpit-rail.mjs";
-import { cockpitRosterCounts } from "./scenarios-cockpit-roster.mjs";
 import { cockpitThumbs } from "./scenarios-cockpit-thumbs.mjs";
 import { motionRunSheet } from "./scenarios-motion-run-sheet.mjs";
 import { motionDagPeek } from "./scenarios-motion-dag-peek.mjs";
@@ -280,7 +271,6 @@ export const SCENARIOS = [
     usageStates,
     attentionCrossChannel,
     attentionPopup,
-    cockpitNeedsYouCrossChannel,
     dagLifecycle,
     dagRunSettings,
     routePickerFlat,
@@ -334,8 +324,6 @@ export const SCENARIOS = [
     agentTreeRail,
     docReview,
     docReviewNotes,
-    cockpitPolish,
-    leadCardMergeGate,
     runSheetPolish,
     runTimingScenario,
     runCost,
@@ -438,14 +426,8 @@ export const SCENARIOS = [
     codeDiffStates,
     codeEditor,
     uiDrift,
-    cockpitComposerSend,
-    cockpitAskKeys,
     cockpitLaunchStays,
-    cockpitRosterCounts,
-    cockpitOffgrid,
-    cockpitCardLayout,
     cockpitThumbs,
-    cockpitRailHelp,
     workflowScan,
     workflowScanEntry,
     jiraSettings,

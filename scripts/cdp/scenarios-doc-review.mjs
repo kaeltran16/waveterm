@@ -7,7 +7,7 @@ import { DOC_REVIEW_LEAD_ID, DOC_REVIEW_PANEL } from "./scenarios-cockpit.mjs";
 
 // A lead's Plan review ask opens as the review dialog over whatever agent is focused (git show a4b5bd4f:
 // docs/superpowers/plans/2026-09-30-doc-review-dialog.md). Same setup as agent-tree-rail, with a roster of a working agent and a lead
-// asking a Plan review whose plan the scenario writes. The working agent comes in through its Cockpit card, so
+// asking a Plan review whose plan the scenario writes. The working agent comes in through its Cockpit thumbnail, so
 // the Agent surface never defaults onto the lead and spends its one auto-open before step 4. Nothing is answered:
 // the fixture ask has no live block.
 const DOC_REVIEW_LEAD = "doc-review lead";
@@ -50,7 +50,7 @@ function docReviewRoster(
             model: "opus",
             activeMs: 90_000,
             blockId: "fx-blk-doc-worker",
-            // gives the card a feed, not the "Waiting in its terminal" body an agent with nothing to show gets
+            // gives the thumbnail a transcript to show
             previousInfo: [{ kind: "message", text: "Working through the fixture task." }],
         },
         {
@@ -122,7 +122,23 @@ const docReviewFocusRow = (h, name) =>
         return true;
     })()`);
 
-// the doc-review roster with its lead asking under header, on a plan this writes; the cockpit shows the worker's card
+const DOC_REVIEW_WORKER_THUMB = `document.querySelector('[data-cockpit-surface] [data-cockpit-thumb="${DOC_REVIEW_WORKER_ID}"]')`;
+
+// the Cockpit's Enter opens the selected thumbnail's session on the Agent surface, and a click selects one (a click on
+// the selected one zooms instead)
+const docReviewOpenWorker = (h) =>
+    h.ev(`(async () => {
+        const thumb = ${DOC_REVIEW_WORKER_THUMB};
+        if (!thumb) return false;
+        if (!thumb.hasAttribute("data-thumb-selected")) thumb.click();
+        await new Promise((r) => setTimeout(r, 150));
+        document.querySelector("[data-cockpit-surface]")?.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true })
+        );
+        return true;
+    })()`);
+
+// the doc-review roster with its lead asking under header, on a plan this writes; the cockpit shows the worker's thumbnail
 async function arrangeDocReview(h, name, header, sectionAfter = null, approveLabel = undefined) {
     const cwd = mkdtempSync(join(tmpdir(), `verify-${name}-`));
     const ctx = { cwd };
@@ -149,11 +165,7 @@ async function arrangeDocReview(h, name, header, sectionAfter = null, approveLab
             }
         })()`);
         await h.goto("cockpit");
-        ctx.rosterLoaded = await docReviewWait(
-            h,
-            `document.querySelector('[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"]')`,
-            15000
-        );
+        ctx.rosterLoaded = await docReviewWait(h, DOC_REVIEW_WORKER_THUMB, 15000);
     } catch (e) {
         ctx.arrangeError = String(e?.message ?? e);
     }
@@ -172,18 +184,11 @@ export const docReview = {
         const dialogOpen = () => h.ev(`!!${DOC_REVIEW_PANEL}`);
         const dialogGone = (ms) => docReviewWait(h, `!${DOC_REVIEW_PANEL}`, ms);
         if (ctx.arrangeError != null || !ctx.rosterLoaded) {
-            return [{ step: "0. the fixture roster loaded", ok: false, detail: ctx.arrangeError ?? "no worker card" }];
+            return [{ step: "0. the fixture roster loaded", ok: false, detail: ctx.arrangeError ?? "no worker thumbnail" }];
         }
 
-        // the card's terminal button focuses the worker and switches to the Agent surface in one step
-        const opened = await h.ev(`(() => {
-            const b = document.querySelector(
-                '[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"] button[title="Open terminal (T)"]'
-            );
-            if (!b) return false;
-            b.click();
-            return true;
-        })()`);
+        // the worker's thumbnail opens it on the Agent surface in one step
+        const opened = await docReviewOpenWorker(h);
         const tagged = await docReviewWait(
             h,
             `${docReviewTreeRow(DOC_REVIEW_LEAD)}?.querySelector('button[title="${DOC_REVIEW_TAG_TITLE}"]')`
@@ -555,11 +560,7 @@ async function docNotesReload(h, ctx, decisions) {
     })()`);
     await h.goto("cockpit");
     await docNotesTakeAnswers(h);
-    return docReviewWait(
-        h,
-        `document.querySelector('[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"]')`,
-        15000
-    );
+    return docReviewWait(h, DOC_REVIEW_WORKER_THUMB, 15000);
 }
 
 const docNotesTag = `${docReviewTreeRow(DOC_REVIEW_LEAD)}?.querySelector('button[title="${DOC_REVIEW_TAG_TITLE}"]')`;
@@ -574,11 +575,9 @@ async function docNotesOpenByTag(h) {
     return tagged && open && rendered;
 }
 
-// from the Cockpit: the worker's card leads to the Agent surface without spending the lead's auto-open
+// from the Cockpit: the worker's thumbnail leads to the Agent surface without spending the lead's auto-open
 async function docNotesOpen(h) {
-    await h.ev(`document.querySelector(
-        '[data-cockpit-surface] [data-agent-id="${DOC_REVIEW_WORKER_ID}"] button[title="Open terminal (T)"]'
-    )?.click()`);
+    await docReviewOpenWorker(h);
     return docNotesOpenByTag(h);
 }
 
@@ -606,7 +605,7 @@ export const docReviewNotes = {
         const has = (s, label) => (s.buttons ?? []).includes(label);
         const passages = (s) => (s.rows ?? []).map((r) => r.passage);
         if (ctx.arrangeError != null || !ctx.rosterLoaded) {
-            return [{ step: "0. the fixture roster loaded", ok: false, detail: ctx.arrangeError ?? "no worker card" }];
+            return [{ step: "0. the fixture roster loaded", ok: false, detail: ctx.arrangeError ?? "no worker thumbnail" }];
         }
 
         const opened1 = await docNotesOpen(h);

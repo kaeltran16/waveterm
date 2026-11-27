@@ -23,27 +23,17 @@ import { RemoteReadout } from "./remotereadout";
 import { ResMonReadout } from "./resmonreadout";
 
 // the readouts close every posture on the right; they are data, not key hints, so they never dim with the chips
-function FooterBar({
-    model,
-    children,
-    readout = true,
-}: {
-    model: AgentsViewModel;
-    children?: React.ReactNode;
-    readout?: boolean;
-}) {
+function FooterBar({ model, children }: { model: AgentsViewModel; children?: React.ReactNode }) {
     return (
         <div
             data-hints-footer=""
             className="flex h-7 shrink-0 items-center gap-4 border-t border-edge-strong bg-modalbg px-4"
         >
             {children}
-            {readout ? (
-                <div className="ml-auto flex shrink-0 items-center gap-2">
-                    <RemoteReadout model={model} />
-                    <ResMonReadout />
-                </div>
-            ) : null}
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+                <RemoteReadout model={model} />
+                <ResMonReadout />
+            </div>
         </div>
     );
 }
@@ -112,9 +102,8 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
         const items = bindings
             .filter((b) => b.keys.startsWith(leader + " "))
             .map((b) => ({ next: b.keys.split(" ")[1], label: b.label }));
-        // the cockpit's hints bar always carries a readout, so on that surface the footer yields its own
         return (
-            <FooterBar model={model} readout={surface !== "cockpit"}>
+            <FooterBar model={model}>
                 <span className="shrink-0 font-mono text-[11px] text-accent-soft">{leader} →</span>
                 <ChipRow>
                     {items.map((it) => (
@@ -123,13 +112,6 @@ export function HintsFooter({ model }: { model: AgentsViewModel }) {
                 </ChipRow>
             </FooterBar>
         );
-    }
-
-    // The cockpit surface renders its own consolidated hints bar (cockpitsurface.tsx HINTS), so the
-    // footer's rest posture would be a redundant second row here. Leader posture above still shows
-    // (the which-key bar must appear on every surface).
-    if (surface === "cockpit") {
-        return null;
     }
 
     // Rest / in-terminal posture: both fall out of filtering hints by live when(ctx).
