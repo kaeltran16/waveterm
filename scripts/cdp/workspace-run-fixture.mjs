@@ -333,18 +333,31 @@ const askOf = (now) => ({
     ts: now - T0_LIVE + 11 * MIN,
 });
 
+// the brief fetchBriefRun (arcmessagerow.tsx) builds from the run and its dag; seeded, so the lead's brief never asks
+// the server, whose null for this page-only run would wipe the seeded run from the object cache
+const briefOf = (run, dag) => ({
+    goal: run.goal,
+    planSkill: run.planskill,
+    autonomous: dag.autonomous ?? run.autonomous,
+    tasks: dag.tasks.map((t) => ({ id: t.id, label: t.label, state: t.state })),
+});
+
 // the page-only run, written before anything reads it; a later version replaces an earlier one in the object cache
-export const seedRun = (h, now, { version = 1, finished = false } = {}) =>
-    agentPage(
+export const seedRun = (h, now, { version = 1, finished = false } = {}) => {
+    const run = runObj(now, version, finished);
+    const dag = dagObj(now, version, finished);
+    return agentPage(
         h,
         `const L = await mod("app/view/agents/runlineagestore.ts");
         const E = await mod("app/view/agents/runeventstore.ts");
         const C = await mod("app/view/agents/childaskstore.ts");
         const U = await mod("app/view/agents/runtokenstore.ts");
+        const D = await mod("app/view/agents/wshdata.ts");
         const put = (obj) => WOS.updateWaveObject({ updatetype: "update", otype: obj.otype, oid: obj.oid, obj });
         for (const child of ${JSON.stringify(TASKS.map((t) => childRunObj(t, now - (finished ? T0_DONE : T0_LIVE), version)))}) put(child);
-        put(${JSON.stringify(dagObj(now, version, finished))});
-        put(${JSON.stringify(runObj(now, version, finished))});
+        put(${JSON.stringify(dag)});
+        put(${JSON.stringify(run)});
+        D.seedWshData({ ${JSON.stringify(`arc-run:${RUN_ID}`)}: ${JSON.stringify(briefOf(run, dag))} });
         // the router opens a dag on its owner run's sheet, which it finds through the channel
         put(${JSON.stringify({ otype: "channel", oid: CHANNEL, version, name: TITLE, createdts: now })});
         globalStore.set(L.runDigestsAtom, (prev) => ({ ...prev, ${JSON.stringify(RUN_ID)}: ${JSON.stringify(digestOf(now, version, finished))} }));
@@ -353,6 +366,7 @@ export const seedRun = (h, now, { version = 1, finished = false } = {}) =>
         globalStore.set(C.childAsksAtom, (prev) => ({ ...prev, ${JSON.stringify(RUN_ID)}: ${JSON.stringify(finished ? [] : [askOf(now)])} }));
         return true;`
     );
+};
 
 export const PANE = `document.querySelector('aside[aria-label="Workspace"]')`;
 export const RV = `document.querySelector("[data-rendered-view]")`;
