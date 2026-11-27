@@ -1624,16 +1624,18 @@ export const finalStageScenario = {
                 line: (line?.textContent ?? "").replace(/\\s+/g, " ").trim(),
                 expanded: line?.getAttribute("aria-expanded") ?? null,
                 error: (detail?.querySelector("[data-tool-error]")?.textContent ?? "").replace(/\\s+/g, " ").trim(),
+                shotsLink: line?.querySelector("[data-final-past-round-shots]") != null,
             };
         })()`;
         await finalShotsClick(h, pastLine);
         const pastOpen = await fstUntil(h, pastRead, (s) => s.error !== "");
         await shot("b6b-past-round-open");
         rec(
-            "B6b. the pane's Round 1 line reads Round 1 and failed at Final, and a click opens its failure detail beneath it as the red block",
+            "B6b. the pane's Round 1 line reads Round 1 and failed at Final with no screenshots link (the Final tab's Round switch has them), and a click opens its failure detail beneath it as the red block",
             () =>
                 pastOpen.line.startsWith("Round 1") &&
                 pastOpen.line.includes("failed at Final") &&
+                !pastOpen.shotsLink &&
                 pastOpen.expanded === "true" &&
                 pastOpen.error === fstFlat(FST_DETAIL),
             pastOpen

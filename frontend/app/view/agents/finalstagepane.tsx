@@ -12,7 +12,6 @@ import { errorNudge, viewFade } from "@/app/element/motiontokens";
 import { PaneReveal } from "@/app/element/panereveal";
 import { ViewSwap } from "@/app/element/viewswap";
 import { globalStore } from "@/app/store/jotaiStore";
-import { FinalShotsViewer } from "@/app/view/jarvis/finalshotsviewer";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { LoaderCircle } from "lucide-react";
@@ -240,10 +239,10 @@ const PAST_MARK: Record<FinalTone, { ok: boolean; pending?: boolean }> = {
     warn: { ok: false, pending: true },
 };
 
-// An earlier round: its outcome, its screenshots, and a click that opens its failure detail beneath.
-function PastRound({ line, group }: { line: FinalRoundLine; group: TaskGroup }) {
+// An earlier round: its outcome, and a click that opens its failure detail beneath. Its screenshots live in the
+// Final tab's Round switch beside the pane.
+function PastRound({ line }: { line: FinalRoundLine }) {
     const [open, setOpen] = useState(false);
-    const [viewing, setViewing] = useState(false);
     const opens = line.detail !== "";
     return (
         <div className="flex flex-col">
@@ -258,19 +257,6 @@ function PastRound({ line, group }: { line: FinalRoundLine; group: TaskGroup }) 
                 <span className="flex-none">Round {line.round}</span>
                 <span className="min-w-0 truncate font-mono text-[12px] text-muted">{line.outcome}</span>
                 <span className="flex-1" />
-                {line.hasShots ? (
-                    <button
-                        type="button"
-                        data-final-past-round-shots
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setViewing(true);
-                        }}
-                        className="flex-none cursor-pointer text-[12px] text-accent-soft hover:text-accent"
-                    >
-                        screenshots
-                    </button>
-                ) : null}
                 {opens ? (
                     <span className="flex flex-none text-muted">
                         <TurnChevron open={open} size={12} strokeWidth={2.2} />
@@ -282,10 +268,6 @@ function PastRound({ line, group }: { line: FinalRoundLine; group: TaskGroup }) 
                     <ToolPanel error={line.detail} />
                 </div>
             </PaneReveal>
-            {/* outside the line: the portaled viewer's clicks still bubble through the React tree */}
-            {viewing ? (
-                <FinalShotsViewer group={group} initial={{ round: line.round }} onClose={() => setViewing(false)} />
-            ) : null}
         </div>
     );
 }
@@ -374,11 +356,11 @@ export function FinalStagePane({ model, run }: { model: AgentsViewModel; run: Ru
                             ))}
                         </div>
                     ) : null}
-                    {run.dag && view.past.length > 0 ? (
+                    {view.past.length > 0 ? (
                         <AutoHeight className="mt-1.5">
                             <div className="flex flex-col">
                                 {view.past.map((line) => (
-                                    <PastRound key={line.round} line={line} group={run.dag} />
+                                    <PastRound key={line.round} line={line} />
                                 ))}
                             </div>
                         </AutoHeight>
