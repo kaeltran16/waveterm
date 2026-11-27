@@ -253,6 +253,7 @@ const CHART_TEXT = [
 
 const EDIT_INPUT = { file_path: "pkg/a.go", old_string: "var x = 1", new_string: "var x = 2" };
 const EDIT_CHOICES = ["Yes", "Yes, allow edits this session", "No, tell Claude what to do"];
+const BASH_INPUT = { command: "go test ./pkg/a" };
 const PLAN_HEADING = "Ship the rendered view";
 const PLAN_INPUT = { plan: `## ${PLAN_HEADING}\n\n- write the scenario\n- run Final on it` };
 const PLAN_CHOICES = ["Yes, and use auto mode", "Yes, manually approve edits", "No, keep planning"];
@@ -1155,6 +1156,26 @@ export default function (_kit) {
                         band.choices.length === 3 &&
                         band.choices.every((c, i) => c === `${i + 1} ${PLAN_CHOICES[i]}`) &&
                         retired;
+                    return [ok, { ...band, retired }];
+                });
+
+                await step("rendered: permission command — a Bash request on P shows its command as the transcript draws one, behind its $ prompt", async () => {
+                    await raisePermission(h, ctx.pBlock, "Bash", BASH_INPUT, "fx-rendered-bash", true);
+                    await wait(`${BAND} != null`);
+                    const band = await h.ev(`(() => {
+                        ${flatJs}
+                        const b = ${BAND};
+                        return {
+                            text: flat(b).slice(0, 300),
+                            // the $ and the command are sibling spans, so the command is its own last span
+                            command: flat(b?.querySelector("[data-bash-command] > span:last-child")),
+                        };
+                    })()`);
+                    await h.shot(SHOT(13, "permission-command"));
+                    await publishStatus(h, ctx, ctx.pBlock, { state: "working", hook: "PostToolUse", toolkey: "fx-rendered-bash" });
+                    const retired = await wait(`${BAND} == null`);
+                    const ok =
+                        band.text.includes("Allow this command?") && band.command === BASH_INPUT.command && retired;
                     return [ok, { ...band, retired }];
                 });
 

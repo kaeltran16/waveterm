@@ -12,7 +12,6 @@ import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { useState } from "react";
 import { MarkdownMessage } from "./markdownmessage";
-import { ToolDetailBody } from "./tooldetailbody";
 import {
     bandRequests,
     permissionLogText,
@@ -23,10 +22,12 @@ import {
 import { getAgentPermissionsAtom, permissionLogAtom, removeAgentPermission } from "./permissionstore";
 import { pickerFlipAtom } from "./renderedmode";
 import { getAgentStatusAtom } from "./session-models/agentstatusstore";
+import { ToolDetailBody } from "./tooldetailbody";
 
 const BAND =
     "flex flex-col gap-[9px] rounded-t-[9px] border border-b-0 border-warning/45 bg-warning/[0.12] px-[13px] py-[11px]";
-const PREVIEW = "max-h-[240px] overflow-y-auto rounded-[6px] border border-edge-mid bg-surface-code";
+// the transcript's ToolPanel look, so a command or diff reads the same here as in the timeline once it runs
+const PREVIEW = "max-h-[240px] overflow-y-auto rounded-[8px] border border-edge-mid bg-surface-code";
 const PRE =
     "whitespace-pre-wrap px-2.5 py-1.5 font-mono text-[11.5px] leading-[1.65] text-secondary [overflow-wrap:anywhere]";
 
@@ -45,6 +46,16 @@ function Preview({ preview }: { preview: PermissionPreview }) {
         return (
             <div className={PREVIEW}>
                 <ToolDetailBody detail={{ kind: "edit", files: preview.files }} variant="inline" />
+            </div>
+        );
+    }
+    if (preview.kind === "command") {
+        return (
+            <div className={PREVIEW}>
+                <ToolDetailBody
+                    detail={{ kind: "bash", command: preview.text, output: "", exit: null }}
+                    variant="inline"
+                />
             </div>
         );
     }
