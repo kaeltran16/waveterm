@@ -23,6 +23,7 @@ import { closeWorkspaceTab, updateWorkspaceTab } from "./workspacestore";
 // the row's label and status word by tone: the active chunk reads brightest, a parked one in warning
 const LABEL_INK: Partial<Record<ChunkTone, string>> = { active: "text-ink-hi" };
 const STATUS_INK: Partial<Record<ChunkTone, string>> = {
+    done: "text-success",
     active: "text-accent-soft",
     blocked: "text-warning-soft",
     deferred: "text-warning-soft",
