@@ -44,9 +44,7 @@ func TestMain(m *testing.M) {
 	lowerWorkerPriority = func(string) error { return nil }
 	// a landed dag's verifier would need a workspace to spawn in; only the verifier's own tests start one
 	startVerifier = skipVerifier
-	// the store is shared by every test, and the cap would count the workers earlier tests left live in it;
-	// only the cap's own tests see other dags and a machine's memory
-	liveDags = func(context.Context) ([]*waveobj.TaskGroup, error) { return nil, nil }
+	// only the gate's own tests see a machine's memory
 	memgate.UncapForTest()
 	memgate.SetStoreDirForTest(filepath.Join(dir, "memgate"))
 	// no job closes in a test, so a bound claim would stay in the book for good: keep each for releaseBoundClaims

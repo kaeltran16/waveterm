@@ -231,13 +231,12 @@ func TestStartingPlanCommandHoldsAWorker(t *testing.T) {
 		t.Fatal("a Verify with a run owner takes a claim")
 	}
 
-	next, claims := claimWorkers(ctx, g, owner, []string{"t-0"})
+	next, claims := claimWorkers(g, owner, []string{"t-0"})
 	if len(next) != 0 {
 		t.Fatalf("a starting Verify's estimate left room for a worker: %v", next)
 	}
 	cmd.Release()
-	next, claims = claimWorkers(ctx, g, owner, []string{"t-0"})
-	releaseWorkerClaim(g.OID)
+	next, claims = claimWorkers(g, owner, []string{"t-0"})
 	if len(next) != 1 {
 		t.Fatalf("with the Verify's claim released the worker was not admitted: %v", next)
 	}

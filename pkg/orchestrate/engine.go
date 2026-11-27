@@ -595,9 +595,8 @@ func scheduleLocked(ctx context.Context, dagID string, retried map[string]bool) 
 		return nil, nil, err
 	}
 	markRetried(g, ready, retried)
-	// what the cap holds back stays pending, and a later tick dispatches it once a worker or memory frees up
-	next, newClaims := claimWorkers(ctx, g, owner, slices.DeleteFunc(NextToSpawn(g), func(id string) bool { return retried[id] }))
-	defer releaseWorkerClaim(g.OID)
+	// what the memory gate holds back stays pending, and a later tick dispatches it once memory frees up
+	next, newClaims := claimWorkers(g, owner, slices.DeleteFunc(NextToSpawn(g), func(id string) bool { return retried[id] }))
 	maps.Copy(claims, newClaims)
 	var jobs []treePrepJob
 	if IsGitRepo(owner.ProjectPath) {

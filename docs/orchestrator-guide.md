@@ -570,8 +570,8 @@ the ready task with the longest chain of tasks waiting behind it, then by task i
 tasks nothing depends on.
 
 Parallelism is one run's width, counted in live workers: a task whose commit is under review holds its lane, so no
-task of that lane starts beside the reviewer, but not its slot. Across every run on the machine the engine also
-starts at most 8 workers, counting reviewers, and
+task of that lane starts beside the reviewer, but not its slot. Runs share no worker cap: memory is the only
+machine-wide limit (workers, reviewers and plan commands below Final run at below-normal CPU priority), and
 only a new worker ever waits for memory: it starts once the machine's available memory covers the median of the
 last 8 peaks learned for its project (`memfootprints.json`; 3.5 GB for a project not seen yet). Reviewers and every
 plan command start at once and count their median while starting. A worker's Setup rides its worker's admission; a

@@ -64,6 +64,26 @@ func admitPlanCommand(ctx context.Context, dir string) *memgate.Claim {
 	})
 }
 
+// claimWorkers admits the tasks of next that g's dispatch may start, each at the memory gate, in plan order. After
+// the first refusal the rest are held without being tried, so no task jumps ahead of one waiting for memory. It
+// returns the admitted tasks and their claims; the caller releases every claim its dispatch did not bind.
+func claimWorkers(g *waveobj.TaskGroup, owner *waveobj.Run, next []string) ([]string, map[string]*memgate.Claim) {
+	var admitted []string
+	claims := make(map[string]*memgate.Claim)
+	for i, taskID := range next {
+		claim, ok := memgate.TryAdmit(workerRequest(g, owner, taskID))
+		if !ok {
+			for _, held := range next[i+1:] {
+				memgate.Hold(workerRequest(g, owner, held))
+			}
+			break
+		}
+		admitted = append(admitted, taskID)
+		claims[taskID] = claim
+	}
+	return admitted, claims
+}
+
 // workerRequest is the gate request for taskID's worker, sized on its project's learned peaks. Its tree's Setup runs
 // on this admission, off the dag lock (prepareTaskTree), or under it when a prepared tree vanished before its spawn.
 func workerRequest(g *waveobj.TaskGroup, owner *waveobj.Run, taskID string) memgate.Request {
