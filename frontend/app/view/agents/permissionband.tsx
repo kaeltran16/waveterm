@@ -22,14 +22,14 @@ import {
 import { getAgentPermissionsAtom, permissionLogAtom, removeAgentPermission } from "./permissionstore";
 import { pickerFlipAtom } from "./renderedmode";
 import { getAgentStatusAtom } from "./session-models/agentstatusstore";
-import { ToolDetailBody } from "./tooldetailbody";
+import { CODE_TEXT, ToolDetailBody } from "./tooldetailbody";
+import { stepTitle } from "./transcriptlayout";
 
-const BAND =
-    "flex flex-col gap-[9px] rounded-t-[9px] border border-b-0 border-warning/45 bg-warning/[0.12] px-[13px] py-[11px]";
+const BAND = "flex flex-col gap-[9px] rounded-[10px] border border-warning/45 bg-warning/[0.12] px-[13px] py-[11px]";
 // the transcript's ToolPanel look, so a command or diff reads the same here as in the timeline once it runs
 const PREVIEW = "max-h-[240px] overflow-y-auto rounded-[8px] border border-edge-mid bg-surface-code";
-const PRE =
-    "whitespace-pre-wrap px-2.5 py-1.5 font-mono text-[11.5px] leading-[1.65] text-secondary [overflow-wrap:anywhere]";
+// a tool's arguments, in the transcript's code text
+const PRE = `m-0 whitespace-pre-wrap px-3 py-2 font-mono leading-[1.7] text-ink-mid [overflow-wrap:anywhere] ${CODE_TEXT}`;
 
 function NeedsYou({ children }: { children: React.ReactNode }) {
     return (
@@ -56,6 +56,26 @@ function Preview({ preview }: { preview: PermissionPreview }) {
                     detail={{ kind: "bash", command: preview.text, output: "", exit: null }}
                     variant="inline"
                 />
+            </div>
+        );
+    }
+    if (preview.kind === "tool") {
+        const named = preview.call ? stepTitle(preview.call) : null;
+        return (
+            <div className={PREVIEW}>
+                {named ? (
+                    // the line the step row will draw once the call runs
+                    <div
+                        data-permission-step
+                        className="flex gap-2.5 border-b border-edge-faint px-3 py-2 text-[13.5px] text-secondary"
+                    >
+                        <span className="shrink-0">{named.title}</span>
+                        {named.mono ? (
+                            <span className={cn("min-w-0 truncate font-mono text-muted", CODE_TEXT)}>{named.mono}</span>
+                        ) : null}
+                    </div>
+                ) : null}
+                <pre className={PRE}>{preview.args}</pre>
             </div>
         );
     }
@@ -159,7 +179,7 @@ export function PermissionBand({
         return null;
     }
     return (
-        <div className="shrink-0 px-[14px]">
+        <div>
             {pending.length === 1 ? (
                 <RequestBand
                     key={pending[0].permid}

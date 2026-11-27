@@ -407,11 +407,15 @@ export function RenderedView({ model, agent }: { model: AgentsViewModel; agent: 
                 <PinnedPromptBar prompt={pin.prompt} agent={agent} onJump={pin.jump} />
                 <JumpToLatestPill show={!atBottom} onClick={jumpToBottom} />
             </div>
-            <PermissionBand
-                agentId={agent.id}
-                blockId={agent.blockId}
-                onLastChoice={() => composerRef.current?.focus()}
-            />
+            <div className="shrink-0 px-6">
+                <div className={COLUMN}>
+                    <PermissionBand
+                        agentId={agent.id}
+                        blockId={agent.blockId}
+                        onLastChoice={() => composerRef.current?.focus()}
+                    />
+                </div>
+            </div>
             <div data-rendered-composer className="shrink-0 px-6 pb-4 pt-3">
                 <div className={COLUMN}>
                     <RenderedComposer

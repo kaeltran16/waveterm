@@ -254,6 +254,7 @@ const CHART_TEXT = [
 const EDIT_INPUT = { file_path: "pkg/a.go", old_string: "var x = 1", new_string: "var x = 2" };
 const EDIT_CHOICES = ["Yes", "Yes, allow edits this session", "No, tell Claude what to do"];
 const BASH_INPUT = { command: "go test ./pkg/a" };
+const FETCH_INPUT = { url: "https://example.com/changelog", prompt: "list the breaking changes" };
 const PLAN_HEADING = "Ship the rendered view";
 const PLAN_INPUT = { plan: `## ${PLAN_HEADING}\n\n- write the scenario\n- run Final on it` };
 const PLAN_CHOICES = ["Yes, and use auto mode", "Yes, manually approve edits", "No, keep planning"];
@@ -1176,6 +1177,31 @@ export default function (_kit) {
                     const retired = await wait(`${BAND} == null`);
                     const ok =
                         band.text.includes("Allow this command?") && band.command === BASH_INPUT.command && retired;
+                    return [ok, { ...band, retired }];
+                });
+
+                await step("rendered: permission tool — a WebFetch request on P shows the step line its row will draw over its arguments, the band as wide as the composer's column", async () => {
+                    await raisePermission(h, ctx.pBlock, "WebFetch", FETCH_INPUT, "fx-rendered-fetch", true);
+                    await wait(`${BAND} != null`);
+                    const band = await h.ev(`(() => {
+                        ${flatJs}
+                        const b = ${BAND};
+                        const box = ${RV}?.querySelector("[data-rendered-composer] > div");
+                        return {
+                            step: flat(b?.querySelector("[data-permission-step]")),
+                            args: flat(b?.querySelector("pre")),
+                            width: Math.round(b?.getBoundingClientRect().width ?? 0),
+                            column: Math.round(box?.getBoundingClientRect().width ?? -1),
+                        };
+                    })()`);
+                    await h.shot(SHOT(13, "permission-tool"));
+                    await publishStatus(h, ctx, ctx.pBlock, { state: "working", hook: "PostToolUse", toolkey: "fx-rendered-fetch" });
+                    const retired = await wait(`${BAND} == null`);
+                    const ok =
+                        band.step.includes(FETCH_INPUT.url) &&
+                        band.args.includes(FETCH_INPUT.prompt) &&
+                        band.width === band.column &&
+                        retired;
                     return [ok, { ...band, retired }];
                 });
 

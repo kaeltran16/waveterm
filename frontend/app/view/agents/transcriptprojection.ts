@@ -24,7 +24,7 @@ import { parseTranscriptLines, type TranscriptRecord } from "./transcriptrecords
 const READ_MODAL_MAX_LINES = 400; // bound stored Read body (modal view); inline uses the per-kind budget
 
 // the tools that run a shell command: each draws as a command with its output and exit
-const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
+export const SHELL_TOOLS = new Set(["Bash", "PowerShell"]);
 
 const VERB_BY_TOOL: Record<string, string> = {
     Read: "read",
@@ -775,17 +775,22 @@ export function projectTranscriptRecords(records: readonly TranscriptRecord[]): 
     return entries;
 }
 
-/** Pure: a subagent's running call (from its listing) as the pending action its step row would draw, so it is named
- *  by the same verb, target and title code. */
-export function subagentCallEntry(call: SubagentCall): AgentActionEntry | undefined {
-    const timestamp = call.startedatms ? new Date(call.startedatms).toISOString() : undefined;
+/** Pure: one tool call, not yet run, as the pending action its step row would draw, so it is named by the same verb,
+ *  target and title code. */
+export function toolCallEntry(name: string, input: unknown, timestamp?: string): AgentActionEntry | undefined {
     const rec = {
         type: "assistant",
         timestamp,
-        message: { content: [{ type: "tool_use", id: "current", name: call.name, input: call.input ?? {} }] },
+        message: { content: [{ type: "tool_use", id: "current", name, input: input ?? {} }] },
     };
     const [entry] = projectTranscriptRecords([rec]);
     return entry?.kind === "action" ? entry : undefined;
+}
+
+/** Pure: a subagent's running call (from its listing) as its step row would draw it. */
+export function subagentCallEntry(call: SubagentCall): AgentActionEntry | undefined {
+    const timestamp = call.startedatms ? new Date(call.startedatms).toISOString() : undefined;
+    return toolCallEntry(call.name, call.input, timestamp);
 }
 
 /** Pure: the task list from the LATEST TodoWrite tool_use in the transcript, or undefined if the
