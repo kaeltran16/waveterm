@@ -59,6 +59,8 @@ import {
 } from "@/app/view/agents/canvasstore";
 import type { WindowScope } from "@/app/view/agents/canvaswindowmodel";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
+import { cockpitZoomAtom } from "@/app/view/agents/cockpitsessionstore";
+import { stepTab } from "@/app/view/agents/cockpitzoommodel";
 import { sendPendingComments } from "@/app/view/agents/commentsend";
 import { sideJumpTarget, type CompareRow } from "@/app/view/agents/comparerows";
 import {
@@ -112,7 +114,9 @@ import { stepChangesHunk } from "@/app/view/agents/workspacechangesstore";
 import { tabKey } from "@/app/view/agents/workspacemodel";
 import { graphEscapeKey, toLanes } from "@/app/view/agents/workspacerungraphmodel";
 import {
+    activateWorkspaceTab,
     rendersNow,
+    setWorkspaceCollapsed,
     toggleWorkspaceCollapsed,
     updateWorkspaceTab,
     workspaceAtom,
@@ -157,7 +161,7 @@ import {
 } from "@/app/view/jarvis/jarvisstore";
 import { activeRunIdAtom, activeSubjectAtom, setActiveRunId } from "@/app/view/jarvis/jarvissubjectstore";
 import { checkJiraOpenAtom } from "@/app/view/jarvis/jiracheck";
-import { peekTarget } from "@/app/view/jarvis/openref";
+import { openTarget, peekTarget } from "@/app/view/jarvis/openref";
 import { petPeekOpenAtom } from "@/app/view/jarvis/petstore";
 import { backToOrigin } from "@/app/view/jarvis/returnsurface";
 import { dagModalStateAtom } from "@/app/view/orchestrate/dagmodalstate";
@@ -308,6 +312,11 @@ function selectListBoard(agentId: string, delta: number): void {
 const inAgentCanvas = (model: AgentsViewModel, ctx: KeyContext) =>
     ctx.surface === "agent" && focusedShown(model) === "canvas";
 
+// the session the Cockpit has zoomed, while the Cockpit shows: a zoom kept across a switch to another surface owns
+// none of that surface's keys
+const zoomedOnCockpit = (ctx: KeyContext): string | null =>
+    ctx.surface === "cockpit" ? globalStore.get(cockpitZoomAtom) : null;
+
 // the second Ctrl+C closes the focused session among `agents`; the caller passes agents only, so a plain terminal
 // (closed from its row menu or the header's x) gets both presses. null lets the press fall through to the PTY.
 export function closeTargetForDoubleCtrlC(agents: AgentVM[], focusId: string | undefined): AgentVM | null {
@@ -384,7 +393,8 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "]",
             group: "Navigation",
             label: "Next surface",
-            when: (ctx) => navigate(ctx) && !inAgentCanvas(model, ctx),
+            // a zoomed session's pane takes [ ] (cockpit:zoom-tab-*)
+            when: (ctx) => navigate(ctx) && !inAgentCanvas(model, ctx) && zoomedOnCockpit(ctx) == null,
             run: () => cycleSurface(1),
         },
         {
@@ -392,7 +402,7 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
             keys: "[",
             group: "Navigation",
             label: "Previous surface",
-            when: (ctx) => navigate(ctx) && !inAgentCanvas(model, ctx),
+            when: (ctx) => navigate(ctx) && !inAgentCanvas(model, ctx) && zoomedOnCockpit(ctx) == null,
             run: () => cycleSurface(-1),
         },
         {
@@ -566,6 +576,81 @@ export function buildGlobalBindings(model: AgentsViewModel): Binding[] {
                 globalStore.set(usageWorkScopeAtom, step.scope);
                 globalStore.set(usageWorkItemAtom, step.item);
                 globalStore.set(usageListShownAtom, LIST_COLLAPSED_ROWS);
+            },
+        },
+        ...buildCockpitZoomBindings(model),
+    ];
+}
+
+// The Cockpit's zoomed view. Performed here, unlike the grid's keys (buildCockpitBindings), and always registered with
+// the global set, so they hold whatever the surface mounts. Esc and Enter stay the composer's while it has focus: Esc
+// there stops the agent, as on the Agent surface.
+function buildCockpitZoomBindings(model: AgentsViewModel): Binding[] {
+    const zoomed = (ctx: KeyContext) => navigateStrict(ctx) && zoomedOnCockpit(ctx) != null;
+    // with no tab to step to the key does nothing, and never cycles surfaces
+    const step =
+        (delta: number) =>
+        (ctx: KeyContext): boolean | void => {
+            const id = zoomedOnCockpit(ctx);
+            const key = id != null ? stepTab(globalStore.get(workspaceAtom(id)), delta) : null;
+            if (key == null) {
+                return false;
+            }
+            activateWorkspaceTab(id, key);
+            setWorkspaceCollapsed(id, false);
+        };
+    return [
+        {
+            id: "cockpit:zoom-back",
+            keys: "Escape",
+            group: "Cockpit",
+            label: "Back to all sessions",
+            when: (ctx) => zoomed(ctx) && noEscapeMenuOpen(),
+            run: () => globalStore.set(cockpitZoomAtom, null),
+        },
+        {
+            id: "cockpit:zoom-tab-prev",
+            keys: "[",
+            group: "Cockpit",
+            label: "Previous tab in the session's pane",
+            when: zoomed,
+            run: step(-1),
+        },
+        {
+            id: "cockpit:zoom-tab-next",
+            keys: "]",
+            group: "Cockpit",
+            label: "Next tab in the session's pane",
+            when: zoomed,
+            run: step(1),
+        },
+        {
+            id: "cockpit:zoom-pane",
+            keys: "d",
+            group: "Cockpit",
+            label: "Collapse or restore the session's pane",
+            when: zoomed,
+            // no pane to collapse: the key passes on
+            run: (ctx) => {
+                const id = zoomedOnCockpit(ctx);
+                if (id == null || !toggleWorkspaceCollapsed(id)) {
+                    return false;
+                }
+            },
+        },
+        {
+            id: "cockpit:zoom-open",
+            keys: "Enter",
+            group: "Cockpit",
+            label: "Open the zoomed session on the Agent surface",
+            when: zoomed,
+            // a focused button's Enter is its own press (the answer bar's options, a pane tab)
+            run: (ctx) => {
+                const id = zoomedOnCockpit(ctx);
+                if (id == null || document.activeElement?.tagName === "BUTTON") {
+                    return false;
+                }
+                void openTarget(model, { kind: "agent", tabId: id });
             },
         },
     ];
@@ -939,12 +1024,14 @@ export function buildJarvisBindings(): Binding[] {
 }
 
 // Cockpit-grid triage keys. The rich cockpit surface handles these itself (usecockpitkeyboard.ts) —
-// they need live cursor + DOM state (scroll-to, focus a row's composer) that the registry has no clean
+// they need live cursor + DOM state (the grid's columns, the Idle line, the strip) that the registry has no clean
 // hold on. Registered here purely so the ONE cheat sheet (Shift+?) documents them: `run` returns false
 // so the dispatcher never consumes the key — it passes through to the surface's own onKeyDown. This is
 // the single source of truth for these keys' documentation (the old hand-written help overlay is gone).
+// While a session is zoomed the zoom's own keys (buildCockpitZoomBindings) hold d and Enter instead.
 export function buildCockpitBindings(): Binding[] {
-    const on = (ctx: KeyContext) => ctx.surface === "cockpit" && !ctx.editable && !ctx.modalOpen;
+    const on = (ctx: KeyContext) =>
+        ctx.surface === "cockpit" && !ctx.editable && !ctx.modalOpen && globalStore.get(cockpitZoomAtom) == null;
     const doc = (id: string, keys: string, label: string): Binding => ({
         id,
         keys,
@@ -957,16 +1044,18 @@ export function buildCockpitBindings(): Binding[] {
         run: () => false, // never consume — usecockpitkeyboard.ts performs the action
     });
     return [
-        doc("cockpit:next", "j", "Next card or task row (↓ / j)"),
-        doc("cockpit:prev", "k", "Previous card or task row (↑ / k)"),
-        doc("cockpit:next-ask", "n", "Jump to next ask"),
-        doc("cockpit:column", "h", "Other column (← → / h l); on a multi-question ask, switch question"),
-        doc("cockpit:answer", "1", "Select an answer option (1–9); on a task row with no question, run its action"),
-        doc("cockpit:open", "Enter", "Confirm answer, else open focus; on a task row, open its worker"),
-        doc("cockpit:peek", "Space", "Peek the agent in the avatar popup (Ctrl+click a link peeks it too)"),
-        doc("cockpit:reply", "r", "Reply inline to the agent"),
-        doc("cockpit:terminal", "t", "Open the agent's terminal"),
-        doc("cockpit:background", "b", "Background the agent (keeps running)"),
+        doc(
+            "cockpit:move",
+            "ArrowDown",
+            "Move between sessions (← → ↑ ↓); down from the last row to the Idle line, then the runs with no conductor"
+        ),
+        doc(
+            "cockpit:zoom",
+            "Space",
+            "Zoom the session; on an Idle name, zoom it back in; on a strip line, open its run"
+        ),
+        doc("cockpit:dismiss", "d", "Dismiss the session to the Idle line"),
+        doc("cockpit:open", "Enter", "Open the session on the Agent surface"),
     ];
 }
 

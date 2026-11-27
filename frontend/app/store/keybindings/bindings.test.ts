@@ -38,6 +38,7 @@ import {
 import { escapeCanvasWindow } from "@/app/view/agents/canvaswindow";
 import { OTHER_TAB, windowTab, type WindowScope } from "@/app/view/agents/canvaswindowmodel";
 import { activeChannelRunsAtom } from "@/app/view/agents/channelsstore";
+import { cockpitZoomAtom } from "@/app/view/agents/cockpitsessionstore";
 import { registerCommentSend } from "@/app/view/agents/commentsend";
 import { compareCwd, refreshCompare } from "@/app/view/agents/comparestore";
 import { commentOnSelection } from "@/app/view/agents/diffcommentlayer";
@@ -3758,5 +3759,93 @@ describe("brainstorm o opens the canvas window", () => {
 
     it("does nothing while a field is focused", () => {
         expect(claiming({ ...nav, editable: true })).toEqual([]);
+    });
+});
+
+describe("the Cockpit's zoomed view", () => {
+    const key = (k: string) =>
+        ({ key: k, code: "", control: false, shift: false, cmd: false, option: false, meta: false, alt: false }) as any;
+    const ZOOMED = "zoomed-agent";
+    const model = {
+        ...stubModel(),
+        surfaceAtom: atom<SurfaceKey>("cockpit"),
+        paletteOpenAtom: atom(false),
+        newAgentOpenAtom: atom(false),
+    } as any;
+    const all = () => [...buildGlobalBindings(model), ...buildListNavBindings(model), ...buildCockpitBindings()];
+    // the binding that took the key, or null when none did
+    const press = (k: string, c: KeyContext = ctx()): string | null => {
+        const r = matchBinding(key(k), c, all());
+        return r.kind === "run" && r.binding.run(c) !== false ? r.binding.id : null;
+    };
+    const ws = () => globalStore.get(workspaceAtom(ZOOMED));
+
+    beforeEach(() => {
+        globalStore.set(model.surfaceAtom, "cockpit");
+        globalStore.set(cockpitZoomAtom, ZOOMED);
+        openWorkspaceTab(ZOOMED, { kind: "run", runId: "r1", view: "tasks" });
+        openWorkspaceTab(ZOOMED, { kind: "docs", selected: null });
+        openWorkspaceTab(ZOOMED, { kind: "run", runId: "r1", view: "tasks" });
+    });
+
+    afterEach(() => {
+        globalStore.set(cockpitZoomAtom, null);
+        closeWorkspaceTab(ZOOMED, "run:r1");
+        closeWorkspaceTab(ZOOMED, "docs");
+    });
+
+    it("] and [ step the pane's tabs, wrapping, and leave the surface", () => {
+        expect(press("]")).not.toBeNull();
+        expect(ws().active).toBe("docs");
+        expect(press("]")).not.toBeNull();
+        expect(ws().active).toBe("run:r1");
+        expect(press("[")).not.toBeNull();
+        expect(ws().active).toBe("docs");
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
+    it("] reopens a collapsed pane on the next tab", () => {
+        setWorkspaceCollapsed(ZOOMED, true);
+        press("]");
+        expect(ws()).toMatchObject({ active: "docs", collapsed: false });
+    });
+
+    it("d collapses the pane and restores it", () => {
+        expect(press("d")).not.toBeNull();
+        expect(ws().collapsed).toBe(true);
+        press("d");
+        expect(ws().collapsed).toBe(false);
+    });
+
+    it("passes [ ] and d on when the session has no pane", () => {
+        closeWorkspaceTab(ZOOMED, "run:r1");
+        closeWorkspaceTab(ZOOMED, "docs");
+        expect([press("]"), press("["), press("d")]).toEqual([null, null, null]);
+        expect(globalStore.get(model.surfaceAtom)).toBe("cockpit");
+    });
+
+    it("Esc returns to the grid", () => {
+        expect(press("Escape")).not.toBeNull();
+        expect(globalStore.get(cockpitZoomAtom)).toBeNull();
+    });
+
+    it("Enter and Esc stay the composer's while it has focus", () => {
+        const typing = { ...ctx(), editable: true };
+        expect([press("Escape", typing), press("Enter", typing)]).toEqual([null, null]);
+        expect(globalStore.get(cockpitZoomAtom)).toBe(ZOOMED);
+    });
+
+    it("[ ] cycle surfaces when nothing is zoomed", () => {
+        globalStore.set(cockpitZoomAtom, null);
+        press("]");
+        expect(globalStore.get(model.surfaceAtom)).not.toBe("cockpit");
+        expect(ws().active).toBe("run:r1");
+    });
+
+    it("[ ] cycle surfaces on another surface while a zoom is kept", () => {
+        globalStore.set(model.surfaceAtom, "agent");
+        press("]", ctx("agent"));
+        expect(globalStore.get(model.surfaceAtom)).not.toBe("agent");
+        expect(ws().active).toBe("run:r1");
     });
 });

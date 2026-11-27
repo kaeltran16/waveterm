@@ -69,7 +69,7 @@ function startOfDay(now: number): number {
 }
 
 // a held land still waits on someone, so it counts as live with a landing in flight
-function isLiveRun(run: Run): boolean {
+export function isLiveRun(run: Run): boolean {
     if (!isTerminal(run.status)) {
         return true;
     }
