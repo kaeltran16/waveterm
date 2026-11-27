@@ -23,6 +23,7 @@ const row = (o = {}) => ({
     verifyFails: 0,
     finalRound1: "passed",
     finalRounds: 1,
+    finalFails: 0,
     minutes: 60,
     cost: { lead: 1, worker: 2, taskReviewer: 1, planReviewer: 1, verifier: 1 },
     totalCost: 6,
@@ -97,7 +98,7 @@ describe("decide", () => {
 
     it("picks writing-plans when plan needs more rework", () => {
         const b = base();
-        b.rows[PLAN][1] = row({ reviewFails: 1, verifyFails: 1, finalRounds: 2 });
+        b.rows[PLAN][1] = row({ reviewFails: 1, verifyFails: 1, finalRounds: 2, finalFails: 1 });
         const r = decide(b);
         expect(r.default).toBe(WP);
         const t = r.terms.find((x) => x.name === "rework");
@@ -108,14 +109,6 @@ describe("decide", () => {
         const b = base();
         b.rows[WP][1] = row({ planSkill: WP, reviewFails: 2 });
         expect(decide(b).default).toBe(PLAN);
-    });
-
-    it("counts no extra Final round for a run with null finalRounds", () => {
-        const b = base();
-        b.rows[PLAN][0] = row({ finalRound1: null, finalRounds: null });
-        b.rows[WP][0] = row({ finalRound1: null, finalRounds: null });
-        const t = decide(b).terms.find((x) => x.name === "rework");
-        expect([t.plan, t.writingPlans]).toEqual([0, 0]);
     });
 
     it("skips the mutation term when an arm has no mutants", () => {

@@ -125,6 +125,19 @@ function width(events) {
     return most;
 }
 
+// rework counts only failures that say something about the plan
+const FINAL_FAILED = "failed";
+// the engine's note for a reviewer that never judged (a usage limit, a crash): pkg/orchestrate/review.go
+const NO_VERDICT = "without a verdict";
+const judged = (e) => !String(e.data.note ?? "").includes(NO_VERDICT);
+const VERIFY_OUTCOMES = ["task-verify-passed", "task-verify-failed"];
+
+// a Verify failure the same code then passed: nothing was merged for the task before its next Verify passed
+function greenOnRerun(events, fail) {
+    const next = events.find((e) => e.ts > fail.ts && e.data.taskid === fail.data.taskid && (e.kind === "task-merged" || VERIFY_OUTCOMES.includes(e.kind)));
+    return next?.kind === "task-verify-passed";
+}
+
 const all = new WeakMap();
 // every run and dag, read once per store
 function load(db) {
@@ -143,11 +156,12 @@ export function runRow(db, runId, transcriptIndex) {
     const dag = run && dags.find((d) => d.runid === runId);
     if (!dag) return null;
     const events = db
-        .prepare("select ts, kind, data from db_runevent where runid = ?")
+        .prepare("select ts, kind, data from db_runevent where runid = ? order by ts")
         .all(runId)
         .map((e) => ({ ts: e.ts, kind: e.kind, data: e.data ? parse(e.data) : {} }));
-    const count = (kind) => events.filter((e) => e.kind === kind).length;
-    const ended = events.filter((e) => e.kind === "final-ended");
+    const of = (kind) => events.filter((e) => e.kind === kind);
+    const count = (kind) => of(kind).length;
+    const ended = of("final-ended");
 
     const cost = Object.fromEntries(ROLES.map((r) => [r, 0]));
     for (const sid of run.leadsessionids?.length ? run.leadsessionids : [run.sessionid]) cost.lead += costOf(sid, transcriptIndex);
@@ -167,10 +181,11 @@ export function runRow(db, runId, transcriptIndex) {
         planWords: words(dag.preamble) + dag.tasks.reduce((s, t) => s + words(t.description), 0),
         planReviewRounds: dag.planreview?.round ?? null,
         asks: count("child-ask"),
-        reviewFails: count("task-review-failed"),
-        verifyFails: count("task-verify-failed"),
+        reviewFails: of("task-review-failed").filter(judged).length,
+        verifyFails: of("task-verify-failed").filter((f) => !greenOnRerun(events, f)).length,
         finalRound1: ended.find((e) => (e.data.round ?? 1) === 1)?.data.outcome ?? null,
         finalRounds: ended.length ? Math.max(...ended.map((e) => e.data.round ?? 1)) : null,
+        finalFails: ended.filter((e) => e.data.outcome === FINAL_FAILED).length,
         minutes: run.completedts ? Math.round((run.completedts - run.createdts) / 60000) : null,
         cost,
         totalCost: ROLES.reduce((s, r) => s + cost[r], 0),

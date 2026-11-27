@@ -44,6 +44,11 @@ and this file for build flow, and `docs/README.md` for what remains of `docs/`. 
   - Generated files (also in merge conflicts): edit the Go definitions, then `task generate`. It writes
     `frontend/app/store/{wshclientapi,services}.ts`, `frontend/types/{gotypes,waveevent}.d.ts`,
     `pkg/wshrpc/wshclient/wshclient.go` and `pkg/{waveobj,wconfig}/metaconsts.go`.
+  - The phone page's `pkg/remotemode/web/static/` assets are built from cockpit sources by
+    `task sync:remoteweb`, which `task dev` and the builds run but a run's Verify does not. A change to the
+    claude or pi transcript projectors, `tooldetail.ts`, `agentsviewmodel.ts`, `remotemarkdown.ts` or the
+    `@theme` block must regenerate them and commit `projectors.js` / `markdown.js` / `tokens.css` with it:
+    `projectors.test.js` fails on a stale bundle.
   - `pi/extensions/*`, `pi/themes/arc.json` → copied into `cmd/wsh/cmd/`.
   - `claude/arc-mod/`, `claude/arc-view-mod/` → copied into `cmd/wsh/cmd/claude-*`.
   - `skills/` (Arc's `arc:` skills) → the vault, the arc mod and each harness.

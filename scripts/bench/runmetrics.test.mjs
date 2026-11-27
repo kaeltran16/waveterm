@@ -78,9 +78,19 @@ beforeAll(() => {
     s.ev("r1", 620, "child-ask", { askid: "a2" });
     s.ev("r1", 630, "task-review-failed", { taskid: "t-1" });
     s.ev("r1", 640, "task-verify-failed", { taskid: "t-2" });
+    // not rework: a reviewer that never judged, and a Verify that passed on a re-run of the same code
+    s.ev("r1", 632, "task-review-failed", { taskid: "t-3", note: "reviewer ended its turn without a verdict; its last turn failed: usage limit" });
+    s.ev("r1", 650, "task-verify-failed", { taskid: "t-3" });
+    s.ev("r1", 655, "task-verify-started", { taskid: "t-3" });
+    s.ev("r1", 660, "task-verify-passed", { taskid: "t-3" });
+    // rework: the fix merged before Verify passed
+    s.ev("r1", 670, "task-verify-failed", { taskid: "t-4" });
+    s.ev("r1", 675, "task-merged", { taskid: "t-4" });
+    s.ev("r1", 680, "task-verify-passed", { taskid: "t-4" });
     s.ev("r1", 700, "final-step", { round: 1, step: "final", ok: true });
     s.ev("r1", 710, "final-ended", { round: 1, outcome: "failed" });
     s.ev("r1", 800, "final-ended", { round: 2, outcome: "passed" });
+    s.ev("r1", 900, "final-ended", { round: 3, outcome: "passed" });
 
     // r2: a bounded run, no dag
     s.run(lead("r2", { dagoref: undefined }));
@@ -141,9 +151,10 @@ describe("runRow", () => {
             planReviewRounds: 2,
             asks: 2,
             reviewFails: 1,
-            verifyFails: 1,
+            verifyFails: 2,
             finalRound1: "failed",
-            finalRounds: 2,
+            finalRounds: 3,
+            finalFails: 1,
             minutes: 30,
         });
     });
