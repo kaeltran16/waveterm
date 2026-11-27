@@ -345,7 +345,8 @@ function SplitReview({ p }: { p: MemHygieneProject }) {
                     <div className={BAND}>
                         {g.label}
                         <span className="font-medium normal-case tracking-normal">
-                            · {g.count.toLocaleString("en-US")}
+                            {/* the leading space collapses on screen but keeps the text "Move here · N" */}
+                            {` · ${g.count.toLocaleString("en-US")}`}
                         </span>
                     </div>
                     {g.changes.map((c) => (
