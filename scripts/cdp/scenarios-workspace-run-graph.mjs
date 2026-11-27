@@ -425,6 +425,61 @@ export const workspaceRunGraph = {
             return [ok, { drawn, focus: g?.focus, up: g?.up, down: g?.down, nodeWords: g?.nodeWords, labels: g?.labels, hint: g?.hint, card: f }];
         });
 
+        await step("Focus on t-4 with a live worker: its live diff stat and Open changes, which focuses the worker and opens its own diff (Focus-Working board, t-4)", async () => {
+            const W = `${NAME}-t4-live`;
+            // no transcript, so the shell's git tracking leaves the seeded stat alone
+            const roster = await page(h, `const D = await mod("app/view/agents/devmock.ts"); return globalStore.get(D.devMockAgentsAtom);`);
+            await setRoster(h, [
+                ...roster,
+                { id: W, name: W, project: "linkshelf", task: "linkshelf stats", state: "working", agent: "claude", model: "claude-opus-5-5", runId: childRunId("t-4") },
+            ]);
+            ctx.version += 1;
+            await page(
+                h,
+                `const CG = await mod("app/view/agents/cardgitstore.ts");
+                const prev = globalStore.get(WOS.getWaveObjectAtom("run:" + ${JSON.stringify(childRunId("t-4"))}));
+                WOS.updateWaveObject({ updatetype: "update", otype: "run", oid: prev.oid, obj: { ...prev, version: ${ctx.version}, phases: [{ workerorefs: ["tab:" + ${JSON.stringify(W)}] }] } });
+                globalStore.set(CG.diffStatsByIdAtom, (s) => ({ ...s, ${JSON.stringify(W)}: { files: 3, adds: 40, dels: 2 } }));
+                return true;`
+            );
+            const restore = async (hh) => {
+                await page(hh, `const CG = await mod("app/view/agents/cardgitstore.ts"); globalStore.set(CG.diffStatsByIdAtom, (s) => { const { [${JSON.stringify(W)}]: _, ...rest } = s; return rest; }); return true;`);
+                await setRoster(hh, roster);
+            };
+            ctx.cleanups.push(restore);
+            const drawn = await polishWaitFor(h, `${GRAPH}?.querySelector("[data-focus-card] [data-open-changes]") != null`, WAIT_MS);
+            const f = await readFocus(h);
+            await h.shot(SHOT(3, "focus-live-diff-t4"));
+            await page(h, `window.__fxDiffScope = globalStore.get(agentsModel().diffScopeAtom); return true;`);
+            const clicked = await clickSettled(h, `${GRAPH}?.querySelector("[data-focus-card] [data-open-changes]")`);
+            const opened = await page(
+                h,
+                `const m = agentsModel();
+                const at = { surface: globalStore.get(m.surfaceAtom), focus: globalStore.get(m.focusIdAtom), origin: globalStore.get(m.diffScopeAtom)?.repo?.origin ?? null };
+                globalStore.set(m.diffScopeAtom, window.__fxDiffScope);
+                delete window.__fxDiffScope;
+                return at;`
+            );
+            await restore(h);
+            await reseed(h, ctx);
+            await focusAgent(h, LEAD);
+            await polishWaitFor(h, `${GRAPH}?.querySelector('[data-focus-card="t-4"]') != null`, WAIT_MS);
+            await settle();
+            const ok =
+                drawn &&
+                f?.id === "t-4" &&
+                f.openAgent &&
+                f.openChanges &&
+                f.diff === "3 files+40−2" &&
+                same(f.buttonLines, [1, 1]) &&
+                clicked &&
+                opened?.surface === "files" &&
+                opened.focus === W &&
+                opened.origin?.kind === "agent" &&
+                opened.origin.id === W;
+            return [ok, { drawn, card: f, clicked, opened }];
+        });
+
         await step("Focus on t-5: Open changes and its diff stat on one line with Open agent, no button wrapping (each action button's height is one line) (Focus-Working board, feedback 001)", async () => {
             await clickSettled(h, CHIP("t-5"));
             const f = await readFocus(h);

@@ -10,11 +10,14 @@ import { morphTransition } from "@/app/element/motiontokens";
 import { StepSwap } from "@/app/element/stepswap";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
 import { globalStore } from "@/app/store/jotaiStore";
-import { openTaskWorker, resolveTaskWorker } from "@/app/view/orchestrate/taskcorrelate";
+import { openTaskWorker, resolveTaskWorker, type TaskWorkerView } from "@/app/view/orchestrate/taskcorrelate";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { motion } from "motion/react";
 import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
+import { openAgentDiff } from "./agentdiffnav";
+import type { AgentsViewModel } from "./agents";
+import { diffStatsByIdAtom } from "./cardgitstore";
 import { runFinished } from "./runlineage";
 import { tabKey, type RunGraphState } from "./workspacemodel";
 import { FocusCentreCard } from "./workspacerunfocuscard";
@@ -58,10 +61,20 @@ function stageDot(dot: RowDot): string {
 
 type SetGraph = (next: RunGraphState) => void;
 
+// the run's Changes tab holds merged work only, so a running worker's changes open as its own diff; the Diff surface
+// follows focus, so the worker takes it first, as the cockpit's Review changes does
+function openWorkerDiff(model: AgentsViewModel, worker: TaskWorkerView): void {
+    globalStore.set(model.focusIdAtom, worker.agent.id);
+    openAgentDiff(model, worker.agent);
+}
+
 export function GraphView({ model, agent, tab, run, asks, events }: RunViewProps) {
     const now = useAtomValue(model.nowAtom);
     const dag = run.dag;
     const children = useChildRuns(dag);
+    const roster = useAtomValue(model.agentsAtom);
+    // the shell keeps every live agent's own changes here, so a running task's card reads its worker's
+    const liveDiffs = useAtomValue(diffStatsByIdAtom);
     const nodes = useMemo(() => graphNodes(dag, run.digest, events, now), [dag, run.digest, events, now]);
     const layout = useMemo(() => laneLayout(nodes), [nodes]);
     const g = tab.graph ?? LANES;
@@ -88,6 +101,7 @@ export function GraphView({ model, agent, tab, run, asks, events }: RunViewProps
     const centreCard = (id: string) => {
         const task = dag.tasks.find((t) => t.id === id);
         const node = byId.get(id);
+        const worker = resolveTaskWorker(task, children[id], roster);
         return (
             <FocusCentreCard
                 task={task}
@@ -97,11 +111,14 @@ export function GraphView({ model, agent, tab, run, asks, events }: RunViewProps
                 finished={runFinished(run)}
                 ask={asks.find((a) => a.taskid === id)}
                 evidence={children[id]?.evidence}
+                live={worker.tabId ? liveDiffs[worker.tabId] : undefined}
                 run={run}
-                onOpenAgent={() =>
-                    openTaskWorker(resolveTaskWorker(task, children[id], globalStore.get(model.agentsAtom)), model)
+                onOpenAgent={() => openTaskWorker(worker, model)}
+                onOpenChanges={(selected) =>
+                    selected || worker.agent == null
+                        ? openBeside(model, agent.id, { kind: "changes", selected })
+                        : openWorkerDiff(model, worker)
                 }
-                onOpenChanges={(selected) => openBeside(model, agent.id, { kind: "changes", selected })}
             />
         );
     };

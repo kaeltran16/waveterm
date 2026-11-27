@@ -6,6 +6,7 @@
 // workspacerunfocuscardmodel.ts'; it fills its wrapper's width.
 
 import { cn } from "@/util/util";
+import type { DiffStats } from "./agentsviewmodel";
 import type { RunInfo } from "./runlineage";
 import { AddsDels } from "./steprows";
 import { focusCardView } from "./workspacerunfocuscardmodel";
@@ -23,6 +24,7 @@ export function FocusCentreCard({
     finished,
     ask,
     evidence,
+    live,
     run,
     onOpenAgent,
     onOpenChanges,
@@ -35,11 +37,13 @@ export function FocusCentreCard({
     finished: boolean;
     ask?: DagAskItem;
     evidence?: RunEvidence;
+    live?: DiffStats;
     run: RunInfo;
     onOpenAgent: () => void;
+    // "" selects no file: the live worker's whole diff
     onOpenChanges: (selected: string) => void;
 }) {
-    const v = focusCardView({ task, waitsOn, finished, ask, evidence });
+    const v = focusCardView({ task, waitsOn, finished, ask, evidence, live });
     return (
         <div
             data-focus-card={task.id}

@@ -36,11 +36,21 @@ describe("focusCardView", () => {
         expect(v.asked).toBe(false);
     });
 
-    it("reviewing with evidence of 2 files: Open changes on the first file and the diff stat", () => {
+    it("running with a live worker diff: Open changes on its whole diff and the live stat", () => {
+        const v = focusCardView({
+            ...base,
+            task: task("running", { runid: "run-4" }),
+            live: { files: 3, adds: 40, dels: 2 },
+        });
+        expect(v.actions).toEqual({ changes: "", diff: { files: "3 files", adds: 40, dels: 2 } });
+    });
+
+    it("reviewing with evidence of 2 files: Open changes on the first file and the diff stat, over a stale live stat", () => {
         const v = focusCardView({
             ...base,
             task: task("reviewing", { runid: "run-5" }),
             evidence: evidence(["web/list.tsx", "web/list.css"]),
+            live: { files: 9, adds: 1, dels: 1 },
         });
         expect(v.step).toBe(false);
         expect(v.actions).toEqual({ changes: "web/list.tsx", diff: { files: "2 files", adds: 64, dels: 1 } });
