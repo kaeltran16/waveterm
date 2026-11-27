@@ -13,9 +13,10 @@
 // cycle broken.
 
 import { CockpitFocusPane } from "@/app/cockpit/focus-pane";
-import { viewFade } from "@/app/element/motiontokens";
+import { easeFluidCss, MOTION, viewFade } from "@/app/element/motiontokens";
 import { Skeleton, SkeletonLine } from "@/app/element/skeleton";
 import { useDimensionsWithCallbackRef } from "@/app/hook/useDimensions";
+import { atoms } from "@/app/store/global";
 import { globalStore } from "@/app/store/jotaiStore";
 import { buildAgentBindings } from "@/app/store/keybindings/bindings";
 import { focusClaimed, isEditableTarget } from "@/app/store/keybindings/dispatcher";
@@ -23,7 +24,7 @@ import { useKeybindings } from "@/app/store/keybindings/store";
 import { cn } from "@/util/util";
 import { useAtomValue } from "jotai";
 import { AnimatePresence, MotionConfig, motion } from "motion/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
 import { CodePeekContext } from "../code/codepeekhost";
 import type { AgentsViewModel } from "./agents";
 import { AgentDetailsRail } from "./agentdetailsrail";
@@ -100,6 +101,8 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
     const ws = useAtomValue(workspaceAtom(agent?.id ?? ""));
     const shape = inRendered ? paneShape(ws) : "none";
     const [rowRef, , rowRect] = useDimensionsWithCallbackRef<HTMLDivElement>();
+    const centerRef = useRef<HTMLDivElement>(null);
+    useColumnGlide(centerRef, shape !== "none");
     useUnflipOnPrompt(agent);
 
     // sync focusId to the defaulted agent so the tree highlights it and ←/→ start from the right place
@@ -239,6 +242,7 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
                     {/* expanded, the pane fills the row over the center, which stays laid out so the focused terminal
                         keeps its size (terminalClass) */}
                     <div
+                        ref={centerRef}
                         data-agent-center
                         className={cn(
                             "flex min-w-0 flex-col",
@@ -327,6 +331,43 @@ export function AgentSurface({ model, tabId }: { model: AgentsViewModel; tabId: 
             </div>
         </MotionConfig>
     );
+}
+
+// the centered columns a pane's arrival or exit moves sideways: Rendered's transcript and its composer
+const GLIDE_COLUMNS = "[data-rendered-column], [data-rendered-composer] > *";
+
+// the workspace pane enters and leaves the flow at its full width (workspacepane.tsx), so the center changes width in
+// one frame and its centered columns would jump sideways. They slide from where they were instead, by transform only,
+// so the feed still rewraps once. A column that mounted with the change (another agent, another view) has no old place
+// and stays put
+function useColumnGlide(center: RefObject<HTMLElement | null>, paneIn: boolean) {
+    const committed = useRef(paneIn);
+    // read during render, against the DOM as it was before this commit
+    const from = committed.current !== paneIn ? columnLefts(center.current) : null;
+    useLayoutEffect(() => {
+        committed.current = paneIn;
+        if (from == null || globalStore.get(atoms.prefersReducedMotionAtom)) {
+            return;
+        }
+        const duration = (paneIn ? MOTION.durMacro : MOTION.durExit) * 1000;
+        for (const [el, left] of columnLefts(center.current)) {
+            const dx = (from.get(el) ?? left) - left;
+            if (Math.abs(dx) >= 1) {
+                el.animate([{ transform: `translateX(${dx}px)` }, { transform: "none" }], {
+                    duration,
+                    easing: easeFluidCss,
+                });
+            }
+        }
+    }, [paneIn]);
+}
+
+function columnLefts(center: HTMLElement | null): Map<Element, number> {
+    const lefts = new Map<Element, number>();
+    for (const el of center?.querySelectorAll(GLIDE_COLUMNS) ?? []) {
+        lefts.set(el, el.getBoundingClientRect().left);
+    }
+    return lefts;
 }
 
 // the tree column and the terminal pane, so the first agent lands where the skeleton was

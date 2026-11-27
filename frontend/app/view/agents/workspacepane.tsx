@@ -27,7 +27,7 @@ import {
     X,
     type LucideIcon,
 } from "lucide-react";
-import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import { AnimatePresence, LayoutGroup, motion, useIsPresent } from "motion/react";
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { useBoardInfo } from "../boards/boardview";
@@ -100,7 +100,8 @@ const DOT_LABEL = { waiting: "waiting on you", unseen: "new since you looked" } 
 
 // paneReveal's opacity and timing. The pane arrives and leaves at its full width, sliding like a sheet: growing its
 // width would narrow the transcript beside it every frame, rewrapping the whole feed. A change of shape (strip,
-// expanded) still tweens the width, since you asked for it
+// expanded) still tweens the width, since you asked for it. Leaving, it drops out of the flow at once, so the center
+// widens in the same frame the transcript starts gliding over (agentsurface.tsx useColumnGlide)
 const REVEAL = { duration: MOTION.durMacro, ease: MOTION.easeFluid };
 const LEAVE = { duration: MOTION.durExit, ease: MOTION.easeFluid };
 // a drag follows the pointer 1:1, never eased
@@ -127,6 +128,7 @@ export function WorkspacePane({
     const openPx = dragPx ?? (onBoard ? boardPaneWidth(boardStored, room) : paneWidth(stored, room));
     const target = shape === "strip" ? STRIP_PX : shape === "expanded" && availablePx != null ? availablePx : openPx;
     const waits = useWaitInput(agent);
+    const present = useIsPresent();
     return (
         <motion.aside
             aria-label="Workspace"
@@ -135,7 +137,10 @@ export function WorkspacePane({
             animate={{ width: target, opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: SHEET_SLIDE_PX, transition: LEAVE }}
             transition={dragPx != null ? UNEASED : REVEAL}
-            className="relative flex h-full shrink-0 flex-col overflow-hidden border-l border-border bg-surface"
+            className={cn(
+                "flex h-full shrink-0 flex-col overflow-hidden border-l border-border bg-surface",
+                present ? "relative" : "pointer-events-none absolute inset-y-0 right-0"
+            )}
         >
             {ws.tabs.map((t) => (t.kind === "run" ? <RunAsksBinder key={tabKey(t)} runId={t.runId} /> : null))}
             <AnimatePresence initial={false}>
